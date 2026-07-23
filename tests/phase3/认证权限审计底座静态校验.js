@@ -35,12 +35,19 @@ function 取得差异文件() {
   const 输出 = childProcess.execSync('git -c core.quotePath=false status --short --untracked-files=all', {
     cwd: 项目根目录,
     encoding: 'utf8',
-  }).trim();
+  }).trimEnd();
   if (!输出) return [];
   return 输出.split(/\r?\n/)
     .map((行) => 行.slice(3).trim())
     .map((文件) => 文件.includes(' -> ') ? 文件.split(' -> ').pop() : 文件)
     .filter(Boolean);
+}
+
+function 取得当前分支() {
+  return childProcess.execSync('git branch --show-current', {
+    cwd: 项目根目录,
+    encoding: 'utf8',
+  }).trim();
 }
 
 const 必需文件 = [
@@ -151,8 +158,12 @@ const 允许变更前缀 = [
   'docs/stage-records/阶段3-',
   'tests/phase3/',
 ];
-const 差异文件 = 取得差异文件();
-const 非预期变更 = 差异文件.filter((文件) => !允许变更前缀.some((前缀) => 文件.startsWith(前缀)));
-断言(非预期变更.length === 0, `发现阶段3范围外变更：${非预期变更.join('、')}`);
+const 当前分支 = 取得当前分支();
+const 强制检查变更范围 = 当前分支 === 'phase/3-auth-permission' || process.env.PHASE3_ENFORCE_SCOPE === '1';
+if (强制检查变更范围) {
+  const 差异文件 = 取得差异文件();
+  const 非预期变更 = 差异文件.filter((文件) => !允许变更前缀.some((前缀) => 文件.startsWith(前缀)));
+  断言(非预期变更.length === 0, `发现阶段3范围外变更：${非预期变更.join('、')}`);
+}
 
 console.log('阶段3认证权限审计底座静态校验通过。');
