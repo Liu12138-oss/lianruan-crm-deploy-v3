@@ -1,0 +1,4 @@
+{
+  "generatedFrom": "packages/contracts/src/openapi.ts",
+  "note": "阶段1以TypeScript契约为准，构建后可接入正式生成器。"
+}

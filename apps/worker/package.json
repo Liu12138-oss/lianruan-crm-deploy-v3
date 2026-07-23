@@ -1,0 +1,22 @@
+{
+  "name": "@lianruan/worker",
+  "version": "3.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/worker.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run tests",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/worker.js"
+  },
+  "dependencies": {
+    "@lianruan/config": "3.0.0-alpha.1",
+    "@lianruan/shared": "3.0.0-alpha.1",
+    "bullmq": "^5.56.0",
+    "ioredis": "^5.6.1",
+    "zod": "^3.25.76"
+  }
+}

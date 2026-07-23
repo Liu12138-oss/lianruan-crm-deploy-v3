@@ -1,0 +1,43 @@
+{
+  "name": "lianruan-crm-v3",
+  "version": "3.0.0-alpha.1",
+  "private": true,
+  "description": "联软渠道管理平台V3工程化骨架",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23",
+    "npm": ">=10 <11"
+  },
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "check": "node scripts/run-workspaces.mjs build && node scripts/run-workspaces.mjs check && npm run lint && npm run format",
+    "test": "node scripts/run-workspaces.mjs build && node scripts/run-workspaces.mjs test",
+    "test:e2e": "node scripts/run-workspaces.mjs test:e2e",
+    "build": "node scripts/run-workspaces.mjs build",
+    "verify": "node scripts/verify.mjs",
+    "format": "prettier --check \"apps/**/*.{ts,tsx,vue,js,json,md,mjs,css,html}\" \"packages/**/*.{ts,js,json,md,mjs}\" \"scripts/dev.mjs\" \"scripts/run-workspaces.mjs\" \"scripts/scan-build-output.mjs\" \"scripts/verify-node-version.mjs\" \"scripts/verify.mjs\" \"docs/stage-records/*阶段1*.md\" \"docs/V3阶段1本地开发说明.md\" \"docs/legacy/*.md\" \"*.json\" \".prettierrc.json\" \"eslint.config.js\"",
+    "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
+    "契约:生成": "npm --workspace @lianruan/contracts run 生成契约类型",
+    "契约:检查": "npm --workspace @lianruan/contracts run check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@types/node": "^22.13.14",
+    "@typescript-eslint/eslint-plugin": "^8.38.0",
+    "@typescript-eslint/parser": "^8.38.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "eslint-plugin-vue": "^10.3.0",
+    "globals": "^16.3.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "vue-eslint-parser": "^10.2.0"
+  }
+}
