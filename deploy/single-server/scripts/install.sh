@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+package_root="$(cd "${script_dir}/.." && pwd)"
+install_root="${INSTALL_ROOT:-/opt/lianruan-crm-v3}"
+server_host="${SERVER_HOST:-}"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "请使用root或sudo执行安装脚本。" >&2
+  exit 1
+fi
+
+if [ "$(uname -m)" != "x86_64" ]; then
+  echo "当前服务器不是x86_64架构，阶段7离线包目标为Linux x86。" >&2
+  exit 1
+fi
+
+if [ -f /etc/os-release ] && ! grep -Eiq 'openEuler|Euler' /etc/os-release; then
+  echo "提示：当前系统不是欧拉标识，继续安装前请确认已完成兼容验证。"
+fi
+
+command -v docker >/dev/null 2>&1 || {
+  echo "未找到docker，请先在欧拉服务器安装Docker。" >&2
+  exit 1
+}
+docker compose version >/dev/null 2>&1 || {
+  echo "未找到docker compose插件，请先安装Docker Compose。" >&2
+  exit 1
+}
+command -v openssl >/dev/null 2>&1 || {
+  echo "未找到openssl，请先安装openssl。" >&2
+  exit 1
+}
+
+if [ -z "${server_host}" ]; then
+  server_host="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+server_host="${server_host:-127.0.0.1}"
+
+echo "开始安装联软CRM V3阶段7单机离线部署资产。"
+echo "安装目录：${install_root}"
+echo "访问地址：http://${server_host}"
+
+mkdir -p \
+  "${install_root}/compose" \
+  "${install_root}/config/nginx" \
+  "${install_root}/secrets" \
+  "${install_root}/data/postgres" \
+  "${install_root}/data/redis-state" \
+  "${install_root}/data/redis-cache" \
+  "${install_root}/data/uploads" \
+  "${install_root}/data/exports" \
+  "${install_root}/data/migration" \
+  "${install_root}/backups/postgres-cache" \
+  "${install_root}/backups/files-cache" \
+  "${install_root}/logs/nginx" \
+  "${install_root}/logs/api-1" \
+  "${install_root}/logs/api-2" \
+  "${install_root}/logs/worker" \
+  "${install_root}/logs/postgres" \
+  "${install_root}/releases" \
+  "${install_root}/scripts"
+
+chmod 750 "${install_root}"
+chmod 700 "${install_root}/secrets"
+
+cp "${package_root}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
+cp -R "${package_root}/config/nginx/." "${install_root}/config/nginx/"
+cp "${package_root}/config/deploy.env.example" "${install_root}/config/deploy.env"
+cp "${package_root}/config/deploy.env.example" "${install_root}/compose/.env"
+sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${install_root}/config/deploy.env"
+sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${install_root}/compose/.env"
+cp "${package_root}/scripts/"*.sh "${install_root}/scripts/"
+chmod 750 "${install_root}/scripts/"*.sh
+
+INSTALL_ROOT="${install_root}" "${install_root}/scripts/generate-secrets.sh"
+
+postgres_password="$(cat "${install_root}/secrets/postgres_password")"
+redis_password="$(cat "${install_root}/secrets/redis_password")"
+session_secret="$(cat "${install_root}/secrets/session_secret")"
+build_commit="${V3_BUILD_COMMIT:-local}"
+build_time="${V3_BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
+
+if [ ! -f "${install_root}/config/v3.env" ]; then
+  sed \
+    -e "s#__SERVER_HOST__#${server_host}#g" \
+    -e "s#__POSTGRES_PASSWORD__#${postgres_password}#g" \
+    -e "s#__REDIS_PASSWORD__#${redis_password}#g" \
+    -e "s#__SESSION_SECRET__#${session_secret}#g" \
+    -e "s#__BUILD_COMMIT__#${build_commit}#g" \
+    -e "s#__BUILD_TIME__#${build_time}#g" \
+    "${package_root}/config/v3.env.template" > "${install_root}/config/v3.env"
+  chmod 600 "${install_root}/config/v3.env"
+else
+  echo "检测到已有 ${install_root}/config/v3.env，跳过覆盖。"
+fi
+
+"${package_root}/scripts/load-images.sh"
+
+echo "安装完成。下一步执行："
+echo "sudo ${install_root}/scripts/start.sh"
+echo "${install_root}/scripts/health-check.sh"
