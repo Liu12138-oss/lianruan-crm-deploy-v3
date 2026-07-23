@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="format-detection" content="telephone=no" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563c7'/%3E%3Cpath d='M9 10h14v12H9z' fill='white'/%3E%3C/svg%3E" />
+  <title>联软渠道管理平台移动端</title>
+  <link rel="stylesheet" href="mobile.css?v=4" />
+  <script>
+    (function () {
+      const scope = new URLSearchParams(window.location.search).get('scope');
+      window.APP_PREFIX = scope === 'partner' ? 'partner_' : scope === 'admin' ? 'admin_' : '';
+    })();
+  </script>
+</head>
+<body>
+  <div id="mobileApp" class="mobile-app" v-cloak>
+    <div v-if="!ready" class="mobile-loading" role="status" aria-live="polite">
+      <span class="mobile-spinner"></span>
+      <span>正在加载移动端…</span>
+    </div>
+
+    <template v-else-if="!scope">
+      <main class="scope-select">
+        <div class="scope-select__brand">联软渠道管理平台</div>
+        <h1>请选择登录入口</h1>
+        <p>移动端支持渠道业务办理和厂商审核查询。</p>
+        <button class="scope-card scope-card--partner" type="button" @click="chooseScope('partner')">
+          <span class="scope-card__icon">🤝</span>
+          <span><strong>渠道伙伴</strong><small>客户报备、商机、报价与订单查询</small></span>
+          <b>›</b>
+        </button>
+        <button class="scope-card scope-card--admin" type="button" @click="chooseScope('admin')">
+          <span class="scope-card__icon">🏢</span>
+          <span><strong>厂商管理</strong><small>业务查询与待审批事项处理</small></span>
+          <b>›</b>
+        </button>
+      </main>
+    </template>
+
+    <template v-else-if="!user">
+      <main class="mobile-login">
+        <div class="mobile-login__brand">
+          <div class="mobile-login__logo">{{ isPartnerScope ? '🤝' : '🏢' }}</div>
+          <h1>{{ isPartnerScope ? '渠道伙伴移动端' : '厂商管理移动端' }}</h1>
+          <p>{{ isPartnerScope ? '客户报备、商机跟进与业务查询' : '区域业务查询与移动审核' }}</p>
+        </div>
+        <form class="mobile-login__form" @submit.prevent="login">
+          <label>账号<input v-model.trim="loginForm.username" autocomplete="username" placeholder="请输入账号" /></label>
+          <label>密码<input v-model="loginForm.password" type="password" autocomplete="current-password" placeholder="请输入密码" /></label>
+          <p v-if="loginError" class="form-error" role="alert">{{ loginError }}</p>
+          <button class="button button--primary button--block" :disabled="submitting" type="submit">
+            {{ submitting ? '正在登录…' : '登录' }}
+          </button>
+        </form>
+        <button class="text-button" type="button" @click="backToScope">切换登录入口</button>
+      </main>
+    </template>
+
+    <template v-else>
+      <header class="mobile-header">
+        <button v-if="showBack" class="icon-button" type="button" aria-label="返回" @click="goBack">‹</button>
+        <span v-else class="mobile-header__placeholder" aria-hidden="true"></span>
+        <div class="mobile-header__title">
+          <strong>{{ pageTitle }}</strong>
+          <small>{{ roleName }}</small>
+        </div>
+        <button class="icon-button" type="button" aria-label="刷新当前数据" @click="loadPageData">↻</button>
+      </header>
+
+      <main class="mobile-main" :class="{ 'mobile-main--with-nav': showNavigation }">
+        <section v-if="page === 'home'" class="page-section">
+          <div class="welcome-card" :class="isPartnerScope ? 'welcome-card--partner' : 'welcome-card--admin'">
+            <p>您好，{{ user.name || user.username }}</p>
+            <h1>{{ isPartnerScope ? '高效处理渠道业务' : '及时处理审核事项' }}</h1>
+            <span>{{ user.partnerName || user.region || '联软渠道管理平台' }}</span>
+          </div>
+
+          <div class="stat-grid">
+            <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/opportunities' : '/admin/business')"><b>{{ pageMeta.opportunities.total }}</b><span>商机</span></button>
+            <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/registrations' : '/admin/reviews')"><b>{{ isPartnerScope ? pageMeta.registrations.total : pendingRegistrationCount }}</b><span>{{ isPartnerScope ? '客户报备' : '待审报备' }}</span></button>
+            <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/quotes' : '/admin/business')"><b>{{ pageMeta.quotes.total }}</b><span>报价单</span></button>
+            <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/orders' : '/admin/partners')"><b>{{ isPartnerScope ? pageMeta.orders.total : pageMeta.partners.total }}</b><span>{{ isPartnerScope ? '订单' : '渠道商' }}</span></button>
+          </div>
+
+          <section class="content-block">
+            <div class="section-heading"><h2>{{ isPartnerScope ? '快捷操作' : '待办事项' }}</h2></div>
+            <div v-if="isPartnerScope" class="quick-actions">
+              <button type="button" @click="go('/partner/registrations/new')"><i>＋</i>新建报备</button>
+              <button type="button" @click="go('/partner/opportunities/new')"><i>＋</i>新建商机</button>
+              <button type="button" @click="go('/partner/quotes')"><i>⌕</i>查询报价</button>
+            </div>
+            <div v-else class="todo-list">
+              <button type="button" @click="go('/admin/reviews')"><span>客户报备待审核</span><b>{{ pendingRegistrationCount }} ›</b></button>
+              <button v-if="isSuperAdmin" type="button" @click="go('/admin/reviews')"><span>渠道商及账号待审核</span><b>{{ pendingApprovalCount }} ›</b></button>
+            </div>
+          </section>
+
+          <section class="content-block">
+            <div class="section-heading"><h2>最近{{ isPartnerScope ? '商机' : '待审核报备' }}</h2><button type="button" @click="go(isPartnerScope ? '/partner/opportunities' : '/admin/reviews')">查看全部</button></div>
+            <div v-if="isPartnerScope" class="card-list compact-list">
+              <button v-for="item in opportunities.slice(0, 3)" :key="item.id" class="record-card" type="button" @click="go('/partner/opportunities/' + item.id)">
+                <span class="record-card__status" :class="statusClass(item.stage)">{{ stageText(item.stage) }}</span>
+                <strong>{{ item.name || item.customer || '未命名商机' }}</strong>
+                <small>{{ item.customer || '—' }} · {{ formatAmount(item.amount) }}</small>
+              </button>
+              <empty-state v-if="!opportunities.length" text="暂无商机"></empty-state>
+            </div>
+            <div v-else class="card-list compact-list">
+              <button v-for="item in pendingRegistrations.slice(0, 3)" :key="item.id" class="record-card" type="button" @click="openRegistrationReview(item)">
+                <span class="record-card__status status-pending">待审核</span>
+                <strong>{{ recordName(item) }}</strong>
+                <small>{{ item.partnerName || item.createdByName || '—' }} · {{ formatDate(item.createdAt) }}</small>
+              </button>
+              <empty-state v-if="!pendingRegistrations.length" text="暂无待审核报备"></empty-state>
+            </div>
+          </section>
+        </section>
+
+        <section v-else-if="page === 'opportunities'" class="page-section">
+          <div class="filter-row">
+            <input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或商机名称" />
+            <select v-model="filters.opportunityStage"><option value="">全部阶段</option><option v-for="item in stageOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+          </div>
+          <div class="page-action"><button class="button button--primary" type="button" @click="go('/partner/opportunities/new')">新建商机</button></div>
+          <record-list :items="filteredOpportunities" type="opportunity" empty-text="暂无符合条件的商机" :has-more="pageMeta.opportunities.hasMore" :loading-more="loading.opportunities" @open="openPartnerDetail('opportunities', $event)" @load-more="loadMore('opportunities')"></record-list>
+        </section>
+
+        <section v-else-if="page === 'opportunity-new'" class="page-section">
+          <form class="mobile-form" @submit.prevent="submitOpportunity">
+            <form-heading title="新建商机" text="仅可关联已审批的客户报备"></form-heading>
+            <div class="mobile-field">
+              <label for="opportunityRegistration">关联报备<span>*</span></label>
+              <div class="mobile-search-picker">
+                <input id="opportunityRegistration" v-model.trim="registrationPicker.keyword" type="search" required autocomplete="off" :aria-expanded="registrationPicker.open" aria-controls="opportunityRegistrationResults" placeholder="搜索并选择已审批客户或编号" @focus="openOpportunityRegistrationPicker" @blur="hideOpportunityRegistrationPicker" />
+                <span v-if="registrationPicker.loading" class="mobile-search-picker__indicator" aria-label="正在检索">⌕</span>
+                <span v-else-if="registrationPicker.selected" class="mobile-search-picker__indicator mobile-search-picker__indicator--success" aria-label="已关联">✓</span>
+                <div v-if="registrationPicker.open" id="opportunityRegistrationResults" class="mobile-search-picker__menu" role="listbox">
+                  <button v-for="item in registrationPicker.items" :key="item.id" class="mobile-search-picker__option" type="button" role="option" @mousedown.prevent="selectOpportunityRegistration(item)">
+                    <strong>{{ recordName(item) }}</strong><small>{{ item.id }} · {{ item.city || item.industry || '已审批报备' }}</small>
+                  </button>
+                  <p v-if="!registrationPicker.loading && !registrationPicker.items.length" class="mobile-search-picker__empty">未找到当前账号可关联的已审批报备</p>
+                  <button v-if="registrationPicker.hasMore" class="mobile-search-picker__more" type="button" :disabled="registrationPicker.loading" @mousedown.prevent="loadMoreApprovedRegistrations">加载更多报备</button>
+                </div>
+              </div>
+              <small class="mobile-field__hint">输入至少 2 个字后检索，选择后自动关联。</small>
+            </div>
+            <label>商机名称<span>*</span><input v-model.trim="opportunityForm.name" required placeholder="请输入项目或商机名称" /></label>
+            <label>客户名称<span>*</span><input v-model.trim="opportunityForm.customer" required placeholder="关联报备后自动带入" /></label>
+            <label>商机阶段<select v-model="opportunityForm.stage"><option v-for="item in stageOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+            <label>预计金额（元）<input v-model.number="opportunityForm.amount" type="number" min="0" inputmode="decimal" placeholder="请输入预计金额" /></label>
+            <label>预计终端数<input v-model.number="opportunityForm.endpoints" type="number" min="0" inputmode="numeric" placeholder="请输入终端数量" /></label>
+            <label>预计成交日期<input v-model="opportunityForm.expectedClose" type="date" /></label>
+            <label>备注<textarea v-model.trim="opportunityForm.notes" rows="4" placeholder="请输入客户需求或跟进说明"></textarea></label>
+            <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+            <div class="form-secondary-actions"><button type="button" @click="saveDraft('opportunity')">保存草稿</button><button type="button" @click="clearDraft('opportunity')">清除草稿</button></div>
+            <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在提交…' : '提交商机' }}</button>
+          </form>
+        </section>
+
+        <section v-else-if="page === 'opportunity-detail'" class="page-section">
+          <template v-if="selectedOpportunity">
+            <detail-card :item="selectedOpportunity" type="opportunity"></detail-card>
+            <form v-if="canAddFollowUp" class="mobile-form mobile-action-form" @submit.prevent="submitFollowUp">
+              <form-heading title="新增跟进" text="记录本次沟通结果，便于后续继续推进商机。"></form-heading>
+              <label>跟进方式<select v-model="followUpForm.type"><option v-for="item in followUpTypeOptions" :key="item" :value="item">{{ item }}</option></select></label>
+              <label>商机阶段<select v-model="followUpForm.stage"><option v-for="item in stageOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+              <label>跟进内容<span>*</span><textarea v-model.trim="followUpForm.content" required maxlength="500" rows="4" placeholder="请输入本次沟通结果、客户诉求或下一步计划"></textarea></label>
+              <label>下次跟进日期<input v-model="followUpForm.nextFollowAt" type="date" /></label>
+              <p v-if="detailFormError.followUp" class="form-error" role="alert">{{ detailFormError.followUp }}</p>
+              <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在保存…' : '保存跟进' }}</button>
+            </form>
+          </template>
+          <empty-state v-else :text="detailMessage('opportunity')"></empty-state>
+        </section>
+
+        <section v-else-if="page === 'registrations'" class="page-section">
+          <div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户名称" /><select v-model="filters.registrationStatus"><option value="">全部状态</option><option v-for="item in registrationStatusOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></div>
+          <div class="page-action"><button class="button button--primary" type="button" @click="go('/partner/registrations/new')">新建报备</button></div>
+          <record-list :items="filteredRegistrations" type="registration" empty-text="暂无符合条件的报备" :has-more="pageMeta.registrations.hasMore" :loading-more="loading.registrations" @open="openPartnerDetail('registrations', $event)" @load-more="loadMore('registrations')"></record-list>
+        </section>
+
+        <section v-else-if="page === 'registration-new'" class="page-section">
+          <form class="mobile-form" @submit.prevent="submitRegistration">
+            <form-heading title="新建客户报备" text="提交后将进入厂商审核流程"></form-heading>
+            <div class="mobile-field">
+              <label for="registrationCustomer">客户名称<span>*</span></label>
+              <div class="mobile-search-picker">
+                <input id="registrationCustomer" v-model.trim="registrationForm.customer" required autocomplete="off" placeholder="输入至少 2 个字，自动检索并回填" @focus="openRegistrationCompanyPicker" @blur="hideRegistrationCompanyPicker" />
+                <span v-if="companyPicker.loading" class="mobile-search-picker__indicator" aria-label="正在检索">⌕</span>
+                <span v-else-if="companyPicker.filled" class="mobile-search-picker__indicator mobile-search-picker__indicator--success" aria-label="已自动回填">✓</span>
+                <div v-if="companyPicker.open" class="mobile-search-picker__menu" role="listbox">
+                  <button v-for="item in companyPicker.items" :key="item.creditCode || item.name" class="mobile-search-picker__option" type="button" role="option" @mousedown.prevent="selectRegistrationCompany(item)">
+                    <strong>{{ item.name }}</strong><small>{{ [item.creditCode, item.industry || item.city].filter(Boolean).join(' · ') || '企业信息' }}</small>
+                  </button>
+                  <p v-if="!companyPicker.loading && !companyPicker.items.length" class="mobile-search-picker__empty">未找到匹配企业，可继续手动填写。</p>
+                </div>
+              </div>
+              <small class="mobile-field__hint">选择企业后自动回填统一社会信用代码、行业和城市。</small>
+            </div>
+            <label>统一社会信用代码<input v-model.trim="registrationForm.creditCode" maxlength="18" placeholder="可选，用于避免重复报备" /></label>
+            <label>所属行业<select v-model="registrationForm.industry"><option value="">请选择</option><option v-for="item in industries" :key="item" :value="item">{{ item }}</option></select></label>
+            <label>联系人<span>*</span><input v-model.trim="registrationForm.contact" required placeholder="请输入联系人姓名" /></label>
+            <label>联系电话<span>*</span><input v-model.trim="registrationForm.phone" required inputmode="tel" placeholder="请输入联系电话" /></label>
+            <label>所在城市<input v-model.trim="registrationForm.city" placeholder="请输入所在城市" /></label>
+            <label>需求说明<textarea v-model.trim="registrationForm.notes" rows="4" placeholder="请输入客户需求及项目背景"></textarea></label>
+            <p v-if="formError" class="form-error" role="alert">{{ formError }}</p>
+            <div class="form-secondary-actions"><button type="button" @click="saveDraft('registration')">保存草稿</button><button type="button" @click="clearDraft('registration')">清除草稿</button></div>
+            <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在提交…' : '提交报备' }}</button>
+          </form>
+        </section>
+
+        <section v-else-if="page === 'registration-detail'" class="page-section"><detail-card v-if="selectedRegistration" :item="selectedRegistration" type="registration"></detail-card><empty-state v-else :text="detailMessage('registration')"></empty-state></section>
+
+        <section v-else-if="page === 'quotes'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或报价单号" /></div><record-list :items="filteredQuotes" type="quote" empty-text="暂无报价单" :has-more="pageMeta.quotes.hasMore" :loading-more="loading.quotes" @open="openPartnerDetail('quotes', $event)" @load-more="loadMore('quotes')"></record-list></section>
+        <section v-else-if="page === 'quote-detail'" class="page-section">
+          <template v-if="selectedQuote">
+            <detail-card :item="selectedQuote" type="quote"></detail-card>
+            <section v-if="selectedQuote.status === 'converted' || selectedQuote.convertedOrderId" class="mobile-note-card">
+              <strong>该报价已转订单</strong>
+              <p>订单编号：{{ selectedQuote.convertedOrderId || '请到订单列表查看' }}</p>
+            </section>
+            <form v-else-if="canConvertSelectedQuote" class="mobile-form mobile-action-form" @submit.prevent="submitQuoteConvertOrder">
+              <form-heading title="转为订单" text="仅使用当前已确认报价的产品和金额快照，手机端不会新建或修改报价。"></form-heading>
+              <p class="mobile-readonly-summary">报价金额：{{ formatAmount(selectedQuote.total ?? selectedQuote.amount ?? selectedQuote.totalAmount) }}</p>
+              <label>交付联系人<span>*</span><input v-model.trim="quoteOrderForm.deliveryContactName" required maxlength="40" placeholder="请输入联系人姓名" /></label>
+              <label>联系电话<span>*</span><input v-model.trim="quoteOrderForm.deliveryContactPhone" required inputmode="tel" maxlength="30" placeholder="请输入联系电话" /></label>
+              <label>交付地址<span>*</span><textarea v-model.trim="quoteOrderForm.deliveryAddress" required maxlength="240" rows="3" placeholder="请输入交付或收货地址"></textarea></label>
+              <label>发票抬头<input v-model.trim="quoteOrderForm.invoiceTitle" maxlength="80" placeholder="可选，默认按客户名称处理" /></label>
+              <label>订单备注<textarea v-model.trim="quoteOrderForm.remark" maxlength="300" rows="3" placeholder="可选，填写特殊交付说明"></textarea></label>
+              <p v-if="detailFormError.convertOrder" class="form-error" role="alert">{{ detailFormError.convertOrder }}</p>
+              <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在转订单…' : '确认转订单' }}</button>
+            </form>
+            <section v-else class="mobile-note-card">
+              <strong>当前报价暂不能转订单</strong>
+              <p>只有状态为“已确认”且尚未转单的报价，才会开放手机端转订单。</p>
+            </section>
+          </template>
+          <empty-state v-else :text="detailMessage('quote')"></empty-state>
+        </section>
+        <section v-else-if="page === 'orders'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或订单号" /></div><record-list :items="filteredOrders" type="order" empty-text="暂无订单" :has-more="pageMeta.orders.hasMore" :loading-more="loading.orders" @open="openPartnerDetail('orders', $event)" @load-more="loadMore('orders')"></record-list></section>
+        <section v-else-if="page === 'order-detail'" class="page-section"><detail-card v-if="selectedOrder" :item="selectedOrder" type="order"></detail-card><empty-state v-else :text="detailMessage('order')"></empty-state></section>
+
+        <section v-else-if="page === 'reviews'" class="page-section">
+          <form-heading title="审核中心" :text="isSuperAdmin ? '可处理客户报备、渠道商和账号申请' : '可处理本区域客户报备'"></form-heading>
+          <h2 class="subsection-title">客户报备</h2>
+          <review-list :items="reviewRegistrations" kind="registration" empty-text="暂无待审核报备" :has-more="reviewPageMeta.registrations.hasMore" :loading-more="reviewLoading.registrations" @review="openRegistrationReview" @load-more="loadMoreReview('registrations')"></review-list>
+          <template v-if="isSuperAdmin">
+            <h2 class="subsection-title">渠道商申请</h2>
+            <review-list :items="reviewPartners" kind="partner" empty-text="暂无待审核渠道商" :has-more="reviewPageMeta.partners.hasMore" :loading-more="reviewLoading.partners" @review="openPartnerReview" @load-more="loadMoreReview('partners')"></review-list>
+            <h2 class="subsection-title">账号申请</h2>
+            <review-list :items="reviewPendingAccounts" kind="account" empty-text="暂无待审核账号" :has-more="reviewPageMeta.pendingApprovals.hasMore" :loading-more="reviewLoading.pendingApprovals" @review="openAccountReview" @load-more="loadMoreReview('pendingApprovals')"></review-list>
+          </template>
+        </section>
+
+        <section v-else-if="page === 'business'" class="page-section">
+          <div class="segment-control"><button v-for="item in businessTabs" :key="item.value" type="button" :class="{ active: businessType === item.value }" @click="businessType = item.value">{{ item.label }}</button></div>
+          <div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或编号" /></div>
+          <record-list :items="businessItems" :type="businessType" empty-text="暂无业务数据" :has-more="businessPageMeta.hasMore" :loading-more="businessPageMeta.loading" @open="openBusinessDetail" @load-more="loadMore(businessCollectionKey)"></record-list>
+        </section>
+
+        <section v-else-if="page === 'business-detail'" class="page-section"><detail-card v-if="selectedBusinessItem" :item="selectedBusinessItem" :type="businessDetailType"></detail-card><empty-state v-else :text="detailMessage(businessDetailType)"></empty-state></section>
+
+        <section v-else-if="page === 'partners'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索渠道商名称" /></div><record-list :items="filteredPartners" type="partner" empty-text="暂无渠道商" :has-more="pageMeta.partners.hasMore" :loading-more="loading.partners" @open="openAdminPartner" @load-more="loadMore('partners')"></record-list></section>
+        <section v-else-if="page === 'partner-detail'" class="page-section"><detail-card v-if="selectedPartner" :item="selectedPartner" type="partner"></detail-card><empty-state v-else :text="detailMessage('partner')"></empty-state></section>
+
+        <section v-else-if="page === 'me'" class="page-section">
+          <div class="profile-card"><div class="profile-card__avatar">{{ (user.name || user.username || '用').slice(0, 1) }}</div><div><h2>{{ user.name || user.username }}</h2><p>{{ roleName }}</p><small>{{ user.partnerName || user.region || '—' }}</small></div></div>
+          <div class="settings-list"><button type="button" @click="loadPageData">刷新数据 <b>›</b></button><button type="button" class="settings-list__danger" @click="logout">退出登录 <b>›</b></button></div>
+        </section>
+
+        <section v-else class="page-section"><empty-state text="页面不存在"></empty-state></section>
+      </main>
+
+      <nav v-if="showNavigation" class="bottom-nav" aria-label="主导航">
+        <button v-for="item in navigation" :key="item.path" type="button" :class="{ active: isNavActive(item) }" @click="go(item.path)"><span>{{ item.icon }}</span>{{ item.label }}</button>
+      </nav>
+
+      <div v-if="reviewDialog.visible" class="dialog-mask" role="dialog" aria-modal="true" aria-labelledby="reviewTitle">
+        <section class="review-dialog">
+          <div class="review-dialog__header"><h2 id="reviewTitle">{{ reviewDialog.title }}</h2><button class="icon-button" type="button" aria-label="关闭" @click="closeReview">×</button></div>
+          <p class="review-dialog__name">{{ recordName(reviewDialog.item) }}</p>
+          <dl class="detail-list"><div v-for="row in reviewDialogRows" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
+          <label v-if="reviewDialog.action === 'reject'" class="dialog-reason">驳回原因<span>*</span><textarea v-model.trim="reviewDialog.remark" rows="3" placeholder="请填写驳回原因"></textarea></label>
+          <p v-if="reviewDialog.error" class="form-error" role="alert">{{ reviewDialog.error }}</p>
+          <div class="dialog-actions"><button class="button button--secondary" type="button" :disabled="submitting" @click="prepareReject">驳回</button><button class="button button--primary" type="button" :disabled="submitting" @click="approveReview">{{ reviewDialog.action === 'reject' ? '确认驳回' : '通过' }}</button></div>
+        </section>
+      </div>
+
+      <p v-if="toast.message" class="toast" :class="'toast--' + toast.type" role="status">{{ toast.message }}</p>
+    </template>
+  </div>
+
+  <script src="libs/vue.min.js"></script>
+  <script src="api-client.js"></script>
+  <script src="mobile-app.js?v=10"></script>
+</body>
+</html>

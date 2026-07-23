@@ -1,0 +1,56 @@
+.DS_Store
+$null
+.workbuddy/
+
+# 本地环境与密钥
+.env
+.env.*
+!.env.example
+
+# 依赖目录
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# 数据库与运行态文件
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.pid
+backend/customer-ledger.csv
+backend/uploads/
+backend/exports/
+uploads/
+exports/
+
+# 日志
+*.log
+logs/
+backend/*.log
+frontend/*.log
+scripts/logs/
+
+# 临时目录与构建产物
+tmp/
+dist/
+build/
+coverage/
+.cache/
+
+# 历史备份与交付压缩包
+backup*/
+backups/
+upgrade_logs/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bak
+
+# 办公软件临时文件
+~$*
+
+# 本地业务跟进资料，不进入代码基线
+诚卓项目跟进表.xlsx

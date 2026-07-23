@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>联软渠道管理平台 - 登录</title>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    
+    /* 加载动画 */
+    .loading-screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      z-index: 9999;
+    }
+    
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .loading-text {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+    
+    /* 角色选择页面 */
+    .role-select {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    }
+    
+    .brand-logo {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+    
+    .brand-logo .logo-icon {
+      width: 80px;
+      height: 80px;
+      background: white;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      margin: 0 auto 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    
+    .brand-logo h1 {
+      color: white;
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .brand-logo p {
+      color: rgba(255,255,255,0.7);
+      font-size: 14px;
+    }
+    
+    .role-options {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      width: 100%;
+      max-width: 360px;
+    }
+    
+    .role-option {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(10px);
+      border-radius: 16px;
+      padding: 24px 20px;
+      color: white;
+      text-decoration: none;
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+    }
+    
+    .role-option:hover {
+      background: rgba(255,255,255,0.15);
+      transform: translateY(-2px);
+    }
+    
+    .role-option .icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      flex-shrink: 0;
+    }
+    
+    .role-option.admin .icon {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
+    }
+    
+    .role-option.partner .icon {
+      background: linear-gradient(135deg, #007AFF 0%, #0056b3 100%);
+    }
+    
+    .role-option .content {
+      flex: 1;
+    }
+    
+    .role-option .title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    
+    .role-option .desc {
+      font-size: 13px;
+      opacity: 0.7;
+      line-height: 1.4;
+    }
+    
+    .role-option .arrow {
+      font-size: 20px;
+      opacity: 0.5;
+    }
+    
+    .role-option:hover .arrow {
+      opacity: 1;
+      transform: translateX(4px);
+    }
+    
+    /* 设备提示 */
+    .device-hint {
+      margin-top: 40px;
+      text-align: center;
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    
+    .device-hint .detected {
+      color: rgba(255,255,255,0.8);
+      margin-top: 8px;
+    }
+    
+    /* 页脚 */
+    .footer {
+      position: fixed;
+      bottom: 24px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      color: rgba(255,255,255,0.4);
+      font-size: 12px;
+    }
+    
+    /* 响应式：桌面端并排显示 */
+    @media (min-width: 768px) {
+      .role-options {
+        flex-direction: row;
+        max-width: 720px;
+      }
+      
+      .role-option {
+        flex: 1;
+        flex-direction: column;
+        text-align: center;
+        padding: 40px 32px;
+      }
+      
+      .role-option .icon {
+        width: 72px;
+        height: 72px;
+        font-size: 36px;
+        margin-bottom: 16px;
+      }
+      
+      .role-option .title {
+        font-size: 20px;
+      }
+      
+      .role-option .desc {
+        font-size: 14px;
+        margin-bottom: 16px;
+      }
+      
+      .role-option .arrow {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 加载画面 -->
+  <div id="loadingScreen" class="loading-screen">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">正在加载...</div>
+  </div>
+  
+  <!-- 角色选择页面 -->
+  <div id="roleSelect" class="role-select" style="display: none;">
+    <div class="brand-logo">
+      <div class="logo-icon">🛡️</div>
+      <h1>联软渠道管理平台</h1>
+      <p>安全产品报价 · 报备 · 下单系统</p>
+    </div>
+    
+    <div class="role-options">
+      <!-- 厂商管理入口 -->
+      <a href="admin.html" class="role-option admin" id="adminOption">
+        <div class="icon">🏢</div>
+        <div class="content">
+          <div class="title">厂商管理入口</div>
+          <div class="desc">超级管理员、区域管理员登录<br>经营报表 · 渠道管理 · 审核中心</div>
+        </div>
+        <div class="arrow">→</div>
+      </a>
+      
+      <!-- 渠道伙伴入口 -->
+      <a href="partner.html" class="role-option partner" id="partnerOption">
+        <div class="icon">🤝</div>
+        <div class="content">
+          <div class="title">渠道合作伙伴入口</div>
+          <div class="desc">代理商、经销商登录<br>客户报备 · 商机管理 · 快速报价</div>
+        </div>
+        <div class="arrow">→</div>
+      </a>
+    </div>
+    
+    <div class="device-hint">
+      <p>💡 提示：手机访问渠道伙伴入口体验更佳</p>
+      <p class="detected" id="deviceDetected">正在检测设备类型...</p>
+    </div>
+    
+    <div class="footer">
+      © 2026 联软科技 · 渠道管理平台 v2.0
+    </div>
+  </div>
+
+  <script>
+    // 设备检测函数
+    function detectDevice() {
+      const userAgent = navigator.userAgent.toLowerCase();
+      const isMobile = /iphone|ipad|ipod|android|webos|blackberry|windows phone/i.test(userAgent);
+      const isTablet = /ipad|android(?!.*mobile)|tablet/i.test(userAgent);
+      const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isSmallScreen = window.innerWidth < 768;
+      
+      return {
+        isMobile: isMobile || (isSmallScreen && isTouch),
+        isTablet: isTablet,
+        isDesktop: !isMobile && !isTablet,
+        screenWidth: window.innerWidth
+      };
+    }
+    
+    // 主逻辑
+    function init() {
+      const device = detectDevice();
+      
+      // 更新设备检测提示
+      const deviceText = device.isMobile ? '📱 已检测到移动设备' : 
+                        device.isTablet ? '📱 已检测到平板设备' : 
+                        '💻 已检测到桌面设备';
+      document.getElementById('deviceDetected').textContent = deviceText;
+      
+      // 根据设备高亮推荐选项
+      const adminOption = document.getElementById('adminOption');
+      const partnerOption = document.getElementById('partnerOption');
+      
+      if (device.isMobile || device.isTablet) {
+        partnerOption.style.borderColor = 'rgba(0,122,255,0.5)';
+        partnerOption.style.background = 'rgba(0,122,255,0.15)';
+      } else {
+        adminOption.style.borderColor = 'rgba(255,107,107,0.5)';
+        adminOption.style.background = 'rgba(255,107,107,0.15)';
+      }
+      
+      // 隐藏加载，显示选择页面
+      document.getElementById('loadingScreen').style.display = 'none';
+      document.getElementById('roleSelect').style.display = 'flex';
+    }
+    
+    // 页面加载完成后执行
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+    
+    // 处理浏览器返回按钮
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        location.reload();
+      }
+    });
+  </script>
+</body>
+</html>

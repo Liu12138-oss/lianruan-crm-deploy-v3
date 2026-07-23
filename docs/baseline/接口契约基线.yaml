@@ -1,0 +1,2981 @@
+generatedAt: "2026-07-23T10:42:56.311Z"
+source: "backend/server.js"
+routeCount: 257
+moduleSummary:
+  "产品管理": 33
+  "企业查询": 1
+  "商机管理": 3
+  "审批管理": 2
+  "审计日志": 2
+  "客户报备": 5
+  "导入导出": 4
+  "工作量配置": 9
+  "开放接口": 51
+  "开放接口管理": 8
+  "待确认模块": 5
+  "报价管理": 7
+  "模拟接口": 2
+  "渠道管理": 28
+  "登录认证": 13
+  "移动端一期": 20
+  "移动端二期": 46
+  "统计看板": 1
+  "订单管理": 7
+  "账号管理": 8
+  "通知消息": 2
+routes:
+  - id: "API-0001"
+    method: "POST"
+    path: "/api/mock/crm-open-api/v2/auth/login"
+    sourceFile: "backend/server.js"
+    sourceLine: 3404
+    targetModule: "模拟接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0002"
+    method: "GET"
+    path: "/api/mock/crm-open-api/v1/identity/users/:userId"
+    sourceFile: "backend/server.js"
+    sourceLine: 3448
+    targetModule: "模拟接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0003"
+    method: "POST"
+    path: "/api/auth/login"
+    sourceFile: "backend/server.js"
+    sourceLine: 3467
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/admin-app.js:356"
+      - "frontend/api-client.js:102"
+      - "frontend/api.js:45"
+      - "frontend/app.js:228"
+      - "frontend/partner-app.js:429"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0004"
+    method: "PUT"
+    path: "/api/auth/password"
+    sourceFile: "backend/server.js"
+    sourceLine: 3560
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/admin-app.js:827"
+      - "frontend/partner-app.js:776"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0005"
+    method: "GET"
+    path: "/api/auth/me"
+    sourceFile: "backend/server.js"
+    sourceLine: 3643
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0006"
+    method: "GET"
+    path: "/api/notifications"
+    sourceFile: "backend/server.js"
+    sourceLine: 3650
+    targetModule: "通知消息"
+    frontendCallers:
+      - "frontend/admin-app.js:16618"
+      - "frontend/partner-app.js:9097"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0007"
+    method: "PUT"
+    path: "/api/notifications/read"
+    sourceFile: "backend/server.js"
+    sourceLine: 3663
+    targetModule: "通知消息"
+    frontendCallers:
+      - "frontend/admin-app.js:16632"
+      - "frontend/admin-app.js:16644"
+      - "frontend/partner-app.js:9111"
+      - "frontend/partner-app.js:9123"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0008"
+    method: "POST"
+    path: "/api/sso/iam/admin-login"
+    sourceFile: "backend/server.js"
+    sourceLine: 3688
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/admin-app.js:457"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0009"
+    method: "POST"
+    path: "/api/sso/iam/admin-login-v2"
+    sourceFile: "backend/server.js"
+    sourceLine: 3752
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/admin-app.js:524"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0010"
+    method: "POST"
+    path: "/api/sso/iam/partner-login-v2"
+    sourceFile: "backend/server.js"
+    sourceLine: 3856
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/partner-app.js:528"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0011"
+    method: "POST"
+    path: "/api/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 3960
+    targetModule: "客户报备"
+    frontendCallers:
+      - "frontend/admin-app.js:1153"
+      - "frontend/admin-app.js:11693"
+      - "frontend/admin-app.js:244"
+      - "frontend/api-client.js:141"
+      - "frontend/api-client.js:182"
+      - "frontend/api.js:64"
+      - "frontend/app.js:709"
+      - "frontend/partner-app.js:1124"
+      - "frontend/partner-app.js:1357"
+      - "frontend/partner-app.js:1816"
+      - "frontend/partner-app.js:1880"
+      - "frontend/partner-app.js:8889"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0012"
+    method: "GET"
+    path: "/api/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 4069
+    targetModule: "客户报备"
+    frontendCallers:
+      - "frontend/admin-app.js:1153"
+      - "frontend/admin-app.js:11693"
+      - "frontend/admin-app.js:244"
+      - "frontend/api-client.js:141"
+      - "frontend/api-client.js:182"
+      - "frontend/api.js:64"
+      - "frontend/app.js:709"
+      - "frontend/partner-app.js:1124"
+      - "frontend/partner-app.js:1357"
+      - "frontend/partner-app.js:1816"
+      - "frontend/partner-app.js:1880"
+      - "frontend/partner-app.js:8889"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0013"
+    method: "PUT"
+    path: "/api/registrations/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 4145
+    targetModule: "客户报备"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0014"
+    method: "PUT"
+    path: "/api/registrations/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 4210
+    targetModule: "客户报备"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0015"
+    method: "DELETE"
+    path: "/api/registrations/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 4251
+    targetModule: "客户报备"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0016"
+    method: "POST"
+    path: "/api/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 4268
+    targetModule: "商机管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1162"
+      - "frontend/admin-app.js:249"
+      - "frontend/api-client.js:203"
+      - "frontend/api-client.js:237"
+      - "frontend/api.js:54"
+      - "frontend/app.js:712"
+      - "frontend/partner-app.js:1133"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0017"
+    method: "GET"
+    path: "/api/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 4379
+    targetModule: "商机管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1162"
+      - "frontend/admin-app.js:249"
+      - "frontend/api-client.js:203"
+      - "frontend/api-client.js:237"
+      - "frontend/api.js:54"
+      - "frontend/app.js:712"
+      - "frontend/partner-app.js:1133"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0018"
+    method: "PUT"
+    path: "/api/opportunities/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 4473
+    targetModule: "商机管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0019"
+    method: "GET"
+    path: "/api/audit-logs"
+    sourceFile: "backend/server.js"
+    sourceLine: 4780
+    targetModule: "审计日志"
+    frontendCallers:
+      - "frontend/admin-app.js:15224"
+      - "frontend/admin-app.js:778"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0020"
+    method: "GET"
+    path: "/api/audit-logs/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 4803
+    targetModule: "审计日志"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0021"
+    method: "GET"
+    path: "/api/workload/classifications"
+    sourceFile: "backend/server.js"
+    sourceLine: 4815
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0022"
+    method: "GET"
+    path: "/api/workload/delivery-rules"
+    sourceFile: "backend/server.js"
+    sourceLine: 4821
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "frontend/api-client.js:596"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0023"
+    method: "PUT"
+    path: "/api/workload/delivery-rules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 4831
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0024"
+    method: "GET"
+    path: "/api/workload/mappings"
+    sourceFile: "backend/server.js"
+    sourceLine: 4889
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "frontend/api-client.js:567"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0025"
+    method: "PUT"
+    path: "/api/workload/mappings/:featureId"
+    sourceFile: "backend/server.js"
+    sourceLine: 4927
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0026"
+    method: "GET"
+    path: "/api/workload/rules"
+    sourceFile: "backend/server.js"
+    sourceLine: 4987
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "frontend/api-client.js:588"
+      - "frontend/api-client.js:615"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0027"
+    method: "POST"
+    path: "/api/workload/rules"
+    sourceFile: "backend/server.js"
+    sourceLine: 4998
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "frontend/api-client.js:588"
+      - "frontend/api-client.js:615"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0028"
+    method: "PUT"
+    path: "/api/workload/rules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 5027
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0029"
+    method: "DELETE"
+    path: "/api/workload/rules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 5056
+    targetModule: "工作量配置"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0030"
+    method: "POST"
+    path: "/api/quotes/workload-preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 5075
+    targetModule: "报价管理"
+    frontendCallers:
+      - "frontend/api-client.js:544"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0031"
+    method: "POST"
+    path: "/api/ipg/quote-preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 5080
+    targetModule: "报价管理"
+    frontendCallers:
+      - "frontend/api-client.js:554"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0032"
+    method: "POST"
+    path: "/api/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 5107
+    targetModule: "报价管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1171"
+      - "frontend/api-client.js:277"
+      - "frontend/api-client.js:308"
+      - "frontend/api.js:72"
+      - "frontend/app.js:710"
+      - "frontend/partner-app.js:1142"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0033"
+    method: "GET"
+    path: "/api/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 5237
+    targetModule: "报价管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1171"
+      - "frontend/api-client.js:277"
+      - "frontend/api-client.js:308"
+      - "frontend/api.js:72"
+      - "frontend/app.js:710"
+      - "frontend/partner-app.js:1142"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0034"
+    method: "DELETE"
+    path: "/api/quotes/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 5313
+    targetModule: "报价管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0035"
+    method: "POST"
+    path: "/api/orders"
+    sourceFile: "backend/server.js"
+    sourceLine: 5334
+    targetModule: "订单管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1180"
+      - "frontend/api-client.js:330"
+      - "frontend/api-client.js:361"
+      - "frontend/api.js:80"
+      - "frontend/app.js:711"
+      - "frontend/partner-app.js:1151"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0036"
+    method: "GET"
+    path: "/api/orders"
+    sourceFile: "backend/server.js"
+    sourceLine: 5497
+    targetModule: "订单管理"
+    frontendCallers:
+      - "frontend/admin-app.js:1180"
+      - "frontend/api-client.js:330"
+      - "frontend/api-client.js:361"
+      - "frontend/api.js:80"
+      - "frontend/app.js:711"
+      - "frontend/partner-app.js:1151"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0037"
+    method: "DELETE"
+    path: "/api/orders/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 5615
+    targetModule: "订单管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0038"
+    method: "PUT"
+    path: "/api/quotes/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 5634
+    targetModule: "报价管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0039"
+    method: "PUT"
+    path: "/api/quotes/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 5679
+    targetModule: "报价管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0040"
+    method: "PUT"
+    path: "/api/orders/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 5755
+    targetModule: "订单管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0041"
+    method: "PUT"
+    path: "/api/orders/:id/price-adjust"
+    sourceFile: "backend/server.js"
+    sourceLine: 5885
+    targetModule: "订单管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0042"
+    method: "GET"
+    path: "/api/users"
+    sourceFile: "backend/server.js"
+    sourceLine: 6025
+    targetModule: "账号管理"
+    frontendCallers:
+      - "frontend/admin-app.js:10097"
+      - "frontend/admin-app.js:11247"
+      - "frontend/admin-app.js:15842"
+      - "frontend/admin-app.js:259"
+      - "frontend/api-client.js:472"
+      - "frontend/api-client.js:479"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0043"
+    method: "PUT"
+    path: "/api/users/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 6049
+    targetModule: "账号管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0044"
+    method: "DELETE"
+    path: "/api/users/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 6098
+    targetModule: "账号管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0045"
+    method: "PUT"
+    path: "/api/users/:id/password"
+    sourceFile: "backend/server.js"
+    sourceLine: 6140
+    targetModule: "账号管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0046"
+    method: "POST"
+    path: "/api/users/sync-status"
+    sourceFile: "backend/server.js"
+    sourceLine: 6162
+    targetModule: "账号管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0047"
+    method: "GET"
+    path: "/api/mobile/v2/me"
+    sourceFile: "backend/server.js"
+    sourceLine: 7878
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:229"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0048"
+    method: "GET"
+    path: "/api/mobile/v2/feature-flags"
+    sourceFile: "backend/server.js"
+    sourceLine: 7885
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0049"
+    method: "GET"
+    path: "/api/mobile/v2/dashboard"
+    sourceFile: "backend/server.js"
+    sourceLine: 7891
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-app.js:79"
+      - "frontend/mobile-v2-app.js:89"
+      - "frontend/mobile-v2-app.js:91"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0050"
+    method: "GET"
+    path: "/api/mobile/v2/notifications"
+    sourceFile: "backend/server.js"
+    sourceLine: 7898
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-app.js:85"
+      - "frontend/mobile-v2-app.js:98"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0051"
+    method: "POST"
+    path: "/api/mobile/v2/registration-drafts"
+    sourceFile: "backend/server.js"
+    sourceLine: 7912
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:13"
+      - "frontend/mobile-v2-app.js:60"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0052"
+    method: "POST"
+    path: "/api/mobile/v2/registrations/check-duplicate"
+    sourceFile: "backend/server.js"
+    sourceLine: 7949
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0053"
+    method: "POST"
+    path: "/api/mobile/v2/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 7972
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:14"
+      - "frontend/mobile-v2-app.js:61"
+      - "frontend/mobile-v2-app.js:80"
+      - "frontend/mobile-v2-app.js:92"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0054"
+    method: "PUT"
+    path: "/api/mobile/v2/registrations/:id/review"
+    sourceFile: "backend/server.js"
+    sourceLine: 8034
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:15"
+      - "frontend/mobile-v2-app.js:62"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0055"
+    method: "POST"
+    path: "/api/mobile/v2/registrations/:id/copy"
+    sourceFile: "backend/server.js"
+    sourceLine: 8097
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0056"
+    method: "GET"
+    path: "/api/mobile/v2/registrations/:id/events"
+    sourceFile: "backend/server.js"
+    sourceLine: 8123
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0057"
+    method: "GET"
+    path: "/api/mobile/v2/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 8137
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:14"
+      - "frontend/mobile-v2-app.js:61"
+      - "frontend/mobile-v2-app.js:80"
+      - "frontend/mobile-v2-app.js:92"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0058"
+    method: "GET"
+    path: "/api/mobile/v2/registrations/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8138
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0059"
+    method: "GET"
+    path: "/api/mobile/v2/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 8139
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:16"
+      - "frontend/mobile-v2-app.js:63"
+      - "frontend/mobile-v2-app.js:81"
+      - "frontend/mobile-v2-app.js:93"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0060"
+    method: "GET"
+    path: "/api/mobile/v2/opportunities/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8140
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:17"
+      - "frontend/mobile-v2-app.js:64"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0061"
+    method: "POST"
+    path: "/api/mobile/v2/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 8142
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:16"
+      - "frontend/mobile-v2-app.js:63"
+      - "frontend/mobile-v2-app.js:81"
+      - "frontend/mobile-v2-app.js:93"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0062"
+    method: "PUT"
+    path: "/api/mobile/v2/opportunities/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8210
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:17"
+      - "frontend/mobile-v2-app.js:64"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0063"
+    method: "PUT"
+    path: "/api/mobile/v2/opportunities/:id/stage"
+    sourceFile: "backend/server.js"
+    sourceLine: 8253
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:18"
+      - "frontend/mobile-v2-app.js:65"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0064"
+    method: "POST"
+    path: "/api/mobile/v2/opportunities/:id/follow-ups"
+    sourceFile: "backend/server.js"
+    sourceLine: 8296
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:19"
+      - "frontend/mobile-v2-app.js:66"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0065"
+    method: "GET"
+    path: "/api/mobile/v2/opportunities/:id/events"
+    sourceFile: "backend/server.js"
+    sourceLine: 8343
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0066"
+    method: "GET"
+    path: "/api/mobile/v2/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 8357
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:22"
+      - "frontend/mobile-v2-app.js:69"
+      - "frontend/mobile-v2-app.js:82"
+      - "frontend/mobile-v2-app.js:94"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0067"
+    method: "GET"
+    path: "/api/mobile/v2/quotes/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8358
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0068"
+    method: "GET"
+    path: "/api/mobile/v2/orders"
+    sourceFile: "backend/server.js"
+    sourceLine: 8359
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-app.js:83"
+      - "frontend/mobile-v2-app.js:95"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0069"
+    method: "GET"
+    path: "/api/mobile/v2/orders/parent-options"
+    sourceFile: "backend/server.js"
+    sourceLine: 8360
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0070"
+    method: "GET"
+    path: "/api/mobile/v2/orders/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8386
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0071"
+    method: "GET"
+    path: "/api/mobile/v2/quote-products"
+    sourceFile: "backend/server.js"
+    sourceLine: 8388
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0072"
+    method: "POST"
+    path: "/api/mobile/v2/quotes/preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 8405
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:20"
+      - "frontend/mobile-v2-app.js:67"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0073"
+    method: "POST"
+    path: "/api/mobile/v2/quote-drafts"
+    sourceFile: "backend/server.js"
+    sourceLine: 8420
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:21"
+      - "frontend/mobile-v2-app.js:68"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0074"
+    method: "POST"
+    path: "/api/mobile/v2/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 8447
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:22"
+      - "frontend/mobile-v2-app.js:69"
+      - "frontend/mobile-v2-app.js:82"
+      - "frontend/mobile-v2-app.js:94"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0075"
+    method: "PUT"
+    path: "/api/mobile/v2/quotes/:id/discount-review"
+    sourceFile: "backend/server.js"
+    sourceLine: 8476
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:23"
+      - "frontend/mobile-v2-app.js:70"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0076"
+    method: "GET"
+    path: "/api/mobile/v2/quotes/:id/discount-review"
+    sourceFile: "backend/server.js"
+    sourceLine: 8512
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:23"
+      - "frontend/mobile-v2-app.js:70"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0077"
+    method: "PUT"
+    path: "/api/mobile/v2/quotes/:id/confirm"
+    sourceFile: "backend/server.js"
+    sourceLine: 8522
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:24"
+      - "frontend/mobile-v2-app.js:71"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0078"
+    method: "POST"
+    path: "/api/mobile/v2/order-drafts"
+    sourceFile: "backend/server.js"
+    sourceLine: 8555
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:25"
+      - "frontend/mobile-v2-app.js:72"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0079"
+    method: "POST"
+    path: "/api/mobile/v2/orders/:id/submit"
+    sourceFile: "backend/server.js"
+    sourceLine: 8596
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:26"
+      - "frontend/mobile-v2-app.js:73"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0080"
+    method: "PUT"
+    path: "/api/mobile/v2/orders/:id/primary-review"
+    sourceFile: "backend/server.js"
+    sourceLine: 8648
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:27"
+      - "frontend/mobile-v2-app.js:74"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0081"
+    method: "PUT"
+    path: "/api/mobile/v2/orders/:id/fulfillment"
+    sourceFile: "backend/server.js"
+    sourceLine: 8683
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:28"
+      - "frontend/mobile-v2-app.js:75"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0082"
+    method: "ALL"
+    path: "/api/mobile/v2/orders/:id/price-adjustments"
+    sourceFile: "backend/server.js"
+    sourceLine: 8715
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0083"
+    method: "ALL"
+    path: "/api/mobile/v2/orders/:id/adjust-price"
+    sourceFile: "backend/server.js"
+    sourceLine: 8715
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0084"
+    method: "ALL"
+    path: "/api/mobile/v2/orders/:id/cancel"
+    sourceFile: "backend/server.js"
+    sourceLine: 8715
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0085"
+    method: "ALL"
+    path: "/api/mobile/v2/orders/:id/refund"
+    sourceFile: "backend/server.js"
+    sourceLine: 8715
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0086"
+    method: "ALL"
+    path: "/api/mobile/v2/orders/:id/refunds"
+    sourceFile: "backend/server.js"
+    sourceLine: 8715
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0087"
+    method: "GET"
+    path: "/api/mobile/v2/quotes/:id/events"
+    sourceFile: "backend/server.js"
+    sourceLine: 8741
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0088"
+    method: "GET"
+    path: "/api/mobile/v2/orders/:id/events"
+    sourceFile: "backend/server.js"
+    sourceLine: 8742
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0089"
+    method: "GET"
+    path: "/api/mobile/v2/partners"
+    sourceFile: "backend/server.js"
+    sourceLine: 8744
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-app.js:96"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0090"
+    method: "GET"
+    path: "/api/mobile/v2/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8767
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0091"
+    method: "GET"
+    path: "/api/mobile/v2/catalog"
+    sourceFile: "backend/server.js"
+    sourceLine: 8782
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-app.js:84"
+      - "frontend/mobile-v2-app.js:97"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0092"
+    method: "POST"
+    path: "/api/mobile/v2/logout"
+    sourceFile: "backend/server.js"
+    sourceLine: 8789
+    targetModule: "移动端二期"
+    frontendCallers:
+      - "frontend/mobile-v2-api.js:174"
+      - "frontend/mobile-v2-api.js:252"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0093"
+    method: "GET"
+    path: "/api/mobile/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 8825
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:550"
+      - "frontend/mobile-app.js:557"
+      - "frontend/mobile-app.js:616"
+      - "frontend/mobile-app.js:948"
+      - "frontend/mobile-app.js:961"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0094"
+    method: "GET"
+    path: "/api/mobile/company-search"
+    sourceFile: "backend/server.js"
+    sourceLine: 8874
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:908"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0095"
+    method: "GET"
+    path: "/api/mobile/registrations/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8888
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0096"
+    method: "POST"
+    path: "/api/mobile/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 8892
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:550"
+      - "frontend/mobile-app.js:557"
+      - "frontend/mobile-app.js:616"
+      - "frontend/mobile-app.js:948"
+      - "frontend/mobile-app.js:961"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0097"
+    method: "GET"
+    path: "/api/mobile/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 8933
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:1007"
+      - "frontend/mobile-app.js:1009"
+      - "frontend/mobile-app.js:1043"
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:551"
+      - "frontend/mobile-app.js:558"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0098"
+    method: "GET"
+    path: "/api/mobile/opportunities/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 8941
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0099"
+    method: "POST"
+    path: "/api/mobile/opportunities/:id/follow-ups"
+    sourceFile: "backend/server.js"
+    sourceLine: 8945
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0100"
+    method: "POST"
+    path: "/api/mobile/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 9001
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:1007"
+      - "frontend/mobile-app.js:1009"
+      - "frontend/mobile-app.js:1043"
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:551"
+      - "frontend/mobile-app.js:558"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0101"
+    method: "GET"
+    path: "/api/mobile/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 9054
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:1081"
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:552"
+      - "frontend/mobile-app.js:559"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0102"
+    method: "GET"
+    path: "/api/mobile/quotes/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9062
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0103"
+    method: "POST"
+    path: "/api/mobile/quotes/:id/convert-order"
+    sourceFile: "backend/server.js"
+    sourceLine: 9066
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0104"
+    method: "GET"
+    path: "/api/mobile/orders"
+    sourceFile: "backend/server.js"
+    sourceLine: 9141
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:1081"
+      - "frontend/mobile-app.js:496"
+      - "frontend/mobile-app.js:553"
+      - "frontend/mobile-app.js:560"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0105"
+    method: "GET"
+    path: "/api/mobile/orders/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9149
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0106"
+    method: "GET"
+    path: "/api/mobile/partners"
+    sourceFile: "backend/server.js"
+    sourceLine: 9153
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:497"
+      - "frontend/mobile-app.js:554"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0107"
+    method: "GET"
+    path: "/api/mobile/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9166
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0108"
+    method: "PUT"
+    path: "/api/mobile/registrations/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 9170
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0109"
+    method: "GET"
+    path: "/api/mobile/pending-approvals"
+    sourceFile: "backend/server.js"
+    sourceLine: 9191
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:497"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0110"
+    method: "PUT"
+    path: "/api/mobile/partners/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 9198
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0111"
+    method: "POST"
+    path: "/api/mobile/logout"
+    sourceFile: "backend/server.js"
+    sourceLine: 9224
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "frontend/mobile-app.js:1158"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0112"
+    method: "PUT"
+    path: "/api/mobile/pending-approvals/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9234
+    targetModule: "移动端一期"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0113"
+    method: "GET"
+    path: "/api/channel-operations/overview"
+    sourceFile: "backend/server.js"
+    sourceLine: 9736
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0114"
+    method: "GET"
+    path: "/api/channel-targets"
+    sourceFile: "backend/server.js"
+    sourceLine: 9750
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0115"
+    method: "POST"
+    path: "/api/channel-targets"
+    sourceFile: "backend/server.js"
+    sourceLine: 9767
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0116"
+    method: "PUT"
+    path: "/api/channel-targets/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9821
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0117"
+    method: "GET"
+    path: "/api/channel-visits"
+    sourceFile: "backend/server.js"
+    sourceLine: 9843
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0118"
+    method: "POST"
+    path: "/api/channel-visits"
+    sourceFile: "backend/server.js"
+    sourceLine: 9855
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0119"
+    method: "PUT"
+    path: "/api/channel-visits/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 9895
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0120"
+    method: "POST"
+    path: "/api/admin/accounts"
+    sourceFile: "backend/server.js"
+    sourceLine: 9922
+    targetModule: "账号管理"
+    frontendCallers:
+      - "frontend/admin-app.js:11351"
+      - "frontend/api.js:96"
+      - "frontend/api.js:97"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0121"
+    method: "POST"
+    path: "/api/users"
+    sourceFile: "backend/server.js"
+    sourceLine: 9977
+    targetModule: "账号管理"
+    frontendCallers:
+      - "frontend/admin-app.js:10097"
+      - "frontend/admin-app.js:11247"
+      - "frontend/admin-app.js:15842"
+      - "frontend/admin-app.js:259"
+      - "frontend/api-client.js:472"
+      - "frontend/api-client.js:479"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0122"
+    method: "GET"
+    path: "/api/meta/prefecture-cities"
+    sourceFile: "backend/server.js"
+    sourceLine: 10113
+    targetModule: "待确认模块"
+    frontendCallers:
+      - "frontend/admin-app.js:8700"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0123"
+    method: "GET"
+    path: "/api/partners"
+    sourceFile: "backend/server.js"
+    sourceLine: 10118
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "frontend/admin-app.js:10051"
+      - "frontend/admin-app.js:13674"
+      - "frontend/admin-app.js:14248"
+      - "frontend/admin-app.js:1706"
+      - "frontend/admin-app.js:2285"
+      - "frontend/admin-app.js:254"
+      - "frontend/admin-app.js:773"
+      - "frontend/admin-app.js:8687"
+      - "frontend/admin-app.js:9519"
+      - "frontend/api-client.js:416"
+      - "frontend/api.js:88"
+      - "frontend/app.js:483"
+      - "frontend/partner-app.js:1163"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0124"
+    method: "POST"
+    path: "/api/partners"
+    sourceFile: "backend/server.js"
+    sourceLine: 10163
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "frontend/admin-app.js:10051"
+      - "frontend/admin-app.js:13674"
+      - "frontend/admin-app.js:14248"
+      - "frontend/admin-app.js:1706"
+      - "frontend/admin-app.js:2285"
+      - "frontend/admin-app.js:254"
+      - "frontend/admin-app.js:773"
+      - "frontend/admin-app.js:8687"
+      - "frontend/admin-app.js:9519"
+      - "frontend/api-client.js:416"
+      - "frontend/api.js:88"
+      - "frontend/app.js:483"
+      - "frontend/partner-app.js:1163"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0125"
+    method: "GET"
+    path: "/api/partner-profile-products"
+    sourceFile: "backend/server.js"
+    sourceLine: 10305
+    targetModule: "待确认模块"
+    frontendCallers:
+      - "frontend/admin-app.js:9192"
+      - "frontend/admin-app.js:9329"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0126"
+    method: "POST"
+    path: "/api/partner-profile-products"
+    sourceFile: "backend/server.js"
+    sourceLine: 10321
+    targetModule: "待确认模块"
+    frontendCallers:
+      - "frontend/admin-app.js:9192"
+      - "frontend/admin-app.js:9329"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0127"
+    method: "PUT"
+    path: "/api/partner-profile-products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 10366
+    targetModule: "待确认模块"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0128"
+    method: "DELETE"
+    path: "/api/partner-profile-products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 10418
+    targetModule: "待确认模块"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0129"
+    method: "GET"
+    path: "/api/partners/:id/profile"
+    sourceFile: "backend/server.js"
+    sourceLine: 10454
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0130"
+    method: "PUT"
+    path: "/api/partners/:id/profile"
+    sourceFile: "backend/server.js"
+    sourceLine: 10471
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0131"
+    method: "GET"
+    path: "/api/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 10518
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0132"
+    method: "PUT"
+    path: "/api/partners/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 10542
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0133"
+    method: "POST"
+    path: "/api/partners/:id/staff"
+    sourceFile: "backend/server.js"
+    sourceLine: 10570
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0134"
+    method: "PUT"
+    path: "/api/partners/:partnerId/staff/:staffId"
+    sourceFile: "backend/server.js"
+    sourceLine: 10715
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0135"
+    method: "PUT"
+    path: "/api/partners/:partnerId/staff/:staffId/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 10769
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0136"
+    method: "PUT"
+    path: "/api/partners/:partnerId/staff/:staffId/password"
+    sourceFile: "backend/server.js"
+    sourceLine: 10833
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0137"
+    method: "DELETE"
+    path: "/api/partners/:partnerId/staff/:staffId"
+    sourceFile: "backend/server.js"
+    sourceLine: 10850
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0138"
+    method: "PUT"
+    path: "/api/users/:id/status"
+    sourceFile: "backend/server.js"
+    sourceLine: 10886
+    targetModule: "账号管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0139"
+    method: "PUT"
+    path: "/api/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 10932
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0140"
+    method: "DELETE"
+    path: "/api/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 11035
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0141"
+    method: "PUT"
+    path: "/api/partners/:id/level"
+    sourceFile: "backend/server.js"
+    sourceLine: 11111
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0142"
+    method: "PUT"
+    path: "/api/partners/:id/unbind"
+    sourceFile: "backend/server.js"
+    sourceLine: 11192
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0143"
+    method: "PUT"
+    path: "/api/partners/:id/add-parent"
+    sourceFile: "backend/server.js"
+    sourceLine: 11255
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0144"
+    method: "PUT"
+    path: "/api/partners/:id/rebind"
+    sourceFile: "backend/server.js"
+    sourceLine: 11331
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0145"
+    method: "POST"
+    path: "/api/partners/secondary/apply"
+    sourceFile: "backend/server.js"
+    sourceLine: 11386
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0146"
+    method: "GET"
+    path: "/api/partners/secondary/pending"
+    sourceFile: "backend/server.js"
+    sourceLine: 11485
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0147"
+    method: "PUT"
+    path: "/api/partners/secondary/:id/approve"
+    sourceFile: "backend/server.js"
+    sourceLine: 11500
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0148"
+    method: "PUT"
+    path: "/api/partners/secondary/:id/reject"
+    sourceFile: "backend/server.js"
+    sourceLine: 11539
+    targetModule: "渠道管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0149"
+    method: "PUT"
+    path: "/api/orders/:id/primary-confirm"
+    sourceFile: "backend/server.js"
+    sourceLine: 11574
+    targetModule: "订单管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0150"
+    method: "PUT"
+    path: "/api/orders/:id/primary-reject"
+    sourceFile: "backend/server.js"
+    sourceLine: 11698
+    targetModule: "订单管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0151"
+    method: "GET"
+    path: "/api/pending-approvals"
+    sourceFile: "backend/server.js"
+    sourceLine: 11818
+    targetModule: "审批管理"
+    frontendCallers:
+      - "frontend/admin-app.js:10159"
+      - "frontend/admin-app.js:11721"
+      - "frontend/admin-app.js:396"
+      - "frontend/admin-app.js:752"
+      - "frontend/api-client.js:656"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0152"
+    method: "PUT"
+    path: "/api/pending-approvals/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 11832
+    targetModule: "审批管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0153"
+    method: "GET"
+    path: "/api/dashboard/stats"
+    sourceFile: "backend/server.js"
+    sourceLine: 11916
+    targetModule: "统计看板"
+    frontendCallers:
+      - "frontend/api-client.js:270"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0154"
+    method: "GET"
+    path: "/api/product-tree"
+    sourceFile: "backend/server.js"
+    sourceLine: 11944
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12698"
+      - "frontend/admin-app.js:4007"
+      - "frontend/app.js:2256"
+      - "frontend/app.js:3340"
+      - "frontend/partner-app.js:3542"
+      - "frontend/partner-app.js:5531"
+      - "frontend/partner-app.js:7729"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0155"
+    method: "GET"
+    path: "/api/categories"
+    sourceFile: "backend/server.js"
+    sourceLine: 11983
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:6966"
+      - "frontend/admin-app.js:7100"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0156"
+    method: "POST"
+    path: "/api/categories"
+    sourceFile: "backend/server.js"
+    sourceLine: 12002
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:6966"
+      - "frontend/admin-app.js:7100"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0157"
+    method: "PUT"
+    path: "/api/categories/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12020
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0158"
+    method: "DELETE"
+    path: "/api/categories/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12031
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0159"
+    method: "GET"
+    path: "/api/modules"
+    sourceFile: "backend/server.js"
+    sourceLine: 12055
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:6967"
+      - "frontend/admin-app.js:7138"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0160"
+    method: "POST"
+    path: "/api/modules"
+    sourceFile: "backend/server.js"
+    sourceLine: 12073
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:6967"
+      - "frontend/admin-app.js:7138"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0161"
+    method: "PUT"
+    path: "/api/modules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12091
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0162"
+    method: "DELETE"
+    path: "/api/modules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12102
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0163"
+    method: "GET"
+    path: "/api/features"
+    sourceFile: "backend/server.js"
+    sourceLine: 12122
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12699"
+      - "frontend/admin-app.js:2859"
+      - "frontend/admin-app.js:4014"
+      - "frontend/admin-app.js:6968"
+      - "frontend/admin-app.js:7321"
+      - "frontend/app.js:1667"
+      - "frontend/app.js:2263"
+      - "frontend/partner-app.js:2288"
+      - "frontend/partner-app.js:3549"
+      - "frontend/partner-app.js:7730"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0164"
+    method: "POST"
+    path: "/api/features"
+    sourceFile: "backend/server.js"
+    sourceLine: 12139
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12699"
+      - "frontend/admin-app.js:2859"
+      - "frontend/admin-app.js:4014"
+      - "frontend/admin-app.js:6968"
+      - "frontend/admin-app.js:7321"
+      - "frontend/app.js:1667"
+      - "frontend/app.js:2263"
+      - "frontend/partner-app.js:2288"
+      - "frontend/partner-app.js:3549"
+      - "frontend/partner-app.js:7730"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0165"
+    method: "PUT"
+    path: "/api/features/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12168
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0166"
+    method: "DELETE"
+    path: "/api/features/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12328
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0167"
+    method: "PATCH"
+    path: "/api/features/:id/publish"
+    sourceFile: "backend/server.js"
+    sourceLine: 12347
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0168"
+    method: "GET"
+    path: "/api/hardware"
+    sourceFile: "backend/server.js"
+    sourceLine: 12359
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12701"
+      - "frontend/admin-app.js:2860"
+      - "frontend/admin-app.js:4059"
+      - "frontend/admin-app.js:6969"
+      - "frontend/admin-app.js:7374"
+      - "frontend/app.js:1668"
+      - "frontend/app.js:2308"
+      - "frontend/app.js:3342"
+      - "frontend/partner-app.js:2289"
+      - "frontend/partner-app.js:3594"
+      - "frontend/partner-app.js:5533"
+      - "frontend/partner-app.js:7732"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0169"
+    method: "POST"
+    path: "/api/hardware"
+    sourceFile: "backend/server.js"
+    sourceLine: 12376
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12701"
+      - "frontend/admin-app.js:2860"
+      - "frontend/admin-app.js:4059"
+      - "frontend/admin-app.js:6969"
+      - "frontend/admin-app.js:7374"
+      - "frontend/app.js:1668"
+      - "frontend/app.js:2308"
+      - "frontend/app.js:3342"
+      - "frontend/partner-app.js:2289"
+      - "frontend/partner-app.js:3594"
+      - "frontend/partner-app.js:5533"
+      - "frontend/partner-app.js:7732"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0170"
+    method: "PUT"
+    path: "/api/hardware/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12397
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0171"
+    method: "DELETE"
+    path: "/api/hardware/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12408
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0172"
+    method: "PATCH"
+    path: "/api/hardware/:id/publish"
+    sourceFile: "backend/server.js"
+    sourceLine: 12426
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0173"
+    method: "GET"
+    path: "/api/packages"
+    sourceFile: "backend/server.js"
+    sourceLine: 12440
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12700"
+      - "frontend/admin-app.js:4052"
+      - "frontend/admin-app.js:6970"
+      - "frontend/admin-app.js:7423"
+      - "frontend/app.js:2301"
+      - "frontend/app.js:3341"
+      - "frontend/partner-app.js:3587"
+      - "frontend/partner-app.js:5532"
+      - "frontend/partner-app.js:7731"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0174"
+    method: "GET"
+    path: "/api/packages/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12456
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0175"
+    method: "POST"
+    path: "/api/packages"
+    sourceFile: "backend/server.js"
+    sourceLine: 12481
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:12700"
+      - "frontend/admin-app.js:4052"
+      - "frontend/admin-app.js:6970"
+      - "frontend/admin-app.js:7423"
+      - "frontend/app.js:2301"
+      - "frontend/app.js:3341"
+      - "frontend/partner-app.js:3587"
+      - "frontend/partner-app.js:5532"
+      - "frontend/partner-app.js:7731"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0176"
+    method: "PUT"
+    path: "/api/packages/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12500
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0177"
+    method: "DELETE"
+    path: "/api/packages/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12511
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0178"
+    method: "PATCH"
+    path: "/api/packages/:id/publish"
+    sourceFile: "backend/server.js"
+    sourceLine: 12529
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0179"
+    method: "GET"
+    path: "/api/products"
+    sourceFile: "backend/server.js"
+    sourceLine: 12543
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:771"
+      - "frontend/app.js:481"
+      - "frontend/partner-app.js:728"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0180"
+    method: "GET"
+    path: "/api/products/stats"
+    sourceFile: "backend/server.js"
+    sourceLine: 12569
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:6971"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0181"
+    method: "GET"
+    path: "/api/products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12597
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0182"
+    method: "POST"
+    path: "/api/products"
+    sourceFile: "backend/server.js"
+    sourceLine: 12618
+    targetModule: "产品管理"
+    frontendCallers:
+      - "frontend/admin-app.js:771"
+      - "frontend/app.js:481"
+      - "frontend/partner-app.js:728"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0183"
+    method: "PUT"
+    path: "/api/products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12632
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0184"
+    method: "DELETE"
+    path: "/api/products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 12643
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0185"
+    method: "PATCH"
+    path: "/api/products/:id/publish"
+    sourceFile: "backend/server.js"
+    sourceLine: 12661
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0186"
+    method: "POST"
+    path: "/api/products/batch-publish"
+    sourceFile: "backend/server.js"
+    sourceLine: 12673
+    targetModule: "产品管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0187"
+    method: "GET"
+    path: "/api/oauth/config"
+    sourceFile: "backend/server.js"
+    sourceLine: 12855
+    targetModule: "登录认证"
+    frontendCallers:
+      - "frontend/partner-app.js:339"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0188"
+    method: "GET"
+    path: "/api/oauth/authorize"
+    sourceFile: "backend/server.js"
+    sourceLine: 12865
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0189"
+    method: "GET"
+    path: "/api/oauth/callback"
+    sourceFile: "backend/server.js"
+    sourceLine: 12892
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+  - id: "API-0190"
+    method: "GET"
+    path: "/api/oauth/userinfo"
+    sourceFile: "backend/server.js"
+    sourceLine: 12958
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0191"
+    method: "POST"
+    path: "/api/oauth/logout"
+    sourceFile: "backend/server.js"
+    sourceLine: 12989
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+  - id: "API-0192"
+    method: "GET"
+    path: "/api/company-search"
+    sourceFile: "backend/server.js"
+    sourceLine: 13045
+    targetModule: "企业查询"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+      - "包含文件、导入导出或同步写入操作，需要任务化和资源限制"
+  - id: "API-0193"
+    method: "GET"
+    path: "/api/export/:type"
+    sourceFile: "backend/server.js"
+    sourceLine: 14192
+    targetModule: "导入导出"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "包含文件、导入导出或同步写入操作，需要任务化和资源限制"
+  - id: "API-0194"
+    method: "GET"
+    path: "/api/import/:type/template"
+    sourceFile: "backend/server.js"
+    sourceLine: 14262
+    targetModule: "导入导出"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "包含文件、导入导出或同步写入操作，需要任务化和资源限制"
+  - id: "API-0195"
+    method: "POST"
+    path: "/api/import/:type/preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 14377
+    targetModule: "导入导出"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "包含文件、导入导出或同步写入操作，需要任务化和资源限制"
+  - id: "API-0196"
+    method: "POST"
+    path: "/api/import/:type/execute"
+    sourceFile: "backend/server.js"
+    sourceLine: 14458
+    targetModule: "导入导出"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "未发现统一服务端鉴权中间件，需要阶段3重建"
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "接口片段涉及密码字段，需要迁移为哈希和最小返回"
+      - "包含文件、导入导出或同步写入操作，需要任务化和资源限制"
+  - id: "API-0197"
+    method: "GET"
+    path: "/api/open/v1/${pathName}"
+    sourceFile: "backend/server.js"
+    sourceLine: 16982
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "动态注册路由，需要在阶段4展开为明确契约"
+  - id: "API-0198"
+    method: "GET"
+    path: "/api/open/v1/${pathName}/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 16991
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+      - "动态注册路由，需要在阶段4展开为明确契约"
+  - id: "API-0199"
+    method: "GET"
+    path: "/api/open-api/overview"
+    sourceFile: "backend/server.js"
+    sourceLine: 17182
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "frontend/admin-app.js:15819"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0200"
+    method: "GET"
+    path: "/api/open-api/docs"
+    sourceFile: "backend/server.js"
+    sourceLine: 17209
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0201"
+    method: "GET"
+    path: "/api/open-api/docs/:id/download"
+    sourceFile: "backend/server.js"
+    sourceLine: 17213
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0202"
+    method: "GET"
+    path: "/api/open-api/clients"
+    sourceFile: "backend/server.js"
+    sourceLine: 17229
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "frontend/admin-app.js:15837"
+      - "frontend/admin-app.js:15928"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0203"
+    method: "POST"
+    path: "/api/open-api/clients"
+    sourceFile: "backend/server.js"
+    sourceLine: 17242
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "frontend/admin-app.js:15837"
+      - "frontend/admin-app.js:15928"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0204"
+    method: "PUT"
+    path: "/api/open-api/clients/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17282
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0205"
+    method: "POST"
+    path: "/api/open-api/clients/:id/reset-secret"
+    sourceFile: "backend/server.js"
+    sourceLine: 17307
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0206"
+    method: "GET"
+    path: "/api/open-api/logs"
+    sourceFile: "backend/server.js"
+    sourceLine: 17329
+    targetModule: "开放接口管理"
+    frontendCallers:
+      - "frontend/admin-app.js:15847"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0207"
+    method: "POST"
+    path: "/api/open/v1/auth/token"
+    sourceFile: "backend/server.js"
+    sourceLine: 17345
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0208"
+    method: "GET"
+    path: "/api/open/v1/auth/me"
+    sourceFile: "backend/server.js"
+    sourceLine: 17416
+    targetModule: "登录认证"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0209"
+    method: "GET"
+    path: "/api/open/v1/meta/permission-scope"
+    sourceFile: "backend/server.js"
+    sourceLine: 17423
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0210"
+    method: "GET"
+    path: "/api/open/v1/meta/dictionaries"
+    sourceFile: "backend/server.js"
+    sourceLine: 17427
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0211"
+    method: "GET"
+    path: "/api/open/v1/users"
+    sourceFile: "backend/server.js"
+    sourceLine: 17431
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0212"
+    method: "GET"
+    path: "/api/open/v1/users/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17448
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0213"
+    method: "GET"
+    path: "/api/open/v1/partners"
+    sourceFile: "backend/server.js"
+    sourceLine: 17454
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0214"
+    method: "GET"
+    path: "/api/open/v1/partners/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17471
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0215"
+    method: "GET"
+    path: "/api/open/v1/registrations"
+    sourceFile: "backend/server.js"
+    sourceLine: 17477
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0216"
+    method: "GET"
+    path: "/api/open/v1/registrations/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17493
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0217"
+    method: "GET"
+    path: "/api/open/v1/opportunities"
+    sourceFile: "backend/server.js"
+    sourceLine: 17499
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0218"
+    method: "GET"
+    path: "/api/open/v1/opportunities/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17516
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0219"
+    method: "GET"
+    path: "/api/open/v1/quotes"
+    sourceFile: "backend/server.js"
+    sourceLine: 17522
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0220"
+    method: "GET"
+    path: "/api/open/v1/quotes/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17538
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0221"
+    method: "GET"
+    path: "/api/open/v1/orders"
+    sourceFile: "backend/server.js"
+    sourceLine: 17544
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0222"
+    method: "GET"
+    path: "/api/open/v1/orders/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17560
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0223"
+    method: "GET"
+    path: "/api/open/v1/identity/users/:userId"
+    sourceFile: "backend/server.js"
+    sourceLine: 17566
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0224"
+    method: "GET"
+    path: "/api/open/v1/diagnostics/self-check"
+    sourceFile: "backend/server.js"
+    sourceLine: 17577
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0225"
+    method: "GET"
+    path: "/api/open/v1/analytics/:resource/summary"
+    sourceFile: "backend/server.js"
+    sourceLine: 17581
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0226"
+    method: "GET"
+    path: "/api/open/v1/analytics/business-overview"
+    sourceFile: "backend/server.js"
+    sourceLine: 17608
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0227"
+    method: "GET"
+    path: "/api/open/v1/analytics/funnel"
+    sourceFile: "backend/server.js"
+    sourceLine: 17648
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0228"
+    method: "GET"
+    path: "/api/open/v1/analytics/funnel/registration-opportunity-order"
+    sourceFile: "backend/server.js"
+    sourceLine: 17679
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0229"
+    method: "GET"
+    path: "/api/open/v1/analytics/partners/profile"
+    sourceFile: "backend/server.js"
+    sourceLine: 17710
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0230"
+    method: "GET"
+    path: "/api/open/v1/analytics/technical-service-providers/profile"
+    sourceFile: "backend/server.js"
+    sourceLine: 17718
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0231"
+    method: "GET"
+    path: "/api/open/v1/analytics/tech-service-providers/profile"
+    sourceFile: "backend/server.js"
+    sourceLine: 17718
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0232"
+    method: "GET"
+    path: "/api/open/v1/analytics/partners/contribution"
+    sourceFile: "backend/server.js"
+    sourceLine: 17734
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0233"
+    method: "GET"
+    path: "/api/open/v1/analytics/technical-service-providers/contribution"
+    sourceFile: "backend/server.js"
+    sourceLine: 17753
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0234"
+    method: "GET"
+    path: "/api/open/v1/analytics/tech-service-providers/contribution"
+    sourceFile: "backend/server.js"
+    sourceLine: 17753
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0235"
+    method: "GET"
+    path: "/api/open/v1/analytics/regions/contribution"
+    sourceFile: "backend/server.js"
+    sourceLine: 17777
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0236"
+    method: "GET"
+    path: "/api/open/v1/analytics/owners/contribution"
+    sourceFile: "backend/server.js"
+    sourceLine: 17796
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0237"
+    method: "GET"
+    path: "/api/open/v1/categories"
+    sourceFile: "backend/server.js"
+    sourceLine: 17836
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0238"
+    method: "GET"
+    path: "/api/open/v1/categories/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17846
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0239"
+    method: "GET"
+    path: "/api/open/v1/modules"
+    sourceFile: "backend/server.js"
+    sourceLine: 17852
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0240"
+    method: "GET"
+    path: "/api/open/v1/modules/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17864
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0241"
+    method: "GET"
+    path: "/api/open/v1/features"
+    sourceFile: "backend/server.js"
+    sourceLine: 17870
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0242"
+    method: "GET"
+    path: "/api/open/v1/features/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17882
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0243"
+    method: "GET"
+    path: "/api/open/v1/hardware"
+    sourceFile: "backend/server.js"
+    sourceLine: 17888
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0244"
+    method: "GET"
+    path: "/api/open/v1/hardware/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17898
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0245"
+    method: "GET"
+    path: "/api/open/v1/packages"
+    sourceFile: "backend/server.js"
+    sourceLine: 17904
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0246"
+    method: "GET"
+    path: "/api/open/v1/packages/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17914
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0247"
+    method: "GET"
+    path: "/api/open/v1/products"
+    sourceFile: "backend/server.js"
+    sourceLine: 17920
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0248"
+    method: "GET"
+    path: "/api/open/v1/products/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 17930
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0249"
+    method: "GET"
+    path: "/api/open/v1/product-tree"
+    sourceFile: "backend/server.js"
+    sourceLine: 17986
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0250"
+    method: "GET"
+    path: "/api/open/v1/product-stats"
+    sourceFile: "backend/server.js"
+    sourceLine: 17991
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0251"
+    method: "GET"
+    path: "/api/open/v1/dashboard-stats"
+    sourceFile: "backend/server.js"
+    sourceLine: 17995
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0252"
+    method: "GET"
+    path: "/api/open/v1/channel-operations-overview"
+    sourceFile: "backend/server.js"
+    sourceLine: 17999
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0253"
+    method: "GET"
+    path: "/api/open/v1/audit-logs"
+    sourceFile: "backend/server.js"
+    sourceLine: 18007
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "存在从请求读取操作者、角色或数据范围的逻辑，需要核对是否信任前端"
+  - id: "API-0254"
+    method: "GET"
+    path: "/api/open/v1/audit-logs/:id"
+    sourceFile: "backend/server.js"
+    sourceLine: 18033
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "列表接口未明显发现强制分页或上限"
+  - id: "API-0255"
+    method: "GET"
+    path: "/api/open/v1/company-search"
+    sourceFile: "backend/server.js"
+    sourceLine: 18040
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0256"
+    method: "POST"
+    path: "/api/open/v1/quotes/workload-preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 18049
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"
+  - id: "API-0257"
+    method: "POST"
+    path: "/api/open/v1/ipg/quote-preview"
+    sourceFile: "backend/server.js"
+    sourceLine: 18054
+    targetModule: "开放接口"
+    frontendCallers:
+      - "待确认"
+    risks:
+      - "阶段0未识别到明显风险，仍需人工复核"

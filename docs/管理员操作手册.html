@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理员操作手册 — 联软渠道管理平台 v2.2.0</title>
+  <style>
+    :root {
+      --primary: #1a6fcf;
+      --primary-dark: #145aab;
+      --primary-light: #e8f1fb;
+      --success: #18a058;
+      --warning: #f0a020;
+      --danger: #d03050;
+      --purple: #7c3aed;
+      --text: #2c3e50;
+      --text-light: #606266;
+      --border: #dcdfe6;
+      --bg: #f2f6fc;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    /* 顶部导航 */
+    .topbar {
+      background: linear-gradient(90deg, #1a3a6c, #1a6fcf);
+      color: #fff;
+      padding: 0 32px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .topbar-brand { font-size: 18px; font-weight: 600; }
+    .topbar-sub { font-size: 13px; opacity: .85; }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,.25);
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 12px;
+    }
+    .badge-admin { background: rgba(255,200,0,.3); }
+    /* 布局 */
+    .layout { display: flex; max-width: 1200px; margin: 0 auto; padding: 32px 16px; gap: 24px; }
+    /* 侧边目录 */
+    .sidebar {
+      width: 230px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 76px;
+      align-self: flex-start;
+    }
+    .toc {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .toc-title { font-size: 12px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
+    .toc a { display: block; padding: 5px 8px; font-size: 13px; color: var(--text-light); text-decoration: none; border-radius: 4px; transition: all .2s; }
+    .toc a:hover { background: var(--primary-light); color: var(--primary); }
+    .toc-group { font-size: 11px; color: #aaa; padding: 8px 8px 2px; font-weight: 700; text-transform: uppercase; margin-top: 4px; }
+    /* 主内容 */
+    .main { flex: 1; min-width: 0; }
+    /* 封面 */
+    .cover {
+      background: linear-gradient(135deg, #1a3a6c 0%, #1a6fcf 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 40px 36px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(26,58,108,.35);
+    }
+    .cover h1 { font-size: 26px; margin-bottom: 8px; }
+    .cover p { opacity: .85; font-size: 14px; }
+    .cover-meta { display: flex; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
+    .cover-meta span {
+      background: rgba(255,255,255,.18);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 13px;
+    }
+    .cover-warn {
+      margin-top: 20px;
+      background: rgba(255,180,0,.25);
+      border: 1px solid rgba(255,200,0,.4);
+      border-radius: 6px;
+      padding: 10px 16px;
+      font-size: 13px;
+    }
+    /* 卡片 */
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 28px 32px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .card h2 {
+      font-size: 18px;
+      color: var(--primary);
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--primary-light);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card h3 { font-size: 15px; color: var(--text); margin: 20px 0 12px; font-weight: 600; }
+    /* 步骤 */
+    .steps { margin: 8px 0; }
+    .step { display: flex; gap: 14px; margin-bottom: 12px; align-items: flex-start; }
+    .step-num {
+      width: 26px; height: 26px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+      flex-shrink: 0; margin-top: 2px;
+    }
+    .step-content { flex: 1; font-size: 14px; }
+    /* 表格 */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+    th { background: var(--primary-light); color: var(--primary); font-weight: 600; padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+    td { padding: 9px 14px; border: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #fafcff; }
+    /* 提示框 */
+    .alert { padding: 12px 16px; border-radius: 6px; font-size: 14px; margin: 12px 0; }
+    .alert-info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+    .alert-warn { background: #fff8e6; border-left: 4px solid var(--warning); }
+    .alert-danger { background: #fff0f0; border-left: 4px solid var(--danger); }
+    .alert-success { background: #f0faf0; border-left: 4px solid var(--success); }
+    /* 流程图 */
+    .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 14px 0; padding: 14px 18px; background: var(--bg); border-radius: 6px; }
+    .flow-step { background: var(--primary); color: #fff; padding: 6px 14px; border-radius: 4px; font-size: 13px; }
+    .flow-step.branch { background: var(--warning); }
+    .flow-arrow { color: var(--text-light); font-size: 18px; }
+    /* 状态标签 */
+    .tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+    .tag-blue { background: var(--primary-light); color: var(--primary); }
+    .tag-green { background: #f0faf0; color: var(--success); }
+    .tag-red { background: #fff0f0; color: var(--danger); }
+    .tag-gray { background: #f5f5f5; color: #888; }
+    .tag-gold { background: #fffaeb; color: #b45309; }
+    .tag-purple { background: #f5f3ff; color: var(--purple); }
+    /* 权限矩阵 */
+    .perm-yes { color: var(--success); font-weight: 700; }
+    .perm-no  { color: var(--danger);  font-weight: 700; }
+    /* 代码块 */
+    pre {
+      background: #1e2433;
+      color: #c8d3f5;
+      padding: 16px 20px;
+      border-radius: 8px;
+      font-family: "Consolas", "Monaco", monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      margin: 12px 0;
+      line-height: 1.6;
+    }
+    code {
+      background: #f0f4f8;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: "Consolas", "Monaco", monospace;
+      font-size: 13px;
+      color: #c0392b;
+    }
+    /* 账号表格特殊 */
+    .account-table td:nth-child(2) { font-family: monospace; color: var(--danger); }
+    /* FAQ */
+    .faq-item { margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+    .faq-item:last-child { border-bottom: none; }
+    .faq-q { font-weight: 600; color: var(--primary); margin-bottom: 6px; }
+    .faq-a { color: var(--text-light); font-size: 14px; padding-left: 16px; }
+    /* 分节标题 */
+    .section-label {
+      display: inline-block;
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+    /* 页脚 */
+    footer { text-align: center; padding: 24px; font-size: 13px; color: var(--text-light); }
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .layout { padding: 16px 12px; }
+      .card { padding: 20px 16px; }
+      .cover { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">🛡️ 联软渠道管理平台</div>
+  <div class="topbar-sub">管理员操作手册 <span class="badge badge-admin">Admin</span></div>
+</div>
+
+<div class="layout">
+  <!-- 侧边目录 -->
+  <aside class="sidebar">
+    <div class="toc">
+      <div class="toc-title">目录</div>
+      <div class="toc-group">基础</div>
+      <a href="#roles">一、角色权限说明</a>
+      <a href="#login">二、登录系统</a>
+      <a href="#dashboard">三、管理后台概览</a>
+      <div class="toc-group">日常管理</div>
+      <a href="#partner">四、渠道商管理</a>
+      <a href="#user">五、用户管理</a>
+      <a href="#opp">六、商机审批</a>
+      <a href="#quote">七、报价管理</a>
+      <a href="#order">八、订单管理</a>
+      <div class="toc-group">超管专属</div>
+      <a href="#product">九、产品管理</a>
+      <a href="#sysset">十、系统设置</a>
+      <div class="toc-group">运维</div>
+      <a href="#ops">十一、日常运维</a>
+      <a href="#faq">十二、常见问题</a>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+
+    <!-- 封面 -->
+    <div class="cover">
+      <h1>管理员操作手册</h1>
+      <p>联软安全渠道管理平台 — 管理员使用指南</p>
+      <div class="cover-meta">
+        <span>📦 版本：v2.2.0</span>
+        <span>👤 适用角色：超级管理员 / 区域管理员</span>
+        <span>📅 2026-04</span>
+      </div>
+      <div class="cover-warn">⚠️ 初始账号信息请联系系统部署人员获取，上线后请立即修改密码！</div>
+    </div>
+
+    <!-- 一、角色权限 -->
+    <div class="card" id="roles">
+      <h2>🔑 一、角色权限说明</h2>
+      <p style="margin-bottom:14px">系统共三个角色，权限逐级递减：</p>
+      <table>
+        <thead><tr><th>角色</th><th>说明</th><th>权限范围</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag tag-red">超级管理员</span></td><td>联软科技总部管理员</td><td>全部数据、全部区域、系统设置</td></tr>
+          <tr><td><span class="tag tag-blue">区域管理员</span></td><td>各区域负责人</td><td>仅限本区域的渠道商、商机、订单</td></tr>
+          <tr><td><span class="tag tag-gray">渠道伙伴员工</span></td><td>渠道商的销售人员</td><td>仅限本渠道商的数据</td></tr>
+        </tbody>
+      </table>
+
+      <h3>功能权限对比</h3>
+      <table>
+        <thead><tr><th>功能模块</th><th>超级管理员</th><th>区域管理员</th></tr></thead>
+        <tbody>
+          <tr><td>仪表盘</td><td class="perm-yes">✅ 全局</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>渠道商管理</td><td class="perm-yes">✅ 全部</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>用户管理</td><td class="perm-yes">✅ 全部</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>商机审批</td><td class="perm-yes">✅</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>报价管理</td><td class="perm-yes">✅</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>订单管理</td><td class="perm-yes">✅</td><td class="perm-yes">✅ 仅本区</td></tr>
+          <tr><td>产品管理</td><td class="perm-yes">✅</td><td class="perm-no">❌</td></tr>
+          <tr><td>系统设置</td><td class="perm-yes">✅</td><td class="perm-no">❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 二、登录 -->
+    <div class="card" id="login">
+      <h2>🔐 二、登录系统</h2>
+      <p style="margin-bottom:12px"><strong>访问地址：</strong><code>http://服务器IP:8080/login.html</code></p>
+      <p style="margin-bottom:14px">管理员账号登录后自动跳转到管理后台（<code>admin.html</code>）</p>
+
+      <div class="alert alert-warn">⚠️ 初始账号信息请联系系统部署人员获取，上线后请立即修改密码！</div>
+    </div>
+
+    <!-- 三、主界面 -->
+    <div class="card" id="dashboard">
+      <h2>🏠 三、管理后台概览</h2>
+      <table>
+        <thead><tr><th>菜单</th><th>功能说明</th><th>超管</th><th>区管</th></tr></thead>
+        <tbody>
+          <tr><td>仪表盘</td><td>全局数据统计和概览</td><td class="perm-yes">✅</td><td>✅ 仅本区</td></tr>
+          <tr><td>渠道商管理</td><td>新增/编辑/禁用渠道伙伴</td><td class="perm-yes">✅ 全部</td><td>✅ 仅本区</td></tr>
+          <tr><td>用户管理</td><td>管理员工账号</td><td class="perm-yes">✅ 全部</td><td>✅ 仅本区</td></tr>
+          <tr><td>商机审批</td><td>审批渠道商提交的商机</td><td class="perm-yes">✅</td><td>✅ 仅本区</td></tr>
+          <tr><td>报价管理</td><td>查看所有报价单</td><td class="perm-yes">✅</td><td>✅ 仅本区</td></tr>
+          <tr><td>订单管理</td><td>审批和管理订单</td><td class="perm-yes">✅</td><td>✅ 仅本区</td></tr>
+          <tr><td>产品管理</td><td>维护产品目录和价格</td><td class="perm-yes">✅</td><td class="perm-no">❌</td></tr>
+          <tr><td>系统设置</td><td>区域配置、系统参数</td><td class="perm-yes">✅</td><td class="perm-no">❌</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 四、渠道商管理 -->
+    <div class="card" id="partner">
+      <h2>🏢 四、渠道商管理</h2>
+
+      <h3>4.1 新增渠道商</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击左侧 <strong>「渠道商管理」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">点击 <strong>「新增渠道商」</strong></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">填写信息（见下表）</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">点击 <strong>「保存」</strong></div></div>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>说明</th><th>必填</th></tr></thead>
+        <tbody>
+          <tr><td>渠道商名称</td><td>公司全称</td><td>✅</td></tr>
+          <tr><td>渠道等级</td><td>银牌 / 金牌 / 钻石</td><td>✅</td></tr>
+          <tr><td>所属大区</td><td>大北区 / 大东区 / 大南区 等</td><td>✅</td></tr>
+          <tr><td>所属区域</td><td>更细分的区域</td><td>✅</td></tr>
+          <tr><td>联系人</td><td>渠道商主要联系人</td><td>✅</td></tr>
+          <tr><td>联系电话</td><td>—</td><td>✅</td></tr>
+          <tr><td>邮箱</td><td>—</td><td>选填</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.2 渠道商等级</h3>
+      <table>
+        <thead><tr><th>等级</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag tag-gray">银牌 silver</span></td><td>普通渠道伙伴</td></tr>
+          <tr><td><span class="tag tag-gold">金牌 gold</span></td><td>核心渠道伙伴</td></tr>
+          <tr><td><span class="tag tag-purple">钻石 diamond</span></td><td>顶级渠道伙伴，享受最优折扣</td></tr>
+        </tbody>
+      </table>
+
+      <h3>4.3 禁用 / 启用渠道商</h3>
+      <p style="font-size:14px">点击 <strong>「禁用」</strong> → 该渠道商员工将无法登录；点击 <strong>「启用」</strong> 恢复。</p>
+      <div class="alert alert-info">💡 禁用渠道商不会删除其历史数据。</div>
+    </div>
+
+    <!-- 五、用户管理 -->
+    <div class="card" id="user">
+      <h2>👤 五、用户管理</h2>
+
+      <h3>5.1 新增员工账号</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击 <strong>「用户管理」</strong> → <strong>「新增用户」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">填写用户名（登录账号，英文+数字，不可重复）、姓名、所属渠道商</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">角色选 <strong>staff（渠道员工）</strong>，设置初始密码并告知用户</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">点击 <strong>「保存」</strong></div></div>
+      </div>
+
+      <h3>5.2 重置密码</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">找到对应用户，点击 <strong>「重置密码」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">输入新密码后告知用户</div></div>
+      </div>
+
+      <h3>5.3 禁用 / 删除账号</h3>
+      <table>
+        <thead><tr><th>操作</th><th>效果</th><th>建议</th></tr></thead>
+        <tbody>
+          <tr><td><strong>禁用</strong></td><td>用户无法登录，数据保留</td><td>员工离职时优先使用</td></tr>
+          <tr><td><strong>删除</strong></td><td>彻底删除，不可恢复</td><td>⚠️ 谨慎操作</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 六、商机审批 -->
+    <div class="card" id="opp">
+      <h2>✅ 六、商机审批</h2>
+
+      <h3>审批流程</h3>
+      <div class="flow">
+        <span class="flow-step">渠道员工提交</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">区域管理员审批</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step branch">通过</span>
+        <span class="flow-arrow">/</span>
+        <span class="flow-step" style="background:var(--danger)">拒绝</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">员工收到结果</span>
+      </div>
+
+      <h3>审批操作</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击左侧 <strong>「商机审批」</strong> 或仪表盘上的「待审批」角标</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">查看待审批商机列表，点击商机名称查看详情（客户信息、预计金额、描述）</div></div>
+        <div class="step"><div class="step-num">3</div>
+          <div class="step-content">
+            点击 <strong>「通过」</strong> → 商机正式锁定，同客户后续不接受其他渠道商重复提交<br>
+            点击 <strong>「拒绝」</strong> → 填写拒绝原因，返回给渠道员工
+          </div>
+        </div>
+      </div>
+
+      <div class="alert alert-info">💡 重复商机处理：先提交且审批通过者优先；特殊情况下超级管理员可手动干预。</div>
+    </div>
+
+    <!-- 七、报价管理 -->
+    <div class="card" id="quote">
+      <h2>📄 七、报价管理</h2>
+
+      <h3>7.1 查看报价单</h3>
+      <p style="font-size:14px">点击 <strong>「报价管理」</strong>，可按渠道商、客户名称、时间筛选，点击报价单查看产品明细、金额、有效期等。</p>
+
+      <h3>7.2 报价审批</h3>
+      <p style="font-size:14px">报价金额超出权限时需管理员审批：在报价单详情页点击 <strong>「审批通过」</strong> 或 <strong>「审批拒绝」</strong>（拒绝需填写原因）。</p>
+    </div>
+
+    <!-- 八、订单管理 -->
+    <div class="card" id="order">
+      <h2>📦 八、订单管理</h2>
+
+      <h3>8.1 订单审批</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击 <strong>「订单管理」</strong> → <strong>「待审批」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">查看订单详情（产品、金额、渠道商信息）</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">点击 <strong>「确认成单」</strong> 或 <strong>「退回修改」</strong></div></div>
+      </div>
+
+      <h3>8.2 订单状态流转</h3>
+      <div class="flow">
+        <span class="flow-step">待审批</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">已确认</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">执行中</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step" style="background:var(--success)">已完成</span>
+        <span style="color:#999;font-size:13px;margin-left:8px">（也可 → <span style="color:var(--danger)">已取消</span>）</span>
+      </div>
+    </div>
+
+    <!-- 九、产品管理（超管）-->
+    <div class="card" id="product">
+      <h2>🗂️ 九、产品管理 <span class="section-label">仅超级管理员</span></h2>
+
+      <h3>9.1 产品目录结构（三级）</h3>
+      <pre>产品大类（如：联软ESPP企业安全监测保护平台）
+  └── 产品模块（如：桌面安全管理、防泄密、防勒索、准入控制）
+        └── 功能模块（具体可售项目，含产品编码和价格）</pre>
+
+      <h3>9.2 添加新产品</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击 <strong>「产品管理」</strong>，选择对应大类和模块</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">点击 <strong>「新增功能模块」</strong></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">填写：功能名称、产品编码（如 <code>UA-AM-1</code>）、计费单位（端点/套/年）、定价类型（阶梯 or 固定）、各阶梯价格、折扣系数</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">保存后对渠道商端立即生效</div></div>
+      </div>
+
+      <h3>9.3 修改价格</h3>
+      <p style="font-size:14px">找到对应功能模块 → 点击 <strong>「编辑」</strong> → 修改后保存。</p>
+      <div class="alert alert-warn">⚠️ 价格修改立即生效，但不影响已生成的报价单。</div>
+
+      <h3>9.4 下架产品</h3>
+      <p style="font-size:14px">点击功能模块的 <strong>「下架」</strong>，渠道商报价单中将不再显示该产品。</p>
+    </div>
+
+    <!-- 十、系统设置（超管）-->
+    <div class="card" id="sysset">
+      <h2>⚙️ 十、系统设置 <span class="section-label">仅超级管理员</span></h2>
+
+      <h3>10.1 大区和区域管理</h3>
+      <p style="font-size:14px">可在系统设置中增加/修改大区和区域划分，新增区域后为其分配区域管理员。</p>
+
+      <h3>10.2 数据备份（重要！）</h3>
+      <div class="alert alert-danger">⚠️ 系统所有数据存储在 <code>backend/data.json</code>，文件丢失则数据全部消失！必须定期备份。</div>
+      <p style="font-size:14px;margin-bottom:8px"><strong>手动备份：</strong></p>
+      <pre>cp /opt/lianruan-crm-deploy-v2.2.0/backend/data.json \
+   /opt/backup/data_$(date +%Y%m%d_%H%M%S).json</pre>
+      <p style="font-size:14px;margin:8px 0"><strong>配置每日自动备份（crontab）：</strong></p>
+      <pre># 编辑定时任务
+crontab -e
+
+# 每天凌晨2点备份，保留30天
+0 2 * * * cp /opt/lianruan-crm-deploy-v2.2.0/backend/data.json \
+  /opt/backup/data_$(date +\%Y\%m\%d).json \
+  && find /opt/backup/ -name "data_*.json" -mtime +30 -delete</pre>
+    </div>
+
+    <!-- 十一、日常运维 -->
+    <div class="card" id="ops">
+      <h2>🖥️ 十一、日常运维</h2>
+
+      <h3>服务管理命令（Linux 服务器）</h3>
+      <table>
+        <thead><tr><th>操作</th><th>命令</th></tr></thead>
+        <tbody>
+          <tr><td>查看服务状态</td><td><code>bash scripts/start.sh status</code></td></tr>
+          <tr><td>启动服务</td><td><code>bash scripts/start.sh start</code></td></tr>
+          <tr><td>停止服务</td><td><code>bash scripts/start.sh stop</code></td></tr>
+          <tr><td>重启服务</td><td><code>bash scripts/start.sh restart</code></td></tr>
+          <tr><td>查看日志</td><td><code>bash scripts/start.sh logs</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>服务端口</h3>
+      <table>
+        <thead><tr><th>服务</th><th>端口</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>前端 Web</td><td><code>8080</code></td><td>用户访问入口</td></tr>
+          <tr><td>后端 API</td><td><code>3000</code></td><td>前端数据接口</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 十二、FAQ -->
+    <div class="card" id="faq">
+      <h2>❓ 十二、常见问题</h2>
+
+      <div class="faq-item">
+        <div class="faq-q">Q：渠道员工反映无法登录？</div>
+        <div class="faq-a">检查账号状态是否「启用」、所属渠道商是否被禁用、密码是否正确。可在用户管理中重置密码。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：如何导出所有渠道商数据？</div>
+        <div class="faq-a">当前版本暂无导出功能。可直接备份 <code>backend/data.json</code>，用文本编辑器或 Excel 处理 JSON 数据。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：商机重复导致渠道商纠纷？</div>
+        <div class="faq-a">以系统登记时间为准，先提交且审批通过的渠道商享有独家权益，超级管理员可查看完整提交时间记录。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：忘记超级管理员密码？</div>
+        <div class="faq-a">在服务器上直接编辑 <code>backend/data.json</code>，找到 <code>username: "admin"</code> 的记录，将 <code>password</code> 字段改为新密码，然后重启服务。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：服务器重启后系统不能访问？</div>
+        <div class="faq-a">需要手动重新启动服务：<code>bash scripts/start.sh start</code>。建议配置 systemd 开机自启，请联系技术支持。</div>
+      </div>
+    </div>
+
+    <footer>如需技术支持，请联系联软科技实施团队。</footer>
+  </main>
+</div>
+
+</body>
+</html>

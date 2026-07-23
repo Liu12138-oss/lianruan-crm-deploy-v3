@@ -1,0 +1,38 @@
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:16-alpine
+    container_name: lianruan-crm-v3-postgres
+    environment:
+      POSTGRES_DB: lianruan_crm_v3
+      POSTGRES_USER: lianruan
+      POSTGRES_PASSWORD: lianruan_dev_password
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lianruan -d lianruan_crm_v3"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: public.ecr.aws/docker/library/redis:7-alpine
+    container_name: lianruan-crm-v3-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "lianruan_dev_redis"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "lianruan_dev_redis", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户操作手册（渠道伙伴）— 联软渠道管理平台 v2.2.0</title>
+  <style>
+    :root {
+      --primary: #1a6fcf;
+      --primary-light: #e8f1fb;
+      --success: #18a058;
+      --warning: #f0a020;
+      --danger: #d03050;
+      --text: #2c3e50;
+      --text-light: #606266;
+      --border: #dcdfe6;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+    /* 顶部导航 */
+    .topbar {
+      background: var(--primary);
+      color: #fff;
+      padding: 0 32px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .topbar-brand { font-size: 18px; font-weight: 600; }
+    .topbar-sub { font-size: 13px; opacity: .85; }
+    .badge {
+      display: inline-block;
+      background: rgba(255,255,255,.25);
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 12px;
+    }
+    /* 布局 */
+    .layout { display: flex; max-width: 1100px; margin: 0 auto; padding: 32px 16px; gap: 24px; }
+    /* 侧边目录 */
+    .sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      position: sticky;
+      top: 76px;
+      align-self: flex-start;
+    }
+    .toc {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+    .toc-title { font-size: 12px; color: var(--text-light); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
+    .toc a { display: block; padding: 5px 8px; font-size: 13px; color: var(--text-light); text-decoration: none; border-radius: 4px; transition: all .2s; }
+    .toc a:hover { background: var(--primary-light); color: var(--primary); }
+    /* 主内容 */
+    .main { flex: 1; min-width: 0; }
+    /* 封面 */
+    .cover {
+      background: linear-gradient(135deg, var(--primary) 0%, #2980d9 100%);
+      color: #fff;
+      border-radius: 12px;
+      padding: 40px 36px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 16px rgba(26,111,207,.3);
+    }
+    .cover h1 { font-size: 26px; margin-bottom: 8px; }
+    .cover p { opacity: .85; font-size: 14px; }
+    .cover-meta { display: flex; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
+    .cover-meta span {
+      background: rgba(255,255,255,.2);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 13px;
+    }
+    /* 卡片 */
+    .card {
+      background: var(--card);
+      border-radius: 8px;
+      padding: 28px 32px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .card h2 {
+      font-size: 18px;
+      color: var(--primary);
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--primary-light);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card h3 { font-size: 15px; color: var(--text); margin: 20px 0 12px; }
+    /* 步骤 */
+    .steps { counter-reset: step; }
+    .step {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 14px;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 28px;
+      height: 28px;
+      background: var(--primary);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-content { flex: 1; }
+    /* 表格 */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; margin: 12px 0; }
+    th { background: var(--primary-light); color: var(--primary); font-weight: 600; padding: 10px 14px; text-align: left; border: 1px solid var(--border); }
+    td { padding: 9px 14px; border: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #fafafa; }
+    /* 提示框 */
+    .alert {
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin: 14px 0;
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .alert-info { background: var(--primary-light); border-left: 4px solid var(--primary); }
+    .alert-warn { background: #fff8e6; border-left: 4px solid var(--warning); }
+    .alert-success { background: #f0faf0; border-left: 4px solid var(--success); }
+    /* 流程图 */
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin: 14px 0;
+      padding: 14px 18px;
+      background: var(--bg);
+      border-radius: 6px;
+    }
+    .flow-step {
+      background: var(--primary);
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .flow-arrow { color: var(--text-light); font-size: 18px; }
+    /* 状态标签 */
+    .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tag-blue { background: var(--primary-light); color: var(--primary); }
+    .tag-green { background: #f0faf0; color: var(--success); }
+    .tag-red { background: #fff0f0; color: var(--danger); }
+    .tag-gray { background: #f5f5f5; color: #888; }
+    /* 代码 */
+    code {
+      background: #f0f4f8;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: "Consolas", "Monaco", monospace;
+      font-size: 13px;
+      color: #c0392b;
+    }
+    /* FAQ */
+    .faq-item { margin-bottom: 16px; }
+    .faq-q { font-weight: 600; color: var(--primary); margin-bottom: 4px; }
+    .faq-a { color: var(--text-light); font-size: 14px; padding-left: 16px; }
+    /* 页脚 */
+    footer { text-align: center; padding: 24px; font-size: 13px; color: var(--text-light); }
+    /* 响应式 */
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .layout { padding: 16px 12px; }
+      .card { padding: 20px 16px; }
+      .cover { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">📋 联软渠道管理平台</div>
+  <div class="topbar-sub">用户操作手册 <span class="badge">渠道伙伴</span></div>
+</div>
+
+<div class="layout">
+  <!-- 侧边目录 -->
+  <aside class="sidebar">
+    <div class="toc">
+      <div class="toc-title">目录</div>
+      <a href="#login">一、登录系统</a>
+      <a href="#dashboard">二、主界面说明</a>
+      <a href="#opportunity">三、商机登记</a>
+      <a href="#quotation">四、创建报价单</a>
+      <a href="#order">五、订单管理</a>
+      <a href="#profile">六、个人设置</a>
+      <a href="#mobile">七、手机版使用</a>
+      <a href="#faq">八、常见问题</a>
+    </div>
+  </aside>
+
+  <!-- 主内容 -->
+  <main class="main">
+
+    <!-- 封面 -->
+    <div class="cover">
+      <h1>用户操作手册</h1>
+      <p>联软安全渠道管理平台 — 渠道伙伴员工使用指南</p>
+      <div class="cover-meta">
+        <span>📦 版本：v2.2.0</span>
+        <span>👤 适用角色：渠道伙伴员工</span>
+        <span>📅 2026-04</span>
+      </div>
+    </div>
+
+    <!-- 一、登录 -->
+    <div class="card" id="login">
+      <h2>🔐 一、登录系统</h2>
+      <p style="margin-bottom:14px"><strong>访问地址：</strong><code>http://服务器IP:8080/login.html</code></p>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">打开浏览器，输入访问地址</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">输入用户名和密码（初始密码：<code>123456</code>，请及时修改）</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">点击 <strong>登录</strong> 按钮</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">系统自动识别设备：电脑端 → PC 界面，手机端 → 手机版界面</div></div>
+      </div>
+      <div class="alert alert-info">💡 渠道伙伴员工只能看到本公司的数据，无法查看其他渠道商信息。</div>
+      <div class="alert alert-warn">⚠️ 首次登录后请立即修改初始密码 <code>123456</code>！</div>
+    </div>
+
+    <!-- 二、主界面 -->
+    <div class="card" id="dashboard">
+      <h2>🏠 二、主界面说明</h2>
+      <p style="margin-bottom:14px">登录后进入渠道伙伴主界面，左侧导航包括：</p>
+      <table>
+        <thead><tr><th>菜单</th><th>功能说明</th></tr></thead>
+        <tbody>
+          <tr><td>仪表盘</td><td>查看本公司的商机、报价、订单汇总数据</td></tr>
+          <tr><td>商机登记</td><td>登记新的销售商机</td></tr>
+          <tr><td>我的商机</td><td>查看和跟进已登记的商机</td></tr>
+          <tr><td>报价单</td><td>为客户创建报价单</td></tr>
+          <tr><td>订单管理</td><td>查看已成交的订单</td></tr>
+          <tr><td>个人设置</td><td>修改密码等个人信息</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 三、商机登记 -->
+    <div class="card" id="opportunity">
+      <h2>💼 三、商机登记</h2>
+      <p style="margin-bottom:14px">商机登记用于提前锁定客户，避免同一客户被多个渠道商重复跟进。</p>
+      <h3>操作步骤</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击左侧菜单 <strong>「商机登记」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">点击右上角 <strong>「新建商机」</strong> 按钮</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">填写商机信息（见下表）</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">点击 <strong>「提交」</strong> 按钮</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-content">由区域管理员审批，审批通过后正式锁定商机</div></div>
+      </div>
+      <table>
+        <thead><tr><th>字段</th><th>说明</th><th>是否必填</th></tr></thead>
+        <tbody>
+          <tr><td>客户名称</td><td>最终客户的公司全称</td><td>✅ 必填</td></tr>
+          <tr><td>联系人</td><td>客户方对接人姓名</td><td>✅ 必填</td></tr>
+          <tr><td>联系电话</td><td>客户联系电话</td><td>✅ 必填</td></tr>
+          <tr><td>预计金额</td><td>本次商机预估合同金额（元）</td><td>选填</td></tr>
+          <tr><td>预计签约日期</td><td>预计成交时间</td><td>选填</td></tr>
+          <tr><td>备注</td><td>项目背景、需求描述等</td><td>选填</td></tr>
+        </tbody>
+      </table>
+      <h3>商机状态说明</h3>
+      <table>
+        <thead><tr><th>状态</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag tag-blue">待审批</span></td><td>已提交，等待管理员审核</td></tr>
+          <tr><td><span class="tag tag-green">已登记</span></td><td>审批通过，商机已锁定</td></tr>
+          <tr><td><span class="tag tag-red">已拒绝</span></td><td>管理员拒绝，可查看原因后修改重新提交</td></tr>
+          <tr><td><span class="tag tag-gray">已转单</span></td><td>商机已转化为订单</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 四、报价单 -->
+    <div class="card" id="quotation">
+      <h2>📄 四、创建报价单</h2>
+      <p style="margin-bottom:14px">报价单用于向客户提供正式的产品报价。</p>
+      <h3>操作步骤</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击左侧菜单 <strong>「报价单」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">点击 <strong>「新建报价单」</strong></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">填写基本信息：关联客户（可关联已登记的商机）、报价有效期</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">点击 <strong>「添加产品」</strong>，选择产品大类 → 产品模块 → 具体功能，输入授权数量，系统自动计算单价</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-content">所有产品添加完毕后检查总价</div></div>
+        <div class="step"><div class="step-num">6</div><div class="step-content">点击 <strong>「保存」</strong> 生成报价单</div></div>
+        <div class="step"><div class="step-num">7</div><div class="step-content">可点击 <strong>「导出 PDF」</strong> 生成正式报价文件发给客户</div></div>
+      </div>
+      <h3>产品价格说明（阶梯定价）</h3>
+      <div class="alert alert-info">💡 购买数量越多，单价越低。具体价格以系统显示为准，最终含折扣价格由管理员审批确认。</div>
+      <table>
+        <thead><tr><th>端点数量</th><th>价格级别</th></tr></thead>
+        <tbody>
+          <tr><td>10 – 19</td><td>基础价</td></tr>
+          <tr><td>20 – 49</td><td>略有优惠</td></tr>
+          <tr><td>50 – 99</td><td>中等优惠</td></tr>
+          <tr><td>100 – 199</td><td>较大优惠</td></tr>
+          <tr><td>200 – 500</td><td>最优价格</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 五、订单管理 -->
+    <div class="card" id="order">
+      <h2>📦 五、订单管理</h2>
+      <h3>查看订单</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击左侧菜单 <strong>「订单管理」</strong></div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">可按状态筛选：进行中 / 已完成 / 已取消</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">点击订单号可查看订单详情</div></div>
+      </div>
+      <h3>订单流程</h3>
+      <div class="flow">
+        <span class="flow-step">报价单</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">客户确认</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">提交成单申请</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">管理员审批</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">订单成立</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">执行交付</span>
+      </div>
+    </div>
+
+    <!-- 六、个人设置 -->
+    <div class="card" id="profile">
+      <h2>⚙️ 六、个人设置</h2>
+      <h3>修改密码</h3>
+      <div class="steps">
+        <div class="step"><div class="step-num">1</div><div class="step-content">点击右上角头像或用户名</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-content">选择 <strong>「个人设置」</strong></div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-content">输入原密码</div></div>
+        <div class="step"><div class="step-num">4</div><div class="step-content">输入新密码（建议8位以上，包含字母和数字）</div></div>
+        <div class="step"><div class="step-num">5</div><div class="step-content">确认新密码，点击 <strong>「保存」</strong></div></div>
+      </div>
+      <div class="alert alert-warn">⚠️ 强烈建议首次登录后立即修改初始密码 <code>123456</code>！</div>
+    </div>
+
+    <!-- 七、手机版 -->
+    <div class="card" id="mobile">
+      <h2>📱 七、手机版使用</h2>
+      <p style="margin-bottom:14px">手机浏览器访问系统会自动跳转手机版，支持以下功能：</p>
+      <div class="alert alert-success">
+        <div>
+          ✅ 查看商机列表<br>
+          ✅ 新建/提交商机<br>
+          ✅ 查看报价单<br>
+          ✅ 查看订单状态
+        </div>
+      </div>
+      <div class="alert alert-info">💡 手机版功能略少于 PC 版，完整操作建议使用电脑。</div>
+    </div>
+
+    <!-- 八、FAQ -->
+    <div class="card" id="faq">
+      <h2>❓ 八、常见问题</h2>
+      <div class="faq-item">
+        <div class="faq-q">Q：登录时提示"用户名或密码错误"？</div>
+        <div class="faq-a">确认用户名是否正确，初始密码为 <code>123456</code>。如仍无法登录，请联系管理员重置密码。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：提交商机后长时间没有审批通知？</div>
+        <div class="faq-a">请联系您所在区域的管理员催促审批。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：报价单产品价格如何确认？</div>
+        <div class="faq-a">系统显示的是官方价格体系，最终含折扣价格由管理员审批后确认。</div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q">Q：能否查看其他渠道商的报价？</div>
+        <div class="faq-a">不能，系统按渠道商隔离数据，每个账号只能看到本公司数据。</div>
+      </div>
+    </div>
+
+    <footer>如有其他问题，请联系您的区域管理员或联软科技客户支持。</footer>
+  </main>
+</div>
+
+</body>
+</html>
