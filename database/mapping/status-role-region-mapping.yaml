@@ -1,0 +1,45 @@
+
+# 状态、角色、区域映射草案。未知值不得猜测，必须进入错误分类。
+generatedAt: "2026-07-23"
+roles:
+  superadmin: "总部超级管理员"
+  admin: "区域管理员"
+  partner_admin: "渠道管理员"
+  staff: "渠道员工"
+userStatus:
+  active: "启用"
+partnerStatus:
+  active: "启用"
+partnerLevel:
+  none: "无层级"
+  primary: "一级渠道"
+  secondary: "二级渠道"
+registrationStatus:
+  pending: "待审核"
+  approved: "已通过"
+quoteStatus:
+  draft: "草稿"
+  converted: "已转订单"
+orderStatus:
+  cancelled: "已取消"
+approvalStatus:
+  active: "待处理或处理中，需产品确认"
+  approved: "已通过"
+opportunityStage:
+  "1%已联系上客户": "contacted_1"
+  "1%联系上客户": "contacted_1"
+  contacted: "contacted_1"
+  registered: "registered"
+  "10%见到客户并且感兴趣": "met_interested_10"
+  "10%见面并明确需求": "met_need_10"
+  "10%客户见面并有兴趣": "met_interested_10"
+  "20%有预算": "budget_20"
+  "30%客户进行测试": "testing_30"
+  testing: "testing_30"
+  quoted: "quoted"
+  won: "won"
+  cancelled: "cancelled"
+unknownValuePolicy:
+  role: "阻断迁移"
+  status: "核心业务阻断；非核心通知类可隔离"
+  region: "业务补录或隔离，不能猜测归属"
