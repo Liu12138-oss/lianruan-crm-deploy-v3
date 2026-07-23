@@ -1,0 +1,31 @@
+{
+  "name": "@lianruan/api",
+  "version": "3.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run tests",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@lianruan/config": "3.0.0-alpha.1",
+    "@lianruan/shared": "3.0.0-alpha.1",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "ioredis": "^5.6.1",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@lianruan/testing": "3.0.0-alpha.1",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/pg": "^8.11.11",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4"
+  }
+}

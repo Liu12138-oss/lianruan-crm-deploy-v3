@@ -38,6 +38,8 @@ dist/
 build/
 coverage/
 .cache/
+apps/web/test-results/
+apps/web/playwright-report/
 
 # 历史备份与交付压缩包
 backup*/

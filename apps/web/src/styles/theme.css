@@ -1,0 +1,280 @@
+:root {
+  color: #162033;
+  background: #f4f7fb;
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.布局 {
+  min-height: 100vh;
+  background:
+    linear-gradient(90deg, rgba(31, 122, 140, 0.08), transparent 42%),
+    linear-gradient(180deg, #f4f7fb 0%, #edf2f7 100%);
+}
+
+.布局-管理 {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+.布局-移动 {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(38, 70, 83, 0.12), transparent 36%),
+    linear-gradient(180deg, #f7f8fb, #e8eef5);
+}
+
+.顶部栏,
+.侧边栏,
+.移动栏,
+.移动导航 {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: #d7e0ea;
+  border-style: solid;
+}
+
+.顶部栏 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 68px;
+  padding: 0 28px;
+  border-width: 0 0 1px;
+}
+
+.顶部栏-渠道 {
+  border-bottom-color: #c8dde1;
+}
+
+.侧边栏 {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 18px;
+  border-width: 0 1px 0 0;
+}
+
+.品牌块,
+.图标按钮 {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+.品牌块 {
+  gap: 10px;
+  font-size: 16px;
+}
+
+.导航组,
+.纵向导航,
+.移动导航 {
+  display: flex;
+  gap: 10px;
+}
+
+.纵向导航 {
+  flex-direction: column;
+}
+
+.图标按钮 {
+  gap: 8px;
+  justify-content: center;
+  padding: 0 14px;
+  border: 1px solid #cfd9e5;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #24324a;
+  font-size: 14px;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.图标按钮:hover,
+.router-link-active {
+  border-color: #1f7a8c;
+  background: #e7f3f5;
+  color: #15515d;
+}
+
+.主按钮 {
+  margin-top: 18px;
+  background: #1f7a8c;
+  color: #ffffff;
+}
+
+.内容区 {
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: 40px 28px;
+}
+
+.内容区-居中 {
+  display: grid;
+  min-height: calc(100vh - 68px);
+  place-items: center;
+}
+
+.工作区面板,
+.状态页 {
+  width: min(100%, 720px);
+}
+
+.工作区面板 h1,
+.状态页 h1 {
+  margin: 6px 0 12px;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+.状态标签 {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: #ffe8bf;
+  color: #7a4b00;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.摘要 {
+  max-width: 58ch;
+  margin: 0;
+  color: #536273;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.信息网格 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 28px 0 0;
+}
+
+.信息网格 > div {
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.信息网格 dt {
+  margin: 0 0 10px;
+  color: #69798d;
+  font-size: 13px;
+}
+
+.信息网格 dd {
+  margin: 0;
+  color: #162033;
+  font-size: 18px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.移动壳 {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: min(100%, 430px);
+  min-height: min(780px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid #cbd8e6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.移动栏,
+.移动导航 {
+  padding: 12px 14px;
+  border-width: 0 0 1px;
+}
+
+.移动导航 {
+  justify-content: space-between;
+  border-width: 1px 0 0;
+}
+
+.移动壳 .工作区面板 {
+  padding: 28px 18px;
+}
+
+.移动壳 .信息网格 {
+  grid-template-columns: 1fr;
+}
+
+.状态页 {
+  display: grid;
+  align-content: center;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+@media (max-width: 760px) {
+  .布局-管理 {
+    grid-template-columns: 1fr;
+  }
+
+  .侧边栏 {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    border-width: 0 0 1px;
+  }
+
+  .纵向导航 {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .顶部栏 {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .导航组 {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .内容区 {
+    padding: 28px 18px;
+  }
+
+  .信息网格 {
+    grid-template-columns: 1fr;
+  }
+}

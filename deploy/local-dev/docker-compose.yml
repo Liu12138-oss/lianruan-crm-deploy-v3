@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:16-alpine
+    image: public.ecr.aws/docker/library/postgres:16.4-alpine
     container_name: lianruan-crm-v3-postgres
     environment:
       POSTGRES_DB: lianruan_crm_v3
@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: public.ecr.aws/docker/library/redis:7-alpine
+    image: public.ecr.aws/docker/library/redis:7.2.5-alpine
     container_name: lianruan-crm-v3-redis
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "lianruan_dev_redis"]
     ports:
