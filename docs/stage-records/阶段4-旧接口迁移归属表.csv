@@ -1,0 +1,504 @@
+接口编号,方法,旧路径,源码位置,阶段0模块,新模块,新控制器,新服务,新仓储,迁移批次,高风险类别,前端调用方,兼容结论
+API-0001,POST,/api/mock/crm-open-api/v2/auth/login,backend/server.js:3404,模拟接口,开放接口,开放接口控制器、开放接口管理控制器,开发测试身份模拟适配服务,无生产仓储，开发测试数据适配,批次六,暂无显性高风险,待确认,保留 POST /api/mock/crm-open-api/v2/auth/login 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0002,GET,/api/mock/crm-open-api/v1/identity/users/:userId,backend/server.js:3448,模拟接口,开放接口,开放接口控制器、开放接口管理控制器,开发测试身份模拟适配服务,无生产仓储，开发测试数据适配,批次六,无分页、内存全量扫描,待确认,保留 GET /api/mock/crm-open-api/v1/identity/users/:userId 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0003,POST,/api/auth/login,backend/server.js:3467,登录认证,认证,认证控制器,认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份,"frontend/admin-app.js:356
+frontend/api-client.js:102
+frontend/api.js:45
+frontend/app.js:228
+frontend/partner-app.js:429",保留 POST /api/auth/login 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0004,PUT,/api/auth/password,backend/server.js:3560,登录认证,认证,认证控制器,认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份、内存全量扫描,"frontend/admin-app.js:827
+frontend/partner-app.js:776",保留 PUT /api/auth/password 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0005,GET,/api/auth/me,backend/server.js:3643,登录认证,认证,认证控制器,认证服务,账号仓储、会话仓储,阶段3合入后前置接入,敏感字段返回,待确认,保留 GET /api/auth/me 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0006,GET,/api/notifications,backend/server.js:3650,通知消息,开放接口,开放接口控制器、开放接口管理控制器,通知服务,通知仓储,批次六,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:16618
+frontend/partner-app.js:9097",保留 GET /api/notifications 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0007,PUT,/api/notifications/read,backend/server.js:3663,通知消息,开放接口,开放接口控制器、开放接口管理控制器,通知服务,通知仓储,批次六,信任前端身份,"frontend/admin-app.js:16632
+frontend/admin-app.js:16644
+frontend/partner-app.js:9111
+frontend/partner-app.js:9123",保留 PUT /api/notifications/read 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0008,POST,/api/sso/iam/admin-login,backend/server.js:3688,登录认证,认证,认证控制器,统一身份适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份、敏感字段返回,frontend/admin-app.js:457,保留 POST /api/sso/iam/admin-login 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0009,POST,/api/sso/iam/admin-login-v2,backend/server.js:3752,登录认证,认证,认证控制器,统一身份适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份、敏感字段返回,frontend/admin-app.js:524,保留 POST /api/sso/iam/admin-login-v2 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0010,POST,/api/sso/iam/partner-login-v2,backend/server.js:3856,登录认证,认证,认证控制器,统一身份适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份、敏感字段返回,frontend/partner-app.js:528,保留 POST /api/sso/iam/partner-login-v2 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0011,POST,/api/registrations,backend/server.js:3960,客户报备,报备,报备控制器,报备服务,报备仓储、报备历史仓储,批次三,信任前端身份、内存全量扫描,"frontend/admin-app.js:1153
+frontend/admin-app.js:11693
+frontend/admin-app.js:244
+frontend/api-client.js:141
+frontend/api-client.js:182
+frontend/api.js:64
+frontend/app.js:709
+frontend/partner-app.js:1124
+frontend/partner-app.js:1357
+frontend/partner-app.js:1816
+frontend/partner-app.js:1880
+frontend/partner-app.js:8889",保留 POST /api/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0012,GET,/api/registrations,backend/server.js:4069,客户报备,报备,报备控制器,报备服务,报备仓储、报备历史仓储,批次三,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:1153
+frontend/admin-app.js:11693
+frontend/admin-app.js:244
+frontend/api-client.js:141
+frontend/api-client.js:182
+frontend/api.js:64
+frontend/app.js:709
+frontend/partner-app.js:1124
+frontend/partner-app.js:1357
+frontend/partner-app.js:1816
+frontend/partner-app.js:1880
+frontend/partner-app.js:8889",保留 GET /api/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0013,PUT,/api/registrations/:id/status,backend/server.js:4145,客户报备,报备,报备控制器,报备服务,报备仓储、报备历史仓储,批次三,信任前端身份、内存全量扫描,待确认,保留 PUT /api/registrations/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0014,PUT,/api/registrations/:id,backend/server.js:4210,客户报备,报备,报备控制器,报备服务,报备仓储、报备历史仓储,批次三,信任前端身份、内存全量扫描,待确认,保留 PUT /api/registrations/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0015,DELETE,/api/registrations/:id,backend/server.js:4251,客户报备,报备,报备控制器,报备服务,报备仓储、报备历史仓储,批次三,内存全量扫描,待确认,保留 DELETE /api/registrations/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0016,POST,/api/opportunities,backend/server.js:4268,商机管理,商机,商机控制器,商机服务、商机跟进服务,商机仓储、商机事件仓储,批次四,信任前端身份、内存全量扫描,"frontend/admin-app.js:1162
+frontend/admin-app.js:249
+frontend/api-client.js:203
+frontend/api-client.js:237
+frontend/api.js:54
+frontend/app.js:712
+frontend/partner-app.js:1133",保留 POST /api/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0017,GET,/api/opportunities,backend/server.js:4379,商机管理,商机,商机控制器,商机服务、商机跟进服务,商机仓储、商机事件仓储,批次四,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:1162
+frontend/admin-app.js:249
+frontend/api-client.js:203
+frontend/api-client.js:237
+frontend/api.js:54
+frontend/app.js:712
+frontend/partner-app.js:1133",保留 GET /api/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0018,PUT,/api/opportunities/:id,backend/server.js:4473,商机管理,商机,商机控制器,商机服务、商机跟进服务,商机仓储、商机事件仓储,批次四,信任前端身份、内存全量扫描,待确认,保留 PUT /api/opportunities/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0019,GET,/api/audit-logs,backend/server.js:4780,审计日志,审计,审计控制器,审计查询服务,审计仓储,贯穿所有批次,暂无显性高风险,"frontend/admin-app.js:15224
+frontend/admin-app.js:778",保留 GET /api/audit-logs 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0020,GET,/api/audit-logs/:id,backend/server.js:4803,审计日志,审计,审计控制器,审计查询服务,审计仓储,贯穿所有批次,无分页,待确认,保留 GET /api/audit-logs/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0021,GET,/api/workload/classifications,backend/server.js:4815,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,暂无显性高风险,待确认,保留 GET /api/workload/classifications 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0022,GET,/api/workload/delivery-rules,backend/server.js:4821,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,暂无显性高风险,frontend/api-client.js:596,保留 GET /api/workload/delivery-rules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0023,PUT,/api/workload/delivery-rules/:id,backend/server.js:4831,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,待确认,保留 PUT /api/workload/delivery-rules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0024,GET,/api/workload/mappings,backend/server.js:4889,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,frontend/api-client.js:567,保留 GET /api/workload/mappings 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0025,PUT,/api/workload/mappings/:featureId,backend/server.js:4927,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,待确认,保留 PUT /api/workload/mappings/:featureId 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0026,GET,/api/workload/rules,backend/server.js:4987,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,"frontend/api-client.js:588
+frontend/api-client.js:615",保留 GET /api/workload/rules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0027,POST,/api/workload/rules,backend/server.js:4998,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,暂无显性高风险,"frontend/api-client.js:588
+frontend/api-client.js:615",保留 POST /api/workload/rules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0028,PUT,/api/workload/rules/:id,backend/server.js:5027,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,待确认,保留 PUT /api/workload/rules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0029,DELETE,/api/workload/rules/:id,backend/server.js:5056,工作量配置,产品,工作量配置控制器,工作量配置服务、工作量计算服务,工作量规则仓储、产品仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/workload/rules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0030,POST,/api/quotes/workload-preview,backend/server.js:5075,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,暂无显性高风险,frontend/api-client.js:544,保留 POST /api/quotes/workload-preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0031,POST,/api/ipg/quote-preview,backend/server.js:5080,报价管理,报价,报价控制器,报价计算服务、工作量计算服务,产品仓储、工作量规则仓储、报价快照仓储,批次五,内存全量扫描,frontend/api-client.js:554,保留 POST /api/ipg/quote-preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0032,POST,/api/quotes,backend/server.js:5107,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,信任前端身份、内存全量扫描,"frontend/admin-app.js:1171
+frontend/api-client.js:277
+frontend/api-client.js:308
+frontend/api.js:72
+frontend/app.js:710
+frontend/partner-app.js:1142",保留 POST /api/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0033,GET,/api/quotes,backend/server.js:5237,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:1171
+frontend/api-client.js:277
+frontend/api-client.js:308
+frontend/api.js:72
+frontend/app.js:710
+frontend/partner-app.js:1142",保留 GET /api/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0034,DELETE,/api/quotes/:id,backend/server.js:5313,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,内存全量扫描,待确认,保留 DELETE /api/quotes/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0035,POST,/api/orders,backend/server.js:5334,订单管理,订单,订单控制器,订单服务、订单一级确认服务、订单调价服务,订单仓储、订单事件仓储,批次五,信任前端身份、内存全量扫描,"frontend/admin-app.js:1180
+frontend/api-client.js:330
+frontend/api-client.js:361
+frontend/api.js:80
+frontend/app.js:711
+frontend/partner-app.js:1151",保留 POST /api/orders 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0036,GET,/api/orders,backend/server.js:5497,订单管理,订单,订单控制器,订单服务、订单一级确认服务、订单调价服务,订单仓储、订单事件仓储,批次五,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:1180
+frontend/api-client.js:330
+frontend/api-client.js:361
+frontend/api.js:80
+frontend/app.js:711
+frontend/partner-app.js:1151",保留 GET /api/orders 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0037,DELETE,/api/orders/:id,backend/server.js:5615,订单管理,订单,订单控制器,订单服务、订单一级确认服务、订单调价服务,订单仓储、订单事件仓储,批次五,内存全量扫描,待确认,保留 DELETE /api/orders/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0038,PUT,/api/quotes/:id,backend/server.js:5634,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,内存全量扫描,待确认,保留 PUT /api/quotes/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0039,PUT,/api/quotes/:id/status,backend/server.js:5679,报价管理,报价,报价控制器,报价服务、报价计算服务、工作量计算服务,报价仓储、报价快照仓储,批次五,信任前端身份、内存全量扫描,待确认,保留 PUT /api/quotes/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0040,PUT,/api/orders/:id/status,backend/server.js:5755,订单管理,订单,订单控制器,订单服务、订单一级确认服务、订单调价服务,订单仓储、订单事件仓储,批次五,信任前端身份、内存全量扫描,待确认,保留 PUT /api/orders/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0041,PUT,/api/orders/:id/price-adjust,backend/server.js:5885,订单管理,订单,订单控制器,订单调价服务,订单仓储、订单事件仓储,批次五,信任前端身份、内存全量扫描,待确认,保留 PUT /api/orders/:id/price-adjust 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0042,GET,/api/users,backend/server.js:6025,账号管理,账号,账号控制器,账号服务,账号仓储、会话仓储,批次二,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:10097
+frontend/admin-app.js:11247
+frontend/admin-app.js:15842
+frontend/admin-app.js:259
+frontend/api-client.js:472
+frontend/api-client.js:479",保留 GET /api/users 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0043,PUT,/api/users/:id,backend/server.js:6049,账号管理,账号,账号控制器,账号服务,账号仓储、会话仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/users/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0044,DELETE,/api/users/:id,backend/server.js:6098,账号管理,账号,账号控制器,账号服务,账号仓储、会话仓储,批次二,内存全量扫描,待确认,保留 DELETE /api/users/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0045,PUT,/api/users/:id/password,backend/server.js:6140,账号管理,账号,账号控制器,账号凭证服务,账号仓储、会话仓储,批次二,信任前端身份,待确认,保留 PUT /api/users/:id/password 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0046,POST,/api/users/sync-status,backend/server.js:6162,账号管理,账号,账号控制器,账号状态服务,账号仓储、会话仓储,批次二,信任前端身份、内存全量扫描、敏感字段返回,待确认,保留 POST /api/users/sync-status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0047,GET,/api/mobile/v2/me,backend/server.js:7878,移动端二期,移动端,移动端二期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,暂无显性高风险,frontend/mobile-v2-api.js:229,保留 GET /api/mobile/v2/me 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0048,GET,/api/mobile/v2/feature-flags,backend/server.js:7885,移动端二期,移动端,移动端二期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,暂无显性高风险,待确认,保留 GET /api/mobile/v2/feature-flags 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0049,GET,/api/mobile/v2/dashboard,backend/server.js:7891,移动端二期,移动端,移动端二期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,暂无显性高风险,"frontend/mobile-v2-app.js:79
+frontend/mobile-v2-app.js:89
+frontend/mobile-v2-app.js:91",保留 GET /api/mobile/v2/dashboard 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0050,GET,/api/mobile/v2/notifications,backend/server.js:7898,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用通知服务）,通知仓储,批次七,暂无显性高风险,"frontend/mobile-v2-app.js:85
+frontend/mobile-v2-app.js:98",保留 GET /api/mobile/v2/notifications 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0051,POST,/api/mobile/v2/registration-drafts,backend/server.js:7912,移动端二期,移动端,移动端二期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,内存全量扫描,"frontend/mobile-v2-api.js:13
+frontend/mobile-v2-app.js:60",保留 POST /api/mobile/v2/registration-drafts 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0052,POST,/api/mobile/v2/registrations/check-duplicate,backend/server.js:7949,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,暂无显性高风险,待确认,保留 POST /api/mobile/v2/registrations/check-duplicate 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0053,POST,/api/mobile/v2/registrations,backend/server.js:7972,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:14
+frontend/mobile-v2-app.js:61
+frontend/mobile-v2-app.js:80
+frontend/mobile-v2-app.js:92",保留 POST /api/mobile/v2/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0054,PUT,/api/mobile/v2/registrations/:id/review,backend/server.js:8034,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:15
+frontend/mobile-v2-app.js:62",保留 PUT /api/mobile/v2/registrations/:id/review 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0055,POST,/api/mobile/v2/registrations/:id/copy,backend/server.js:8097,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,内存全量扫描,待确认,保留 POST /api/mobile/v2/registrations/:id/copy 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0056,GET,/api/mobile/v2/registrations/:id/events,backend/server.js:8123,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,无分页、内存全量扫描,待确认,保留 GET /api/mobile/v2/registrations/:id/events 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0057,GET,/api/mobile/v2/registrations,backend/server.js:8137,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,无分页,"frontend/mobile-v2-api.js:14
+frontend/mobile-v2-app.js:61
+frontend/mobile-v2-app.js:80
+frontend/mobile-v2-app.js:92",保留 GET /api/mobile/v2/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0058,GET,/api/mobile/v2/registrations/:id,backend/server.js:8138,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/registrations/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0059,GET,/api/mobile/v2/opportunities,backend/server.js:8139,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,无分页,"frontend/mobile-v2-api.js:16
+frontend/mobile-v2-app.js:63
+frontend/mobile-v2-app.js:81
+frontend/mobile-v2-app.js:93",保留 GET /api/mobile/v2/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0060,GET,/api/mobile/v2/opportunities/:id,backend/server.js:8140,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,无分页,"frontend/mobile-v2-api.js:17
+frontend/mobile-v2-app.js:64",保留 GET /api/mobile/v2/opportunities/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0061,POST,/api/mobile/v2/opportunities,backend/server.js:8142,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:16
+frontend/mobile-v2-app.js:63
+frontend/mobile-v2-app.js:81
+frontend/mobile-v2-app.js:93",保留 POST /api/mobile/v2/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0062,PUT,/api/mobile/v2/opportunities/:id,backend/server.js:8210,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:17
+frontend/mobile-v2-app.js:64",保留 PUT /api/mobile/v2/opportunities/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0063,PUT,/api/mobile/v2/opportunities/:id/stage,backend/server.js:8253,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,内存全量扫描,"frontend/mobile-v2-api.js:18
+frontend/mobile-v2-app.js:65",保留 PUT /api/mobile/v2/opportunities/:id/stage 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0064,POST,/api/mobile/v2/opportunities/:id/follow-ups,backend/server.js:8296,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,内存全量扫描,"frontend/mobile-v2-api.js:19
+frontend/mobile-v2-app.js:66",保留 POST /api/mobile/v2/opportunities/:id/follow-ups 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0065,GET,/api/mobile/v2/opportunities/:id/events,backend/server.js:8343,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,无分页、内存全量扫描,待确认,保留 GET /api/mobile/v2/opportunities/:id/events 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0066,GET,/api/mobile/v2/quotes,backend/server.js:8357,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页,"frontend/mobile-v2-api.js:22
+frontend/mobile-v2-app.js:69
+frontend/mobile-v2-app.js:82
+frontend/mobile-v2-app.js:94",保留 GET /api/mobile/v2/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0067,GET,/api/mobile/v2/quotes/:id,backend/server.js:8358,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/quotes/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0068,GET,/api/mobile/v2/orders,backend/server.js:8359,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,无分页,"frontend/mobile-v2-app.js:83
+frontend/mobile-v2-app.js:95",保留 GET /api/mobile/v2/orders 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0069,GET,/api/mobile/v2/orders/parent-options,backend/server.js:8360,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,信任前端身份、无分页、内存全量扫描,待确认,保留 GET /api/mobile/v2/orders/parent-options 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0070,GET,/api/mobile/v2/orders/:id,backend/server.js:8386,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/orders/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0071,GET,/api/mobile/v2/quote-products,backend/server.js:8388,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/quote-products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0072,POST,/api/mobile/v2/quotes/preview,backend/server.js:8405,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,暂无显性高风险,"frontend/mobile-v2-api.js:20
+frontend/mobile-v2-app.js:67",保留 POST /api/mobile/v2/quotes/preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0073,POST,/api/mobile/v2/quote-drafts,backend/server.js:8420,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,信任前端身份,"frontend/mobile-v2-api.js:21
+frontend/mobile-v2-app.js:68",保留 POST /api/mobile/v2/quote-drafts 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0074,POST,/api/mobile/v2/quotes,backend/server.js:8447,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,内存全量扫描,"frontend/mobile-v2-api.js:22
+frontend/mobile-v2-app.js:69
+frontend/mobile-v2-app.js:82
+frontend/mobile-v2-app.js:94",保留 POST /api/mobile/v2/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0075,PUT,/api/mobile/v2/quotes/:id/discount-review,backend/server.js:8476,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:23
+frontend/mobile-v2-app.js:70",保留 PUT /api/mobile/v2/quotes/:id/discount-review 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0076,GET,/api/mobile/v2/quotes/:id/discount-review,backend/server.js:8512,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页、内存全量扫描,"frontend/mobile-v2-api.js:23
+frontend/mobile-v2-app.js:70",保留 GET /api/mobile/v2/quotes/:id/discount-review 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0077,PUT,/api/mobile/v2/quotes/:id/confirm,backend/server.js:8522,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:24
+frontend/mobile-v2-app.js:71",保留 PUT /api/mobile/v2/quotes/:id/confirm 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0078,POST,/api/mobile/v2/order-drafts,backend/server.js:8555,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,"frontend/mobile-v2-api.js:25
+frontend/mobile-v2-app.js:72",保留 POST /api/mobile/v2/order-drafts 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0079,POST,/api/mobile/v2/orders/:id/submit,backend/server.js:8596,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:26
+frontend/mobile-v2-app.js:73",保留 POST /api/mobile/v2/orders/:id/submit 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0080,PUT,/api/mobile/v2/orders/:id/primary-review,backend/server.js:8648,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:27
+frontend/mobile-v2-app.js:74",保留 PUT /api/mobile/v2/orders/:id/primary-review 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0081,PUT,/api/mobile/v2/orders/:id/fulfillment,backend/server.js:8683,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-v2-api.js:28
+frontend/mobile-v2-app.js:75",保留 PUT /api/mobile/v2/orders/:id/fulfillment 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0082,ALL,/api/mobile/v2/orders/:id/price-adjustments,backend/server.js:8715,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,待确认,保留 ALL /api/mobile/v2/orders/:id/price-adjustments 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0083,ALL,/api/mobile/v2/orders/:id/adjust-price,backend/server.js:8715,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,待确认,保留 ALL /api/mobile/v2/orders/:id/adjust-price 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0084,ALL,/api/mobile/v2/orders/:id/cancel,backend/server.js:8715,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,待确认,保留 ALL /api/mobile/v2/orders/:id/cancel 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0085,ALL,/api/mobile/v2/orders/:id/refund,backend/server.js:8715,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,待确认,保留 ALL /api/mobile/v2/orders/:id/refund 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0086,ALL,/api/mobile/v2/orders/:id/refunds,backend/server.js:8715,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,内存全量扫描,待确认,保留 ALL /api/mobile/v2/orders/:id/refunds 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0087,GET,/api/mobile/v2/quotes/:id/events,backend/server.js:8741,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/quotes/:id/events 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0088,GET,/api/mobile/v2/orders/:id/events,backend/server.js:8742,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/v2/orders/:id/events 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0089,GET,/api/mobile/v2/partners,backend/server.js:8744,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用渠道服务）,渠道仓储,批次七,信任前端身份、内存全量扫描,frontend/mobile-v2-app.js:96,保留 GET /api/mobile/v2/partners 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0090,GET,/api/mobile/v2/partners/:id,backend/server.js:8767,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用渠道服务）,渠道仓储,批次七,无分页、内存全量扫描,待确认,保留 GET /api/mobile/v2/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0091,GET,/api/mobile/v2/catalog,backend/server.js:8782,移动端二期,移动端,移动端二期适配控制器,移动端适配服务（调用产品服务）,产品仓储,批次七,暂无显性高风险,"frontend/mobile-v2-app.js:84
+frontend/mobile-v2-app.js:97",保留 GET /api/mobile/v2/catalog 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0092,POST,/api/mobile/v2/logout,backend/server.js:8789,移动端二期,移动端,移动端二期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,暂无显性高风险,"frontend/mobile-v2-api.js:174
+frontend/mobile-v2-api.js:252",保留 POST /api/mobile/v2/logout 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0093,GET,/api/mobile/registrations,backend/server.js:8825,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,无分页、内存全量扫描,"frontend/mobile-app.js:496
+frontend/mobile-app.js:550
+frontend/mobile-app.js:557
+frontend/mobile-app.js:616
+frontend/mobile-app.js:948
+frontend/mobile-app.js:961",保留 GET /api/mobile/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0094,GET,/api/mobile/company-search,backend/server.js:8874,移动端一期,移动端,移动端一期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,暂无显性高风险,frontend/mobile-app.js:908,保留 GET /api/mobile/company-search 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0095,GET,/api/mobile/registrations/:id,backend/server.js:8888,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,无分页,待确认,保留 GET /api/mobile/registrations/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0096,POST,/api/mobile/registrations,backend/server.js:8892,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-app.js:496
+frontend/mobile-app.js:550
+frontend/mobile-app.js:557
+frontend/mobile-app.js:616
+frontend/mobile-app.js:948
+frontend/mobile-app.js:961",保留 POST /api/mobile/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0097,GET,/api/mobile/opportunities,backend/server.js:8933,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,无分页、内存全量扫描,"frontend/mobile-app.js:1007
+frontend/mobile-app.js:1009
+frontend/mobile-app.js:1043
+frontend/mobile-app.js:496
+frontend/mobile-app.js:551
+frontend/mobile-app.js:558",保留 GET /api/mobile/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0098,GET,/api/mobile/opportunities/:id,backend/server.js:8941,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,无分页,待确认,保留 GET /api/mobile/opportunities/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0099,POST,/api/mobile/opportunities/:id/follow-ups,backend/server.js:8945,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,信任前端身份、内存全量扫描,待确认,保留 POST /api/mobile/opportunities/:id/follow-ups 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0100,POST,/api/mobile/opportunities,backend/server.js:9001,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用商机服务）,商机仓储、商机事件仓储,批次七,信任前端身份、内存全量扫描,"frontend/mobile-app.js:1007
+frontend/mobile-app.js:1009
+frontend/mobile-app.js:1043
+frontend/mobile-app.js:496
+frontend/mobile-app.js:551
+frontend/mobile-app.js:558",保留 POST /api/mobile/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0101,GET,/api/mobile/quotes,backend/server.js:9054,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页、内存全量扫描,"frontend/mobile-app.js:1081
+frontend/mobile-app.js:496
+frontend/mobile-app.js:552
+frontend/mobile-app.js:559",保留 GET /api/mobile/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0102,GET,/api/mobile/quotes/:id,backend/server.js:9062,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/quotes/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0103,POST,/api/mobile/quotes/:id/convert-order,backend/server.js:9066,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报价服务）,报价仓储、报价快照仓储、移动端草稿仓储,批次七,信任前端身份、内存全量扫描,待确认,保留 POST /api/mobile/quotes/:id/convert-order 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0104,GET,/api/mobile/orders,backend/server.js:9141,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,无分页、内存全量扫描,"frontend/mobile-app.js:1081
+frontend/mobile-app.js:496
+frontend/mobile-app.js:553
+frontend/mobile-app.js:560",保留 GET /api/mobile/orders 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0105,GET,/api/mobile/orders/:id,backend/server.js:9149,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用订单服务）,订单仓储、订单事件仓储、移动端草稿仓储,批次七,无分页,待确认,保留 GET /api/mobile/orders/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0106,GET,/api/mobile/partners,backend/server.js:9153,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用渠道服务）,渠道仓储,批次七,信任前端身份、无分页、内存全量扫描,"frontend/mobile-app.js:497
+frontend/mobile-app.js:554",保留 GET /api/mobile/partners 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0107,GET,/api/mobile/partners/:id,backend/server.js:9166,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用渠道服务）,渠道仓储,批次七,无分页,待确认,保留 GET /api/mobile/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0108,PUT,/api/mobile/registrations/:id/status,backend/server.js:9170,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用报备服务）,移动端草稿仓储、报备仓储,批次七,内存全量扫描,待确认,保留 PUT /api/mobile/registrations/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0109,GET,/api/mobile/pending-approvals,backend/server.js:9191,移动端一期,移动端,移动端一期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,无分页、内存全量扫描,frontend/mobile-app.js:497,保留 GET /api/mobile/pending-approvals 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0110,PUT,/api/mobile/partners/:id/status,backend/server.js:9198,移动端一期,移动端,移动端一期适配控制器,移动端适配服务（调用渠道服务）,渠道仓储,批次七,内存全量扫描,待确认,保留 PUT /api/mobile/partners/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0111,POST,/api/mobile/logout,backend/server.js:9224,移动端一期,移动端,移动端一期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,内存全量扫描,frontend/mobile-app.js:1158,保留 POST /api/mobile/logout 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0112,PUT,/api/mobile/pending-approvals/:id,backend/server.js:9234,移动端一期,移动端,移动端一期适配控制器,移动端适配服务,移动端草稿仓储、移动端会话仓储,批次七,信任前端身份、内存全量扫描,待确认,保留 PUT /api/mobile/pending-approvals/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0113,GET,/api/channel-operations/overview,backend/server.js:9736,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份,待确认,保留 GET /api/channel-operations/overview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0114,GET,/api/channel-targets,backend/server.js:9750,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、无分页、内存全量扫描,待确认,保留 GET /api/channel-targets 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0115,POST,/api/channel-targets,backend/server.js:9767,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 POST /api/channel-targets 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0116,PUT,/api/channel-targets/:id,backend/server.js:9821,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/channel-targets/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0117,GET,/api/channel-visits,backend/server.js:9843,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、无分页、内存全量扫描,待确认,保留 GET /api/channel-visits 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0118,POST,/api/channel-visits,backend/server.js:9855,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 POST /api/channel-visits 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0119,PUT,/api/channel-visits/:id,backend/server.js:9895,渠道管理,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/channel-visits/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0120,POST,/api/admin/accounts,backend/server.js:9922,账号管理,账号,账号控制器,账号服务,账号仓储、会话仓储,批次二,信任前端身份、内存全量扫描,"frontend/admin-app.js:11351
+frontend/api.js:96
+frontend/api.js:97",保留 POST /api/admin/accounts 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0121,POST,/api/users,backend/server.js:9977,账号管理,账号,账号控制器,账号服务,账号仓储、会话仓储,批次二,信任前端身份、内存全量扫描,"frontend/admin-app.js:10097
+frontend/admin-app.js:11247
+frontend/admin-app.js:15842
+frontend/admin-app.js:259
+frontend/api-client.js:472
+frontend/api-client.js:479",保留 POST /api/users 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0122,GET,/api/meta/prefecture-cities,backend/server.js:10113,待确认模块,产品,产品控制器、工作量配置控制器,产品树服务、元数据查询服务,产品仓储、产品发布仓储,批次一,暂无显性高风险,frontend/admin-app.js:8700,保留 GET /api/meta/prefecture-cities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0123,GET,/api/partners,backend/server.js:10118,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:10051
+frontend/admin-app.js:13674
+frontend/admin-app.js:14248
+frontend/admin-app.js:1706
+frontend/admin-app.js:2285
+frontend/admin-app.js:254
+frontend/admin-app.js:773
+frontend/admin-app.js:8687
+frontend/admin-app.js:9519
+frontend/api-client.js:416
+frontend/api.js:88
+frontend/app.js:483
+frontend/partner-app.js:1163",保留 GET /api/partners 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0124,POST,/api/partners,backend/server.js:10163,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,"frontend/admin-app.js:10051
+frontend/admin-app.js:13674
+frontend/admin-app.js:14248
+frontend/admin-app.js:1706
+frontend/admin-app.js:2285
+frontend/admin-app.js:254
+frontend/admin-app.js:773
+frontend/admin-app.js:8687
+frontend/admin-app.js:9519
+frontend/api-client.js:416
+frontend/api.js:88
+frontend/app.js:483
+frontend/partner-app.js:1163",保留 POST /api/partners 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0125,GET,/api/partner-profile-products,backend/server.js:10305,待确认模块,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,无分页、内存全量扫描,"frontend/admin-app.js:9192
+frontend/admin-app.js:9329",保留 GET /api/partner-profile-products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0126,POST,/api/partner-profile-products,backend/server.js:10321,待确认模块,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,内存全量扫描,"frontend/admin-app.js:9192
+frontend/admin-app.js:9329",保留 POST /api/partner-profile-products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0127,PUT,/api/partner-profile-products/:id,backend/server.js:10366,待确认模块,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partner-profile-products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0128,DELETE,/api/partner-profile-products/:id,backend/server.js:10418,待确认模块,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,内存全量扫描,待确认,保留 DELETE /api/partner-profile-products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0129,GET,/api/partners/:id/profile,backend/server.js:10454,渠道管理,渠道,渠道控制器,渠道档案服务,渠道仓储、渠道档案仓储,批次二,无分页、内存全量扫描,待确认,保留 GET /api/partners/:id/profile 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0130,PUT,/api/partners/:id/profile,backend/server.js:10471,渠道管理,渠道,渠道控制器,渠道档案服务,渠道仓储、渠道档案仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partners/:id/profile 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0131,GET,/api/partners/:id,backend/server.js:10518,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,无分页、内存全量扫描,待确认,保留 GET /api/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0132,PUT,/api/partners/:id/status,backend/server.js:10542,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partners/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0133,POST,/api/partners/:id/staff,backend/server.js:10570,渠道管理,渠道,渠道控制器,渠道成员服务、账号服务,渠道成员仓储、账号仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 POST /api/partners/:id/staff 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0134,PUT,/api/partners/:partnerId/staff/:staffId,backend/server.js:10715,渠道管理,渠道,渠道控制器,渠道成员服务、账号服务,渠道成员仓储、账号仓储,批次二,信任前端身份,待确认,保留 PUT /api/partners/:partnerId/staff/:staffId 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0135,PUT,/api/partners/:partnerId/staff/:staffId/status,backend/server.js:10769,渠道管理,渠道,渠道控制器,渠道成员服务、账号服务,渠道成员仓储、账号仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/partners/:partnerId/staff/:staffId/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0136,PUT,/api/partners/:partnerId/staff/:staffId/password,backend/server.js:10833,渠道管理,渠道,渠道控制器,渠道成员服务、账号服务,渠道成员仓储、账号仓储,批次二,信任前端身份,待确认,保留 PUT /api/partners/:partnerId/staff/:staffId/password 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0137,DELETE,/api/partners/:partnerId/staff/:staffId,backend/server.js:10850,渠道管理,渠道,渠道控制器,渠道成员服务、账号服务,渠道成员仓储、账号仓储,批次二,内存全量扫描,待确认,保留 DELETE /api/partners/:partnerId/staff/:staffId 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0138,PUT,/api/users/:id/status,backend/server.js:10886,账号管理,账号,账号控制器,账号状态服务,账号仓储、会话仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/users/:id/status 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0139,PUT,/api/partners/:id,backend/server.js:10932,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0140,DELETE,/api/partners/:id,backend/server.js:11035,渠道管理,渠道,渠道控制器,渠道服务,渠道仓储、渠道成员仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 DELETE /api/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0141,PUT,/api/partners/:id/level,backend/server.js:11111,渠道管理,渠道,渠道控制器,渠道层级服务,渠道仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/partners/:id/level 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0142,PUT,/api/partners/:id/unbind,backend/server.js:11192,渠道管理,渠道,渠道控制器,渠道层级服务,渠道仓储、渠道关系仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partners/:id/unbind 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0143,PUT,/api/partners/:id/add-parent,backend/server.js:11255,渠道管理,渠道,渠道控制器,渠道层级服务,渠道仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/partners/:id/add-parent 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0144,PUT,/api/partners/:id/rebind,backend/server.js:11331,渠道管理,渠道,渠道控制器,渠道层级服务,渠道仓储、渠道关系仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/partners/:id/rebind 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0145,POST,/api/partners/secondary/apply,backend/server.js:11386,渠道管理,渠道,渠道控制器,二级渠道申请服务、审批服务,渠道仓储、审批仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 POST /api/partners/secondary/apply 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0146,GET,/api/partners/secondary/pending,backend/server.js:11485,渠道管理,渠道,渠道控制器,二级渠道申请服务、审批服务,渠道仓储、审批仓储,批次二,信任前端身份、无分页、内存全量扫描,待确认,保留 GET /api/partners/secondary/pending 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0147,PUT,/api/partners/secondary/:id/approve,backend/server.js:11500,渠道管理,渠道,渠道控制器,二级渠道申请服务、审批服务,渠道仓储、审批仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partners/secondary/:id/approve 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0148,PUT,/api/partners/secondary/:id/reject,backend/server.js:11539,渠道管理,渠道,渠道控制器,二级渠道申请服务、审批服务,渠道仓储、审批仓储,批次二,内存全量扫描,待确认,保留 PUT /api/partners/secondary/:id/reject 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0149,PUT,/api/orders/:id/primary-confirm,backend/server.js:11574,订单管理,订单,订单控制器,订单一级确认服务,订单仓储、订单事件仓储,批次五,信任前端身份、内存全量扫描,待确认,保留 PUT /api/orders/:id/primary-confirm 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0150,PUT,/api/orders/:id/primary-reject,backend/server.js:11698,订单管理,订单,订单控制器,订单一级确认服务,订单仓储、订单事件仓储,批次五,信任前端身份、内存全量扫描,待确认,保留 PUT /api/orders/:id/primary-reject 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0151,GET,/api/pending-approvals,backend/server.js:11818,审批管理,审批,审批控制器,审批服务,审批仓储、审批历史仓储,批次二,信任前端身份、无分页、内存全量扫描,"frontend/admin-app.js:10159
+frontend/admin-app.js:11721
+frontend/admin-app.js:396
+frontend/admin-app.js:752
+frontend/api-client.js:656",保留 GET /api/pending-approvals 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0152,PUT,/api/pending-approvals/:id,backend/server.js:11832,审批管理,审批,审批控制器,审批服务,审批仓储、审批历史仓储,批次二,信任前端身份、内存全量扫描,待确认,保留 PUT /api/pending-approvals/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0153,GET,/api/dashboard/stats,backend/server.js:11916,统计看板,渠道,渠道控制器,渠道运营服务,渠道目标仓储、渠道拜访仓储、业务统计仓储,批次二,信任前端身份、内存全量扫描,frontend/api-client.js:270,保留 GET /api/dashboard/stats 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0154,GET,/api/product-tree,backend/server.js:11944,产品管理,产品,产品控制器、工作量配置控制器,产品树服务、元数据查询服务,产品仓储、产品发布仓储,批次一,内存全量扫描,"frontend/admin-app.js:12698
+frontend/admin-app.js:4007
+frontend/app.js:2256
+frontend/app.js:3340
+frontend/partner-app.js:3542
+frontend/partner-app.js:5531
+frontend/partner-app.js:7729",保留 GET /api/product-tree 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0155,GET,/api/categories,backend/server.js:11983,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:6966
+frontend/admin-app.js:7100",保留 GET /api/categories 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0156,POST,/api/categories,backend/server.js:12002,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,暂无显性高风险,"frontend/admin-app.js:6966
+frontend/admin-app.js:7100",保留 POST /api/categories 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0157,PUT,/api/categories/:id,backend/server.js:12020,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PUT /api/categories/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0158,DELETE,/api/categories/:id,backend/server.js:12031,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/categories/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0159,GET,/api/modules,backend/server.js:12055,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:6967
+frontend/admin-app.js:7138",保留 GET /api/modules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0160,POST,/api/modules,backend/server.js:12073,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,"frontend/admin-app.js:6967
+frontend/admin-app.js:7138",保留 POST /api/modules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0161,PUT,/api/modules/:id,backend/server.js:12091,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PUT /api/modules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0162,DELETE,/api/modules/:id,backend/server.js:12102,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/modules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0163,GET,/api/features,backend/server.js:12122,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:12699
+frontend/admin-app.js:2859
+frontend/admin-app.js:4014
+frontend/admin-app.js:6968
+frontend/admin-app.js:7321
+frontend/app.js:1667
+frontend/app.js:2263
+frontend/partner-app.js:2288
+frontend/partner-app.js:3549
+frontend/partner-app.js:7730",保留 GET /api/features 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0164,POST,/api/features,backend/server.js:12139,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,信任前端身份,"frontend/admin-app.js:12699
+frontend/admin-app.js:2859
+frontend/admin-app.js:4014
+frontend/admin-app.js:6968
+frontend/admin-app.js:7321
+frontend/app.js:1667
+frontend/app.js:2263
+frontend/partner-app.js:2288
+frontend/partner-app.js:3549
+frontend/partner-app.js:7730",保留 POST /api/features 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0165,PUT,/api/features/:id,backend/server.js:12168,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,信任前端身份、内存全量扫描,待确认,保留 PUT /api/features/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0166,DELETE,/api/features/:id,backend/server.js:12328,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/features/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0167,PATCH,/api/features/:id/publish,backend/server.js:12347,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PATCH /api/features/:id/publish 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0168,GET,/api/hardware,backend/server.js:12359,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:12701
+frontend/admin-app.js:2860
+frontend/admin-app.js:4059
+frontend/admin-app.js:6969
+frontend/admin-app.js:7374
+frontend/app.js:1668
+frontend/app.js:2308
+frontend/app.js:3342
+frontend/partner-app.js:2289
+frontend/partner-app.js:3594
+frontend/partner-app.js:5533
+frontend/partner-app.js:7732",保留 GET /api/hardware 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0169,POST,/api/hardware,backend/server.js:12376,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,暂无显性高风险,"frontend/admin-app.js:12701
+frontend/admin-app.js:2860
+frontend/admin-app.js:4059
+frontend/admin-app.js:6969
+frontend/admin-app.js:7374
+frontend/app.js:1668
+frontend/app.js:2308
+frontend/app.js:3342
+frontend/partner-app.js:2289
+frontend/partner-app.js:3594
+frontend/partner-app.js:5533
+frontend/partner-app.js:7732",保留 POST /api/hardware 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0170,PUT,/api/hardware/:id,backend/server.js:12397,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PUT /api/hardware/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0171,DELETE,/api/hardware/:id,backend/server.js:12408,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/hardware/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0172,PATCH,/api/hardware/:id/publish,backend/server.js:12426,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PATCH /api/hardware/:id/publish 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0173,GET,/api/packages,backend/server.js:12440,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:12700
+frontend/admin-app.js:4052
+frontend/admin-app.js:6970
+frontend/admin-app.js:7423
+frontend/app.js:2301
+frontend/app.js:3341
+frontend/partner-app.js:3587
+frontend/partner-app.js:5532
+frontend/partner-app.js:7731",保留 GET /api/packages 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0174,GET,/api/packages/:id,backend/server.js:12456,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 GET /api/packages/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0175,POST,/api/packages,backend/server.js:12481,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,暂无显性高风险,"frontend/admin-app.js:12700
+frontend/admin-app.js:4052
+frontend/admin-app.js:6970
+frontend/admin-app.js:7423
+frontend/app.js:2301
+frontend/app.js:3341
+frontend/partner-app.js:3587
+frontend/partner-app.js:5532
+frontend/partner-app.js:7731",保留 POST /api/packages 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0176,PUT,/api/packages/:id,backend/server.js:12500,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PUT /api/packages/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0177,DELETE,/api/packages/:id,backend/server.js:12511,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/packages/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0178,PATCH,/api/packages/:id/publish,backend/server.js:12529,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PATCH /api/packages/:id/publish 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0179,GET,/api/products,backend/server.js:12543,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,"frontend/admin-app.js:771
+frontend/app.js:481
+frontend/partner-app.js:728",保留 GET /api/products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0180,GET,/api/products/stats,backend/server.js:12569,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,frontend/admin-app.js:6971,保留 GET /api/products/stats 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0181,GET,/api/products/:id,backend/server.js:12597,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,无分页、内存全量扫描,待确认,保留 GET /api/products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0182,POST,/api/products,backend/server.js:12618,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,暂无显性高风险,"frontend/admin-app.js:771
+frontend/app.js:481
+frontend/partner-app.js:728",保留 POST /api/products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0183,PUT,/api/products/:id,backend/server.js:12632,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PUT /api/products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0184,DELETE,/api/products/:id,backend/server.js:12643,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 DELETE /api/products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0185,PATCH,/api/products/:id/publish,backend/server.js:12661,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,内存全量扫描,待确认,保留 PATCH /api/products/:id/publish 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0186,POST,/api/products/batch-publish,backend/server.js:12673,产品管理,产品,产品控制器、工作量配置控制器,产品服务、产品树服务、工作量配置服务,产品仓储、产品发布仓储、工作量规则仓储,批次一,信任前端身份、内存全量扫描,待确认,保留 POST /api/products/batch-publish 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0187,GET,/api/oauth/config,backend/server.js:12855,登录认证,认证,认证控制器,单点登录适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,暂无显性高风险,frontend/partner-app.js:339,保留 GET /api/oauth/config 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0188,GET,/api/oauth/authorize,backend/server.js:12865,登录认证,认证,认证控制器,单点登录适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,暂无显性高风险,待确认,保留 GET /api/oauth/authorize 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0189,GET,/api/oauth/callback,backend/server.js:12892,登录认证,认证,认证控制器,单点登录适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份,待确认,保留 GET /api/oauth/callback 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0190,GET,/api/oauth/userinfo,backend/server.js:12958,登录认证,认证,认证控制器,单点登录适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,信任前端身份、内存全量扫描,待确认,保留 GET /api/oauth/userinfo 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0191,POST,/api/oauth/logout,backend/server.js:12989,登录认证,认证,认证控制器,单点登录适配服务、认证服务,账号仓储、会话仓储,阶段3合入后前置接入,内存全量扫描,待确认,保留 POST /api/oauth/logout 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0192,GET,/api/company-search,backend/server.js:13045,企业查询,开放接口,开放接口控制器、开放接口管理控制器,外部企业查询适配服务,外部调用审计仓储,批次六,信任前端身份、内存全量扫描、同步导入导出,待确认,保留 GET /api/company-search 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0193,GET,/api/export/:type,backend/server.js:14192,导入导出,导入导出,导入导出控制器,导出服务,导入任务仓储、导出文件仓储,批次六后置,信任前端身份、同步导入导出,待确认,保留 GET /api/export/:type 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0194,GET,/api/import/:type/template,backend/server.js:14262,导入导出,导入导出,导入导出控制器,导入导出服务、导入预检服务,导入任务仓储、导出文件仓储,批次六后置,同步导入导出,待确认,保留 GET /api/import/:type/template 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0195,POST,/api/import/:type/preview,backend/server.js:14377,导入导出,导入导出,导入导出控制器,导入预检服务,导入任务仓储、导出文件仓储,批次六后置,同步导入导出,待确认,保留 POST /api/import/:type/preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0196,POST,/api/import/:type/execute,backend/server.js:14458,导入导出,导入导出,导入导出控制器,导入任务服务,导入任务仓储、导出文件仓储,批次六后置,信任前端身份、内存全量扫描、同步导入导出、敏感字段返回,待确认,保留 POST /api/import/:type/execute 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0197,GET,/api/open/v1/${pathName},backend/server.js:16982,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/${pathName} 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0198,GET,/api/open/v1/${pathName}/:id,backend/server.js:16991,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/${pathName}/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0199,GET,/api/open-api/overview,backend/server.js:17182,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,敏感字段返回,frontend/admin-app.js:15819,保留 GET /api/open-api/overview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0200,GET,/api/open-api/docs,backend/server.js:17209,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open-api/docs 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0201,GET,/api/open-api/docs/:id/download,backend/server.js:17213,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open-api/docs/:id/download 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0202,GET,/api/open-api/clients,backend/server.js:17229,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,无分页、内存全量扫描,"frontend/admin-app.js:15837
+frontend/admin-app.js:15928",保留 GET /api/open-api/clients 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0203,POST,/api/open-api/clients,backend/server.js:17242,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,内存全量扫描、敏感字段返回,"frontend/admin-app.js:15837
+frontend/admin-app.js:15928",保留 POST /api/open-api/clients 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0204,PUT,/api/open-api/clients/:id,backend/server.js:17282,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,内存全量扫描,待确认,保留 PUT /api/open-api/clients/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0205,POST,/api/open-api/clients/:id/reset-secret,backend/server.js:17307,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,内存全量扫描、敏感字段返回,待确认,保留 POST /api/open-api/clients/:id/reset-secret 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0206,GET,/api/open-api/logs,backend/server.js:17329,开放接口管理,开放接口,开放接口管理控制器,开放接口客户端服务、开放接口文档服务,开放接口客户端仓储、开放接口访问日志仓储,批次六,同步导入导出,frontend/admin-app.js:15847,保留 GET /api/open-api/logs 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0207,POST,/api/open/v1/auth/token,backend/server.js:17345,登录认证,开放接口,开放接口控制器、开放接口管理控制器,开放接口鉴权服务,开放接口客户端仓储、开放接口令牌仓储,批次六,信任前端身份、内存全量扫描、敏感字段返回,待确认,保留 POST /api/open/v1/auth/token 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0208,GET,/api/open/v1/auth/me,backend/server.js:17416,登录认证,开放接口,开放接口控制器、开放接口管理控制器,开放接口鉴权服务,开放接口客户端仓储、开放接口令牌仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/auth/me 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0209,GET,/api/open/v1/meta/permission-scope,backend/server.js:17423,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/meta/permission-scope 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0210,GET,/api/open/v1/meta/dictionaries,backend/server.js:17427,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/meta/dictionaries 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0211,GET,/api/open/v1/users,backend/server.js:17431,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描、敏感字段返回,待确认,保留 GET /api/open/v1/users 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0212,GET,/api/open/v1/users/:id,backend/server.js:17448,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描、敏感字段返回,待确认,保留 GET /api/open/v1/users/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0213,GET,/api/open/v1/partners,backend/server.js:17454,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/partners 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0214,GET,/api/open/v1/partners/:id,backend/server.js:17471,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/partners/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0215,GET,/api/open/v1/registrations,backend/server.js:17477,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/registrations 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0216,GET,/api/open/v1/registrations/:id,backend/server.js:17493,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/registrations/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0217,GET,/api/open/v1/opportunities,backend/server.js:17499,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/opportunities 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0218,GET,/api/open/v1/opportunities/:id,backend/server.js:17516,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/opportunities/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0219,GET,/api/open/v1/quotes,backend/server.js:17522,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/quotes 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0220,GET,/api/open/v1/quotes/:id,backend/server.js:17538,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/quotes/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0221,GET,/api/open/v1/orders,backend/server.js:17544,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/orders 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0222,GET,/api/open/v1/orders/:id,backend/server.js:17560,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/orders/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0223,GET,/api/open/v1/identity/users/:userId,backend/server.js:17566,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/identity/users/:userId 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0224,GET,/api/open/v1/diagnostics/self-check,backend/server.js:17577,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/diagnostics/self-check 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0225,GET,/api/open/v1/analytics/:resource/summary,backend/server.js:17581,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/:resource/summary 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0226,GET,/api/open/v1/analytics/business-overview,backend/server.js:17608,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/business-overview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0227,GET,/api/open/v1/analytics/funnel,backend/server.js:17648,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/funnel 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0228,GET,/api/open/v1/analytics/funnel/registration-opportunity-order,backend/server.js:17679,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/funnel/registration-opportunity-order 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0229,GET,/api/open/v1/analytics/partners/profile,backend/server.js:17710,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,无分页,待确认,保留 GET /api/open/v1/analytics/partners/profile 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0230,GET,/api/open/v1/analytics/technical-service-providers/profile,backend/server.js:17718,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/technical-service-providers/profile 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0231,GET,/api/open/v1/analytics/tech-service-providers/profile,backend/server.js:17718,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/tech-service-providers/profile 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0232,GET,/api/open/v1/analytics/partners/contribution,backend/server.js:17734,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/partners/contribution 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0233,GET,/api/open/v1/analytics/technical-service-providers/contribution,backend/server.js:17753,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/technical-service-providers/contribution 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0234,GET,/api/open/v1/analytics/tech-service-providers/contribution,backend/server.js:17753,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/analytics/tech-service-providers/contribution 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0235,GET,/api/open/v1/analytics/regions/contribution,backend/server.js:17777,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,信任前端身份,待确认,保留 GET /api/open/v1/analytics/regions/contribution 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0236,GET,/api/open/v1/analytics/owners/contribution,backend/server.js:17796,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,信任前端身份、内存全量扫描,待确认,保留 GET /api/open/v1/analytics/owners/contribution 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0237,GET,/api/open/v1/categories,backend/server.js:17836,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/categories 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0238,GET,/api/open/v1/categories/:id,backend/server.js:17846,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/categories/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0239,GET,/api/open/v1/modules,backend/server.js:17852,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/modules 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0240,GET,/api/open/v1/modules/:id,backend/server.js:17864,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/modules/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0241,GET,/api/open/v1/features,backend/server.js:17870,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/features 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0242,GET,/api/open/v1/features/:id,backend/server.js:17882,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/features/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0243,GET,/api/open/v1/hardware,backend/server.js:17888,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/hardware 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0244,GET,/api/open/v1/hardware/:id,backend/server.js:17898,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/hardware/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0245,GET,/api/open/v1/packages,backend/server.js:17904,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/packages 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0246,GET,/api/open/v1/packages/:id,backend/server.js:17914,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/packages/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0247,GET,/api/open/v1/products,backend/server.js:17920,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 GET /api/open/v1/products 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0248,GET,/api/open/v1/products/:id,backend/server.js:17930,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页、内存全量扫描,待确认,保留 GET /api/open/v1/products/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0249,GET,/api/open/v1/product-tree,backend/server.js:17986,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/product-tree 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0250,GET,/api/open/v1/product-stats,backend/server.js:17991,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/product-stats 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0251,GET,/api/open/v1/dashboard-stats,backend/server.js:17995,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口统计查询服务,领域只读仓储、访问日志仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/dashboard-stats 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0252,GET,/api/open/v1/channel-operations-overview,backend/server.js:17999,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/channel-operations-overview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0253,GET,/api/open/v1/audit-logs,backend/server.js:18007,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,信任前端身份,待确认,保留 GET /api/open/v1/audit-logs 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0254,GET,/api/open/v1/audit-logs/:id,backend/server.js:18033,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,无分页,待确认,保留 GET /api/open/v1/audit-logs/:id 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0255,GET,/api/open/v1/company-search,backend/server.js:18040,开放接口,开放接口,开放接口控制器、开放接口管理控制器,外部企业查询适配服务,外部调用审计仓储,批次六,暂无显性高风险,待确认,保留 GET /api/open/v1/company-search 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0256,POST,/api/open/v1/quotes/workload-preview,backend/server.js:18049,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,暂无显性高风险,待确认,保留 POST /api/open/v1/quotes/workload-preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
+API-0257,POST,/api/open/v1/ipg/quote-preview,backend/server.js:18054,开放接口,开放接口,开放接口控制器、开放接口管理控制器,开放接口资源查询服务（调用对应领域服务）,开放接口访问日志仓储、对应领域仓储,批次六,内存全量扫描,待确认,保留 POST /api/open/v1/ipg/quote-preview 旧路径，兼容层映射请求、响应和错误后调用新服务。
