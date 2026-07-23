@@ -1,0 +1,184 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "联软CRM V3基础契约",
+    "version": "3.0.0-alpha.1",
+    "description": "阶段1仅描述健康检查、统一成功响应、统一错误响应和公共状态结构。"
+  },
+  "servers": [{ "url": "/", "description": "同源服务入口" }],
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "读取存活状态",
+        "summary": "读取进程存活状态",
+        "responses": {
+          "200": {
+            "description": "进程可以接收请求",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthLiveResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "读取就绪状态",
+        "summary": "读取依赖就绪状态",
+        "responses": {
+          "200": {
+            "description": "依赖就绪",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthReadyResponse" }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖未就绪",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/dependencies": {
+      "get": {
+        "operationId": "读取依赖状态",
+        "summary": "读取配置、数据库、Redis和迁移状态",
+        "responses": {
+          "200": {
+            "description": "返回每个依赖的检查结果",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HealthDependenciesResponse" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SuccessBase": {
+        "type": "object",
+        "required": ["success", "requestId", "timestamp"],
+        "properties": {
+          "success": { "type": "boolean", "const": true, "description": "是否成功" },
+          "requestId": { "type": "string", "description": "请求编号" },
+          "timestamp": { "type": "string", "format": "date-time", "description": "响应时间" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["success", "error", "requestId", "timestamp"],
+        "properties": {
+          "success": { "type": "boolean", "const": false, "description": "是否成功" },
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": ["NOT_FOUND", "INTERNAL_ERROR", "HEALTH_DEPENDENCY_UNAVAILABLE"],
+                "description": "稳定错误代码"
+              },
+              "message": { "type": "string", "description": "中文错误消息" },
+              "details": { "description": "错误附加信息" }
+            }
+          },
+          "requestId": { "type": "string", "description": "请求编号" },
+          "timestamp": { "type": "string", "format": "date-time", "description": "响应时间" }
+        }
+      },
+      "DependencyStatus": {
+        "type": "object",
+        "required": ["name", "status", "message", "checkedAt"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": ["config", "postgresql", "redis", "migration"],
+            "description": "依赖名称"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["ok", "failed", "skipped"],
+            "description": "依赖状态"
+          },
+          "message": { "type": "string", "description": "中文检查说明" },
+          "latencyMs": { "type": "number", "description": "检查耗时毫秒" },
+          "checkedAt": { "type": "string", "format": "date-time", "description": "检查时间" }
+        }
+      },
+      "HealthLiveData": {
+        "type": "object",
+        "required": ["service", "version", "environment", "uptimeSeconds"],
+        "properties": {
+          "service": { "type": "string", "description": "服务名称" },
+          "version": { "type": "string", "description": "服务版本" },
+          "environment": { "type": "string", "description": "运行环境" },
+          "uptimeSeconds": { "type": "number", "description": "进程运行秒数" }
+        }
+      },
+      "HealthReadyData": {
+        "type": "object",
+        "required": ["ready", "dependencies"],
+        "properties": {
+          "ready": { "type": "boolean", "description": "是否就绪" },
+          "dependencies": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DependencyStatus" },
+            "description": "依赖检查结果"
+          }
+        }
+      },
+      "HealthDependenciesData": {
+        "type": "object",
+        "required": ["dependencies"],
+        "properties": {
+          "dependencies": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DependencyStatus" },
+            "description": "依赖检查结果"
+          }
+        }
+      },
+      "HealthLiveResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/SuccessBase" },
+          {
+            "type": "object",
+            "required": ["data"],
+            "properties": { "data": { "$ref": "#/components/schemas/HealthLiveData" } }
+          }
+        ]
+      },
+      "HealthReadyResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/SuccessBase" },
+          {
+            "type": "object",
+            "required": ["data"],
+            "properties": { "data": { "$ref": "#/components/schemas/HealthReadyData" } }
+          }
+        ]
+      },
+      "HealthDependenciesResponse": {
+        "allOf": [
+          { "$ref": "#/components/schemas/SuccessBase" },
+          {
+            "type": "object",
+            "required": ["data"],
+            "properties": { "data": { "$ref": "#/components/schemas/HealthDependenciesData" } }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+
+# 数据质量处理规则，阶段2草案。
+generatedAt: "2026-07-23"
+rules:
+  - code: "DQ-USER-PASSWORD-PLAINTEXT"
+    source: "users.password"
+    issue: "疑似明文密码"
+    stage0Count: 70
+    category: "自动映射"
+    action: "迁移时生成scrypt散列，导出和暂存不保存明文"
+    blocking: false
+  - code: "DQ-ROLE-UNKNOWN"
+    source: "users.role"
+    issue: "未知角色"
+    category: "阻断迁移"
+    action: "产品确认角色映射后重跑用户批次"
+    blocking: true
+  - code: "DQ-REGION-UNKNOWN"
+    source: "region,bigRegion"
+    issue: "未知区域或区域名称不一致"
+    category: "业务补录"
+    action: "补充区域字典或批准隔离"
+    blocking: true
+  - code: "DQ-PARTNER-PARENT-BROKEN"
+    source: "partners.parentPartnerId"
+    issue: "上级渠道断裂"
+    category: "业务补录"
+    action: "补齐上级渠道或改为无层级并签字"
+    blocking: true
+  - code: "DQ-STATUS-UNKNOWN"
+    source: "status,stage,approvalStatus"
+    issue: "未知状态"
+    category: "阻断迁移"
+    action: "补充状态映射或批准隔离"
+    blocking: true
+  - code: "DQ-AMOUNT-MISMATCH"
+    source: "quotes,orders"
+    issue: "金额重算不一致"
+    category: "阻断迁移"
+    action: "按价格样本逐分确认"
+    blocking: true

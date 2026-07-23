@@ -1,0 +1,96 @@
+
+# V2实体到PostgreSQL目标表映射，阶段2草案。
+generatedAt: "2026-07-23"
+entities:
+  users:
+    batch: "02-用户和身份"
+    targetTables: ["iam.users", "iam.password_credentials", "iam.user_roles", "org.staff_profiles", "channel.partner_members"]
+    strategy: "密码转散列，角色和渠道关系拆分"
+  partners:
+    batch: "03-渠道和成员"
+    targetTables: ["channel.partners", "channel.partner_relations"]
+    strategy: "先装载渠道主档，再校验上下级关系"
+  registrations:
+    batch: "05-报备和审批"
+    targetTables: ["crm.customers", "crm.registrations", "crm.registration_events"]
+    strategy: "客户归一化，状态事件化"
+  opportunities:
+    batch: "06-商机和跟进"
+    targetTables: ["crm.customers", "crm.opportunities", "crm.opportunity_followups", "crm.opportunity_stage_history"]
+    strategy: "阶段规范化，原始阶段保留"
+  notifications:
+    batch: "09-通知开放接口审计"
+    targetTables: ["ops.notifications"]
+    strategy: "直接迁移，按保留期归档"
+  quotes:
+    batch: "07-报价"
+    targetTables: ["crm.quotes", "crm.quote_items", "crm.quote_snapshots", "crm.quote_status_history"]
+    strategy: "金额校验，产品和工作量快照保留"
+  orders:
+    batch: "08-订单"
+    targetTables: ["crm.orders", "crm.order_items", "crm.order_status_history"]
+    strategy: "关联报价，防止重复转单"
+  channelTargets:
+    batch: "09-通知开放接口审计"
+    targetTables: ["migration.v2_raw_records"]
+    strategy: "当前样本为0，先暂存，产品确认后决定正式表"
+  channelVisits:
+    batch: "09-通知开放接口审计"
+    targetTables: ["migration.v2_raw_records"]
+    strategy: "当前样本为0，先暂存，产品确认后决定正式表"
+  pendingApprovals:
+    batch: "05-报备和审批"
+    targetTables: ["ops.approvals", "ops.approval_events"]
+    strategy: "审批主档和事件拆分"
+  categories:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.product_categories"]
+    strategy: "直接迁移"
+  modules:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.product_modules"]
+    strategy: "直接迁移"
+  features:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.product_features", "catalog.price_rules"]
+    strategy: "功能和价格拆分"
+  hardwareProducts:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.hardware_products", "catalog.price_rules"]
+    strategy: "硬件和价格拆分"
+  packages:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.product_packages", "catalog.package_items", "catalog.price_rules"]
+    strategy: "套餐和明细拆分"
+  products:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.product_features", "catalog.hardware_products"]
+    strategy: "当前样本为0，保留兼容映射"
+  partnerProfiles:
+    batch: "03-渠道和成员"
+    targetTables: ["channel.partner_profiles"]
+    strategy: "当前样本为0，保留直接映射"
+  partnerProfileProducts:
+    batch: "03-渠道和成员"
+    targetTables: ["channel.partner_profile_products"]
+    strategy: "依赖渠道画像和产品"
+  openApiClients:
+    batch: "09-通知开放接口审计"
+    targetTables: ["integration.open_api_clients", "integration.open_api_client_secrets", "integration.open_api_permissions"]
+    strategy: "密钥转散列，权限拆分"
+  implementationWorkloadClassifications:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.workload_classifications"]
+    strategy: "直接迁移"
+  implementationWorkloadMappings:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.workload_mappings"]
+    strategy: "直接迁移"
+  implementationWorkloadRules:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.workload_rules"]
+    strategy: "直接迁移"
+  implementationDeliveryWorkloadRules:
+    batch: "04-产品价格工作量"
+    targetTables: ["catalog.delivery_workload_rules"]
+    strategy: "直接迁移"

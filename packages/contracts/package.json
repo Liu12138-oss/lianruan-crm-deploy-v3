@@ -1,0 +1,24 @@
+{
+  "name": "@lianruan/contracts",
+  "version": "3.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./openapi": {
+      "types": "./dist/openapi.d.ts",
+      "import": "./dist/openapi.js"
+    }
+  },
+  "scripts": {
+    "生成契约类型": "node scripts/generate-health-types.mjs",
+    "check": "npm run 生成契约类型 && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run tests",
+    "build": "npm run 生成契约类型 && tsc -p tsconfig.build.json"
+  }
+}
