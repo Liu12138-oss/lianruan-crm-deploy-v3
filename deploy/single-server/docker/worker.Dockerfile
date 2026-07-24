@@ -1,4 +1,7 @@
-FROM node:22.13.1-bookworm-slim AS deps
+ARG NODE_IMAGE=node:22.13.1-bookworm-slim
+ARG TARGET_PLATFORM=linux/amd64
+
+FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json .npmrc ./
@@ -13,11 +16,12 @@ RUN npm ci
 
 FROM deps AS build
 COPY tsconfig.json tsconfig.base.json ./
+COPY scripts/run-workspaces.mjs scripts/run-workspaces.mjs
 COPY apps apps
 COPY packages packages
 RUN npm run build
 
-FROM node:22.13.1-bookworm-slim AS prod-deps
+FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
@@ -29,7 +33,7 @@ COPY packages/shared/package.json packages/shared/package.json
 COPY packages/testing/package.json packages/testing/package.json
 RUN npm ci --omit=dev && npm cache clean --force
 
-FROM node:22.13.1-bookworm-slim AS runtime
+FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 

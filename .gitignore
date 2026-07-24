@@ -50,6 +50,7 @@ upgrade_logs/
 *.tar.gz
 *.tgz
 *.bak
+deploy/single-server/images/sha256sum.txt
 
 # 办公软件临时文件
 ~$*
