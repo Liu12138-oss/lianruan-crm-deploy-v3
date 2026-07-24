@@ -51,6 +51,10 @@ upgrade_logs/
 *.tgz
 *.bak
 deploy/single-server/images/sha256sum.txt
+deploy/single-server/runtime/docker/*.tgz
+deploy/single-server/runtime/docker/*.part
+deploy/single-server/runtime/compose/docker-compose-linux-*
+deploy/single-server/runtime/sha256sum.txt
 
 # 办公软件临时文件
 ~$*

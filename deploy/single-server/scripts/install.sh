@@ -65,12 +65,42 @@ mkdir -p \
 chmod 750 "${install_root}"
 chmod 700 "${install_root}/secrets"
 
-cp "${package_root}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
-cp -R "${package_root}/config/nginx/." "${install_root}/config/nginx/"
-cp "${package_root}/config/deploy.env.example" "${install_root}/config/deploy.env"
-cp "${package_root}/config/deploy.env.example" "${install_root}/compose/.env"
-sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${install_root}/config/deploy.env"
-sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${install_root}/compose/.env"
+写入文件如不存在() {
+  local source_file="$1"
+  local target_file="$2"
+
+  if [ -f "${target_file}" ]; then
+    cp "${source_file}" "${target_file}.new"
+    echo "检测到已有 ${target_file}，跳过覆盖；新模板已写入 ${target_file}.new。"
+  else
+    cp "${source_file}" "${target_file}"
+  fi
+}
+
+写入部署变量如不存在() {
+  local target_file="$1"
+  local output_file="${target_file}"
+
+  if [ -f "${target_file}" ]; then
+    output_file="${target_file}.new"
+    echo "检测到已有 ${target_file}，跳过覆盖；新模板已写入 ${output_file}。"
+  fi
+
+  cp "${package_root}/config/deploy.env.example" "${output_file}"
+  sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${output_file}"
+}
+
+写入文件如不存在 "${package_root}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
+if [ -f "${install_root}/config/nginx/default.conf" ]; then
+  rm -rf "${install_root}/config/nginx.new"
+  mkdir -p "${install_root}/config/nginx.new"
+  cp -R "${package_root}/config/nginx/." "${install_root}/config/nginx.new/"
+  echo "检测到已有 ${install_root}/config/nginx/default.conf，跳过覆盖；新模板目录已写入 ${install_root}/config/nginx.new。"
+else
+  cp -R "${package_root}/config/nginx/." "${install_root}/config/nginx/"
+fi
+写入部署变量如不存在 "${install_root}/config/deploy.env"
+写入部署变量如不存在 "${install_root}/compose/.env"
 cp "${package_root}/scripts/"*.sh "${install_root}/scripts/"
 chmod 750 "${install_root}/scripts/"*.sh
 
