@@ -85,7 +85,10 @@ for (const 脚本 of 必需脚本) {
 断言(包含("deploy/single-server/scripts/install-all.sh", "health-check.sh"), "一键安装脚本未串联健康检查");
 断言(包含("deploy/single-server/scripts/install-all.sh", "logs/install"), "一键安装脚本未记录安装日志");
 断言(包含("deploy/single-server/scripts/package-offline.sh", "runtime"), "离线打包脚本未包含运行时目录");
+断言(包含("deploy/single-server/scripts/package-offline.sh", "V3_PACKAGE_FORMAT:-zip"), "离线打包脚本未默认生成ZIP安装包");
+断言(包含("deploy/single-server/scripts/package-offline.sh", "zip -qr -X"), "离线打包脚本未使用ZIP打包");
 断言(包含("deploy/single-server/README.md", "install-all.sh"), "部署说明未给出一键安装入口");
+断言(包含("deploy/single-server/docs/离线安装说明.md", "unzip"), "离线安装说明未给出ZIP解压命令");
 断言(包含("deploy/single-server/docs/离线安装说明.md", "logs/install"), "离线安装说明未说明安装日志");
 
 const 忽略规则 = 读取文本(".gitignore");

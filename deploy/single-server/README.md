@@ -1,6 +1,6 @@
 # 阶段7单机离线部署资产说明
 
-本目录用于交付V3阶段7首版单机部署资产，目标环境为欧拉 Linux x86服务器，安装目录为 `/opt/lianruan-crm-v3`，访问方式先使用服务器IP，镜像交付方式为离线镜像安装包。
+本目录用于交付V3阶段7首版单机部署资产，目标环境为欧拉 Linux x86服务器，安装目录为 `/opt/lianruan-crm-v3`，访问方式先使用服务器IP，镜像交付方式为ZIP离线镜像安装包。
 
 ## 目录说明
 
@@ -49,6 +49,9 @@ V3_SKIP_PULL=1 deploy/single-server/scripts/save-images.sh
 生产服务器执行：
 
 ```bash
+sha256sum -c lianruan-crm-v3-offline-版本号.zip.sha256
+unzip lianruan-crm-v3-offline-版本号.zip
+cd lianruan-crm-v3-offline-版本号
 sudo SERVER_HOST=服务器IP ./scripts/install-all.sh
 sudo /opt/lianruan-crm-v3/scripts/health-check.sh
 ```

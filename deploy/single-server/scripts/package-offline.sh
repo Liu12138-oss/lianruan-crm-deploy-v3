@@ -8,6 +8,7 @@ package_name="lianruan-crm-v3-offline-${version_tag}"
 output_root="${project_root}/tmp/phase7-package"
 output_dir="${output_root}/${package_name}"
 include_runtime="${V3_INCLUDE_RUNTIME:-1}"
+package_format="${V3_PACKAGE_FORMAT:-zip}"
 
 if ! ls "${project_root}/deploy/single-server/images/"*.tar >/dev/null 2>&1; then
   echo "未找到离线镜像tar文件，请先执行 deploy/single-server/scripts/save-images.sh。" >&2
@@ -95,13 +96,38 @@ cp "${project_root}/docs/deployment/V3版本生产部署文档.md" "${output_dir
 find "${output_dir}/scripts" -type f -name "*.sh" -exec chmod 750 {} \;
 
 cd "${output_root}"
-tar -czf "${package_name}.tar.gz" "${package_name}"
 
-if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "${package_name}.tar.gz" > "${package_name}.tar.gz.sha256"
-else
-  shasum -a 256 "${package_name}.tar.gz" > "${package_name}.tar.gz.sha256"
-fi
+生成校验文件() {
+  local package_file="$1"
 
-echo "离线安装包已生成：${output_root}/${package_name}.tar.gz"
-echo "安装包校验文件：${output_root}/${package_name}.tar.gz.sha256"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "${package_file}" > "${package_file}.sha256"
+  else
+    shasum -a 256 "${package_file}" > "${package_file}.sha256"
+  fi
+}
+
+case "${package_format}" in
+  zip)
+    if ! command -v zip >/dev/null 2>&1; then
+      echo "未找到zip命令，无法生成ZIP离线安装包。" >&2
+      exit 1
+    fi
+    rm -f "${package_name}.zip" "${package_name}.zip.sha256"
+    zip -qr -X "${package_name}.zip" "${package_name}"
+    生成校验文件 "${package_name}.zip"
+    echo "离线安装包已生成：${output_root}/${package_name}.zip"
+    echo "安装包校验文件：${output_root}/${package_name}.zip.sha256"
+    ;;
+  tar.gz)
+    rm -f "${package_name}.tar.gz" "${package_name}.tar.gz.sha256"
+    tar -czf "${package_name}.tar.gz" "${package_name}"
+    生成校验文件 "${package_name}.tar.gz"
+    echo "离线安装包已生成：${output_root}/${package_name}.tar.gz"
+    echo "安装包校验文件：${output_root}/${package_name}.tar.gz.sha256"
+    ;;
+  *)
+    echo "不支持的安装包格式：${package_format}，可选值：zip、tar.gz。" >&2
+    exit 1
+    ;;
+esac
