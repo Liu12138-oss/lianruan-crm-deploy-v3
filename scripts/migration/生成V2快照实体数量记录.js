@@ -116,10 +116,12 @@ function 执行SQLiteJson(库路径, SQL) {
 }
 
 function 执行SQLite文本(库路径, SQL) {
-  return childProcess.execFileSync("sqlite3", ["--readonly", 库路径, SQL], {
-    encoding: "utf8",
-    maxBuffer: 1024 * 1024 * 20,
-  }).trim();
+  return childProcess
+    .execFileSync("sqlite3", ["--readonly", 库路径, SQL], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024 * 20,
+    })
+    .trim();
 }
 
 function 读取映射(映射文件) {
@@ -146,8 +148,12 @@ function 查询库基础信息(库路径) {
     日志模式: 执行SQLite文本(库路径, "PRAGMA journal_mode;"),
     页面大小: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA page_size;")[0] ?? {}, ["page_size"]),
     页面数量: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA page_count;")[0] ?? {}, ["page_count"]),
-    空闲页面数量: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA freelist_count;")[0] ?? {}, ["freelist_count"]),
-    用户版本: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA user_version;")[0] ?? {}, ["user_version"]),
+    空闲页面数量: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA freelist_count;")[0] ?? {}, [
+      "freelist_count",
+    ]),
+    用户版本: 取第一行数值(执行SQLiteJson(库路径, "PRAGMA user_version;")[0] ?? {}, [
+      "user_version",
+    ]),
     表与索引: 执行SQLiteJson(
       库路径,
       "SELECT type AS 类型, name AS 名称, COALESCE(tbl_name, '') AS 所属表, COALESCE(sql, '') AS 建表语句 FROM sqlite_master WHERE type IN ('table','index','trigger','view') ORDER BY type, name;",
@@ -156,9 +162,10 @@ function 查询库基础信息(库路径) {
 }
 
 function 查询实体统计(库路径, 映射) {
-  const 汇总行 = 执行SQLiteJson(
-    库路径,
-    `SELECT
+  const 汇总行 =
+    执行SQLiteJson(
+      库路径,
+      `SELECT
       COUNT(*) AS 总记录数,
       COUNT(DISTINCT entity_name) AS 实体类型数,
       SUM(CASE WHEN entity_name IS NULL OR trim(entity_name) = '' THEN 1 ELSE 0 END) AS 空实体名数,
@@ -166,7 +173,7 @@ function 查询实体统计(库路径, 映射) {
       MIN(updated_at) AS 最早更新时间,
       MAX(updated_at) AS 最晚更新时间
     FROM entities;`,
-  )[0] ?? {};
+    )[0] ?? {};
 
   const 基础行 = 执行SQLiteJson(
     库路径,
@@ -240,9 +247,10 @@ function 查询实体统计(库路径, 映射) {
 }
 
 function 查询审计统计(库路径) {
-  const 汇总 = 执行SQLiteJson(
-    库路径,
-    `SELECT
+  const 汇总 =
+    执行SQLiteJson(
+      库路径,
+      `SELECT
       COUNT(*) AS 审计总数,
       COUNT(DISTINCT id) AS 唯一审计编号数,
       COUNT(*) - COUNT(DISTINCT id) AS 重复审计编号数,
@@ -255,7 +263,7 @@ function 查询审计统计(库路径) {
       SUM(CASE WHEN after_json IS NOT NULL AND trim(after_json) <> '' AND json_valid(after_json) = 0 THEN 1 ELSE 0 END) AS after_json非法数,
       SUM(CASE WHEN extra_json IS NOT NULL AND trim(extra_json) <> '' AND json_valid(extra_json) = 0 THEN 1 ELSE 0 END) AS extra_json非法数
     FROM audit_logs;`,
-  )[0] ?? {};
+    )[0] ?? {};
 
   const 模块统计 = 执行SQLiteJson(
     库路径,
@@ -297,7 +305,8 @@ function 写CSV(文件路径, 表头, 行列表) {
 }
 
 function Markdown表格(表头, 行列表) {
-  const 行转文本 = (行) => `| ${表头.map((列) => String(行[列] ?? "").replace(/\|/g, "\\|")).join(" | ")} |`;
+  const 行转文本 = (行) =>
+    `| ${表头.map((列) => String(行[列] ?? "").replace(/\|/g, "\\|")).join(" | ")} |`;
   return [
     `| ${表头.join(" | ")} |`,
     `| ${表头.map(() => "---").join(" | ")} |`,
@@ -538,7 +547,11 @@ function 写报告(报告) {
     ],
     实体CSV行,
   );
-  写CSV(报告.输出文件.auditCountsCsv, ["模块", "动作", "结果", "数量"], 报告.审计库.审计统计.模块动作结果统计);
+  写CSV(
+    报告.输出文件.auditCountsCsv,
+    ["模块", "动作", "结果", "数量"],
+    报告.审计库.审计统计.模块动作结果统计,
+  );
 
   const Markdown内容 = 生成Markdown报告(报告);
   fs.writeFileSync(报告.输出文件.markdown, Markdown内容, "utf8");
@@ -557,7 +570,10 @@ function 写报告(报告) {
     校验文件列表.push(报告.输出文件.recordDoc);
   }
   const 校验内容 = 校验文件列表
-    .map((文件路径) => `${文件元信息(文件路径).SHA256}  ${path.relative(报告.输出文件.manifest ? path.dirname(报告.输出文件.manifest) : 项目根目录, 文件路径)}`)
+    .map(
+      (文件路径) =>
+        `${文件元信息(文件路径).SHA256}  ${path.relative(报告.输出文件.manifest ? path.dirname(报告.输出文件.manifest) : 项目根目录, 文件路径)}`,
+    )
     .join("\n");
   fs.writeFileSync(报告.输出文件.sha256sum, 校验内容 + "\n", "utf8");
 }
