@@ -12,8 +12,10 @@ log_file="${log_dir}/install-runtime-${timestamp}.log"
 docker_version="${V3_DOCKER_VERSION:-27.5.1}"
 compose_version="${V3_COMPOSE_VERSION:-v2.32.4}"
 docker_file="${runtime_root}/docker/docker-${docker_version}.tgz"
+docker_bin_dir="${runtime_root}/docker-bin/docker"
 compose_file="${runtime_root}/compose/docker-compose-linux-x86_64-${compose_version}"
 docker_data_root="${DOCKER_DATA_ROOT:-${install_root}/runtime/docker-data}"
+docker_binaries=(containerd containerd-shim-runc-v2 ctr docker dockerd docker-init docker-proxy runc)
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "请使用root或sudo执行运行时安装脚本。" >&2
@@ -42,16 +44,30 @@ else
 fi
 
 校验运行时文件() {
+  local binary_name
   local compose_size
 
   if [ ! -f "${docker_file}" ]; then
     echo "未找到Docker离线包：${docker_file}" >&2
     exit 1
   fi
-  tar -tzf "${docker_file}" >/dev/null || {
-    echo "Docker离线包无法读取或已损坏：${docker_file}" >&2
+  if [ -d "${docker_bin_dir}" ]; then
+    for binary_name in "${docker_binaries[@]}"; do
+      if [ ! -f "${docker_bin_dir}/${binary_name}" ]; then
+        echo "Docker免tar目录缺少二进制：${binary_name}" >&2
+        exit 1
+      fi
+    done
+    echo "Docker免tar目录校验通过：${docker_bin_dir}"
+  elif command -v tar >/dev/null 2>&1; then
+    tar -tzf "${docker_file}" >/dev/null || {
+      echo "Docker离线包无法读取或已损坏：${docker_file}" >&2
+      exit 1
+    }
+  else
+    echo "缺少tar命令，且安装包内没有Docker免tar目录：${docker_bin_dir}" >&2
     exit 1
-  }
+  fi
 
   if [ ! -f "${compose_file}" ]; then
     echo "未找到Docker Compose离线文件：${compose_file}" >&2
@@ -71,6 +87,9 @@ fi
 }
 
 安装Docker静态运行时() {
+  local binary_name
+  local docker_source_dir="${docker_bin_dir}"
+
   if command -v docker >/dev/null 2>&1; then
     echo "检测到已有Docker，跳过Docker二进制安装：$(command -v docker)"
     return
@@ -81,18 +100,27 @@ fi
     exit 1
   fi
 
-  work_dir="$(mktemp -d)"
-  trap 'rm -rf "${work_dir}"' RETURN
+  if [ -d "${docker_source_dir}" ]; then
+    echo "使用安装包内预解压Docker二进制：${docker_source_dir}"
+  else
+    if ! command -v tar >/dev/null 2>&1; then
+      echo "缺少tar命令，且安装包内没有Docker免tar目录：${docker_bin_dir}" >&2
+      exit 1
+    fi
+    work_dir="$(mktemp -d)"
+    trap 'rm -rf "${work_dir}"' RETURN
 
-  echo "解压Docker离线包：${docker_file}"
-  tar -xzf "${docker_file}" -C "${work_dir}"
+    echo "解压Docker离线包：${docker_file}"
+    tar -xzf "${docker_file}" -C "${work_dir}"
+    docker_source_dir="${work_dir}/docker"
+  fi
 
-  for binary_name in containerd containerd-shim-runc-v2 ctr docker dockerd docker-init docker-proxy runc; do
-    if [ ! -f "${work_dir}/docker/${binary_name}" ]; then
+  for binary_name in "${docker_binaries[@]}"; do
+    if [ ! -f "${docker_source_dir}/${binary_name}" ]; then
       echo "Docker离线包缺少二进制：${binary_name}" >&2
       exit 1
     fi
-    install -m 755 "${work_dir}/docker/${binary_name}" "/usr/local/bin/${binary_name}"
+    install -m 755 "${docker_source_dir}/${binary_name}" "/usr/local/bin/${binary_name}"
   done
 
   if ! getent group docker >/dev/null 2>&1; then

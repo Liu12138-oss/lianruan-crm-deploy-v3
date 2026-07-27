@@ -53,6 +53,8 @@ upgrade_logs/
 deploy/single-server/images/sha256sum.txt
 deploy/single-server/runtime/docker/*.tgz
 deploy/single-server/runtime/docker/*.part
+deploy/single-server/runtime/docker-bin/docker/*
+!deploy/single-server/runtime/docker-bin/docker/.gitkeep
 deploy/single-server/runtime/compose/docker-compose-linux-*
 deploy/single-server/runtime/sha256sum.txt
 

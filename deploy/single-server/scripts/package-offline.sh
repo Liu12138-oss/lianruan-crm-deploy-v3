@@ -33,8 +33,11 @@ fi
 校验运行时资产() {
   local runtime_root="${project_root}/deploy/single-server/runtime"
   local docker_file
+  local docker_bin_dir="${runtime_root}/docker-bin/docker"
+  local binary_name
   local compose_file
   local compose_size
+  local docker_binaries=(containerd containerd-shim-runc-v2 ctr docker dockerd docker-init docker-proxy runc)
 
   if [[ "${include_runtime}" != "1" ]]; then
     return
@@ -56,6 +59,20 @@ fi
     echo "Docker离线运行时文件无法读取或已损坏：${docker_file}" >&2
     exit 1
   }
+
+  echo "生成Docker免tar目录：${docker_bin_dir}"
+  rm -rf "${runtime_root}/docker-bin"
+  mkdir -p "${runtime_root}/docker-bin"
+  tar -xzf "${docker_file}" -C "${runtime_root}/docker-bin"
+  touch "${docker_bin_dir}/.gitkeep"
+
+  for binary_name in "${docker_binaries[@]}"; do
+    if [ ! -f "${docker_bin_dir}/${binary_name}" ]; then
+      echo "Docker免tar目录缺少二进制：${binary_name}" >&2
+      exit 1
+    fi
+    chmod 755 "${docker_bin_dir}/${binary_name}"
+  done
 
   compose_file="$(find "${runtime_root}/compose" -maxdepth 1 -type f -name 'docker-compose-linux-*' | head -n 1)"
   if [ -z "${compose_file}" ]; then

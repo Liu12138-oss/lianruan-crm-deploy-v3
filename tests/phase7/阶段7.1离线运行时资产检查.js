@@ -9,6 +9,7 @@ const 项目根目录 = path.resolve(__dirname, "../..");
 const 必需文件 = [
   "deploy/single-server/runtime/README.md",
   "deploy/single-server/runtime/docker/.gitkeep",
+  "deploy/single-server/runtime/docker-bin/docker/.gitkeep",
   "deploy/single-server/runtime/compose/.gitkeep",
   "deploy/single-server/scripts/download-runtime.sh",
   "deploy/single-server/scripts/preflight.sh",
@@ -73,9 +74,12 @@ for (const 脚本 of 必需脚本) {
 );
 断言(包含("deploy/single-server/scripts/download-runtime.sh", "-C -"), "运行时下载脚本未启用断点续传");
 断言(包含("deploy/single-server/scripts/download-runtime.sh", "50000000"), "运行时下载脚本未防止半截Compose文件进包");
+断言(包含("deploy/single-server/scripts/download-runtime.sh", "docker-bin"), "运行时下载脚本未生成Docker免tar目录");
 断言(包含("deploy/single-server/scripts/preflight.sh", "x86_64"), "安装前检测未限制x86_64架构");
+断言(包含("deploy/single-server/scripts/preflight.sh", "docker-bin"), "安装前检测未支持Docker免tar目录");
 断言(包含("deploy/single-server/scripts/preflight.sh", "logs/install"), "安装前检测未记录日志目录");
 断言(包含("deploy/single-server/scripts/install-runtime.sh", "docker.socket"), "运行时安装脚本未注册Docker socket");
+断言(包含("deploy/single-server/scripts/install-runtime.sh", "docker_bin_dir"), "运行时安装脚本未支持Docker免tar目录");
 断言(包含("deploy/single-server/scripts/install-runtime.sh", "docker compose version"), "运行时安装脚本未验证Compose");
 断言(
   包含("deploy/single-server/scripts/install-runtime.sh", "/usr/local/lib/docker/cli-plugins/docker-compose"),
@@ -85,6 +89,7 @@ for (const 脚本 of 必需脚本) {
 断言(包含("deploy/single-server/scripts/install-all.sh", "health-check.sh"), "一键安装脚本未串联健康检查");
 断言(包含("deploy/single-server/scripts/install-all.sh", "logs/install"), "一键安装脚本未记录安装日志");
 断言(包含("deploy/single-server/scripts/package-offline.sh", "runtime"), "离线打包脚本未包含运行时目录");
+断言(包含("deploy/single-server/scripts/package-offline.sh", "docker-bin"), "离线打包脚本未生成Docker免tar目录");
 断言(包含("deploy/single-server/scripts/package-offline.sh", "V3_PACKAGE_FORMAT:-zip"), "离线打包脚本未默认生成ZIP安装包");
 断言(包含("deploy/single-server/scripts/package-offline.sh", "zip -qr -X"), "离线打包脚本未使用ZIP打包");
 断言(包含("deploy/single-server/README.md", "install-all.sh"), "部署说明未给出一键安装入口");
@@ -93,6 +98,7 @@ for (const 脚本 of 必需脚本) {
 
 const 忽略规则 = 读取文本(".gitignore");
 断言(忽略规则.includes("deploy/single-server/runtime/docker/*.tgz"), "Docker运行时大文件未加入忽略规则");
+断言(忽略规则.includes("deploy/single-server/runtime/docker-bin/docker/*"), "Docker免tar大文件未加入忽略规则");
 断言(忽略规则.includes("deploy/single-server/runtime/compose/docker-compose-linux-*"), "Compose运行时大文件未加入忽略规则");
 
 console.log("阶段7.1离线运行时资产检查通过。");

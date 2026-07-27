@@ -64,4 +64,5 @@ sudo /opt/lianruan-crm-v3/scripts/health-check.sh
 - 暂不启用异机备份，但保留 `BACKUP_REMOTE_ENABLED` 和 `BACKUP_REMOTE_TARGET` 配置位。
 - 真实密钥不进入仓库，使用 `generate-secrets.sh` 在目标服务器生成或写入。
 - 阶段7.1默认使用Docker官方静态运行时和Compose插件二进制，适合无Docker测试服务器离线验证；正式生产如要求RPM审计闭包，需要按欧拉具体版本补充RPM包。
+- 阶段7.1新包已包含 `runtime/docker-bin/docker/` 免tar目录，可适配 openEuler 24.03 最小化系统缺少 `tar` 的情况。
 - 重复执行安装时不会覆盖既有 `docker-compose.yml`、Nginx配置、部署变量和 `v3.env`，新模板会保留为 `.new` 文件或 `nginx.new` 目录。

@@ -37,12 +37,21 @@ else
   echo "未找到 /etc/os-release，无法记录系统版本。"
 fi
 
-for command_name in tar sha256sum openssl; do
+for command_name in sha256sum openssl; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "缺少命令：${command_name}" >&2
     exit 1
   fi
 done
+
+if command -v tar >/dev/null 2>&1; then
+  echo "检测到tar命令：$(command -v tar)"
+elif [ -d "${package_root}/runtime/docker-bin/docker" ]; then
+  echo "未检测到tar命令，将使用安装包内预解压Docker二进制继续安装。"
+else
+  echo "缺少命令：tar，且安装包内没有 runtime/docker-bin/docker 免tar目录。" >&2
+  exit 1
+fi
 
 if ! command -v systemctl >/dev/null 2>&1; then
   echo "缺少systemctl，无法注册或启动Docker服务。" >&2

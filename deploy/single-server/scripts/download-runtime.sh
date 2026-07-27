@@ -97,6 +97,22 @@ fi
 chmod 644 "${runtime_dir}/docker/${docker_file}"
 chmod 755 "${runtime_dir}/compose/${compose_file}"
 
+docker_bin_dir="${runtime_dir}/docker-bin/docker"
+docker_binaries=(containerd containerd-shim-runc-v2 ctr docker dockerd docker-init docker-proxy runc)
+
+echo "生成Docker免tar目录：${docker_bin_dir}"
+rm -rf "${runtime_dir}/docker-bin"
+mkdir -p "${runtime_dir}/docker-bin"
+tar -xzf "${runtime_dir}/docker/${docker_file}" -C "${runtime_dir}/docker-bin"
+touch "${docker_bin_dir}/.gitkeep"
+for binary_name in "${docker_binaries[@]}"; do
+  if [ ! -f "${docker_bin_dir}/${binary_name}" ]; then
+    echo "Docker离线包缺少二进制：${binary_name}" >&2
+    exit 1
+  fi
+  chmod 755 "${docker_bin_dir}/${binary_name}"
+done
+
 cd "${runtime_dir}"
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "docker/${docker_file}" "compose/${compose_file}" > sha256sum.txt
