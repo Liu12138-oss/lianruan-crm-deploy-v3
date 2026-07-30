@@ -15,7 +15,7 @@ compose_url="${V3_COMPOSE_URL:-https://github.com/docker/compose/releases/downlo
 
 mkdir -p "${runtime_dir}/docker" "${runtime_dir}/compose"
 
-echo "开始下载阶段7.1离线运行时。"
+echo "开始下载阶段9离线运行时。"
 echo "Docker版本：${docker_version}"
 echo "Compose版本：${compose_version}"
 

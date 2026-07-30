@@ -6,6 +6,7 @@ const logsDir = path.resolve("tmp/verify-logs");
 fs.mkdirSync(logsDir, { recursive: true });
 const steps = [
   ["Node版本检查", ["node", "scripts/verify-node-version.mjs"]],
+  ["PostgreSQL测试库准备", ["node", "scripts/prepare-postgresql-test.mjs"]],
   ["格式检查", ["npm", "run", "format"]],
   ["静态检查", ["npm", "run", "check"]],
   ["单元与接口测试", ["npm", "test"]],
@@ -22,4 +23,4 @@ for (const [name, [cmd, ...args]] of steps) {
     process.exit(result.status ?? 1);
   }
 }
-console.log("阶段1完整验证通过。");
+console.log("PostgreSQL生产同构完整验证通过。");

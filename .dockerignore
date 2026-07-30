@@ -1,5 +1,7 @@
 .git
 .cache
+.playwright-cli
+output
 .DS_Store
 .env
 .env.*

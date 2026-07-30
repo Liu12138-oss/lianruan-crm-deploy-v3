@@ -1,0 +1,301 @@
+import { 创建测试环境变量 } from "@lianruan/testing";
+import request from "supertest";
+import { describe, expect, it } from "vitest";
+import * as XLSX from "xlsx";
+
+import { 创建应用 } from "../src/index.js";
+
+const 测试环境变量 = 创建测试环境变量({
+  V3_DELIVERY_AUTH_ENABLED: "true",
+  V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
+  V3_DELIVERY_AUTH_USERS_JSON: "[]",
+});
+
+if (!测试环境变量.DATABASE_URL) {
+  throw new Error("V2兼容接口测试必须配置 PostgreSQL DATABASE_URL，禁止回退内存模式。");
+}
+
+describe("V2真实页面兼容接口", () => {
+  it("迁移用户可以通过V2登录格式获取用户和令牌", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 用户列表 = await request(app).get("/api/v2/users?pageSize=1000").expect(200);
+    const 用户 =
+      (用户列表.body.data as Array<{ username: string }>).find(
+        (item) => item.username === "liulonghai",
+      ) || (用户列表.body.data as Array<{ username: string }>)[0];
+
+    if (!用户?.username) throw new Error("未找到可用于V2兼容登录测试的迁移用户。");
+    const 登录 = await request(app)
+      .post("/api/v2/auth/login")
+      .send({ username: 用户.username, password: "LrCRM@2026!" })
+      .expect(200);
+
+    expect(登录.body.success).toBe(true);
+    expect(登录.body.user.username).toBe(用户.username);
+    expect(登录.body.token).toMatch(/^v2\./);
+  });
+
+  it("V2登录页可以读取未启用的OAuth配置", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 响应 = await request(app).get("/api/v2/oauth/config").expect(200);
+
+    expect(响应.body.success).toBe(true);
+    expect(响应.body.enabled).toBe(false);
+    expect(响应.body.data.enabled).toBe(false);
+  });
+
+  it("产品目录按V2数组格式返回功能、硬件、套餐和树结构", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const [功能, 硬件, 套餐, 树] = await Promise.all([
+      request(app).get("/api/v2/features").expect(200),
+      request(app).get("/api/v2/hardware").expect(200),
+      request(app).get("/api/v2/packages").expect(200),
+      request(app).get("/api/v2/product-tree").expect(200),
+    ]);
+
+    expect(功能.body.data).toHaveLength(34);
+    expect(硬件.body.data).toHaveLength(15);
+    expect(套餐.body.data).toHaveLength(6);
+    expect(功能.body.data[0]).toHaveProperty("moduleId");
+    expect(功能.body.data[0]).toHaveProperty("productCode");
+    expect(硬件.body.data[0]).toHaveProperty("model");
+    expect(套餐.body.data[0]).toHaveProperty("featureIds");
+    expect(树.body.data.some((category: { modules?: unknown[] }) => category.modules?.length)).toBe(
+      true,
+    );
+  });
+
+  it("工作量映射和规则保持V2维护页可读取的数据口径", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const [映射, 交付规则, 旧规则] = await Promise.all([
+      request(app).get("/api/v2/workload/mappings").expect(200),
+      request(app).get("/api/v2/workload/delivery-rules").expect(200),
+      request(app).get("/api/v2/workload/rules").expect(200),
+    ]);
+
+    expect(映射.body.data).toHaveLength(49);
+    expect(交付规则.body.data).toHaveLength(15);
+    expect(旧规则.body.data).toHaveLength(24);
+    expect(映射.body.data[0]).toHaveProperty("deliveryTags");
+    expect(交付规则.body.data[0]).toHaveProperty("personDays");
+  });
+
+  it("友商IPG参考对比使用V2功能编号时返回有效参考价", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 响应 = await request(app)
+      .post("/api/v2/ipg/quote-preview")
+      .send({
+        featureIds: ["FEAT-MOD-LEP-01-01", "FEAT-MOD-LEP-01-02"],
+        endpoints: 100,
+        lianruanTotal: 16500,
+        projectParams: { ipgEncryptionMode: "encrypt" },
+      })
+      .expect(200);
+
+    expect(响应.body.success).toBe(true);
+    expect(响应.body.data.ipgReferenceTotal).toBeGreaterThan(0);
+    expect(响应.body.data.lianruanTotal).toBe(16500);
+    expect(响应.body.data.differenceText).toContain("IPG参考总价");
+  });
+
+  it("V2后台常用维护入口不再返回404", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const [企业搜索, 导出, 导入模板, 文档, 简介产品, 地市] = await Promise.all([
+      request(app).get("/api/v2/company-search?keyword=公司").expect(200),
+      request(app).get("/api/v2/export/registrations").expect(200),
+      request(app).get("/api/v2/import/registrations/template").expect(200),
+      request(app).get("/api/v2/open-api/docs").expect(200),
+      request(app).get("/api/v2/partner-profile-products").expect(200),
+      request(app).get("/api/v2/meta/prefecture-cities").expect(200),
+    ]);
+
+    expect(企业搜索.body.success).toBe(true);
+    expect(Array.isArray(企业搜索.body.data)).toBe(true);
+    expect(导出.headers["content-type"]).toContain(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    expect(导入模板.headers["content-type"]).toContain(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    expect(文档.body.data).toHaveLength(2);
+    expect(Array.isArray(简介产品.body.data.products)).toBe(true);
+    expect(Array.isArray(地市.body.data)).toBe(true);
+  });
+
+  it("V2导入导出真实解析Excel并写入PostgreSQL，兼容裸/api/import路径", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const { 渠道商名称, 员工姓名 } = await 读取可导入负责人(app);
+    const 客户名称 = `阶段9导入客户-${Date.now()}`;
+    const 报备文件 = 生成Excel([
+      [
+        "客户名称*",
+        "统一社会信用代码",
+        "行业",
+        "联系人",
+        "联系电话",
+        "负责员工姓名*",
+        "所属渠道商名称*",
+        "客户地址",
+      ],
+      [客户名称, "", "制造", "验收联系人", "13800138009", 员工姓名, 渠道商名称, "阶段9验收地址"],
+    ]);
+
+    const 预览 = await request(app)
+      .post("/api/import/registrations/preview")
+      .attach("file", 报备文件, {
+        filename: "客户报备导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(预览.body.success).toBe(true);
+    expect(预览.body.totalCount).toBe(1);
+    expect(预览.body.errorCount).toBe(0);
+
+    const 执行报备 = await request(app)
+      .post("/api/import/registrations/execute")
+      .attach("file", 报备文件, {
+        filename: "客户报备导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(执行报备.body.success).toBe(true);
+    expect(执行报备.body.results.success + 执行报备.body.results.updated).toBeGreaterThanOrEqual(1);
+
+    const 商机文件 = 生成Excel([
+      [
+        "商机名称*",
+        "客户名称*",
+        "商机金额",
+        "预计签约日期",
+        "商机阶段",
+        "行业",
+        "联系人",
+        "联系电话",
+        "负责员工姓名*",
+        "所属渠道商名称*",
+        "备注",
+      ],
+      [
+        `${客户名称}安全项目`,
+        客户名称,
+        "50000",
+        "2026-08-31",
+        "40% 技术交流/方案设计",
+        "制造",
+        "验收联系人",
+        "13800138009",
+        员工姓名,
+        渠道商名称,
+        "阶段9导入验收",
+      ],
+    ]);
+    const 执行商机 = await request(app)
+      .post("/api/v2/import/opportunities/execute")
+      .attach("file", 商机文件, {
+        filename: "商机导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(执行商机.body.success).toBe(true);
+    expect(执行商机.body.results.success + 执行商机.body.results.updated).toBeGreaterThanOrEqual(1);
+
+    const 回读 = await request(app)
+      .get(`/api/v2/registrations?keyword=${encodeURIComponent(客户名称)}`)
+      .expect(200);
+    expect(回读.body.data.some((item: { customer?: string }) => item.customer === 客户名称)).toBe(
+      true,
+    );
+  });
+
+  it("审计日志按V2维护页字段返回列表和详情", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 列表 = await request(app).get("/api/v2/audit-logs?pageSize=5").expect(200);
+
+    expect(列表.body.success).toBe(true);
+    expect(Array.isArray(列表.body.data)).toBe(true);
+    expect(列表.body.total).toBeGreaterThan(0);
+    const 第一条 = 列表.body.data[0] as { id: string };
+    expect(第一条).toHaveProperty("created_at");
+    expect(第一条).toHaveProperty("module");
+    expect(第一条).toHaveProperty("action");
+    expect(第一条).toHaveProperty("result");
+
+    const 详情 = await request(app).get(`/api/v2/audit-logs/${第一条.id}`).expect(200);
+    expect(详情.body.success).toBe(true);
+    expect(详情.body.data.id).toBe(第一条.id);
+  });
+
+  it("渠道简介、分销层级、工作量规则和订单调价按V2路径写入PostgreSQL", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 渠道商列表 = await request(app).get("/api/v2/partners?pageSize=1").expect(200);
+    const 渠道商 = 渠道商列表.body.data[0] as { id: string };
+    expect(渠道商.id).toBeTruthy();
+
+    const 简介 = await request(app).get(`/api/v2/partners/${渠道商.id}/profile`).expect(200);
+    expect(简介.body.success).toBe(true);
+    const 保存简介 = await request(app)
+      .put(`/api/v2/partners/${渠道商.id}/profile`)
+      .send({ address: "阶段9自动验收地址", verified: true })
+      .expect(200);
+    expect(保存简介.body.data.address).toBe("阶段9自动验收地址");
+
+    const 层级 = await request(app)
+      .put(`/api/v2/partners/${渠道商.id}/level`)
+      .send({ partnerLevel: "none", parentPartnerIds: [] })
+      .expect(200);
+    expect(层级.body.data.partnerLevel).toBe("none");
+
+    const 新规则 = await request(app)
+      .post("/api/v2/workload/rules")
+      .send({ productType: "EPP", minPoints: 260001, maxPoints: null, personDays: 18 })
+      .expect(200);
+    expect(新规则.body.success).toBe(true);
+    await request(app).delete(`/api/v2/workload/rules/${新规则.body.data.id}`).expect(200);
+
+    const 订单列表 = await request(app).get("/api/v2/orders?pageSize=1").expect(200);
+    const 订单 = 订单列表.body.data[0] as { id: string; amount?: number; total?: number };
+    if (订单?.id) {
+      const 调价 = await request(app)
+        .put(`/api/v2/orders/${订单.id}/price-adjust`)
+        .send({
+          newAmount: Number(订单.amount || 订单.total || 1),
+          adjustmentReason: "阶段9自动验收",
+        })
+        .expect(200);
+      expect(调价.body.success).toBe(true);
+      expect(调价.body.data.id).toBe(订单.id);
+    }
+  });
+});
+
+function 生成Excel(rows: unknown[][]): Buffer {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, "导入数据");
+  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+async function 读取可导入负责人(app: ReturnType<typeof 创建应用>) {
+  const 用户列表 = await request(app).get("/api/v2/users?pageSize=1000").expect(200);
+  const 员工 = (用户列表.body.data as Array<Record<string, unknown>>).find((item) => {
+    const role = String(item.role || "");
+    return (
+      ["staff", "partner_admin"].includes(role) && Boolean(item.partnerName) && Boolean(item.name)
+    );
+  });
+  if (员工) {
+    return { 渠道商名称: String(员工.partnerName), 员工姓名: String(员工.name) };
+  }
+
+  const 渠道商列表 = await request(app).get("/api/v2/partners?pageSize=1000").expect(200);
+  const 渠道商 = (渠道商列表.body.data as Array<Record<string, unknown>>).find(
+    (item) => Array.isArray(item.staff) && item.staff.some((staff) => staff?.name),
+  );
+  const 员工记录 = Array.isArray(渠道商?.staff)
+    ? (渠道商.staff.find((staff) => staff?.name) as { name?: string } | undefined)
+    : undefined;
+  if (!渠道商?.name || !员工记录?.name) {
+    throw new Error("未找到可用于导入验收的渠道商员工。");
+  }
+  return { 渠道商名称: String(渠道商.name), 员工姓名: String(员工记录.name) };
+}

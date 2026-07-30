@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { House, Iphone, Menu, User } from "@element-plus/icons-vue";
+
+import SessionBar from "../components/SessionBar.vue";
 </script>
 
 <template>
@@ -23,6 +25,7 @@ import { House, Iphone, Menu, User } from "@element-plus/icons-vue";
           <span>移动端</span>
         </RouterLink>
       </nav>
+      <SessionBar />
     </header>
     <section class="内容区 内容区-居中">
       <RouterView />

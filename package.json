@@ -1,6 +1,6 @@
 {
   "name": "lianruan-crm-v3",
-  "version": "3.0.0-alpha.1",
+  "version": "3.0.0-stage9.20260727",
   "private": true,
   "description": "联软渠道管理平台V3工程化骨架",
   "type": "module",
@@ -20,7 +20,8 @@
     "test:e2e": "node scripts/run-workspaces.mjs test:e2e",
     "build": "node scripts/run-workspaces.mjs build",
     "verify": "node scripts/verify.mjs",
-    "format": "prettier --check \"apps/**/*.{ts,tsx,vue,js,json,md,mjs,css,html}\" \"packages/**/*.{ts,js,json,md,mjs}\" \"scripts/dev.mjs\" \"scripts/run-workspaces.mjs\" \"scripts/scan-build-output.mjs\" \"scripts/verify-node-version.mjs\" \"scripts/verify.mjs\" \"docs/stage-records/*阶段1*.md\" \"docs/V3阶段1本地开发说明.md\" \"docs/legacy/*.md\" \"*.json\" \".prettierrc.json\" \"eslint.config.js\"",
+    "prepare:postgres-test": "node scripts/prepare-postgresql-test.mjs",
+    "format": "prettier --check \"apps/**/*.{ts,tsx,vue,js,json,md,mjs,css,html}\" \"packages/**/*.{ts,js,json,md,mjs}\" \"scripts/dev.mjs\" \"scripts/run-workspaces.mjs\" \"scripts/scan-build-output.mjs\" \"scripts/verify-node-version.mjs\" \"scripts/verify.mjs\" \"scripts/prepare-postgresql-test.mjs\" \"docs/stage-records/*阶段1*.md\" \"docs/V3阶段1本地开发说明.md\" \"docs/legacy/*.md\" \"*.json\" \".prettierrc.json\" \"eslint.config.js\"",
     "lint": "eslint \"{apps,packages}/**/*.{ts,tsx,vue}\"",
     "契约:生成": "npm --workspace @lianruan/contracts run 生成契约类型",
     "契约:检查": "npm --workspace @lianruan/contracts run check"

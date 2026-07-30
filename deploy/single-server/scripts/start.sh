@@ -14,6 +14,13 @@ cd "${install_root}/compose"
 
 echo "启动联软CRM V3单机服务。"
 docker compose up -d postgres redis-state redis-cache
+
+if [ -x "${install_root}/scripts/migrate-db.sh" ]; then
+  INSTALL_ROOT="${install_root}" "${install_root}/scripts/migrate-db.sh"
+else
+  echo "未找到数据库迁移脚本，跳过数据库迁移。"
+fi
+
 docker compose up -d api-1 api-2 worker nginx
 
 echo "等待健康检查通过。"

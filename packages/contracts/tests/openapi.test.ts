@@ -9,4 +9,10 @@ describe("OpenAPI基础契约", () => {
     expect(openApiDocument.paths["/health/ready"]).toBeTruthy();
     expect(openApiDocument.paths["/health/dependencies"]).toBeTruthy();
   });
+
+  it("包含交付验收登录路径", () => {
+    expect(openApiDocument.paths["/api/auth/login"]).toBeTruthy();
+    expect(openApiDocument.paths["/api/auth/me"]).toBeTruthy();
+    expect(openApiDocument.paths["/api/auth/logout"]).toBeTruthy();
+  });
 });

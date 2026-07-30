@@ -38,6 +38,8 @@ dist/
 build/
 coverage/
 .cache/
+.playwright-cli/
+output/
 apps/web/test-results/
 apps/web/playwright-report/
 

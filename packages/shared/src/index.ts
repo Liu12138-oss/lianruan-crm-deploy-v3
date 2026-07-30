@@ -61,7 +61,7 @@ export class 应用错误 extends Error {
 
 export function 创建构建信息(env: NodeJS.ProcessEnv = process.env): 构建信息 {
   return {
-    版本: env.V3_BUILD_VERSION || "3.0.0-alpha.1",
+    版本: env.V3_BUILD_VERSION || "3.0.0-stage9.20260727",
     提交: env.V3_BUILD_COMMIT || "local",
     构建时间: env.V3_BUILD_TIME || new Date().toISOString(),
   };

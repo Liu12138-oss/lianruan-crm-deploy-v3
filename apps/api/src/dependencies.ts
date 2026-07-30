@@ -23,7 +23,7 @@ export function 创建依赖检查器(config: 应用配置): 依赖检查器 {
       const 结果: 健康依赖状态[] = [创建依赖状态("config", "ok", "配置已通过校验")];
       结果.push(await 检查Postgres(config.database.url));
       结果.push(await 检查Redis(config.redis.url));
-      结果.push(创建依赖状态("migration", "skipped", "阶段1尚未引入正式数据库迁移"));
+      结果.push(await 检查迁移状态(config.database.url));
       return 结果;
     },
   };
@@ -66,6 +66,34 @@ async function 检查Postgres(url: string | undefined): Promise<健康依赖状�
     );
   } catch (error) {
     return 创建依赖状态("postgres", "failed", "PostgreSQL连接失败：" + 获取错误消息(error));
+  }
+}
+
+async function 检查迁移状态(url: string | undefined): Promise<健康依赖状态> {
+  if (!url) return 创建依赖状态("migration", "failed", "未配置DATABASE_URL");
+  const startedAt = performance.now();
+  try {
+    const { Client } = await import("pg");
+    const client = new Client({ connectionString: url, connectionTimeoutMillis: 1500 });
+    await client.connect();
+    const result = await client.query<{ count: number }>(
+      "select count(*)::int as count from migration.schema_migrations",
+    );
+    await client.end();
+
+    const count = result.rows[0]?.count ?? 0;
+    if (count <= 0) {
+      return 创建依赖状态("migration", "failed", "未发现数据库迁移记录");
+    }
+
+    return 创建依赖状态(
+      "migration",
+      "ok",
+      `数据库迁移状态正常，已执行${count}个版本`,
+      Math.round(performance.now() - startedAt),
+    );
+  } catch (error) {
+    return 创建依赖状态("migration", "failed", "数据库迁移状态检查失败：" + 获取错误消息(error));
   }
 }
 

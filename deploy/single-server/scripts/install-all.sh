@@ -20,7 +20,7 @@ exec > >(tee -a "${log_file}") 2>&1
 
 失败处理() {
   local exit_code="$1"
-  echo "阶段7.1一键安装失败，退出码：${exit_code}" >&2
+  echo "阶段9一键安装失败，退出码：${exit_code}" >&2
   echo "安装日志：${log_file}" >&2
   if [ -x "${install_root}/scripts/collect-diagnostics.sh" ]; then
     echo "可执行诊断采集：sudo ${install_root}/scripts/collect-diagnostics.sh" >&2
@@ -33,7 +33,7 @@ if [ -z "${server_host}" ]; then
 fi
 server_host="${server_host:-127.0.0.1}"
 
-echo "阶段7.1一键安装开始。"
+echo "阶段9一键安装开始。"
 echo "安装目录：${install_root}"
 echo "访问地址：http://${server_host}:${http_port}"
 echo "安装日志：${log_file}"
@@ -53,7 +53,7 @@ fi
 INSTALL_ROOT="${install_root}" "${install_root}/scripts/start.sh"
 INSTALL_ROOT="${install_root}" "${install_root}/scripts/health-check.sh"
 
-echo "阶段7.1一键安装完成。"
+echo "阶段9一键安装完成。"
 echo "访问地址：http://${server_host}:${http_port}"
 echo "安装日志：${log_file}"
 echo "后续健康检查：${install_root}/scripts/health-check.sh"

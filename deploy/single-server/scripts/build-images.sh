@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "${script_dir}/../../.." && pwd)"
-version_tag="${V3_IMAGE_TAG:-3.0.0-alpha.1}"
+version_tag="${V3_IMAGE_TAG:-3.0.0-stage9.20260727}"
 target_platform="${V3_PLATFORM:-linux/amd64}"
 node_image="${V3_NODE_IMAGE:-node:22.13.1-bookworm-slim}"
 nginx_image="${V3_NGINX_IMAGE:-nginx:1.27-alpine}"

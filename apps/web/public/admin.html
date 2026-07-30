@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  
+  <!-- 管理后台固定为电脑端入口，手机端请使用 admin-mobile.html 或 mobile.html?scope=admin 显式进入。 -->
+  
+  <title>联软渠道管理平台 - 厂商管理后台</title>
+
+  <!-- Element Plus CSS -->
+  <link rel="stylesheet" href="libs/element-plus.min.css" />
+
+  <!-- 本地样式 -->
+  <link rel="stylesheet" href="style.css?v=12" />
+  
+  <style>
+    /* 厂商管理后台专属样式 */
+    .admin-badge {
+      background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
+      color: white;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-left: 12px;
+    }
+    
+    .admin-header {
+      background: linear-gradient(90deg, #1a1a2e 0%, #16213e 100%) !important;
+    }
+    
+    .admin-sidebar {
+      background: #0f1419 !important;
+    }
+    
+    .login-type-selector {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    
+    .login-type-tabs {
+      display: inline-flex;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      padding: 4px;
+    }
+    
+    .login-type-tab {
+      padding: 8px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: rgba(255,255,255,0.7);
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    
+    .login-type-tab.active {
+      background: white;
+      color: #1a1a2e;
+      font-weight: 600;
+    }
+    
+    .partner-link {
+      text-align: center;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    
+    .partner-link a {
+      color: rgba(255,255,255,0.7);
+      text-decoration: none;
+      font-size: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: color 0.3s;
+    }
+    
+    .partner-link a:hover {
+      color: white;
+    }
+    
+    /* 企业搜索下拉列表样式 */
+    .enterprise-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 4px;
+    }
+    
+    .enterprise-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid #f0f0f0;
+      transition: background 0.2s;
+    }
+    
+    .enterprise-item:last-child {
+      border-bottom: none;
+    }
+    
+    .enterprise-item:hover {
+      background: #f5f5f7;
+    }
+    
+    .enterprise-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    
+    .enterprise-code {
+      font-size: 12px;
+      color: #888;
+      font-family: monospace;
+    }
+    
+    /* 字段错误提示样式 */
+    .field-error {
+      display: block;
+      font-size: 12px;
+      color: #ff4d4f;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;">
+      <div style="text-align:center;">
+        <div style="width:40px;height:40px;border:3px solid #f0f0f0;border-top-color:#007AFF;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px;"></div>
+        <div style="color:#666;">正在加载...</div>
+      </div>
+    </div>
+  </div>
+  <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
+  <!-- Vue 3 -->
+  <script src="libs/vue.min.js"></script>
+  <!-- Vue Router -->
+  <script src="libs/vue-router.min.js"></script>
+  <!-- Element Plus -->
+  <script src="libs/element-plus.min.js"></script>
+
+  <!-- 产品数据 -->
+  <script src="data.js?v=3"></script>
+  <!-- 企业模拟数据 -->
+  <script src="enterprise-data.js?v=1"></script>
+  <!-- 数据迁移模块 -->
+  <script src="data-migration.js?v=3"></script>
+  <!-- 应用标识（必须在 api-client.js 之前定义） -->
+  <script>
+    window.APP_PREFIX = 'admin_';
+    window.API_BASE = '/api/v2';
+  </script>
+  <!-- API 客户端 -->
+  <script src="api-client.js?v=15"></script>
+  <!-- 厂商管理后台应用 -->
+  <script src="admin-app.js?v=131"></script>
+  <!-- 渠道分销层级功能模块 -->
+  <script src="partner-level-module.js?v=2"></script>
+</body>
+</html>

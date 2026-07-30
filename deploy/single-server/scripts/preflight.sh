@@ -16,13 +16,13 @@ fi
 mkdir -p "${log_dir}"
 exec > >(tee -a "${log_file}") 2>&1
 
-echo "阶段7.1安装前检测开始。"
+echo "阶段9安装前检测开始。"
 echo "日志文件：${log_file}"
 
 arch="$(uname -m)"
 echo "服务器架构：${arch}"
 if [ "${arch}" != "x86_64" ]; then
-  echo "当前服务器不是x86_64架构，阶段7.1离线运行时只支持欧拉Linux x86_64。" >&2
+  echo "当前服务器不是x86_64架构，阶段9离线运行时只支持欧拉Linux x86_64。" >&2
   exit 1
 fi
 
@@ -98,4 +98,4 @@ else
   exit 1
 fi
 
-echo "阶段7.1安装前检测完成。"
+echo "阶段9安装前检测完成。"

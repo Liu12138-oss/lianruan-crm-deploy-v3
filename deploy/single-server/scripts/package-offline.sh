@@ -3,7 +3,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_root="$(cd "${script_dir}/../../.." && pwd)"
-version_tag="${V3_IMAGE_TAG:-3.0.0-alpha.1}"
+version_tag="${V3_IMAGE_TAG:-3.0.0-stage9.20260727}"
 package_name="lianruan-crm-v3-offline-${version_tag}"
 output_root="${project_root}/tmp/phase7-package"
 output_dir="${output_root}/${package_name}"
@@ -43,7 +43,7 @@ fi
     return
   fi
 
-  echo "开始校验阶段7.1离线运行时资产。"
+  echo "开始校验阶段9离线运行时资产。"
   if command -v sha256sum >/dev/null 2>&1; then
     (cd "${runtime_root}" && sha256sum -c sha256sum.txt)
   else
@@ -101,8 +101,24 @@ mkdir -p "${output_dir}"
 
 cp -R "${project_root}/deploy/single-server/compose" "${output_dir}/compose"
 cp -R "${project_root}/deploy/single-server/config" "${output_dir}/config"
-cp -R "${project_root}/deploy/single-server/images" "${output_dir}/images"
+mkdir -p "${output_dir}/images"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-api-${version_tag}.tar" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-worker-${version_tag}.tar" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-nginx-${version_tag}.tar" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/postgres-16.4-alpine.tar" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/redis-7.2.5-alpine.tar" "${output_dir}/images/"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "${output_dir}/images" && sha256sum *.tar > sha256sum.txt)
+else
+  (cd "${output_dir}/images" && shasum -a 256 *.tar > sha256sum.txt)
+fi
 cp -R "${project_root}/deploy/single-server/scripts" "${output_dir}/scripts"
+mkdir -p "${output_dir}/database"
+cp -R "${project_root}/database/migrations" "${output_dir}/database/migrations"
+if [ -d "${project_root}/tmp/stage8/v2-postgres-staging-official" ]; then
+  mkdir -p "${output_dir}/migration"
+  cp -R "${project_root}/tmp/stage8/v2-postgres-staging-official" "${output_dir}/migration/stage8-official"
+fi
 if [[ "${include_runtime}" = "1" ]]; then
   cp -R "${project_root}/deploy/single-server/runtime" "${output_dir}/runtime"
 fi

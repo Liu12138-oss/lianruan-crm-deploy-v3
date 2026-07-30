@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <title>正在进入厂商管理移动端</title>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    params.set('scope', 'admin');
+    window.location.replace(`mobile.html?${params.toString()}${window.location.hash || '#/login'}`);
+  </script>
+</head>
+<body>正在进入厂商管理移动端…</body>
+</html>

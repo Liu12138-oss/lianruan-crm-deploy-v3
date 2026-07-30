@@ -25,13 +25,13 @@ fi
 mkdir -p "${log_dir}"
 exec > >(tee -a "${log_file}") 2>&1
 
-echo "阶段7.1离线运行时安装开始。"
+echo "阶段9离线运行时安装开始。"
 echo "日志文件：${log_file}"
 echo "安装目录：${install_root}"
 echo "Docker数据目录：${docker_data_root}"
 
 if [ "$(uname -m)" != "x86_64" ]; then
-  echo "当前服务器不是x86_64架构，阶段7.1运行时只支持Linux x86_64。" >&2
+  echo "当前服务器不是x86_64架构，阶段9运行时只支持Linux x86_64。" >&2
   exit 1
 fi
 
@@ -224,4 +224,4 @@ docker info
 echo "验证Docker Compose。"
 docker compose version
 
-echo "阶段7.1离线运行时安装完成。"
+echo "阶段9离线运行时安装完成。"

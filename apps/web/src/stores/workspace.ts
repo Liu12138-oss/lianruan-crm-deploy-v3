@@ -5,7 +5,7 @@ export const 健康检查路径: 契约路径[] = ["/health/live", "/health/read
 
 export const 使用工作区Store = defineStore("工作区", {
   state: () => ({
-    版本: import.meta.env.VITE_APP_VERSION || "3.0.0-alpha.1",
+    版本: import.meta.env.VITE_APP_VERSION || "3.0.0-stage9.20260727",
     健康检查路径,
   }),
 });

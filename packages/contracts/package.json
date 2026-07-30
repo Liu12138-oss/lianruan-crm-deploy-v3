@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/contracts",
-  "version": "3.0.0-alpha.1",
+  "version": "3.0.0-stage9.20260727",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

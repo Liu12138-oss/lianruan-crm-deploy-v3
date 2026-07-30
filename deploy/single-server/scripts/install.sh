@@ -5,6 +5,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 package_root="$(cd "${script_dir}/.." && pwd)"
 install_root="${INSTALL_ROOT:-/opt/lianruan-crm-v3}"
 server_host="${SERVER_HOST:-}"
+version_tag="${V3_IMAGE_TAG:-3.0.0-stage9.20260727}"
+build_version="${V3_BUILD_VERSION:-${version_tag}}"
+build_commit="${V3_BUILD_COMMIT:-stage9-health-final}"
+build_time="${V3_BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "请使用root或sudo执行安装脚本。" >&2
@@ -52,6 +56,7 @@ mkdir -p \
   "${install_root}/data/uploads" \
   "${install_root}/data/exports" \
   "${install_root}/data/migration" \
+  "${install_root}/database/migrations" \
   "${install_root}/backups/postgres-cache" \
   "${install_root}/backups/files-cache" \
   "${install_root}/logs/nginx" \
@@ -90,6 +95,28 @@ chmod 700 "${install_root}/secrets"
   sed -i "s#^INSTALL_ROOT=.*#INSTALL_ROOT=${install_root}#" "${output_file}"
 }
 
+更新环境变量() {
+  local target_file="$1"
+  local key="$2"
+  local value="$3"
+
+  if [ ! -f "${target_file}" ]; then
+    return
+  fi
+
+  if grep -q "^${key}=" "${target_file}"; then
+    sed -i "s#^${key}=.*#${key}=${value}#" "${target_file}"
+  else
+    printf '%s=%s\n' "${key}" "${value}" >> "${target_file}"
+  fi
+}
+
+同步版本变量() {
+  local target_file="$1"
+
+  更新环境变量 "${target_file}" "V3_IMAGE_TAG" "${version_tag}"
+}
+
 写入文件如不存在 "${package_root}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
 if [ -f "${install_root}/config/nginx/default.conf" ]; then
   rm -rf "${install_root}/config/nginx.new"
@@ -101,16 +128,26 @@ else
 fi
 写入部署变量如不存在 "${install_root}/config/deploy.env"
 写入部署变量如不存在 "${install_root}/compose/.env"
+同步版本变量 "${install_root}/config/deploy.env"
+同步版本变量 "${install_root}/compose/.env"
 cp "${package_root}/scripts/"*.sh "${install_root}/scripts/"
 chmod 750 "${install_root}/scripts/"*.sh
+
+if [ -d "${package_root}/database/migrations" ]; then
+  cp "${package_root}/database/migrations/"*.sql "${install_root}/database/migrations/"
+fi
+
+if [ -d "${package_root}/migration/stage8-official" ]; then
+  rm -rf "${install_root}/data/migration/stage8-official"
+  mkdir -p "${install_root}/data/migration/stage8-official"
+  cp -R "${package_root}/migration/stage8-official/." "${install_root}/data/migration/stage8-official/"
+fi
 
 INSTALL_ROOT="${install_root}" "${install_root}/scripts/generate-secrets.sh"
 
 postgres_password="$(cat "${install_root}/secrets/postgres_password")"
 redis_password="$(cat "${install_root}/secrets/redis_password")"
 session_secret="$(cat "${install_root}/secrets/session_secret")"
-build_commit="${V3_BUILD_COMMIT:-local}"
-build_time="${V3_BUILD_TIME:-$(date -u '+%Y-%m-%dT%H:%M:%SZ')}"
 
 if [ ! -f "${install_root}/config/v3.env" ]; then
   sed \
@@ -118,13 +155,17 @@ if [ ! -f "${install_root}/config/v3.env" ]; then
     -e "s#__POSTGRES_PASSWORD__#${postgres_password}#g" \
     -e "s#__REDIS_PASSWORD__#${redis_password}#g" \
     -e "s#__SESSION_SECRET__#${session_secret}#g" \
+    -e "s#^V3_BUILD_VERSION=.*#V3_BUILD_VERSION=${build_version}#" \
     -e "s#__BUILD_COMMIT__#${build_commit}#g" \
     -e "s#__BUILD_TIME__#${build_time}#g" \
     "${package_root}/config/v3.env.template" > "${install_root}/config/v3.env"
   chmod 600 "${install_root}/config/v3.env"
 else
-  echo "检测到已有 ${install_root}/config/v3.env，跳过覆盖。"
+  echo "检测到已有 ${install_root}/config/v3.env，保留敏感配置并同步版本字段。"
 fi
+更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_VERSION" "${build_version}"
+更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_COMMIT" "${build_commit}"
+更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_TIME" "${build_time}"
 
 "${package_root}/scripts/load-images.sh"
 

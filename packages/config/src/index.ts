@@ -15,7 +15,7 @@ const 环境结构 = z.object({
   HEALTH_DEPENDENCY_MODE: z.enum(["mock", "real"]).default("mock"),
   WORKER_ENABLED: z.enum(["true", "false"]).default("true"),
   WORKER_HEALTH_QUEUE: z.string().default("v3-health"),
-  V3_BUILD_VERSION: z.string().default("3.0.0-alpha.1"),
+  V3_BUILD_VERSION: z.string().default("3.0.0-stage9.20260727"),
   V3_BUILD_COMMIT: z.string().default("local"),
   V3_BUILD_TIME: z.string().optional(),
 });

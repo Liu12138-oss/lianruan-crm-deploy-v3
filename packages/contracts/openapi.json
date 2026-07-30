@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "联软CRM V3基础契约",
-    "version": "3.0.0-alpha.1",
-    "description": "阶段1仅描述健康检查、统一成功响应、统一错误响应和公共状态结构。"
+    "title": "联软CRM V3阶段9业务契约",
+    "version": "3.0.0-stage9.20260727",
+    "description": "阶段9描述健康检查、交付登录、统一成功响应、统一错误响应和公共状态结构。"
   },
   "servers": [{ "url": "/", "description": "同源服务入口" }],
   "paths": {

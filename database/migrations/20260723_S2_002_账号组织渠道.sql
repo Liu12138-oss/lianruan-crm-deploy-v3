@@ -83,9 +83,22 @@ CREATE TABLE IF NOT EXISTS org.org_units (
   status_code text NOT NULL DEFAULT 'active' CHECK (status_code IN ('active','disabled'))
 );
 
-ALTER TABLE iam.users
-  ADD CONSTRAINT fk_users_region FOREIGN KEY (region_id) REFERENCES org.regions(id),
-  ADD CONSTRAINT fk_users_org_unit FOREIGN KEY (org_unit_id) REFERENCES org.org_units(id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_region'
+  ) THEN
+    ALTER TABLE iam.users
+      ADD CONSTRAINT fk_users_region FOREIGN KEY (region_id) REFERENCES org.regions(id);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_org_unit'
+  ) THEN
+    ALTER TABLE iam.users
+      ADD CONSTRAINT fk_users_org_unit FOREIGN KEY (org_unit_id) REFERENCES org.org_units(id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS org.staff_profiles (
   user_id uuid PRIMARY KEY REFERENCES iam.users(id) ON DELETE CASCADE,
