@@ -44,12 +44,11 @@ for command_name in sha256sum openssl; do
   fi
 done
 
-if command -v tar >/dev/null 2>&1; then
-  echo "检测到tar命令：$(command -v tar)"
-elif [ -d "${package_root}/runtime/docker-bin/docker" ]; then
-  echo "未检测到tar命令，将使用安装包内预解压Docker二进制继续安装。"
+if [ -d "${package_root}/runtime/docker-bin/docker" ]; then
+  echo "检测到安装包内Docker免解压目录：${package_root}/runtime/docker-bin/docker"
 else
-  echo "缺少命令：tar，且安装包内没有 runtime/docker-bin/docker 免tar目录。" >&2
+  echo "安装包内缺少 runtime/docker-bin/docker 免解压目录。" >&2
+  echo "请重新使用最新打包脚本生成ZIP离线安装包。" >&2
   exit 1
 fi
 

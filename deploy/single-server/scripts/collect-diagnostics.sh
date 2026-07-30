@@ -24,5 +24,26 @@ docker compose logs --tail=500 api-1 api-2 worker nginx postgres redis-state red
 sed -E 's#(PASSWORD|SECRET|KEY|TOKEN)=.*#\1=已隐藏#g' "${install_root}/config/v3.env" \
   > "${diagnostics_dir}/v3-env-summary.txt" 2>/dev/null || true
 
-tar -czf "${diagnostics_dir}.tar.gz" -C "$(dirname "${diagnostics_dir}")" "$(basename "${diagnostics_dir}")"
-echo "诊断包已生成：${diagnostics_dir}.tar.gz"
+package_file="${diagnostics_dir}.zip"
+if command -v zip >/dev/null 2>&1; then
+  (cd "$(dirname "${diagnostics_dir}")" && zip -qr -X "${package_file}" "$(basename "${diagnostics_dir}")")
+  echo "诊断包已生成：${package_file}"
+elif command -v python3 >/dev/null 2>&1; then
+  DIAGNOSTICS_DIR="${diagnostics_dir}" PACKAGE_FILE="${package_file}" python3 - <<'PY'
+import os
+import pathlib
+import zipfile
+
+diagnostics_dir = pathlib.Path(os.environ["DIAGNOSTICS_DIR"])
+package_file = pathlib.Path(os.environ["PACKAGE_FILE"])
+parent_dir = diagnostics_dir.parent
+
+with zipfile.ZipFile(package_file, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+    for item in diagnostics_dir.rglob("*"):
+        if item.is_file():
+            zip_file.write(item, item.relative_to(parent_dir))
+PY
+  echo "诊断包已生成：${package_file}"
+else
+  echo "未找到zip或python3，诊断目录已保留：${diagnostics_dir}"
+fi

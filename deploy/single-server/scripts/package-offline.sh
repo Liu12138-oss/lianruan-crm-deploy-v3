@@ -16,23 +16,18 @@ if ! ls "${project_root}/deploy/single-server/images/"*.tar >/dev/null 2>&1; the
 fi
 
 if [[ "${include_runtime}" = "1" ]]; then
-  if ! ls "${project_root}/deploy/single-server/runtime/docker/"*.tgz >/dev/null 2>&1; then
-    echo "未找到Docker离线运行时文件，请先执行 deploy/single-server/scripts/download-runtime.sh。" >&2
+  if [ ! -d "${project_root}/deploy/single-server/runtime/docker-bin/docker" ]; then
+    echo "未找到Docker免解压运行时目录，请先执行 deploy/single-server/scripts/download-runtime.sh。" >&2
     exit 1
   fi
   if ! ls "${project_root}/deploy/single-server/runtime/compose/docker-compose-linux-"* >/dev/null 2>&1; then
     echo "未找到Docker Compose离线运行时文件，请先执行 deploy/single-server/scripts/download-runtime.sh。" >&2
     exit 1
   fi
-  if [ ! -f "${project_root}/deploy/single-server/runtime/sha256sum.txt" ]; then
-    echo "未找到运行时校验文件，请先执行 deploy/single-server/scripts/download-runtime.sh。" >&2
-    exit 1
-  fi
 fi
 
 校验运行时资产() {
   local runtime_root="${project_root}/deploy/single-server/runtime"
-  local docker_file
   local docker_bin_dir="${runtime_root}/docker-bin/docker"
   local binary_name
   local compose_file
@@ -44,31 +39,15 @@ fi
   fi
 
   echo "开始校验阶段9离线运行时资产。"
-  if command -v sha256sum >/dev/null 2>&1; then
-    (cd "${runtime_root}" && sha256sum -c sha256sum.txt)
-  else
-    (cd "${runtime_root}" && shasum -a 256 -c sha256sum.txt)
-  fi
 
-  docker_file="$(find "${runtime_root}/docker" -maxdepth 1 -type f -name '*.tgz' | head -n 1)"
-  if [ -z "${docker_file}" ]; then
-    echo "未找到Docker离线运行时文件。" >&2
+  if [ ! -d "${docker_bin_dir}" ]; then
+    echo "未找到Docker免解压运行时目录：${docker_bin_dir}" >&2
     exit 1
   fi
-  tar -tzf "${docker_file}" >/dev/null || {
-    echo "Docker离线运行时文件无法读取或已损坏：${docker_file}" >&2
-    exit 1
-  }
-
-  echo "生成Docker免tar目录：${docker_bin_dir}"
-  rm -rf "${runtime_root}/docker-bin"
-  mkdir -p "${runtime_root}/docker-bin"
-  tar -xzf "${docker_file}" -C "${runtime_root}/docker-bin"
-  touch "${docker_bin_dir}/.gitkeep"
 
   for binary_name in "${docker_binaries[@]}"; do
     if [ ! -f "${docker_bin_dir}/${binary_name}" ]; then
-      echo "Docker免tar目录缺少二进制：${binary_name}" >&2
+      echo "Docker免解压目录缺少二进制：${binary_name}" >&2
       exit 1
     fi
     chmod 755 "${docker_bin_dir}/${binary_name}"
@@ -92,6 +71,25 @@ fi
       exit 1
     }
   fi
+
+  (
+    cd "${runtime_root}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      {
+        find docker-bin/docker -maxdepth 1 -type f | sort
+        find compose -maxdepth 1 -type f | sort
+      } | while IFS= read -r file_path; do
+        sha256sum "${file_path}"
+      done > sha256sum.txt
+    else
+      {
+        find docker-bin/docker -maxdepth 1 -type f | sort
+        find compose -maxdepth 1 -type f | sort
+      } | while IFS= read -r file_path; do
+        shasum -a 256 "${file_path}"
+      done > sha256sum.txt
+    fi
+  )
 }
 
 校验运行时资产
@@ -121,6 +119,7 @@ if [ -d "${project_root}/tmp/stage8/v2-postgres-staging-official" ]; then
 fi
 if [[ "${include_runtime}" = "1" ]]; then
   cp -R "${project_root}/deploy/single-server/runtime" "${output_dir}/runtime"
+  rm -rf "${output_dir}/runtime/docker"
 fi
 cp -R "${project_root}/deploy/single-server/docs" "${output_dir}/docs" 2>/dev/null || mkdir -p "${output_dir}/docs"
 cp "${project_root}/deploy/single-server/README.md" "${output_dir}/README.md"
@@ -143,24 +142,35 @@ cd "${output_root}"
 case "${package_format}" in
   zip)
     if ! command -v zip >/dev/null 2>&1; then
-      echo "未找到zip命令，无法生成ZIP离线安装包。" >&2
-      exit 1
+      if ! command -v python3 >/dev/null 2>&1; then
+        echo "未找到zip或python3命令，无法生成ZIP离线安装包。" >&2
+        exit 1
+      fi
+      rm -f "${package_name}.zip" "${package_name}.zip.sha256"
+      PACKAGE_NAME="${package_name}" PACKAGE_FILE="${package_name}.zip" python3 - <<'PY'
+import os
+import pathlib
+import zipfile
+
+package_name = os.environ["PACKAGE_NAME"]
+package_file = pathlib.Path(os.environ["PACKAGE_FILE"])
+package_dir = pathlib.Path(package_name)
+
+with zipfile.ZipFile(package_file, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+    for item in package_dir.rglob("*"):
+        if item.is_file():
+            zip_file.write(item, item)
+PY
+    else
+      rm -f "${package_name}.zip" "${package_name}.zip.sha256"
+      zip -qr -X "${package_name}.zip" "${package_name}"
     fi
-    rm -f "${package_name}.zip" "${package_name}.zip.sha256"
-    zip -qr -X "${package_name}.zip" "${package_name}"
     生成校验文件 "${package_name}.zip"
     echo "离线安装包已生成：${output_root}/${package_name}.zip"
     echo "安装包校验文件：${output_root}/${package_name}.zip.sha256"
     ;;
-  tar.gz)
-    rm -f "${package_name}.tar.gz" "${package_name}.tar.gz.sha256"
-    tar -czf "${package_name}.tar.gz" "${package_name}"
-    生成校验文件 "${package_name}.tar.gz"
-    echo "离线安装包已生成：${output_root}/${package_name}.tar.gz"
-    echo "安装包校验文件：${output_root}/${package_name}.tar.gz.sha256"
-    ;;
   *)
-    echo "不支持的安装包格式：${package_format}，可选值：zip、tar.gz。" >&2
+    echo "不支持的安装包格式：${package_format}，当前只支持zip。" >&2
     exit 1
     ;;
 esac

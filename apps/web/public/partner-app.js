@@ -7918,6 +7918,7 @@ const OpportunityList = {
         <button class="btn btn-primary" v-if="detail && detail.stage !== 'lost'" @click="showQuoteDetailModal=false;openInlineQuoteModal(detail)">📝 修改报价单</button>
       </div>
     </div>
+  </div>
   </div>`,
   setup() {
     const router = VueRouter.useRouter();

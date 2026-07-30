@@ -6634,7 +6634,7 @@ const ProductCatalog = {
           <!-- 区域价格覆盖配置 -->
           <div style="margin-top:12px;padding:12px;background:#f6ffed;border-radius:8px;border-left:3px solid #52c41a">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-              <div style="font-weight:600;display:flex;align-items:center;gap:6px" @click="showRegionPriceConfig=!showRegionPriceConfig" style="cursor:pointer">
+              <div style="font-weight:600;display:flex;align-items:center;gap:6px;cursor:pointer" @click="showRegionPriceConfig=!showRegionPriceConfig">
                 <span>🌍</span> 区域价格覆盖
                 <span style="font-size:11px;color:#999;font-weight:normal">（可选，为特定区域配置不同的价格）</span>
                 <span style="font-size:12px;color:#999">{{ showRegionPriceConfig ? '▼' : '▶' }}</span>

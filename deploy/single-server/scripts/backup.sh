@@ -25,6 +25,45 @@ done
 timestamp="$(date '+%Y%m%d-%H%M%S')"
 backup_dir="${install_root}/backups/local/${timestamp}-${backup_type}"
 
+打包目录为zip() {
+  local source_parent="$1"
+  local source_name="$2"
+  local output_file="$3"
+
+  if [ ! -d "${source_parent}/${source_name}" ]; then
+    mkdir -p "${source_parent}/${source_name}"
+  fi
+
+  if command -v zip >/dev/null 2>&1; then
+    (cd "${source_parent}" && zip -qr -X "${output_file}" "${source_name}")
+    return
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    SOURCE_PARENT="${source_parent}" SOURCE_NAME="${source_name}" OUTPUT_FILE="${output_file}" python3 - <<'PY'
+import os
+import pathlib
+import zipfile
+
+source_parent = pathlib.Path(os.environ["SOURCE_PARENT"])
+source_name = os.environ["SOURCE_NAME"]
+output_file = pathlib.Path(os.environ["OUTPUT_FILE"])
+source_dir = source_parent / source_name
+
+with zipfile.ZipFile(output_file, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+    for item in source_dir.rglob("*"):
+        if item.is_file():
+            zip_file.write(item, item.relative_to(source_parent))
+PY
+    return
+  fi
+
+  local copy_target="${output_file%.zip}"
+  rm -rf "${copy_target}"
+  cp -R "${source_parent}/${source_name}" "${copy_target}"
+  echo "未找到zip或python3，已改为目录备份：${copy_target}" >&2
+}
+
 echo "准备执行备份：${backup_dir}"
 if [ "${dry_run}" = true ]; then
   echo "演练模式：不写入备份文件。"
@@ -38,8 +77,8 @@ echo "导出PostgreSQL逻辑备份。"
 docker compose exec -T postgres pg_dump -U lianruan_app -d lianruan_crm_v3 > "${backup_dir}/postgres.sql"
 
 echo "打包业务文件。"
-tar -czf "${backup_dir}/uploads.tar.gz" -C "${install_root}/data" uploads
-tar -czf "${backup_dir}/exports.tar.gz" -C "${install_root}/data" exports
+打包目录为zip "${install_root}/data" uploads "${backup_dir}/uploads.zip"
+打包目录为zip "${install_root}/data" exports "${backup_dir}/exports.zip"
 
 echo "生成配置摘要。"
 {
