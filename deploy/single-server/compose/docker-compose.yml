@@ -119,11 +119,14 @@ services:
       TZ: Asia/Shanghai
     secrets:
       - postgres_password
+    ports:
+      - "${POSTGRES_BIND_HOST:-0.0.0.0}:${POSTGRES_PUBLISHED_PORT:-15432}:5432"
     volumes:
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/postgres:/var/lib/postgresql/data
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/postgres:/var/log/postgresql
     networks:
       - data_net
+      - maintenance_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lianruan_app -d lianruan_crm_v3"]
       interval: 10s
@@ -195,3 +198,5 @@ networks:
   data_net:
     name: lianruan-crm-v3-data
     internal: true
+  maintenance_net:
+    name: lianruan-crm-v3-maintenance

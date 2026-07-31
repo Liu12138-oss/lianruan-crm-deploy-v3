@@ -266,6 +266,55 @@ describe("V2真实页面兼容接口", () => {
       expect(调价.body.data.id).toBe(订单.id);
     }
   });
+
+  it("渠道商员工禁用后保留在团队中，删除后刷新不再返回该员工", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 序号 = Date.now();
+    const 渠道商编号 = `PARTNER-STAFF-DELETE-${序号}`;
+    const 员工账号 = `staff_delete_${序号}`;
+
+    await request(app)
+      .post("/api/v2/partners")
+      .send({
+        id: 渠道商编号,
+        name: `删除员工验收渠道商-${序号}`,
+        city: "深圳市",
+        contact: "验收负责人",
+        phone: "13800138000",
+        status: "active",
+      })
+      .expect(200);
+
+    await request(app)
+      .post(`/api/v2/partners/${渠道商编号}/staff`)
+      .send({
+        username: 员工账号,
+        name: "删除员工验收账号",
+        role: "staff",
+        accountRole: "staff",
+        staffRole: "销售代表",
+        password: "123456",
+        phone: "13800138001",
+        status: "active",
+      })
+      .expect(200);
+
+    const 创建后详情 = await request(app).get(`/api/v2/partners/${渠道商编号}`).expect(200);
+    expect(查找员工(创建后详情.body.data, 员工账号)?.status).toBe("active");
+
+    await request(app)
+      .put(`/api/v2/partners/${渠道商编号}/staff/${员工账号}/status`)
+      .send({ status: "inactive" })
+      .expect(200);
+
+    const 禁用后详情 = await request(app).get(`/api/v2/partners/${渠道商编号}`).expect(200);
+    expect(查找员工(禁用后详情.body.data, 员工账号)?.status).toBe("inactive");
+
+    await request(app).delete(`/api/v2/partners/${渠道商编号}/staff/${员工账号}`).expect(200);
+
+    const 删除后详情 = await request(app).get(`/api/v2/partners/${渠道商编号}`).expect(200);
+    expect(查找员工(删除后详情.body.data, 员工账号)).toBeUndefined();
+  });
 });
 
 function 生成Excel(rows: unknown[][]): Buffer {
@@ -298,4 +347,8 @@ async function 读取可导入负责人(app: ReturnType<typeof 创建应用>) {
     throw new Error("未找到可用于导入验收的渠道商员工。");
   }
   return { 渠道商名称: String(渠道商.name), 员工姓名: String(员工记录.name) };
+}
+
+function 查找员工(partner: { staff?: Array<Record<string, unknown>> }, username: string) {
+  return partner.staff?.find((staff) => String(staff.username || "") === username);
 }

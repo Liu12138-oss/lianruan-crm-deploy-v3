@@ -1390,13 +1390,12 @@ function 注册后台维护路由(
   router.delete(
     "/partners/:partnerId/staff/:staffId",
     捕获(async (req, res) => {
-      await 更新渠道商员工状态(
+      const data = await 删除渠道商员工(
         需要数据库(pool),
         读取路由参数(req, "partnerId"),
         读取路由参数(req, "staffId"),
-        "disabled",
       );
-      res.json(成功({ id: 读取路由参数(req, "staffId"), deleted: true }));
+      res.json(成功(data));
     }),
   );
 
@@ -2406,6 +2405,51 @@ async function 更新用户密码(pool: Pool, id: string, password: string) {
   return { id, updated: true };
 }
 
+function 是账号角色(role: string): boolean {
+  return ["superadmin", "admin", "region_manager", "partner_admin", "staff"].includes(role);
+}
+
+function 读取显式账号角色(输入: 字典): string {
+  const explicitRole = 读取正文文本(输入, ["accountRole", "userRole", "memberRole"], "");
+  if (explicitRole) return 转V3角色(explicitRole);
+  const role = 读取正文文本(输入, ["role"], "");
+  return 是账号角色(role) ? 转V3角色(role) : "";
+}
+
+function 读取员工职位(输入: 字典, accountRole: string): string {
+  const staffRole = 读取正文文本(输入, ["staffRole", "title"], "");
+  if (staffRole) return staffRole;
+  const role = 读取正文文本(输入, ["role"], "");
+  if (role && !是账号角色(role)) return role;
+  return accountRole === "partner_admin" ? "企业管理员" : "销售代表";
+}
+
+async function 查询渠道成员账号角色(
+  pool: Pool,
+  partnerUuid: string,
+  staffId: string,
+): Promise<string> {
+  if (!staffId) return "";
+  const result = await pool.query<{ member_role_code: string }>(
+    `
+    SELECT pm.member_role_code
+    FROM channel.partner_members pm
+    JOIN iam.users u ON u.id = pm.user_id
+    WHERE pm.partner_id = $1::uuid
+      AND (
+        u.id::text = $2
+        OR u.v2_source_id = $2
+        OR u.username::text = $2
+        OR u.extra_json->>'id' = $2
+        OR u.extra_json->>'userId' = $2
+      )
+    LIMIT 1
+    `,
+    [partnerUuid, staffId],
+  );
+  return result.rows[0]?.member_role_code || "";
+}
+
 async function 绑定用户角色(pool: Pool, username: string, roleCode: string) {
   await pool.query(
     `
@@ -2636,9 +2680,13 @@ async function 保存渠道商简介(pool: Pool, id: string, 输入: 字典) {
 async function 保存渠道商员工(pool: Pool, partnerId: string, staffId: string, 输入: 字典) {
   const partnerUuid = await 查找渠道商UUID(pool, partnerId);
   if (!partnerUuid) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
+  const 已有账号角色 = staffId ? await 查询渠道成员账号角色(pool, partnerUuid, staffId) : "";
+  const 账号角色 = 读取显式账号角色(输入) || 已有账号角色 || "staff";
+  const 员工职位 = 读取员工职位(输入, 账号角色);
   const 用户 = await 保存V2用户(pool, staffId, {
     ...输入,
-    role: 读取正文文本(输入, ["role"], "staff"),
+    role: 账号角色,
+    staffRole: 员工职位,
     partnerId,
   });
   const userUuid = await 查找用户UUID(pool, 用户.id || 用户.username);
@@ -2655,9 +2703,7 @@ async function 保存渠道商员工(pool: Pool, partnerId: string, staffId: str
     [
       partnerUuid,
       userUuid,
-      转V3角色(读取正文文本(输入, ["role"], "staff")) === "partner_admin"
-        ? "partner_admin"
-        : "staff",
+      账号角色 === "partner_admin" ? "partner_admin" : "staff",
       转V3账号状态(读取正文文本(输入, ["status"], "active")),
     ],
   );
@@ -2679,6 +2725,71 @@ async function 更新渠道商员工状态(pool: Pool, partnerId: string, staffI
     [partnerUuid, userUuid, 转V3账号状态(status)],
   );
   return 更新用户状态(pool, staffId, status);
+}
+
+async function 删除渠道商员工(pool: Pool, partnerId: string, staffId: string) {
+  const partnerUuid = await 查找渠道商UUID(pool, partnerId);
+  const userUuid = await 查找用户UUID(pool, staffId);
+  if (!partnerUuid || !userUuid)
+    throw Object.assign(new Error("渠道商或员工不存在。"), { statusCode: 404 });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const removed = await client.query<{ member_role_code: string }>(
+      `
+      DELETE FROM channel.partner_members
+      WHERE partner_id = $1::uuid AND user_id = $2::uuid
+      RETURNING member_role_code
+      `,
+      [partnerUuid, userUuid],
+    );
+    if (!removed.rows[0])
+      throw Object.assign(new Error("渠道商员工关系不存在。"), { statusCode: 404 });
+
+    const remaining = await client.query<{ count: string }>(
+      `
+      SELECT COUNT(*)::text AS count
+      FROM channel.partner_members
+      WHERE user_id = $1::uuid
+      `,
+      [userUuid],
+    );
+    const extra = {
+      status: "deleted",
+      deletedFromPartnerId: partnerId,
+      deletedAt: new Date().toISOString(),
+    };
+    if (Number(remaining.rows[0]?.count || 0) === 0) {
+      await client.query(
+        `
+        UPDATE iam.users
+        SET status_code = 'disabled',
+            updated_at = now(),
+            extra_json = extra_json || $2::jsonb
+        WHERE id = $1::uuid
+        `,
+        [userUuid, JSON.stringify(extra)],
+      );
+    } else {
+      await client.query(
+        `
+        UPDATE iam.users
+        SET updated_at = now(),
+            extra_json = extra_json || $2::jsonb
+        WHERE id = $1::uuid
+        `,
+        [userUuid, JSON.stringify(extra)],
+      );
+    }
+    await client.query("COMMIT");
+    return { id: staffId, userId: userUuid, partnerId, deleted: true };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function 更新待审批状态(pool: Pool, id: string, status: string, 输入: 字典) {
@@ -4606,7 +4717,8 @@ function 转V3角色名称(role: string): string {
 }
 
 function 转V3账号状态(status: string): string {
-  if (["disabled", "rejected", "archived", "cancelled"].includes(status)) return "disabled";
+  if (["disabled", "inactive", "rejected", "archived", "cancelled"].includes(status))
+    return "disabled";
   if (status === "locked") return "locked";
   return "active";
 }

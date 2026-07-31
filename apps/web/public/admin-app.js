@@ -124,6 +124,22 @@ function getPartnerStaffApiPath(partnerId, staff) {
   return `/partners/${encodeApiPathValue(resolvedPartnerId)}/staff/${encodeApiPathValue(resolvedStaffId)}`;
 }
 
+function getPartnerStaffIdentityValues(staff) {
+  return [staff?.id, staff?.userId, staff?.uuid, staff?.username]
+    .map(value => String(value || '').trim())
+    .filter(Boolean);
+}
+
+function isSamePartnerStaff(left, right) {
+  const leftValues = getPartnerStaffIdentityValues(left);
+  const rightValues = getPartnerStaffIdentityValues(right);
+  return leftValues.some(value => rightValues.includes(value));
+}
+
+function removePartnerStaffFromList(staffList, staff) {
+  return Array.isArray(staffList) ? staffList.filter(item => !isSamePartnerStaff(item, staff)) : [];
+}
+
 async function downloadExportFile(type, fileName, params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -10145,10 +10161,11 @@ const Partners = {
         
         // 先在后端创建用户账号
         try {
-          const res = await apiRequest('POST', `/partners/${detail.value.id}/staff`, {
+          const res = await apiRequest('POST', `/partners/${encodeApiPathValue(detail.value.id)}/staff`, {
             username: staffForm.username,
             name: staffForm.name,
             role: 'staff',
+            accountRole: 'staff',
             password: '123456',
             region: detail.value.region,
             status: newStatus,
@@ -10168,10 +10185,13 @@ const Partners = {
         
         // 重新加载渠道商详情以获取最新的 staff 列表
         try {
-          const partnerRes = await apiRequest('GET', `/partners/${detail.value.id}`);
+          const partnerRes = await apiRequest('GET', `/partners/${encodeApiPathValue(detail.value.id)}`);
           if (partnerRes.success && partnerRes.data) {
-            // 更新当前 detail 的 staff
-            detail.value.staff = partnerRes.data.staff || [];
+            detail.value = { ...detail.value, ...partnerRes.data, staff: partnerRes.data.staff || [] };
+            const partnerIndex = partners.value.findIndex(p => p.id === detail.value.id);
+            if (partnerIndex > -1) {
+              partners.value[partnerIndex] = { ...partners.value[partnerIndex], ...partnerRes.data };
+            }
           }
         } catch (err) {
           console.error('重新加载渠道商详情失败:', err);
@@ -10187,6 +10207,7 @@ const Partners = {
             unread: true
           });
         }
+        alert(newStatus === 'active' ? '员工账号创建成功，初始密码：123456' : '员工账号已提交审核');
       }
       closeStaffForm();
     }
@@ -10248,7 +10269,14 @@ const Partners = {
         }
         const res = await apiRequest('DELETE', staffPath);
         if (res.success) {
-          detail.value.staff = detail.value.staff.filter(x => x.id !== s.id);
+          detail.value.staff = removePartnerStaffFromList(detail.value.staff, s);
+          const partnerIndex = partners.value.findIndex(p => p.id === detail.value.id);
+          if (partnerIndex > -1) {
+            partners.value[partnerIndex] = {
+              ...partners.value[partnerIndex],
+              staff: removePartnerStaffFromList(partners.value[partnerIndex].staff, s)
+            };
+          }
           store.notifications.unshift({
             id: Date.now(),
             title: '员工已删除',
@@ -10580,7 +10608,7 @@ const PartnerAdminManage = {
     // 现有企业管理员列表
     const partnerAdmins = computed(() => {
       return (store.partners || []).flatMap(p =>
-        (p.staff || []).filter(s => s.role === 'partner_admin')
+        (p.staff || []).filter(s => s.accountRole === 'partner_admin' || s.role === 'partner_admin')
           .map(s => ({ ...s, partnerId: p.id, partnerName: p.name }))
       );
     });
@@ -10598,52 +10626,59 @@ const PartnerAdminManage = {
     async function createPartnerAdmin() {
       if (!canCreate.value) return;
       const partner = store.partners.find(p => p.id === form.partnerId);
-      const userRes = await apiRequest('POST', '/users', {
+      const draft = {
         username: form.username,
         name: form.name,
-        password: '123456',
-        role: 'partner_admin',
-        staffRole: '企业管理员',
+        phone: form.phone,
+        email: form.email,
         partnerId: form.partnerId,
         partnerName: partner?.name || '',
         region: partner?.region || '',
-        bigRegion: partner?.bigRegion || '',
-        phone: form.phone,
-        email: form.email,
-        status: isSuperAdmin.value ? 'active' : 'pending',
-        createdBy: store.user?.id,
-        createdByRole: store.user?.role
-      });
+        bigRegion: partner?.bigRegion || ''
+      };
 
-      if (userRes.error) {
-        alert('创建失败：' + userRes.error);
+      let userRes;
+      try {
+        userRes = await apiRequest('POST', `/partners/${encodeApiPathValue(draft.partnerId)}/staff`, {
+          username: draft.username,
+          name: draft.name,
+          password: '123456',
+          role: 'partner_admin',
+          accountRole: 'partner_admin',
+          staffRole: '企业管理员',
+          partnerName: draft.partnerName,
+          region: draft.region,
+          bigRegion: draft.bigRegion,
+          phone: draft.phone,
+          email: draft.email,
+          status: isSuperAdmin.value ? 'active' : 'pending',
+          createdBy: store.user?.id,
+          createdByRole: store.user?.role
+        });
+      } catch (err) {
+        alert('创建失败：' + err.message);
         return;
       }
 
-      // 重新加载渠道商数据（包含新创建的员工）
+      if (!userRes.success) {
+        alert('创建失败：' + (userRes.error || userRes.message || '未知错误'));
+        return;
+      }
+
       await loadPartners();
 
-      // 清空表单
-      form.username = '';
-      form.name = '';
-      form.phone = '';
-      form.email = '';
-      form.partnerId = '';
-      alert('企业管理员创建成功！');
-
-      // 如果是区域管理员创建，添加到待审批列表
       if (!isSuperAdmin.value) {
         const apr = {
           id: 'APR-' + Date.now(),
           type: 'partner_admin',
           targetId: userRes.data?.id,
-          targetName: form.name,
-          targetPartnerId: form.partnerId,
-          targetPartnerName: partner?.name || '',
+          targetName: draft.name,
+          targetPartnerId: draft.partnerId,
+          targetPartnerName: draft.partnerName,
           createdBy: store.user?.name,
           createdByRole: store.user?.role,
-          region: partner?.region || '',
-          bigRegion: partner?.bigRegion || '',
+          region: draft.region,
+          bigRegion: draft.bigRegion,
           status: 'pending',
           createdAt: new Date().toISOString()
         };
@@ -11465,7 +11500,7 @@ const PartnerReport = {
           alert('删除失败：' + (res.error || '未知错误'));
           return;
         }
-        partner.staff = partner.staff.filter(item => item.id !== staff.id);
+        partner.staff = removePartnerStaffFromList(partner.staff, staff);
         detailPartner.value = { ...partner };
         alert(res.message || '删除成功');
       } catch (err) {

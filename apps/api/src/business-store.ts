@@ -2973,9 +2973,65 @@ function 渠道查询SQL(where: string): string {
       0::numeric AS "金额",
       p.created_at AS "创建时间",
       p.updated_at AS "更新时间",
-      p.extra_json AS "原始数据"
+      COALESCE(p.extra_json, '{}'::jsonb) || jsonb_build_object(
+        'id', COALESCE(p.partner_code, p.v2_source_id, p.id::text),
+        'uuid', p.id::text,
+        'name', p.partner_name,
+        'partnerName', p.partner_name,
+        'level', COALESCE(NULLIF(p.extra_json->>'level', ''), p.partner_level_code),
+        'partnerLevel', COALESCE(NULLIF(p.extra_json->>'partnerLevel', ''), p.partner_level_code),
+        'region', COALESCE(r.region_name, p.extra_json->>'region', ''),
+        'city', COALESCE(NULLIF(p.city_name, ''), p.extra_json->>'city', ''),
+        'contact', COALESCE(NULLIF(p.contact_name, ''), p.extra_json->>'contact', ''),
+        'phone', COALESCE(NULLIF(p.contact_phone, ''), p.extra_json->>'phone', ''),
+        'email', COALESCE(p.contact_email::text, p.extra_json->>'email', ''),
+        'status', CASE p.status_code WHEN 'disabled' THEN 'inactive' ELSE p.status_code END,
+        'staff', COALESCE(
+          成员.staff,
+          CASE
+            WHEN jsonb_typeof(p.extra_json->'staff') = 'array' THEN p.extra_json->'staff'
+            ELSE '[]'::jsonb
+          END
+        )
+      ) AS "原始数据"
     FROM channel.partners p
     LEFT JOIN org.regions r ON r.id = p.region_id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'id', COALESCE(u.v2_source_id, u.extra_json->>'id', u.username::text, u.id::text),
+          'uuid', u.id::text,
+          'userId', COALESCE(u.v2_source_id, u.extra_json->>'userId', u.id::text),
+          'username', u.username::text,
+          'name', COALESCE(NULLIF(u.display_name, ''), u.extra_json->>'name', u.username::text),
+          'role', COALESCE(
+            NULLIF(u.extra_json->>'staffRole', ''),
+            NULLIF(u.extra_json->>'title', ''),
+            CASE pm.member_role_code WHEN 'partner_admin' THEN '企业管理员' ELSE '销售代表' END
+          ),
+          'staffRole', COALESCE(
+            NULLIF(u.extra_json->>'staffRole', ''),
+            NULLIF(u.extra_json->>'title', ''),
+            CASE pm.member_role_code WHEN 'partner_admin' THEN '企业管理员' ELSE '销售代表' END
+          ),
+          'accountRole', pm.member_role_code,
+          'phone', COALESCE(NULLIF(u.phone, ''), u.extra_json->>'phone', u.extra_json->>'mobile', ''),
+          'email', COALESCE(u.email::text, u.extra_json->>'email', ''),
+          'status', CASE
+            WHEN u.extra_json->>'status' = 'pending' THEN 'pending'
+            WHEN pm.status_code = 'active' AND u.status_code = 'active' THEN 'active'
+            ELSE 'inactive'
+          END,
+          'createdAt', COALESCE(u.extra_json->>'createdAt', u.created_at::text),
+          'createdByRole', COALESCE(u.extra_json->>'createdByRole', ''),
+          'approvedBy', COALESCE(u.extra_json->>'approvedBy', '')
+        )
+        ORDER BY pm.member_role_code, u.display_name, u.username::text
+      ) AS staff
+      FROM channel.partner_members pm
+      JOIN iam.users u ON u.id = pm.user_id
+      WHERE pm.partner_id = p.id
+    ) 成员 ON true
     WHERE ${where}
   `;
 }

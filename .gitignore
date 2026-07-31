@@ -48,9 +48,11 @@ backup*/
 backups/
 upgrade_logs/
 *.zip
+*.zip.sha256
 *.tar
 *.tar.gz
 *.tgz
+*.docker-image
 *.bak
 deploy/single-server/images/sha256sum.txt
 deploy/single-server/runtime/docker/*.tgz

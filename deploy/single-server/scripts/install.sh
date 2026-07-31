@@ -111,6 +111,20 @@ chmod 700 "${install_root}/secrets"
   fi
 }
 
+补充环境变量如不存在() {
+  local target_file="$1"
+  local key="$2"
+  local value="$3"
+
+  if [ ! -f "${target_file}" ]; then
+    return
+  fi
+
+  if ! grep -q "^${key}=" "${target_file}"; then
+    printf '%s=%s\n' "${key}" "${value}" >> "${target_file}"
+  fi
+}
+
 同步版本变量() {
   local target_file="$1"
 
@@ -130,6 +144,10 @@ fi
 写入部署变量如不存在 "${install_root}/compose/.env"
 同步版本变量 "${install_root}/config/deploy.env"
 同步版本变量 "${install_root}/compose/.env"
+补充环境变量如不存在 "${install_root}/config/deploy.env" "POSTGRES_BIND_HOST" "0.0.0.0"
+补充环境变量如不存在 "${install_root}/config/deploy.env" "POSTGRES_PUBLISHED_PORT" "15432"
+补充环境变量如不存在 "${install_root}/compose/.env" "POSTGRES_BIND_HOST" "0.0.0.0"
+补充环境变量如不存在 "${install_root}/compose/.env" "POSTGRES_PUBLISHED_PORT" "15432"
 cp "${package_root}/scripts/"*.sh "${install_root}/scripts/"
 chmod 750 "${install_root}/scripts/"*.sh
 
