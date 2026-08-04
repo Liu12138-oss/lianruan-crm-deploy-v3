@@ -15,16 +15,7 @@ const 通用规则 = {
 
 export default [
   {
-    ignores: [
-      "node_modules/**",
-      "**/dist/**",
-      "coverage/**",
-      "backend/**",
-      "frontend/**",
-      "deliverables/**",
-      "upgrade-package/**",
-      "company-search-upgrade/**",
-    ],
+    ignores: ["node_modules/**", "**/dist/**", "coverage/**", "deliverables/**"],
   },
   js.configs.recommended,
   {

@@ -4,11 +4,7 @@ coverage
 apps/web/test-results
 apps/web/playwright-report
 apps/web/public
-backend
-frontend
 deliverables
-upgrade-package
-company-search-upgrade
 *.xlsx
 *.docx
 *.tar.gz

@@ -1,0 +1,13 @@
+d8a38c3f8d808d599454d8b184b6e9b343522f52ecdbb93140cb26c010b35ccb  ./KB说明.md
+c0503d291daca48737a13c61dc55fab75c1f204b6c5acae03405808fd1431aef  ./README.md
+819db2bc0a1738323d714ce6ce8a6f7058c9c1806852b8c7ad3ecd91cdff1891  ./files/patches/源代码变更.patch
+95dd01b3b447baffea1f3713a723f35626d35a6a9005f17cd749987ec0b44370  ./images/lianruan-crm-v3-api-3.0.0-stage9.22.20260731-kb002.tar
+2a6eb5aa82854bed881347970bf1595f67d5a330d90f1af3719cfe8f883818ea  ./images/lianruan-crm-v3-nginx-3.0.0-stage9.22.20260731-kb002.tar
+c1249dca3700a5fb61a1034761f64ef752499c00e2f30e28cbfa2c64fc530f51  ./manifest/KB元数据.env
+6c4548965bc0d4e08661818034876d35248a1a6e9f3f8d0135949bc034ba7828  ./manifest/文件清单.tsv
+e2b1ebe153d9d3e2fdd261db70fe30a5b66186fe96c6f72923fba2447ec9dbb6  ./scripts/precheck.sh
+591bfb2a370f93d1640e0d5d8d3e9e74cfacf6a0be012274011b4003fb0e89a8  ./scripts/rollback.sh
+cc034a7153edc38ff91a7ad4e3d6e3efaddfbc29426e1beefc333eb0b9af1184  ./scripts/upgrade.sh
+cf533bbaf13599aad345bacd742f7cd06b8872acc423ae26e1f400daf3837b2a  ./scripts/verify.sh
+8398c6f1f06b52eeedbbdfcbb93d91eb2ef9fec4381392f4b2469c08ff2125f8  ./tests/smoke.sh
+bdbdc3de7f5462582b0726459c187e6cea07da6c11a4cd88e12d25667ad32c8f  ./tests/验证清单.md
