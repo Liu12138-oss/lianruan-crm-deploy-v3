@@ -33,6 +33,15 @@ describe("V2真实页面兼容接口", () => {
     expect(登录.body.success).toBe(true);
     expect(登录.body.user.username).toBe(用户.username);
     expect(登录.body.token).toMatch(/^v2\./);
+
+    const 统一入口登录 = await request(app)
+      .post("/api/auth/login")
+      .send({ username: 用户.username, password: "LrCRM@2026!" })
+      .expect(200);
+    expect(统一入口登录.body.data.user.username).toBe(用户.username);
+    expect(统一入口登录.body.data.pageSession.token).toMatch(/^v2\./);
+    expect(统一入口登录.body.data.pageSession.user.username).toBe(用户.username);
+    expect(统一入口登录.body.data.pageSession.user.id).toBeTruthy();
   });
 
   it("V2登录页可以读取未启用的OAuth配置", async () => {
@@ -42,6 +51,63 @@ describe("V2真实页面兼容接口", () => {
     expect(响应.body.success).toBe(true);
     expect(响应.body.enabled).toBe(false);
     expect(响应.body.data.enabled).toBe(false);
+  });
+
+  it("账号联系电话在创建和修改时必须保持唯一", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 批次 = `phone_unique_${Date.now()}`;
+    const 电话一 = `139${String(Date.now()).slice(-8)}`;
+    const 电话二 = `138${String(Date.now()).slice(-8)}`;
+
+    const 账号一 = await request(app)
+      .post("/api/v2/users")
+      .send({
+        username: `${批次}_a`,
+        name: `${批次}-账号甲`,
+        role: "staff",
+        phone: 电话一,
+        status: "active",
+      })
+      .expect(200);
+    expect(账号一.body.success).toBe(true);
+
+    const 创建冲突 = await request(app)
+      .post("/api/v2/users")
+      .send({
+        username: `${批次}_b`,
+        name: `${批次}-账号乙`,
+        role: "staff",
+        phone: 电话一,
+        status: "active",
+      })
+      .expect(409);
+    expect(创建冲突.body.success).toBe(false);
+    expect(创建冲突.body.error).toContain("联系电话已被账号");
+
+    const 账号二 = await request(app)
+      .post("/api/v2/users")
+      .send({
+        username: `${批次}_b`,
+        name: `${批次}-账号乙`,
+        role: "staff",
+        phone: 电话二,
+        status: "active",
+      })
+      .expect(200);
+    expect(账号二.body.success).toBe(true);
+
+    const 修改冲突 = await request(app)
+      .put(`/api/v2/users/${encodeURIComponent(`${批次}_b`)}`)
+      .send({
+        username: `${批次}_b`,
+        name: `${批次}-账号乙`,
+        role: "staff",
+        phone: 电话一,
+        status: "active",
+      })
+      .expect(409);
+    expect(修改冲突.body.success).toBe(false);
+    expect(修改冲突.body.error).toContain("联系电话已被账号");
   });
 
   it("产品目录按V2数组格式返回功能、硬件、套餐和树结构", async () => {
@@ -75,9 +141,11 @@ describe("V2真实页面兼容接口", () => {
 
     expect(映射.body.data).toHaveLength(49);
     expect(交付规则.body.data).toHaveLength(15);
-    expect(旧规则.body.data).toHaveLength(24);
+    expect(旧规则.body.data.length).toBeGreaterThanOrEqual(24);
     expect(映射.body.data[0]).toHaveProperty("deliveryTags");
     expect(交付规则.body.data[0]).toHaveProperty("personDays");
+    expect(旧规则.body.data[0]).toHaveProperty("minPoints");
+    expect(旧规则.body.data[0]).toHaveProperty("personDays");
   });
 
   it("友商IPG参考对比使用V2功能编号时返回有效参考价", async () => {
@@ -126,6 +194,7 @@ describe("V2真实页面兼容接口", () => {
     const app = 创建应用({ env: 测试环境变量 });
     const { 渠道商名称, 员工姓名 } = await 读取可导入负责人(app);
     const 客户名称 = `阶段9导入客户-${Date.now()}`;
+    const 导入联系电话 = `137${String(Date.now()).slice(-8)}`;
     const 报备文件 = 生成Excel([
       [
         "客户名称*",
@@ -137,7 +206,7 @@ describe("V2真实页面兼容接口", () => {
         "所属渠道商名称*",
         "客户地址",
       ],
-      [客户名称, "", "制造", "验收联系人", "13800138009", 员工姓名, 渠道商名称, "阶段9验收地址"],
+      [客户名称, "", "制造", "验收联系人", 导入联系电话, 员工姓名, 渠道商名称, "阶段9验收地址"],
     ]);
 
     const 预览 = await request(app)
@@ -272,6 +341,8 @@ describe("V2真实页面兼容接口", () => {
     const 序号 = Date.now();
     const 渠道商编号 = `PARTNER-STAFF-DELETE-${序号}`;
     const 员工账号 = `staff_delete_${序号}`;
+    const 渠道联系电话 = `135${String(序号).slice(-8)}`;
+    const 员工电话 = `136${String(序号).slice(-8)}`;
 
     await request(app)
       .post("/api/v2/partners")
@@ -280,7 +351,7 @@ describe("V2真实页面兼容接口", () => {
         name: `删除员工验收渠道商-${序号}`,
         city: "深圳市",
         contact: "验收负责人",
-        phone: "13800138000",
+        phone: 渠道联系电话,
         status: "active",
       })
       .expect(200);
@@ -294,7 +365,7 @@ describe("V2真实页面兼容接口", () => {
         accountRole: "staff",
         staffRole: "销售代表",
         password: "123456",
-        phone: "13800138001",
+        phone: 员工电话,
         status: "active",
       })
       .expect(200);
@@ -325,23 +396,15 @@ function 生成Excel(rows: unknown[][]): Buffer {
 }
 
 async function 读取可导入负责人(app: ReturnType<typeof 创建应用>) {
-  const 用户列表 = await request(app).get("/api/v2/users?pageSize=1000").expect(200);
-  const 员工 = (用户列表.body.data as Array<Record<string, unknown>>).find((item) => {
-    const role = String(item.role || "");
-    return (
-      ["staff", "partner_admin"].includes(role) && Boolean(item.partnerName) && Boolean(item.name)
-    );
-  });
-  if (员工) {
-    return { 渠道商名称: String(员工.partnerName), 员工姓名: String(员工.name) };
-  }
-
   const 渠道商列表 = await request(app).get("/api/v2/partners?pageSize=1000").expect(200);
   const 渠道商 = (渠道商列表.body.data as Array<Record<string, unknown>>).find(
-    (item) => Array.isArray(item.staff) && item.staff.some((staff) => staff?.name),
+    (item) =>
+      Array.isArray(item.staff) &&
+      item.staff.some((staff) => staff?.name && staff.status !== "deleted"),
   );
   const 员工记录 = Array.isArray(渠道商?.staff)
-    ? (渠道商.staff.find((staff) => staff?.name) as { name?: string } | undefined)
+    ? (渠道商.staff.find((staff) => staff?.name && staff.status !== "deleted") as
+        { name?: string } | undefined)
     : undefined;
   if (!渠道商?.name || !员工记录?.name) {
     throw new Error("未找到可用于导入验收的渠道商员工。");

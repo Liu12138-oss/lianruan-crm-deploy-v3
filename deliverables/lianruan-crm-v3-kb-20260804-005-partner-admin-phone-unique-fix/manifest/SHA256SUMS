@@ -1,0 +1,15 @@
+6969da5f232313949a00e125224f1215978f224046e709c4dfcfe8db869c7a60  ./files/migrations/20260804_S9_016_账号联系电话唯一约束.sql
+b26b07a6f79bd2ad43cd435afa465a1818b8cd067a60511dc1d960d68cfb368f  ./files/patches/源代码变更说明.md
+814344143fa38fffec4e2ddf1f3eb093b296b9d06db9dc2dda6688710d9651f4  ./images/lianruan-crm-v3-api-3.0.0-stage9.27.20260804-kb005.docker-image
+a648493f8844d8ddb399f23aee63656b7940b8af06350b86ba01fc38fa9d783e  ./images/lianruan-crm-v3-nginx-3.0.0-stage9.27.20260804-kb005.docker-image
+b3d0fbdf75a7a038c9290f1112a796511cb2c993f91eac2795bd786af9142aff  ./images/lianruan-crm-v3-worker-3.0.0-stage9.27.20260804-kb005.docker-image
+9432542babc090a23d3a99392918f0b7cffb0a3417172ec3b40b3eed3537edb0  ./KB说明.md
+aa45154163bec8957a7bf5b24933a5da3fb685191cbff6d7bb3aa3f6e97b521a  ./manifest/KB元数据.env
+04e75fef14f29a5766e7eeecb3750666de7e11955dce1d1379bf7a0d98e99d99  ./manifest/文件清单.tsv
+e15ad7c950cb4f1974302765d4ddbc1401c3d90d15609b217ebddb884514b2f0  ./README.md
+59f5ec3e5bdeceb26209e454e42d06a79eb378a4ce403edd201646a17718fae4  ./scripts/precheck.sh
+293b4c939bb5ac105ba8a2704aba1700c0f5361a962e9cd086a0aae735aa6a11  ./scripts/rollback.sh
+2fa5ea437345663ff48408618b7de824d05aa6420a4caf6035e8e60617c8a003  ./scripts/upgrade.sh
+b497cd96ed06561e46acfb037ea228301416eff37d17f1c9240b075f57bb4b9f  ./scripts/verify.sh
+4c0bebb5489bde592d1725e8758e0a624434c4250d52f6ff57ffdd2f840e6a61  ./tests/smoke.sh
+4d7ae4133b27ad537c1aa2b0a99b4b9d0791c29bd0b023c3be0c878a07e171a1  ./tests/验证清单.md

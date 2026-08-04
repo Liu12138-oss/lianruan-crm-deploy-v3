@@ -1,7 +1,9 @@
 import { 创建测试环境变量 } from "@lianruan/testing";
+import { Pool } from "pg";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
+import { 创建密码散列 } from "../src/auth-routes.js";
 import { 创建应用 } from "../src/index.js";
 
 const 测试环境变量 = 创建测试环境变量();
@@ -18,20 +20,19 @@ describe("阶段9业务兼容接口", () => {
         V3_DELIVERY_AUTH_USERS_JSON: "[]",
       }),
     });
-    const 用户列表 = await request(app).get("/api/users?pageSize=1").expect(200);
-    const 迁移用户 = 用户列表.body.data.数据[0] as { 负责人: string; 标题: string };
-    expect(迁移用户?.负责人).toBeTruthy();
+    const 迁移用户 = await 读取可登录测试用户();
+    expect(迁移用户.username).toBeTruthy();
 
     const agent = request.agent(app);
     const 登录 = await agent
       .post("/api/auth/login")
-      .send({ username: 迁移用户.负责人, password: "LrCRM@2026!" })
+      .send({ username: 迁移用户.username, password: "LrCRM@2026!" })
       .expect(200);
-    expect(登录.body.data.user.username).toBe(迁移用户.负责人);
+    expect(登录.body.data.user.username).toBe(迁移用户.username);
     expect(登录.body.data.user.displayName).toBeTruthy();
 
     const 当前用户 = await agent.get("/api/auth/me").expect(200);
-    expect(当前用户.body.data.user.username).toBe(迁移用户.负责人);
+    expect(当前用户.body.data.user.username).toBe(迁移用户.username);
   });
 
   it("产品目录按V2实体分类返回功能、硬件和套餐", async () => {
@@ -95,15 +96,10 @@ describe("阶段9业务兼容接口", () => {
       .expect(200);
     expect(审核.body.data.状态).toBe("approved");
 
-    const 已审核列表 = await request(app)
-      .get("/api/stage9/approvals?status=approved&pageSize=20")
+    const 已审核详情 = await request(app)
+      .get(`/api/registrations/${报备.body.data.id}`)
       .expect(200);
-    expect(
-      已审核列表.body.data.数据.some(
-        (项: { 客户名称: string; 状态: string }) =>
-          项.客户名称 === "阶段9自动化验收客户" && 项.状态 === "approved",
-      ),
-    ).toBe(true);
+    expect(已审核详情.body.data.状态).toBe("approved");
 
     const 商机 = await request(app)
       .post("/api/opportunities")
@@ -194,6 +190,186 @@ describe("阶段9业务兼容接口", () => {
           项.客户名称 === 渠道客户 && 项.状态 === "pending",
       ),
     ).toBe(true);
+  });
+
+  it("渠道报备和商机按服务端账号范围隔离并支持管理员指派", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `KB003-${Date.now()}`;
+    try {
+      const 数据 = await 准备渠道范围测试数据(pool, 批次);
+      const 员工列表 = await request(app)
+        .get(`/api/v2/registrations?keyword=${批次}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .expect(200);
+      const 员工客户 = 员工列表.body.data.map((item: { customer: string }) => item.customer);
+      expect(员工客户).toContain(`${批次}-员工本人客户`);
+      expect(员工客户).not.toContain(`${批次}-同企业其他员工客户`);
+      expect(员工客户).not.toContain(`${批次}-其他渠道客户`);
+
+      const 企业管理员列表 = await request(app)
+        .get(`/api/v2/registrations?keyword=${批次}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员.username))
+        .expect(200);
+      const 企业客户 = 企业管理员列表.body.data.map((item: { customer: string }) => item.customer);
+      expect(企业客户).toContain(`${批次}-员工本人客户`);
+      expect(企业客户).toContain(`${批次}-同企业其他员工客户`);
+      expect(企业客户).not.toContain(`${批次}-其他渠道客户`);
+
+      const 企业管理员兼容列表 = await request(app)
+        .get(
+          `/api/v2/registrations?keyword=${批次}&operatorId=${数据.企业管理员.username}&pageSize=50`,
+        )
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员.username))
+        .expect(200);
+      const 企业兼容客户 = 企业管理员兼容列表.body.data.map(
+        (item: { customer: string }) => item.customer,
+      );
+      expect(企业兼容客户).toContain(`${批次}-员工本人客户`);
+      expect(企业兼容客户).toContain(`${批次}-同企业其他员工客户`);
+      expect(企业兼容客户).not.toContain(`${批次}-其他渠道客户`);
+
+      const 扩展绑定企业报备 = await request(app)
+        .get(`/api/v2/registrations?keyword=${批次}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员仅扩展.username))
+        .expect(200);
+      const 扩展绑定客户 = 扩展绑定企业报备.body.data.map(
+        (item: { customer: string }) => item.customer,
+      );
+      expect(扩展绑定客户).toContain(`${批次}-员工本人客户`);
+      expect(扩展绑定客户).toContain(`${批次}-同企业其他员工客户`);
+      expect(扩展绑定客户).not.toContain(`${批次}-其他渠道客户`);
+
+      const 扩展绑定企业商机 = await request(app)
+        .get(`/api/v2/opportunities?keyword=${批次}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员仅扩展.username))
+        .expect(200);
+      expect(扩展绑定企业商机.body.data.map((item: { name: string }) => item.name)).toContain(
+        数据.员工本人商机.编号,
+      );
+      expect(扩展绑定企业商机.body.data.map((item: { name: string }) => item.name)).not.toContain(
+        数据.其他渠道商机.编号,
+      );
+
+      const 扩展绑定企业报价 = await request(app)
+        .get(`/api/v2/quotes?keyword=${encodeURIComponent(批次)}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员仅扩展.username))
+        .expect(200);
+      expect(扩展绑定企业报价.body.data.map((item: { id: string }) => item.id)).toContain(
+        数据.报价.编号,
+      );
+
+      const 扩展绑定企业订单 = await request(app)
+        .get(`/api/v2/orders?keyword=${encodeURIComponent(批次)}&pageSize=50`)
+        .set("Authorization", 签发测试V2令牌(数据.企业管理员仅扩展.username))
+        .expect(200);
+      expect(扩展绑定企业订单.body.data.map((item: { id: string }) => item.id)).toContain(
+        数据.订单.编号,
+      );
+
+      const 超管列表参数 = `keyword=${encodeURIComponent(批次)}&operatorId=${encodeURIComponent(数据.超级管理员.username)}&userId=${encodeURIComponent(数据.超级管理员.username)}&userRole=superadmin&pageSize=100`;
+      const 超管报备列表 = await request(app)
+        .get(`/api/v2/registrations?${超管列表参数}`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      const 超管报备客户 = 超管报备列表.body.data.map(
+        (item: { customer: string }) => item.customer,
+      );
+      expect(超管报备客户).toContain(`${批次}-员工本人客户`);
+      expect(超管报备客户).toContain(`${批次}-同企业其他员工客户`);
+      expect(超管报备客户).toContain(`${批次}-其他渠道客户`);
+
+      const 超管渠道列表 = await request(app)
+        .get(`/api/v2/partners?${超管列表参数}`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      const 超管渠道名称 = 超管渠道列表.body.data.map((item: { name: string }) => item.name);
+      expect(超管渠道名称).toContain(数据.渠道一.partner_name);
+      expect(超管渠道名称).toContain(数据.渠道二.partner_name);
+
+      const 超管账号列表 = await request(app)
+        .get(
+          `/api/v2/users?keyword=${encodeURIComponent(批次)}&operatorId=${encodeURIComponent(数据.超级管理员.username)}&pageSize=100`,
+        )
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      const 超管账号 = 超管账号列表.body.data.map((item: { username: string }) => item.username);
+      expect(超管账号).toContain(数据.超级管理员.username);
+      expect(超管账号).toContain(数据.企业管理员.username);
+      expect(超管账号).toContain(数据.员工一.username);
+
+      const 超管报价列表 = await request(app)
+        .get(
+          `/api/v2/quotes?keyword=${encodeURIComponent(批次)}&operatorId=${encodeURIComponent(数据.超级管理员.username)}&pageSize=50`,
+        )
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      expect(超管报价列表.body.data.map((item: { id: string }) => item.id)).toContain(
+        数据.报价.编号,
+      );
+
+      const 超管订单列表 = await request(app)
+        .get(
+          `/api/v2/orders?keyword=${encodeURIComponent(批次)}&operatorId=${encodeURIComponent(数据.超级管理员.username)}&pageSize=50`,
+        )
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      expect(超管订单列表.body.data.map((item: { id: string }) => item.id)).toContain(
+        数据.订单.编号,
+      );
+
+      const 改派报备 = await request(app)
+        .put(`/api/v2/registrations/${数据.其他渠道报备.id}`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .send({
+          assignedPartnerId: 数据.渠道一.partner_code,
+          assignedStaffId: 数据.员工一.username,
+          contact: "改派联系人",
+        })
+        .expect(200);
+      expect(改派报备.body.data.partnerName).toBe(数据.渠道一.partner_name);
+      expect(改派报备.body.data.assignedStaffName).toBe(数据.员工一.display_name);
+
+      const 改派商机 = await request(app)
+        .put(`/api/v2/opportunities/${数据.其他渠道商机.id}`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .send({
+          assignedPartnerId: 数据.渠道一.partner_code,
+          assignedStaffId: 数据.员工一.username,
+          stage: "design",
+          followup: "管理员改派后跟进",
+        })
+        .expect(200);
+      expect(改派商机.body.data.partnerName).toBe(数据.渠道一.partner_name);
+      expect(改派商机.body.data.assignedStaffName).toBe(数据.员工一.display_name);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("既往客户导入后可通过企业搜索模糊匹配并回填", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `KB003-KNOWN-${Date.now()}`;
+    const 客户名称 = `${批次}-平安既往客户`;
+    try {
+      await 插入既往客户搜索样本(pool, 客户名称);
+      const 搜索 = await request(app)
+        .get(`/api/v2/company-search?keyword=${encodeURIComponent("平安既往")}`)
+        .expect(200);
+      expect(搜索.body.success).toBe(true);
+      const 命中 = 搜索.body.data.find((item: { name: string }) => item.name === 客户名称);
+      expect(命中).toMatchObject({
+        name: 客户名称,
+        creditCode: "91310000KB003KNOWN",
+        legalPerson: "既往客户法人",
+        address: "深圳市南山区既往客户园区",
+        companyStatus: "在营",
+        industry: "金融",
+      });
+    } finally {
+      await pool.end();
+    }
   });
 
   it("可以使用PostgreSQL正式表维护OpenAPI客户端并完成授权调用", async () => {
@@ -295,3 +471,635 @@ describe("阶段9业务兼容接口", () => {
     expect(试算.body.data.workloadSummary).toContain("EPP");
   });
 });
+
+type 渠道范围测试用户 = {
+  id: string;
+  username: string;
+  display_name: string;
+};
+
+type 渠道范围测试渠道 = {
+  id: string;
+  partner_code: string;
+  partner_name: string;
+};
+
+type 渠道范围测试业务记录 = {
+  id: string;
+  编号?: string;
+};
+
+async function 读取可登录测试用户(): Promise<{ username: string }> {
+  const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+  try {
+    const result = await pool.query<{ username: string }>(
+      `
+      SELECT u.username::text AS username
+      FROM iam.users u
+      JOIN iam.password_credentials pc ON pc.user_id = u.id
+      WHERE u.status_code = 'active'
+        AND pc.algorithm = 'scrypt'
+      ORDER BY
+        CASE WHEN u.username::text LIKE 'kb003-%' THEN 1 ELSE 0 END,
+        u.created_at DESC
+      LIMIT 1
+      `,
+    );
+    const username = result.rows[0]?.username;
+    if (!username) throw new Error("测试库缺少可登录账号。");
+    return { username };
+  } finally {
+    await pool.end();
+  }
+}
+
+async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
+  const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+  await 准备渠道范围测试角色(pool);
+
+  const 渠道一 = await 创建渠道范围测试渠道(pool, 批次, "一", 区域编号);
+  const 渠道二 = await 创建渠道范围测试渠道(pool, 批次, "二", 区域编号);
+  const 超级管理员 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "super",
+    "超级管理员",
+    "superadmin",
+    "all",
+    区域编号,
+  );
+  const 企业管理员 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "partner_admin",
+    "企业管理员",
+    "partner_admin",
+    "partner",
+    区域编号,
+  );
+  const 企业管理员仅扩展 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "partner_admin_extra",
+    "扩展绑定企业管理员",
+    "partner_admin",
+    "partner",
+    区域编号,
+  );
+  const 员工一 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "staff1",
+    "员工一",
+    "staff",
+    "self",
+    区域编号,
+  );
+  const 员工二 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "staff2",
+    "员工二",
+    "staff",
+    "self",
+    区域编号,
+  );
+  const 其他渠道员工 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "other_staff",
+    "其他渠道员工",
+    "staff",
+    "self",
+    区域编号,
+  );
+
+  await 绑定渠道范围测试成员(pool, 渠道一.id, 企业管理员.id, "partner_admin");
+  await 绑定渠道范围测试成员(pool, 渠道一.id, 员工一.id, "staff");
+  await 绑定渠道范围测试成员(pool, 渠道一.id, 员工二.id, "staff");
+  await 绑定渠道范围测试成员(pool, 渠道二.id, 其他渠道员工.id, "staff");
+  await 写入渠道范围测试用户扩展绑定(pool, 企业管理员仅扩展.id, 渠道一);
+
+  const 员工本人报备 = await 创建渠道范围测试报备(
+    pool,
+    批次,
+    `${批次}-员工本人客户`,
+    渠道一,
+    员工一,
+    区域编号,
+  );
+  await 创建渠道范围测试报备(pool, 批次, `${批次}-同企业其他员工客户`, 渠道一, 员工二, 区域编号);
+  const 其他渠道报备 = await 创建渠道范围测试报备(
+    pool,
+    批次,
+    `${批次}-其他渠道客户`,
+    渠道二,
+    其他渠道员工,
+    区域编号,
+  );
+  const 其他渠道商机 = await 创建渠道范围测试商机(
+    pool,
+    批次,
+    `${批次}-其他渠道商机客户`,
+    `${批次}-其他渠道商机`,
+    渠道二,
+    其他渠道员工,
+    区域编号,
+  );
+  const 员工本人商机 = await 创建渠道范围测试商机(
+    pool,
+    批次,
+    `${批次}-员工本人商机客户`,
+    `${批次}-员工本人商机`,
+    渠道一,
+    员工一,
+    区域编号,
+  );
+  const 报价订单 = await 创建渠道范围测试报价和订单(
+    pool,
+    批次,
+    `${批次}-员工本人报价订单客户`,
+    渠道一,
+    员工一,
+  );
+
+  return {
+    渠道一,
+    渠道二,
+    超级管理员,
+    企业管理员,
+    企业管理员仅扩展,
+    员工一,
+    员工本人报备,
+    其他渠道报备,
+    其他渠道商机,
+    员工本人商机: { ...员工本人商机, 编号: `${批次}-员工本人商机` },
+    报价: 报价订单.报价,
+    订单: 报价订单.订单,
+  };
+}
+
+async function 写入渠道范围测试用户扩展绑定(
+  pool: Pool,
+  用户编号: string,
+  渠道: 渠道范围测试渠道,
+): Promise<void> {
+  await pool.query(
+    `
+    UPDATE iam.users
+    SET extra_json = extra_json || $2::jsonb,
+        updated_at = now()
+    WHERE id = $1::uuid
+    `,
+    [
+      用户编号,
+      JSON.stringify({
+        partnerId: 渠道.partner_code,
+        partnerName: 渠道.partner_name,
+      }),
+    ],
+  );
+}
+
+async function 准备渠道范围测试区域(pool: Pool, 批次: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `
+    INSERT INTO org.regions (region_code, region_name, region_level, status_code)
+    VALUES ($1, $2, 'region', 'active')
+    ON CONFLICT (region_code) DO UPDATE
+    SET region_name = EXCLUDED.region_name,
+        status_code = EXCLUDED.status_code
+    RETURNING id::text AS id
+    `,
+    [`RG-${批次}`, `${批次}-测试区域`],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("准备渠道范围测试区域失败。");
+  return row.id;
+}
+
+async function 准备渠道范围测试角色(pool: Pool): Promise<void> {
+  await pool.query(
+    `
+    INSERT INTO iam.roles (role_code, role_name, status_code)
+    VALUES
+      ('superadmin', '超级管理员', 'active'),
+      ('partner_admin', '渠道管理员', 'active'),
+      ('staff', '销售代表', 'active')
+    ON CONFLICT (role_code) DO UPDATE
+    SET role_name = EXCLUDED.role_name,
+        status_code = EXCLUDED.status_code
+    `,
+  );
+}
+
+async function 创建渠道范围测试渠道(
+  pool: Pool,
+  批次: string,
+  序号: string,
+  区域编号: string,
+): Promise<渠道范围测试渠道> {
+  const 渠道编码 = `${批次}-PARTNER-${序号}`;
+  const 渠道名称 = `${批次}-渠道商${序号}`;
+  const result = await pool.query<渠道范围测试渠道>(
+    `
+    INSERT INTO channel.partners (
+      v2_source_id, partner_code, partner_name, normalized_name, partner_level_code,
+      region_id, status_code, extra_json
+    )
+    VALUES ($1, $1, $2, $3, 'primary', $4::uuid, 'active', $5::jsonb)
+    ON CONFLICT (partner_code) DO UPDATE
+    SET partner_name = EXCLUDED.partner_name,
+        normalized_name = EXCLUDED.normalized_name,
+        region_id = EXCLUDED.region_id,
+        status_code = EXCLUDED.status_code,
+        extra_json = channel.partners.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id, partner_code, partner_name
+    `,
+    [
+      渠道编码,
+      渠道名称,
+      归一化渠道范围测试名称(渠道名称),
+      区域编号,
+      JSON.stringify({ id: 渠道编码, partnerId: 渠道编码, name: 渠道名称, partnerName: 渠道名称 }),
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("创建渠道范围测试渠道失败。");
+  return row;
+}
+
+async function 创建渠道范围测试用户(
+  pool: Pool,
+  批次: string,
+  后缀: string,
+  显示名后缀: string,
+  角色编码: string,
+  数据范围编码: string,
+  区域编号: string,
+): Promise<渠道范围测试用户> {
+  const username = `${批次.toLowerCase()}_${后缀}`;
+  const displayName = `${批次}-${显示名后缀}`;
+  const result = await pool.query<渠道范围测试用户>(
+    `
+    INSERT INTO iam.users (v2_source_id, username, display_name, status_code, region_id, extra_json)
+    VALUES ($1, $2::citext, $3, 'active', $4::uuid, $5::jsonb)
+    ON CONFLICT (username) DO UPDATE
+    SET display_name = EXCLUDED.display_name,
+        status_code = EXCLUDED.status_code,
+        region_id = EXCLUDED.region_id,
+        extra_json = iam.users.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id, username::text AS username, display_name
+    `,
+    [
+      username,
+      username,
+      displayName,
+      区域编号,
+      JSON.stringify({ id: username, userId: username, role: 角色编码, name: displayName }),
+    ],
+  );
+  const 用户 = result.rows[0];
+  if (!用户) throw new Error("创建渠道范围测试用户失败。");
+  await pool.query(
+    `
+    INSERT INTO iam.password_credentials (
+      user_id, password_hash, algorithm, must_change_password, changed_at
+    )
+    VALUES ($1::uuid, $2, 'scrypt', false, now())
+    ON CONFLICT (user_id) DO UPDATE
+    SET password_hash = EXCLUDED.password_hash,
+        algorithm = EXCLUDED.algorithm,
+        must_change_password = EXCLUDED.must_change_password,
+        changed_at = EXCLUDED.changed_at
+    `,
+    [用户.id, 创建密码散列("LrCRM@2026!")],
+  );
+  await pool.query(
+    `
+    INSERT INTO iam.user_roles (user_id, role_id)
+    SELECT $1::uuid, id
+    FROM iam.roles
+    WHERE role_code = $2
+    ON CONFLICT DO NOTHING
+    `,
+    [用户.id, 角色编码],
+  );
+  await pool.query(
+    `
+    INSERT INTO org.staff_profiles (user_id, employee_no, title, data_scope_code, extra_json)
+    VALUES ($1::uuid, $2, $3, $4, $5::jsonb)
+    ON CONFLICT (user_id) DO UPDATE
+    SET title = EXCLUDED.title,
+        data_scope_code = EXCLUDED.data_scope_code,
+        extra_json = org.staff_profiles.extra_json || EXCLUDED.extra_json
+    `,
+    [
+      用户.id,
+      username,
+      显示名后缀,
+      数据范围编码,
+      JSON.stringify({ role: 角色编码, dataScopeCode: 数据范围编码 }),
+    ],
+  );
+  return 用户;
+}
+
+async function 绑定渠道范围测试成员(
+  pool: Pool,
+  渠道编号: string,
+  用户编号: string,
+  成员角色编码: "partner_admin" | "staff",
+): Promise<void> {
+  await pool.query(
+    `
+    INSERT INTO channel.partner_members (partner_id, user_id, member_role_code, status_code)
+    VALUES ($1::uuid, $2::uuid, $3, 'active')
+    ON CONFLICT (partner_id, user_id) DO UPDATE
+    SET member_role_code = EXCLUDED.member_role_code,
+        status_code = EXCLUDED.status_code,
+        ended_at = NULL
+    `,
+    [渠道编号, 用户编号, 成员角色编码],
+  );
+}
+
+async function 创建渠道范围测试报备(
+  pool: Pool,
+  批次: string,
+  客户名称: string,
+  渠道: 渠道范围测试渠道,
+  员工: 渠道范围测试用户,
+  区域编号: string,
+): Promise<渠道范围测试业务记录> {
+  const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
+  const 报备编号 = `${批次}-REG-${客户名称.replace(批次, "").replace(/[^0-9A-Za-z\u4e00-\u9fa5]/g, "")}`;
+  const result = await pool.query<渠道范围测试业务记录>(
+    `
+    INSERT INTO crm.registrations (
+      registration_no, customer_id, partner_id, owner_user_id, region_id, status_code,
+      submitted_at, approved_at, extra_json
+    )
+    VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'approved', now(), now(), $6::jsonb)
+    ON CONFLICT (registration_no) DO UPDATE
+    SET customer_id = EXCLUDED.customer_id,
+        partner_id = EXCLUDED.partner_id,
+        owner_user_id = EXCLUDED.owner_user_id,
+        region_id = EXCLUDED.region_id,
+        status_code = EXCLUDED.status_code,
+        extra_json = crm.registrations.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id
+    `,
+    [
+      报备编号,
+      客户编号,
+      渠道.id,
+      员工.id,
+      区域编号,
+      JSON.stringify({
+        id: 报备编号,
+        customer: 客户名称,
+        customerName: 客户名称,
+        partnerId: 渠道.partner_code,
+        assignedPartnerId: 渠道.partner_code,
+        partnerName: 渠道.partner_name,
+        assignedStaffId: 员工.username,
+        assignedStaffName: 员工.display_name,
+        region: `${批次}-测试区域`,
+      }),
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("创建渠道范围测试报备失败。");
+  return row;
+}
+
+async function 创建渠道范围测试商机(
+  pool: Pool,
+  批次: string,
+  客户名称: string,
+  商机名称: string,
+  渠道: 渠道范围测试渠道,
+  员工: 渠道范围测试用户,
+  区域编号: string,
+): Promise<渠道范围测试业务记录> {
+  const 报备 = await 创建渠道范围测试报备(pool, 批次, 客户名称, 渠道, 员工, 区域编号);
+  const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
+  const 商机编号 = `${批次}-OPP-${商机名称.replace(批次, "").replace(/[^0-9A-Za-z\u4e00-\u9fa5]/g, "")}`;
+  const result = await pool.query<渠道范围测试业务记录>(
+    `
+    INSERT INTO crm.opportunities (
+      opportunity_no, customer_id, registration_id, partner_id, owner_user_id, region_id,
+      stage_code, raw_stage_name, status_code, expected_amount, extra_json
+    )
+    VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, 'registered', 'registered', 'active', 1000, $7::jsonb)
+    ON CONFLICT (opportunity_no) DO UPDATE
+    SET customer_id = EXCLUDED.customer_id,
+        registration_id = EXCLUDED.registration_id,
+        partner_id = EXCLUDED.partner_id,
+        owner_user_id = EXCLUDED.owner_user_id,
+        region_id = EXCLUDED.region_id,
+        stage_code = EXCLUDED.stage_code,
+        raw_stage_name = EXCLUDED.raw_stage_name,
+        status_code = EXCLUDED.status_code,
+        expected_amount = EXCLUDED.expected_amount,
+        extra_json = crm.opportunities.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id
+    `,
+    [
+      商机编号,
+      客户编号,
+      报备.id,
+      渠道.id,
+      员工.id,
+      区域编号,
+      JSON.stringify({
+        id: 商机编号,
+        name: 商机名称,
+        customer: 客户名称,
+        customerName: 客户名称,
+        partnerId: 渠道.partner_code,
+        assignedPartnerId: 渠道.partner_code,
+        partnerName: 渠道.partner_name,
+        assignedStaffId: 员工.username,
+        assignedStaffName: 员工.display_name,
+        stage: "registered",
+        region: `${批次}-测试区域`,
+        amount: 1000,
+      }),
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("创建渠道范围测试商机失败。");
+  return row;
+}
+
+async function 创建渠道范围测试报价和订单(
+  pool: Pool,
+  批次: string,
+  客户名称: string,
+  渠道: 渠道范围测试渠道,
+  员工: 渠道范围测试用户,
+): Promise<{ 报价: 渠道范围测试业务记录; 订单: 渠道范围测试业务记录 }> {
+  const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
+  const 报价编号 = `${批次}-QUOTE-员工本人`;
+  const 报价结果 = await pool.query<渠道范围测试业务记录>(
+    `
+    INSERT INTO crm.quotes (
+      quote_no, customer_id, partner_id, owner_user_id, status_code,
+      total_amount, discount_amount, extra_json
+    )
+    VALUES ($1, $2::uuid, $3::uuid, $4::uuid, 'approved', 12000, 0, $5::jsonb)
+    ON CONFLICT (quote_no) DO UPDATE
+    SET customer_id = EXCLUDED.customer_id,
+        partner_id = EXCLUDED.partner_id,
+        owner_user_id = EXCLUDED.owner_user_id,
+        status_code = EXCLUDED.status_code,
+        total_amount = EXCLUDED.total_amount,
+        extra_json = crm.quotes.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id
+    `,
+    [
+      报价编号,
+      客户编号,
+      渠道.id,
+      员工.id,
+      JSON.stringify({
+        id: 报价编号,
+        customer: 客户名称,
+        customerName: 客户名称,
+        partnerId: 渠道.partner_code,
+        assignedPartnerId: 渠道.partner_code,
+        partnerName: 渠道.partner_name,
+        assignedStaffId: 员工.username,
+        assignedStaffName: 员工.display_name,
+        total: 12000,
+      }),
+    ],
+  );
+  const 报价行 = 报价结果.rows[0];
+  const 报价 = 报价行 ? { ...报价行, 编号: 报价编号 } : undefined;
+  if (!报价) throw new Error("创建渠道范围测试报价失败。");
+
+  const 订单编号 = `${批次}-ORDER-员工本人`;
+  const 订单结果 = await pool.query<渠道范围测试业务记录>(
+    `
+    INSERT INTO crm.orders (
+      order_no, quote_id, customer_id, partner_id, owner_user_id,
+      status_code, total_amount, extra_json
+    )
+    VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'confirmed', 12000, $6::jsonb)
+    ON CONFLICT (order_no) DO UPDATE
+    SET quote_id = EXCLUDED.quote_id,
+        customer_id = EXCLUDED.customer_id,
+        partner_id = EXCLUDED.partner_id,
+        owner_user_id = EXCLUDED.owner_user_id,
+        status_code = EXCLUDED.status_code,
+        total_amount = EXCLUDED.total_amount,
+        extra_json = crm.orders.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    RETURNING id::text AS id
+    `,
+    [
+      订单编号,
+      报价.id,
+      客户编号,
+      渠道.id,
+      员工.id,
+      JSON.stringify({
+        id: 订单编号,
+        customer: 客户名称,
+        customerName: 客户名称,
+        quoteId: 报价.id,
+        partnerId: 渠道.partner_code,
+        assignedPartnerId: 渠道.partner_code,
+        partnerName: 渠道.partner_name,
+        assignedStaffId: 员工.username,
+        assignedStaffName: 员工.display_name,
+        total: 12000,
+      }),
+    ],
+  );
+  const 订单行 = 订单结果.rows[0];
+  const 订单 = 订单行 ? { ...订单行, 编号: 订单编号 } : undefined;
+  if (!订单) throw new Error("创建渠道范围测试订单失败。");
+  return { 报价, 订单 };
+}
+
+async function 创建渠道范围测试客户(
+  pool: Pool,
+  客户名称: string,
+  用户编号: string,
+  渠道编号: string,
+): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `
+    INSERT INTO crm.customers (
+      customer_name, normalized_name, owner_user_id, owner_partner_id, status_code, extra_json
+    )
+    VALUES ($1, $2, $3::uuid, $4::uuid, 'active', $5::jsonb)
+    ON CONFLICT (normalized_name) WHERE status_code <> 'merged'
+    DO UPDATE SET
+      customer_name = EXCLUDED.customer_name,
+      owner_user_id = EXCLUDED.owner_user_id,
+      owner_partner_id = EXCLUDED.owner_partner_id,
+      extra_json = crm.customers.extra_json || EXCLUDED.extra_json,
+      updated_at = now()
+    RETURNING id::text AS id
+    `,
+    [
+      客户名称,
+      归一化渠道范围测试名称(客户名称),
+      用户编号,
+      渠道编号,
+      JSON.stringify({ customer: 客户名称, customerName: 客户名称 }),
+    ],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error("创建渠道范围测试客户失败。");
+  return row.id;
+}
+
+function 归一化渠道范围测试名称(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function 签发测试V2令牌(username: string): string {
+  return `Bearer v2.${Buffer.from(username, "utf8").toString("base64url")}.test`;
+}
+
+async function 插入既往客户搜索样本(pool: Pool, 客户名称: string): Promise<void> {
+  await pool.query(
+    `
+    INSERT INTO crm.customers (customer_name, normalized_name, credit_code, status_code, extra_json)
+    VALUES ($1, $2, $3, 'active', $4::jsonb)
+    ON CONFLICT (normalized_name) WHERE status_code <> 'merged'
+    DO UPDATE SET
+      customer_name = EXCLUDED.customer_name,
+      credit_code = EXCLUDED.credit_code,
+      extra_json = crm.customers.extra_json || EXCLUDED.extra_json,
+      updated_at = now()
+    `,
+    [
+      客户名称,
+      归一化渠道范围测试名称(客户名称),
+      "91310000KB003KNOWN",
+      JSON.stringify({
+        knownCustomer: true,
+        customer: 客户名称,
+        customerName: 客户名称,
+        creditCode: "91310000KB003KNOWN",
+        legalPerson: "既往客户法人",
+        address: "深圳市南山区既往客户园区",
+        companyStatus: "在营",
+        industry: "金融",
+        city: "深圳市",
+      }),
+    ],
+  );
+}

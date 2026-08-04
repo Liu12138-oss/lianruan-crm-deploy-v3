@@ -7,7 +7,7 @@ import multer from "multer";
 import { Pool, type PoolClient } from "pg";
 import * as XLSX from "xlsx";
 
-import { 创建密码散列, 校验密码 } from "./auth-routes.js";
+import { 创建密码散列, 校验密码, 读取请求会话用户名 } from "./auth-routes.js";
 import {
   创建业务数据服务,
   type 当前业务用户,
@@ -19,6 +19,8 @@ import { 计算IPG参考价 } from "./ipg-pricing.js";
 interface V2兼容路由参数 {
   build: 构建信息;
   databaseUrl?: string;
+  sessionSecret?: string;
+  env?: NodeJS.ProcessEnv;
 }
 
 type 字典 = Record<string, unknown>;
@@ -556,7 +558,11 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
     router.get(
       `/${路径}`,
       捕获(async (req, res) => {
-        const 结果 = await 需要服务(service).查询列表(模块, 读取阶段9查询(req));
+        const 结果 = await 需要服务(service).查询列表(
+          模块,
+          读取阶段9查询(req),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(结果.数据.map((记录) => 转V2业务记录(模块, 记录))));
       }),
     );
@@ -564,7 +570,11 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
     router.get(
       `/${路径}/:id`,
       捕获(async (req, res) => {
-        const 记录 = await 需要服务(service).查询详情(模块, 读取路由参数(req, "id"));
+        const 记录 = await 需要服务(service).查询详情(
+          模块,
+          读取路由参数(req, "id"),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(转V2业务记录(模块, 记录)));
       }),
     );
@@ -573,7 +583,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.post(
     "/registrations",
     捕获(async (req, res) => {
-      const 记录 = await 需要服务(service).创建报备(读取正文(req), 读取当前V2业务用户(req));
+      const 记录 = await 需要服务(service).创建报备(读取正文(req), 读取当前V2业务用户(req, 参数));
       res.json(成功(转V2业务记录("registrations", 记录)));
     }),
   );
@@ -584,7 +594,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新报备状态(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("registrations", 记录)));
     }),
@@ -593,10 +603,10 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.put(
     "/registrations/:id",
     捕获(async (req, res) => {
-      const 记录 = await 需要服务(service).更新报备状态(
+      const 记录 = await 需要服务(service).更新报备(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("registrations", 记录)));
     }),
@@ -613,7 +623,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.post(
     "/opportunities",
     捕获(async (req, res) => {
-      const 记录 = await 需要服务(service).创建商机(读取正文(req), 读取当前V2业务用户(req));
+      const 记录 = await 需要服务(service).创建商机(读取正文(req), 读取当前V2业务用户(req, 参数));
       res.json(成功(转V2业务记录("opportunities", 记录)));
     }),
   );
@@ -624,7 +634,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新商机(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("opportunities", 记录)));
     }),
@@ -664,7 +674,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.post(
     "/quotes",
     捕获(async (req, res) => {
-      const 记录 = await 需要服务(service).创建报价(读取正文(req), 读取当前V2业务用户(req));
+      const 记录 = await 需要服务(service).创建报价(读取正文(req), 读取当前V2业务用户(req, 参数));
       res.json(成功(转V2业务记录("quotes", 记录)));
     }),
   );
@@ -675,7 +685,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新报价(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("quotes", 记录)));
     }),
@@ -687,7 +697,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新报价状态(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("quotes", 记录)));
     }),
@@ -704,7 +714,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.post(
     "/orders",
     捕获(async (req, res) => {
-      const 记录 = await 需要服务(service).创建订单(读取正文(req), 读取当前V2业务用户(req));
+      const 记录 = await 需要服务(service).创建订单(读取正文(req), 读取当前V2业务用户(req, 参数));
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
   );
@@ -715,7 +725,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
@@ -734,7 +744,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
         需要数据库(pool),
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(记录));
     }),
@@ -746,7 +756,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
         { ...读取正文(req), status: "confirmed" },
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
@@ -758,19 +768,19 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
         { ...读取正文(req), status: "rejected" },
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
   );
 
   注册产品路由(router, pool);
-  注册工作量路由(router, pool, service);
-  注册OpenApi路由(router, service);
-  注册后台维护路由(router, pool, service);
-  注册导入导出路由(router, pool, service);
+  注册工作量路由(router, pool, service, 参数);
+  注册OpenApi路由(router, service, 参数);
+  注册后台维护路由(router, pool, service, 参数);
+  注册导入导出路由(router, pool, service, 参数);
   注册企业搜索路由(router, pool);
-  注册移动兼容路由(router, pool, service);
+  注册移动兼容路由(router, pool, service, 参数);
 
   return router;
 }
@@ -779,7 +789,7 @@ export function 创建V2导入导出兼容路由(参数: V2兼容路由参数): 
   const router = createRouter();
   const pool = 参数.databaseUrl ? new Pool({ connectionString: 参数.databaseUrl, max: 5 }) : null;
   const service = 参数.databaseUrl ? 创建业务数据服务({ databaseUrl: 参数.databaseUrl }) : null;
-  注册导入导出路由(router, pool, service);
+  注册导入导出路由(router, pool, service, 参数);
   return router;
 }
 
@@ -1156,6 +1166,7 @@ function 注册工作量路由(
   router: Router,
   pool: Pool | null,
   service: ReturnType<typeof 创建业务数据服务> | null,
+  参数: V2兼容路由参数,
 ) {
   router.get(
     "/workload/mappings",
@@ -1170,7 +1181,7 @@ function 注册工作量路由(
       const data = await 需要服务(service).保存工作量映射(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1187,7 +1198,7 @@ function 注册工作量路由(
       const data = await 需要服务(service).保存交付工作量规则(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1225,7 +1236,11 @@ function 注册工作量路由(
   );
 }
 
-function 注册OpenApi路由(router: Router, service: ReturnType<typeof 创建业务数据服务> | null) {
+function 注册OpenApi路由(
+  router: Router,
+  service: ReturnType<typeof 创建业务数据服务> | null,
+  参数: V2兼容路由参数,
+) {
   router.get(
     "/open-api/overview",
     捕获(async (req, res) => {
@@ -1248,7 +1263,9 @@ function 注册OpenApi路由(router: Router, service: ReturnType<typeof 创建�
     "/open-api/clients",
     捕获(async (req, res) => {
       res.json(
-        成功(await 需要服务(service).创建开放接口客户端(读取正文(req), 读取当前V2业务用户(req))),
+        成功(
+          await 需要服务(service).创建开放接口客户端(读取正文(req), 读取当前V2业务用户(req, 参数)),
+        ),
       );
     }),
   );
@@ -1258,7 +1275,7 @@ function 注册OpenApi路由(router: Router, service: ReturnType<typeof 创建�
       const data = await 需要服务(service).更新开放接口客户端(
         读取路由参数(req, "id"),
         读取正文(req),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1268,7 +1285,7 @@ function 注册OpenApi路由(router: Router, service: ReturnType<typeof 创建�
     捕获(async (req, res) => {
       const data = await 需要服务(service).重置开放接口密钥(
         读取路由参数(req, "id"),
-        读取当前V2业务用户(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1279,6 +1296,7 @@ function 注册后台维护路由(
   router: Router,
   pool: Pool | null,
   service: ReturnType<typeof 创建业务数据服务> | null,
+  参数: V2兼容路由参数,
 ) {
   router.post(
     "/partners",
@@ -1323,6 +1341,7 @@ function 注册后台维护路由(
         读取路由参数(req, "id"),
         "",
         读取正文(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1360,6 +1379,7 @@ function 注册后台维护路由(
         读取路由参数(req, "partnerId"),
         读取路由参数(req, "staffId"),
         读取正文(req),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1526,7 +1546,11 @@ function 注册后台维护路由(
   router.get(
     "/approvals",
     捕获(async (req, res) => {
-      const 结果 = await 需要服务(service).查询列表("approvals", 读取阶段9查询(req));
+      const 结果 = await 需要服务(service).查询列表(
+        "approvals",
+        读取阶段9查询(req),
+        读取当前V2业务用户(req, 参数),
+      );
       res.json(成功(结果.数据.map((记录) => 转V2业务记录("approvals", 记录))));
     }),
   );
@@ -1536,12 +1560,13 @@ function 注册导入导出路由(
   router: Router,
   pool: Pool | null,
   service: ReturnType<typeof 创建业务数据服务> | null,
+  参数: V2兼容路由参数,
 ) {
   router.get(
     "/export/:type",
     捕获(async (req, res) => {
       const type = 读取导入类型(读取路由参数(req, "type"));
-      const data = await 查询导出数据(需要服务(service), type, req);
+      const data = await 查询导出数据(需要服务(service), type, req, 参数);
       const config = V2导出配置[type];
       const buffer = 生成ExcelBuffer(
         config.sheetName,
@@ -1626,6 +1651,7 @@ function 注册移动兼容路由(
   router: Router,
   pool: Pool | null,
   service: ReturnType<typeof 创建业务数据服务> | null,
+  参数: V2兼容路由参数,
 ) {
   router.get(
     "/mobile/v2/me",
@@ -1648,7 +1674,11 @@ function 注册移动兼容路由(
   router.get(
     "/mobile/v2/notifications",
     捕获(async (req, res) => {
-      const 结果 = await 需要服务(service).查询列表("notifications", 读取阶段9查询(req));
+      const 结果 = await 需要服务(service).查询列表(
+        "notifications",
+        读取阶段9查询(req),
+        读取当前V2业务用户(req, 参数),
+      );
       res.json(成功(结果.数据.map((记录) => 转V2业务记录("notifications", 记录))));
     }),
   );
@@ -1694,28 +1724,44 @@ function 注册移动兼容路由(
     router.get(
       `/mobile/v2/${module}`,
       捕获(async (req, res) => {
-        const 结果 = await 需要服务(service).查询列表(module, 读取阶段9查询(req));
+        const 结果 = await 需要服务(service).查询列表(
+          module,
+          读取阶段9查询(req),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(结果.数据.map((记录) => 转V2业务记录(module, 记录))));
       }),
     );
     router.get(
       `/mobile/v2/${module}/:id`,
       捕获(async (req, res) => {
-        const 记录 = await 需要服务(service).查询详情(module, 读取路由参数(req, "id"));
+        const 记录 = await 需要服务(service).查询详情(
+          module,
+          读取路由参数(req, "id"),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(转V2业务记录(module, 记录)));
       }),
     );
     router.get(
       `/mobile/${module}`,
       捕获(async (req, res) => {
-        const 结果 = await 需要服务(service).查询列表(module, 读取阶段9查询(req));
+        const 结果 = await 需要服务(service).查询列表(
+          module,
+          读取阶段9查询(req),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(结果.数据.map((记录) => 转V2业务记录(module, 记录))));
       }),
     );
     router.get(
       `/mobile/${module}/:id`,
       捕获(async (req, res) => {
-        const 记录 = await 需要服务(service).查询详情(module, 读取路由参数(req, "id"));
+        const 记录 = await 需要服务(service).查询详情(
+          module,
+          读取路由参数(req, "id"),
+          读取当前V2业务用户(req, 参数),
+        );
         res.json(成功(转V2业务记录(module, 记录)));
       }),
     );
@@ -1895,16 +1941,31 @@ function 读取Bearer用户名(req: Request): string {
   }
 }
 
-function 读取当前V2业务用户(req: Request): 当前业务用户 | null {
+function 读取当前V2业务用户(req: Request, 参数: V2兼容路由参数): 当前业务用户 | null {
+  const 会话用户名 = 读取请求会话用户名(req, {
+    sessionSecret: 参数.sessionSecret || "",
+    ...(参数.env ? { env: 参数.env } : {}),
+  });
+  if (会话用户名) {
+    return { username: 会话用户名, displayName: 会话用户名, roleName: "V3登录用户" };
+  }
+  const bearer用户名 = 读取Bearer用户名(req);
+  if (bearer用户名) {
+    return { username: bearer用户名, displayName: bearer用户名, roleName: "V2页面用户" };
+  }
+
   const body = 读取正文(req);
-  const username = 读取正文文本(body, ["operatorId", "username", "createdBy"], "v2-user");
+  const operatorId =
+    读取查询文本(req, "operatorId") ||
+    读取正文文本(body, ["operatorId", "username", "createdBy"], "");
+  if (!operatorId) return null;
   const displayName = 读取正文文本(
     body,
     ["operatorName", "createdByName", "approvedBy"],
-    "V2操作用户",
+    operatorId,
   );
   const roleName = 读取正文文本(body, ["operatorRole", "role"], "V2兼容用户");
-  return { username, displayName, roleName };
+  return { username: operatorId, externalUserId: operatorId, displayName, roleName };
 }
 
 function 读取阶段9查询(req: Request) {
@@ -1913,6 +1974,9 @@ function 读取阶段9查询(req: Request) {
     status: 读取查询文本(req, "status"),
     level: 读取查询文本(req, "level"),
     region: 读取查询文本(req, "region"),
+    userId: 读取查询文本(req, "userId"),
+    partnerId: 读取查询文本(req, "partnerId") || 读取查询文本(req, "assignedPartnerId"),
+    operatorId: 读取查询文本(req, "operatorId"),
     page: 读取正整数(req, "page", 1),
     pageSize: Math.min(读取正整数(req, "pageSize", 默认每页), 默认每页),
   };
@@ -2319,66 +2383,132 @@ async function 保存V2用户(pool: Pool, id: string, 输入: 字典) {
   const name = 读取正文文本(输入, ["name", "displayName"], username);
   const role = 转V3角色(读取正文文本(输入, ["role"], "staff"));
   const status = 转V3账号状态(读取正文文本(输入, ["status"], "active"));
+  const phone = 读取正文文本(输入, ["phone", "mobile"], "");
+  const email = 读取正文文本(输入, ["email"], "");
   const extra = { ...输入, id: code, userId: code, username, name, role: 转V2角色(role) };
 
-  if (id) {
-    const result = await pool.query<{ username: string }>(
-      `
-      UPDATE iam.users
-      SET username = $2::citext,
-          display_name = $3,
-          status_code = $4,
-          phone = NULLIF($5, ''),
-          email = NULLIF($6, '')::citext,
-          updated_at = now(),
-          extra_json = extra_json || $7::jsonb
-      WHERE id::text = $1 OR v2_source_id = $1 OR username::text = $1 OR extra_json->>'id' = $1
-      RETURNING username::text AS username
-      `,
-      [
-        id,
-        username,
-        name,
-        status,
-        读取正文文本(输入, ["phone", "mobile"], ""),
-        读取正文文本(输入, ["email"], ""),
-        JSON.stringify(extra),
-      ],
-    );
-    if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
-  } else {
-    await pool.query(
-      `
-      INSERT INTO iam.users (
-        v2_source_id, username, display_name, status_code, phone, email, extra_json
-      )
-      VALUES ($1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::jsonb)
-      ON CONFLICT (username) DO UPDATE
-      SET display_name = EXCLUDED.display_name,
-          status_code = EXCLUDED.status_code,
-          phone = EXCLUDED.phone,
-          email = EXCLUDED.email,
-          updated_at = now(),
-          extra_json = iam.users.extra_json || EXCLUDED.extra_json
-      `,
-      [
-        code,
-        username,
-        name,
-        status,
-        读取正文文本(输入, ["phone", "mobile"], ""),
-        读取正文文本(输入, ["email"], ""),
-        JSON.stringify(extra),
-      ],
-    );
+  await 校验账号联系电话唯一(pool, phone, { id: id || code, username });
+
+  try {
+    if (id) {
+      const result = await pool.query<{ username: string }>(
+        `
+        UPDATE iam.users
+        SET username = $2::citext,
+            display_name = $3,
+            status_code = $4,
+            phone = NULLIF($5, ''),
+            email = NULLIF($6, '')::citext,
+            updated_at = now(),
+            extra_json = extra_json || $7::jsonb
+        WHERE id::text = $1 OR v2_source_id = $1 OR username::text = $1 OR extra_json->>'id' = $1
+        RETURNING username::text AS username
+        `,
+        [id, username, name, status, phone, email, JSON.stringify(extra)],
+      );
+      if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
+    } else {
+      await pool.query(
+        `
+        INSERT INTO iam.users (
+          v2_source_id, username, display_name, status_code, phone, email, extra_json
+        )
+        VALUES ($1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::jsonb)
+        ON CONFLICT (username) DO UPDATE
+        SET display_name = EXCLUDED.display_name,
+            status_code = EXCLUDED.status_code,
+            phone = EXCLUDED.phone,
+            email = EXCLUDED.email,
+            updated_at = now(),
+            extra_json = iam.users.extra_json || EXCLUDED.extra_json
+        `,
+        [code, username, name, status, phone, email, JSON.stringify(extra)],
+      );
+    }
+  } catch (error) {
+    抛出账号联系电话冲突错误(error);
+    throw error;
   }
 
   await 绑定用户角色(pool, username, role);
+  await 同步用户渠道成员绑定(pool, username, role, 读取正文文本(输入, ["partnerId"], ""));
   const password = 读取正文文本(输入, ["password"], "");
   if (password) await 保存用户密码(pool, username, password, true);
   const 用户 = await 查询V2用户(pool, username);
   if (!用户) throw Object.assign(new Error("用户保存失败。"), { statusCode: 500 });
   return 用户;
+}
+
+async function 校验账号联系电话唯一(
+  pool: Pool,
+  phone: string,
+  当前账号: { id: string; username: string },
+) {
+  const normalizedPhone = 规范化账号联系电话(phone);
+  if (!normalizedPhone) return;
+  const result = await pool.query<{ username: string; display_name: string }>(
+    `
+    SELECT username::text AS username, display_name
+    FROM iam.users
+    WHERE regexp_replace(COALESCE(phone, ''), '[^0-9]+', '', 'g') = $1
+      AND NOT (
+        lower(username::text) = lower($2)
+        OR ($3 <> '' AND (
+          id::text = $3
+          OR v2_source_id = $3
+          OR extra_json->>'id' = $3
+          OR extra_json->>'userId' = $3
+        ))
+      )
+    LIMIT 1
+    `,
+    [normalizedPhone, 当前账号.username, 当前账号.id || ""],
+  );
+  const 冲突账号 = result.rows[0];
+  if (冲突账号) {
+    throw Object.assign(
+      new Error(`联系电话已被账号「${冲突账号.display_name || 冲突账号.username}」使用，请更换。`),
+      { statusCode: 409 },
+    );
+  }
+}
+
+function 抛出账号联系电话冲突错误(error: unknown): void {
+  const record = error as { code?: string; constraint?: string; message?: string };
+  if (
+    record.code === "23505" &&
+    (record.constraint === "ux_users_phone_normalized_unique" ||
+      /ux_users_phone_normalized_unique|phone/i.test(record.message || ""))
+  ) {
+    throw Object.assign(new Error("联系电话已被其他账号使用，请更换。"), { statusCode: 409 });
+  }
+}
+
+function 规范化账号联系电话(phone: string): string {
+  return phone.replace(/[^0-9]+/g, "");
+}
+
+async function 同步用户渠道成员绑定(
+  pool: Pool,
+  username: string,
+  role: string,
+  partnerId: string,
+): Promise<void> {
+  if (!partnerId || (role !== "partner_admin" && role !== "staff")) return;
+  const partnerUuid = await 查找渠道商UUID(pool, partnerId);
+  const userUuid = await 查找用户UUID(pool, username);
+  if (!partnerUuid || !userUuid) return;
+  await pool.query(
+    `
+    INSERT INTO channel.partner_members (partner_id, user_id, member_role_code, status_code)
+    VALUES ($1::uuid, $2::uuid, $3, 'active')
+    ON CONFLICT (partner_id, user_id) DO UPDATE
+    SET member_role_code = EXCLUDED.member_role_code,
+        status_code = EXCLUDED.status_code,
+        ended_at = NULL
+    `,
+    [partnerUuid, userUuid, role === "partner_admin" ? "partner_admin" : "staff"],
+  );
 }
 
 async function 更新用户状态(pool: Pool, id: string, status: string) {
@@ -2677,11 +2807,18 @@ async function 保存渠道商简介(pool: Pool, id: string, 输入: 字典) {
   return 查询渠道商简介(pool, id);
 }
 
-async function 保存渠道商员工(pool: Pool, partnerId: string, staffId: string, 输入: 字典) {
+async function 保存渠道商员工(
+  pool: Pool,
+  partnerId: string,
+  staffId: string,
+  输入: 字典,
+  当前用户?: 当前业务用户 | null,
+) {
   const partnerUuid = await 查找渠道商UUID(pool, partnerId);
   if (!partnerUuid) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
   const 已有账号角色 = staffId ? await 查询渠道成员账号角色(pool, partnerUuid, staffId) : "";
   const 账号角色 = 读取显式账号角色(输入) || 已有账号角色 || "staff";
+  await 校验企业管理员渠道范围(pool, partnerUuid, 账号角色, 当前用户 || null);
   const 员工职位 = 读取员工职位(输入, 账号角色);
   const 用户 = await 保存V2用户(pool, staffId, {
     ...输入,
@@ -2708,6 +2845,84 @@ async function 保存渠道商员工(pool: Pool, partnerId: string, staffId: str
     ],
   );
   return 用户;
+}
+
+async function 校验企业管理员渠道范围(
+  pool: Pool,
+  partnerUuid: string,
+  accountRole: string,
+  当前用户: 当前业务用户 | null,
+): Promise<void> {
+  if (accountRole !== "partner_admin" || !当前用户?.username) return;
+  const 范围 = await 查询账号创建范围(pool, 当前用户);
+  if (!范围 || 范围.roleCode !== "region_manager") return;
+  if (!范围.regionId && !范围.regionName) {
+    throw Object.assign(new Error("区域管理员未绑定区域，不能创建企业管理员。"), {
+      statusCode: 403,
+    });
+  }
+  const result = await pool.query<{ region_id: string | null; region_name: string | null }>(
+    `
+    SELECT p.region_id::text AS region_id, COALESCE(r.region_name, p.extra_json->>'region') AS region_name
+    FROM channel.partners p
+    LEFT JOIN org.regions r ON r.id = p.region_id
+    WHERE p.id = $1::uuid
+    LIMIT 1
+    `,
+    [partnerUuid],
+  );
+  const row = result.rows[0];
+  const 区域匹配 =
+    (范围.regionId && row?.region_id === 范围.regionId) ||
+    (范围.regionName && row?.region_name === 范围.regionName);
+  if (!区域匹配) {
+    throw Object.assign(new Error("只能为本区域渠道商创建企业管理员。"), { statusCode: 403 });
+  }
+}
+
+async function 查询账号创建范围(
+  pool: Pool,
+  用户: 当前业务用户,
+): Promise<{ roleCode: string; regionId: string; regionName: string } | null> {
+  const result = await pool.query<{
+    role_code: string | null;
+    region_id: string | null;
+    region_name: string | null;
+  }>(
+    `
+    SELECT
+      COALESCE((array_agg(r.role_code ORDER BY
+        CASE r.role_code
+          WHEN 'superadmin' THEN 1
+          WHEN 'admin' THEN 2
+          WHEN 'region_manager' THEN 3
+          WHEN 'partner_admin' THEN 4
+          ELSE 5
+        END
+      ) FILTER (WHERE r.role_code IS NOT NULL))[1], u.extra_json->>'role', 'staff') AS role_code,
+      u.region_id::text AS region_id,
+      COALESCE(reg.region_name, u.extra_json->>'region') AS region_name
+    FROM iam.users u
+    LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
+    LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+    LEFT JOIN org.regions reg ON reg.id = u.region_id
+    WHERE u.status_code = 'active'
+      AND (
+        ($1 <> '' AND lower(u.username::text) = lower($1))
+        OR ($2 <> '' AND (u.id::text = $2 OR u.v2_source_id = $2 OR u.extra_json->>'id' = $2 OR u.extra_json->>'userId' = $2))
+      )
+    GROUP BY u.id, u.extra_json, reg.region_name
+    LIMIT 1
+    `,
+    [用户.username || "", 用户.externalUserId || 用户.userId || ""],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    roleCode: row.role_code || "staff",
+    regionId: row.region_id || "",
+    regionName: row.region_name || "",
+  };
 }
 
 async function 更新渠道商员工状态(pool: Pool, partnerId: string, staffId: string, status: string) {
@@ -3648,9 +3863,14 @@ async function 查询导出数据(
   service: ReturnType<typeof 创建业务数据服务>,
   type: V2导入类型,
   req: Request,
+  参数: V2兼容路由参数,
 ) {
   const module: 阶段9模块 = type === "staff" ? "users" : type;
-  const result = await service.查询列表(module, { ...读取阶段9查询(req), pageSize: 1000 });
+  const result = await service.查询列表(
+    module,
+    { ...读取阶段9查询(req), pageSize: 1000 },
+    读取当前V2业务用户(req, 参数),
+  );
   return result.数据
     .map((记录) => 转V2业务记录(module, 记录))
     .filter(

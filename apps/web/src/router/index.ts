@@ -2,6 +2,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 
 import type { 阶段9模块 } from "../api/business-client.js";
 import { useSessionStore } from "../stores/session.js";
+import { 是否业务页面路径, 是否移动访问, 选择登录后路径 } from "./entry-target.js";
 
 type 页面动作 = "overview" | "list" | "create" | "import" | "platform";
 
@@ -438,13 +439,13 @@ export const 错误路由表: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: "/", redirect: "/unified" },
+    { path: "/", redirect: "/login" },
     { path: "/admin/system/import-export", redirect: "/admin/platform-admin" },
     { path: "/login", name: "登录", component: () => import("../pages/LoginPage.vue") },
     {
       path: "/login/singlesignonlogin/login.do",
       name: "单点登录兼容入口",
-      component: () => import("../pages/LoginPage.vue"),
+      component: () => import("../pages/SingleSignOnPage.vue"),
     },
     ...布局路由表,
     ...错误路由表,
@@ -455,7 +456,12 @@ router.beforeEach(async (to) => {
   const 会话 = useSessionStore();
   await 会话.恢复会话();
   if (to.path === "/login" && 会话.已登录) {
-    return 会话.user?.defaultPath || "/unified";
+    const 实际页面 = 选择登录后路径(会话.user, { 移动访问: 是否移动访问() });
+    if (是否业务页面路径(实际页面)) {
+      window.location.replace(实际页面);
+      return false;
+    }
+    return 实际页面;
   }
   if (to.matched.some((record) => record.meta.需要登录) && !会话.已登录) {
     return { path: "/login", query: { redirect: to.fullPath } };

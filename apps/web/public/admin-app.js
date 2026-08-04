@@ -34,6 +34,19 @@ function getAdminAuthToken() {
   return cachedToken;
 }
 
+function adminFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const authToken = getAdminAuthToken();
+  if (authToken && !headers.Authorization) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return window.fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers
+  });
+}
+
 function clearAdminLoginState() {
   localStorage.removeItem('admin_user_info');
   localStorage.removeItem('admin_auth_token');
@@ -92,7 +105,7 @@ async function apiRequest(method, endpoint, body = null) {
   if (method !== 'GET' && finalBody) options.body = JSON.stringify(finalBody);
   
   try {
-    const res = await fetch(`${window.API_BASE}${finalEndpoint}`, options);
+    const res = await adminFetch(`${window.API_BASE}${finalEndpoint}`, options);
     // 检查 HTTP 状态码
     if (!res.ok) {
       const errorMessage = await getApiErrorMessage(res);
@@ -149,7 +162,7 @@ async function downloadExportFile(type, fileName, params = {}) {
   });
 
   const url = `${window.API_BASE}/export/${type}${query.toString() ? `?${query.toString()}` : ''}`;
-  const res = await fetch(url);
+  const res = await adminFetch(url);
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     try {
@@ -311,22 +324,22 @@ async function refreshStoreData() {
   
   try {
     // 刷新报备
-    const regRes = await fetch(`${window.API_BASE}/registrations?${params}`);
+    const regRes = await adminFetch(`${window.API_BASE}/registrations?${params}`);
     const regData = await regRes.json();
     if (regData.success) store.registrations = regData.data;
     
     // 刷新商机
-    const oppRes = await fetch(`${window.API_BASE}/opportunities?${params}`);
+    const oppRes = await adminFetch(`${window.API_BASE}/opportunities?${params}`);
     const oppData = await oppRes.json();
     if (oppData.success) store.opportunities = normalizeOpportunityList(oppData.data);
     
     // 刷新渠道商
-    const partRes = await fetch(`${window.API_BASE}/partners?${params}`);
+    const partRes = await adminFetch(`${window.API_BASE}/partners?${params}`);
     const partData = await partRes.json();
     if (partData.success) store.partners = partData.data;
     
     // 刷新用户
-    const userRes = await fetch(`${window.API_BASE}/users?${params}`);
+    const userRes = await adminFetch(`${window.API_BASE}/users?${params}`);
     const userData = await userRes.json();
     if (userData.success) store.users = userData.data;
     
@@ -1028,12 +1041,14 @@ const MainLayout = {
     function go(p) { router.push(p); }
     function logout() {
       if (confirm('确认退出登录？')) {
-        // 清理 localStorage 中的登录数据
-        localStorage.removeItem('admin_user_info');
-        localStorage.removeItem('admin_auth_token');
-        localStorage.removeItem('admin_api_user');
+        adminFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+        clearAdminLoginState();
+        localStorage.removeItem('partner_user_info');
+        localStorage.removeItem('partner_auth_token');
+        localStorage.removeItem('partner_api_user');
+        localStorage.removeItem('api_user');
         store.user = null;
-        router.push('/login');
+        window.location.href = '/login';
       }
     }
     function markAllRead() {
@@ -1390,7 +1405,7 @@ const Dashboard = {
       
       // 加载报备
       try {
-        const regRes = await fetch(`${window.API_BASE}/registrations?${params}`);
+        const regRes = await adminFetch(`${window.API_BASE}/registrations?${params}`);
         const regData = await regRes.json();
         if (regData.success) {
           store.registrations = regData.data;
@@ -1399,7 +1414,7 @@ const Dashboard = {
       
       // 加载商机
       try {
-        const oppRes = await fetch(`${window.API_BASE}/opportunities?${params}`);
+        const oppRes = await adminFetch(`${window.API_BASE}/opportunities?${params}`);
         const oppData = await oppRes.json();
         if (oppData.success) {
           store.opportunities = normalizeOpportunityList(oppData.data);
@@ -1408,7 +1423,7 @@ const Dashboard = {
       
       // 加载报价单
       try {
-        const quoteRes = await fetch(`${window.API_BASE}/quotes?${params}`);
+        const quoteRes = await adminFetch(`${window.API_BASE}/quotes?${params}`);
         const quoteData = await quoteRes.json();
         if (quoteData.success) {
           store.quotes = quoteData.data;
@@ -1417,7 +1432,7 @@ const Dashboard = {
       
       // 加载订单
       try {
-        const orderRes = await fetch(`${window.API_BASE}/orders?${params}`);
+        const orderRes = await adminFetch(`${window.API_BASE}/orders?${params}`);
         const orderData = await orderRes.json();
         if (orderData.success) {
           store.orders = orderData.data;
@@ -1815,7 +1830,7 @@ const RegistrationList = {
         }
         // 超级管理员不传参数，看全部
         
-        const res = await fetch(`${window.API_BASE || 'http://localhost:3000/api'}/registrations?${params.toString()}`);
+        const res = await adminFetch(`${window.API_BASE || 'http://localhost:3000/api'}/registrations?${params.toString()}`);
         const data = await res.json();
         if (data.success) {
           registrations.value = data.data || [];
@@ -2377,7 +2392,7 @@ const RegistrationNew = {
         searchingEnterprise.value = true;
         try {
           const apiBase = window.API_BASE || 'http://localhost:3000/api';
-          const res = await fetch(`${apiBase}/company-search?keyword=${encodeURIComponent(keyword)}`);
+          const res = await adminFetch(`${apiBase}/company-search?keyword=${encodeURIComponent(keyword)}`);
           const data = await res.json();
           if (data.success) {
             enterpriseList.value = data.data || [];
@@ -3096,8 +3111,8 @@ const QuoteList = {
     async function loadProductData() {
       try {
         const [featRes, hwRes] = await Promise.all([
-          fetch(`${window.API_BASE}/features`).then(r => r.json()),
-          fetch(`${window.API_BASE}/hardware`).then(r => r.json())
+          adminFetch(`${window.API_BASE}/features`).then(r => r.json()),
+          adminFetch(`${window.API_BASE}/hardware`).then(r => r.json())
         ]);
         if (featRes.success) allFeaturesForDetail.value = featRes.data || [];
         if (hwRes.success) allHardwareForDetail.value = hwRes.data || [];
@@ -4245,14 +4260,14 @@ const QuoteNew = {
       loadingPackages.value = true;
       try {
         // 加载产品树结构
-        const res = await fetch(`${window.API_BASE}/product-tree?published=true`);
+        const res = await adminFetch(`${window.API_BASE}/product-tree?published=true`);
         const result = await res.json();
         if (result.success) {
           productTree.value = result.data || [];
         }
         
         // 加载完整功能数据（包含价格阶梯信息）
-        const featRes = await fetch(`${window.API_BASE}/features?published=true`);
+        const featRes = await adminFetch(`${window.API_BASE}/features?published=true`);
         const featResult = await featRes.json();
         if (featResult.success) {
           // 构建功能ID到功能详情的映射
@@ -4290,14 +4305,14 @@ const QuoteNew = {
         }
         
         // 加载套餐
-        const pkgRes = await fetch(`${window.API_BASE}/packages?published=true`);
+        const pkgRes = await adminFetch(`${window.API_BASE}/packages?published=true`);
         const pkgResult = await pkgRes.json();
         if (pkgResult.success) {
           publishedPackages.value = pkgResult.data || [];
         }
         
         // 加载硬件（不强制过滤发布状态，显示所有硬件供选择）
-        const hwRes = await fetch(`${window.API_BASE}/hardware`);
+        const hwRes = await adminFetch(`${window.API_BASE}/hardware`);
         const hwResult = await hwRes.json();
         if (hwResult.success) {
           publishedHardware.value = hwResult.data || [];
@@ -7248,12 +7263,12 @@ const ProductCatalog = {
       loading.value = true;
       try {
         const [catRes, modRes, featRes, hwRes, pkgRes, statsRes] = await Promise.all([
-          fetch(`${window.API_BASE}/categories`),
-          fetch(`${window.API_BASE}/modules`),
-          fetch(`${window.API_BASE}/features`),
-          fetch(`${window.API_BASE}/hardware`),
-          fetch(`${window.API_BASE}/packages`),
-          fetch(`${window.API_BASE}/products/stats`)
+          adminFetch(`${window.API_BASE}/categories`),
+          adminFetch(`${window.API_BASE}/modules`),
+          adminFetch(`${window.API_BASE}/features`),
+          adminFetch(`${window.API_BASE}/hardware`),
+          adminFetch(`${window.API_BASE}/packages`),
+          adminFetch(`${window.API_BASE}/products/stats`)
         ]);
         const [catData, modData, featData, hwData, pkgData, statsData] = await Promise.all([
           catRes.json(), modRes.json(), featRes.json(), hwRes.json(), pkgRes.json(), statsRes.json()
@@ -7383,7 +7398,7 @@ const ProductCatalog = {
       saving.value = true;
       try {
         const url = editingCategory.value ? `${window.API_BASE}/categories/${editingCategory.value.id}` : `${window.API_BASE}/categories`;
-        const res = await fetch(url, {
+        const res = await adminFetch(url, {
           method: editingCategory.value ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...categoryForm })
@@ -7398,7 +7413,7 @@ const ProductCatalog = {
     async function deleteCategory(cat) {
       if (!confirm(`确定删除「${cat.name}」吗？\n注意：删除大类会同时删除其下所有模块和功能！`)) return;
       try {
-        const res = await fetch(`${window.API_BASE}/categories/${cat.id}`, { method: 'DELETE' });
+        const res = await adminFetch(`${window.API_BASE}/categories/${cat.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
         else alert(data.error || '删除失败');
@@ -7421,7 +7436,7 @@ const ProductCatalog = {
       saving.value = true;
       try {
         const url = editingModule.value ? `${window.API_BASE}/modules/${editingModule.value.id}` : `${window.API_BASE}/modules`;
-        const res = await fetch(url, {
+        const res = await adminFetch(url, {
           method: editingModule.value ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...moduleForm })
@@ -7436,7 +7451,7 @@ const ProductCatalog = {
     async function deleteModule(mod) {
       if (!confirm(`确定删除「${mod.name}」吗？\n注意：删除模块会同时删除其下所有功能！`)) return;
       try {
-        const res = await fetch(`${window.API_BASE}/modules/${mod.id}`, { method: 'DELETE' });
+        const res = await adminFetch(`${window.API_BASE}/modules/${mod.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
         else alert(data.error || '删除失败');
@@ -7608,7 +7623,7 @@ const ProductCatalog = {
           id: editingFeature.value?.id,
           ...featureForm
         });
-        const res = await fetch(url, {
+        const res = await adminFetch(url, {
           method: editingFeature.value ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -7622,7 +7637,7 @@ const ProductCatalog = {
     
     async function toggleFeaturePublish(feat) {
       try {
-        const res = await fetch(`${window.API_BASE}/features/${feat.id}/publish`, {
+        const res = await adminFetch(`${window.API_BASE}/features/${feat.id}/publish`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ published: !feat.published })
         });
@@ -7634,7 +7649,7 @@ const ProductCatalog = {
     async function deleteFeature(feat) {
       if (!confirm(`确定删除「${feat.name}」吗？`)) return;
       try {
-        const res = await fetch(`${window.API_BASE}/features/${feat.id}`, { method: 'DELETE' });
+        const res = await adminFetch(`${window.API_BASE}/features/${feat.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
         else alert(data.error || '删除失败');
@@ -7657,7 +7672,7 @@ const ProductCatalog = {
       saving.value = true;
       try {
         const url = editingHardware.value ? `${window.API_BASE}/hardware/${editingHardware.value.id}` : `${window.API_BASE}/hardware`;
-        const res = await fetch(url, {
+        const res = await adminFetch(url, {
           method: editingHardware.value ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...hardwareForm })
@@ -7671,7 +7686,7 @@ const ProductCatalog = {
     
     async function toggleHardwarePublish(hw) {
       try {
-        const res = await fetch(`${window.API_BASE}/hardware/${hw.id}/publish`, {
+        const res = await adminFetch(`${window.API_BASE}/hardware/${hw.id}/publish`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ published: !hw.published })
         });
@@ -7683,7 +7698,7 @@ const ProductCatalog = {
     async function deleteHardware(hw) {
       if (!confirm(`确定删除「${hw.name}」吗？`)) return;
       try {
-        const res = await fetch(`${window.API_BASE}/hardware/${hw.id}`, { method: 'DELETE' });
+        const res = await adminFetch(`${window.API_BASE}/hardware/${hw.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
         else alert(data.error || '删除失败');
@@ -7706,7 +7721,7 @@ const ProductCatalog = {
       saving.value = true;
       try {
         const url = editingPackage.value ? `${window.API_BASE}/packages/${editingPackage.value.id}` : `${window.API_BASE}/packages`;
-        const res = await fetch(url, {
+        const res = await adminFetch(url, {
           method: editingPackage.value ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...packageForm })
@@ -7720,7 +7735,7 @@ const ProductCatalog = {
     
     async function togglePackagePublish(pkg) {
       try {
-        const res = await fetch(`${window.API_BASE}/packages/${pkg.id}/publish`, {
+        const res = await adminFetch(`${window.API_BASE}/packages/${pkg.id}/publish`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ published: !pkg.published })
         });
@@ -7732,7 +7747,7 @@ const ProductCatalog = {
     async function deletePackage(pkg) {
       if (!confirm(`确定删除「${pkg.name}」吗？`)) return;
       try {
-        const res = await fetch(`${window.API_BASE}/packages/${pkg.id}`, { method: 'DELETE' });
+        const res = await adminFetch(`${window.API_BASE}/packages/${pkg.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
         else alert(data.error || '删除失败');
@@ -10398,6 +10413,9 @@ const Partners = {
 
 // ── 企业管理员管理（渠道企业管理员账号）────────────────────────
 const PartnerAdminManage = {
+  components: {
+    PartnerSearchSelect
+  },
   template: `
   <div>
     <!-- 页面标题 -->
@@ -10436,10 +10454,15 @@ const PartnerAdminManage = {
           </div>
           <div class="form-item full">
             <label class="form-label required">所属渠道企业</label>
-            <select class="form-control" v-model="form.partnerId">
-              <option value="">请选择渠道企业</option>
-              <option v-for="p in myPartners" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
+            <PartnerSearchSelect
+              v-model="form.partnerId"
+              :partners="myPartners"
+              :loading="partnersLoading"
+              placeholder="输入渠道商名称检索..."
+            />
+            <p v-if="myPartners.length === 0 && !partnersLoading" style="font-size:12px;color:#999;margin-top:6px">
+              当前账号可创建范围内暂无渠道商
+            </p>
           </div>
         </div>
         <div v-if="isSuperAdmin" style="margin-top:12px;padding:10px;background:#fff7e6;border-radius:6px;font-size:12px;color:#ad6800">
@@ -10570,9 +10593,11 @@ const PartnerAdminManage = {
     const adminRegion = computed(() => store.user?.role === 'admin' ? store.user.region : '');
     const userId = computed(() => store.user?.id || '');
     const userRole = computed(() => store.user?.role || '');
+    const partnersLoading = ref(false);
     
     // 页面加载时获取渠道商数据
     async function loadPartners() {
+      partnersLoading.value = true;
       try {
         const params = new URLSearchParams();
         params.append('userId', userId.value);
@@ -10586,6 +10611,8 @@ const PartnerAdminManage = {
         }
       } catch (err) {
         console.error('加载渠道商失败:', err);
+      } finally {
+        partnersLoading.value = false;
       }
     }
     
@@ -10839,7 +10866,7 @@ const PartnerAdminManage = {
       }
     }
 
-    return { store, isSuperAdmin, adminRegion, myPartners, partnerAdmins, pendingAdmins, form, canCreate, createPartnerAdmin, approveAdmin, rejectAdmin, loadPartners,
+    return { store, isSuperAdmin, adminRegion, myPartners, partnersLoading, partnerAdmins, pendingAdmins, form, canCreate, createPartnerAdmin, approveAdmin, rejectAdmin, loadPartners,
       showEditModal, editForm, openEditAdmin, closeEditModal, saveEditAdmin, toggleAdminStatus, resetAdminPassword, deleteAdmin };
   }
 };
@@ -12229,7 +12256,7 @@ const AdminReview = {
         if (adminRegion.value) {
           params.append('region', adminRegion.value);
         }
-        const res = await fetch(`${window.API_BASE}/registrations?${params}`);
+        const res = await adminFetch(`${window.API_BASE}/registrations?${params}`);
         const data = await res.json();
         if (data.success) {
           registrations.value = data.data;
@@ -13234,10 +13261,10 @@ const OpportunityList = {
     async function loadProductCatalog() {
       try {
         const [treeRes, featRes, pkgRes, hwRes] = await Promise.all([
-          fetch(`${window.API_BASE}/product-tree?published=true`).then(r => r.json()),
-          fetch(`${window.API_BASE}/features`).then(r => r.json()),
-          fetch(`${window.API_BASE}/packages?published=true`).then(r => r.json()),
-          fetch(`${window.API_BASE}/hardware`).then(r => r.json())
+          adminFetch(`${window.API_BASE}/product-tree?published=true`).then(r => r.json()),
+          adminFetch(`${window.API_BASE}/features`).then(r => r.json()),
+          adminFetch(`${window.API_BASE}/packages?published=true`).then(r => r.json()),
+          adminFetch(`${window.API_BASE}/hardware`).then(r => r.json())
         ]);
         if (treeRes.success) {
           const features = [];
@@ -14965,7 +14992,7 @@ const OpportunityImport = {
     async function downloadTemplate() {
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/template`);
+        const response = await adminFetch(`${apiBase}/api/import/${type}/template`);
         if (!response.ok) throw new Error('下载失败');
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -14997,7 +15024,7 @@ const OpportunityImport = {
       
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           previewData.value = data.preview;
@@ -15029,7 +15056,7 @@ const OpportunityImport = {
       
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           result.value = data;
@@ -15114,7 +15141,7 @@ const RegistrationImport = {
     async function downloadTemplate() {
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/template`);
+        const response = await adminFetch(`${apiBase}/api/import/${type}/template`);
         if (!response.ok) throw new Error('下载失败');
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -15144,7 +15171,7 @@ const RegistrationImport = {
       formData.append('operatorId', store.user?.id || '');
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           previewData.value = data.preview;
@@ -15170,7 +15197,7 @@ const RegistrationImport = {
       formData.append('userRole', store.user?.role);
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           result.value = data;
@@ -15252,7 +15279,7 @@ const PartnerImport = {
     async function downloadTemplate() {
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/template`);
+        const response = await adminFetch(`${apiBase}/api/import/${type}/template`);
         if (!response.ok) throw new Error('下载失败');
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -15282,7 +15309,7 @@ const PartnerImport = {
       formData.append('operatorId', store.user?.id || '');
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           previewData.value = data.preview;
@@ -15308,7 +15335,7 @@ const PartnerImport = {
       formData.append('userRole', store.user?.role);
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           result.value = data;
@@ -15390,7 +15417,7 @@ const StaffImport = {
     async function downloadTemplate() {
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/template`);
+        const response = await adminFetch(`${apiBase}/api/import/${type}/template`);
         if (!response.ok) throw new Error('下载失败');
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -15420,7 +15447,7 @@ const StaffImport = {
       formData.append('operatorId', store.user?.id || '');
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/preview`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           previewData.value = data.preview;
@@ -15446,7 +15473,7 @@ const StaffImport = {
       formData.append('userRole', store.user?.role);
       try {
         const apiBase = window.location.origin.replace(':8080', ':3000');
-        const response = await fetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
+        const response = await adminFetch(`${apiBase}/api/import/${type}/execute`, { method: 'POST', body: formData });
         const data = await response.json();
         if (data.success) {
           result.value = data;
@@ -16501,7 +16528,7 @@ const OpenApiIntegration = {
       const operatorId = encodeURIComponent(store.user?.id || '');
       const url = `${String(window.API_BASE || '/api').replace(/\/$/, '')}/open-api/docs/${encodeURIComponent(doc.id)}/download?operatorId=${operatorId}`;
       try {
-        const res = await fetch(url);
+        const res = await adminFetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);

@@ -94,7 +94,7 @@
     }
 
     const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
-    const requestOptions = { method: options.method || 'GET', headers, cache: 'no-store' };
+    const requestOptions = { method: options.method || 'GET', headers, cache: 'no-store', credentials: 'include' };
     if (options.body !== undefined) {
       headers['Content-Type'] = 'application/json';
       requestOptions.body = JSON.stringify(options.body);
@@ -1373,6 +1373,7 @@
         singleSignOnPaused = true;
         ssoState.attempted = true;
         // 令牌撤销不阻塞本地退出；即使网络不可用也不能保留本地业务页面访问入口。
+        window.fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
         mobileRequest('/logout', { method: 'POST' }).catch(() => {});
         if (window.apiClient?.logout) window.apiClient.logout();
         clearDesktopSession();
@@ -1389,7 +1390,7 @@
         Object.values(pageMeta).forEach(meta => Object.assign(meta, { page: 1, pageSize: 20, total: 0, hasMore: false }));
         Object.values(reviewPageMeta).forEach(meta => Object.assign(meta, { page: 1, pageSize: 20, total: 0, hasMore: false }));
         if (showMessage) flash('已退出登录');
-        go('/login', true);
+        window.location.href = '/login';
       }
 
       let registrationPickerTimer = null;

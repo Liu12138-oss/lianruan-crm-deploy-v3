@@ -10,10 +10,57 @@ const 测试用户 = {
       defaultPath: "/unified",
       allowedPaths: ["/unified", "/admin", "/partner", "/mobile"],
     },
+    pageSession: {
+      token: "v2.YWRtaW4.test-token",
+      user: {
+        id: "admin",
+        userId: "admin",
+        username: "admin",
+        name: "产品交付验收账号",
+        displayName: "产品交付验收账号",
+        role: "superadmin",
+        roleName: "超级管理员",
+        status: "active",
+        region: "",
+        bigRegion: "",
+        partnerId: "",
+        partnerName: "",
+      },
+    },
   },
   meta: {
     requestId: "00000000-0000-4000-8000-000000000001",
     build: { 版本: "3.0.0-test", 提交: "test", 构建时间: "2026-07-27T00:00:00.000Z" },
+  },
+};
+
+const 渠道测试用户 = {
+  ...测试用户,
+  data: {
+    user: {
+      username: "partner_staff",
+      displayName: "渠道员工",
+      roleName: "渠道用户",
+      defaultPath: "/partner/dashboard",
+      allowedPaths: ["/partner", "/mobile"],
+    },
+    pageSession: {
+      token: "v2.cGFydG5lcl9zdGFmZg.test-token",
+      user: {
+        id: "staff-001",
+        userId: "staff-001",
+        username: "partner_staff",
+        name: "渠道员工",
+        displayName: "渠道员工",
+        role: "staff",
+        roleName: "渠道用户",
+        status: "active",
+        region: "华南",
+        bigRegion: "南区",
+        partnerId: "partner-001",
+        partnerName: "测试渠道商",
+      },
+    },
   },
 };
 
@@ -544,7 +591,7 @@ test("未登录访问入口会跳转登录页", async ({ page }) => {
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("默认登录页直接展示V2登录卡", async ({ page }) => {
+test("默认登录页直接展示统一账号密码表单", async ({ page }) => {
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({
       status: 401,
@@ -558,13 +605,13 @@ test("默认登录页直接展示V2登录卡", async ({ page }) => {
   });
 
   await page.goto("/login");
-  await expect(page.locator("body")).toContainText(/厂商管理后台|渠道合作伙伴入口/);
-  await expect(page.locator("body")).toContainText(/管理员账号|员工账号/);
+  await expect(page.locator("body")).toContainText("统一登录入口");
+  await expect(page.locator("body")).toContainText("登录账号");
   await expect(page.locator("button", { hasText: /登\s*录/ })).toBeVisible();
   await expect(page.locator(".role-options")).toHaveCount(0);
 });
 
-test("显式入口选择页展示V2双入口选择", async ({ page }) => {
+test("显式入口参数仍使用统一账号密码表单", async ({ page }) => {
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({
       status: 401,
@@ -578,12 +625,86 @@ test("显式入口选择页展示V2双入口选择", async ({ page }) => {
   });
 
   await page.goto("/login?entry=select");
-  await expect(page.getByRole("button", { name: /厂商管理入口/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /渠道合作伙伴入口/ })).toBeVisible();
-
-  await page.getByRole("button", { name: /厂商管理入口/ }).click();
-  await expect(page.getByText("管理员账号", { exact: true })).toBeVisible();
+  await expect(page.getByText("登录账号", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /厂商管理入口/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /渠道合作伙伴入口/ })).toHaveCount(0);
   await expect(page.locator("button", { hasText: /登\s*录/ })).toBeVisible();
+});
+
+test("统一登录后进入现有管理员页面并写入页面会话", async ({ page }, testInfo) => {
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ success: false, error: { message: "请先登录。" } }),
+    });
+  });
+  await page.route("**/api/auth/login", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(测试用户),
+    });
+  });
+  await page.route("**/api/v2/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [], notifications: [] }),
+    });
+  });
+
+  await page.goto("/login");
+  await page.getByPlaceholder("请输入登录账号").fill("admin");
+  await page.getByPlaceholder("请输入密码").fill("test-password");
+  await page.locator("button", { hasText: /登\s*录/ }).click();
+
+  if (testInfo.project.name === "移动浏览器") {
+    await expect(page).toHaveURL(/\/mobile\.html\?scope=admin#\/admin\/home$/);
+  } else {
+    await expect(page).toHaveURL(/\/admin\.html#\/dashboard$/);
+  }
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("admin_auth_token")))
+    .toBe("v2.YWRtaW4.test-token");
+});
+
+test("统一登录后进入现有渠道页面并写入页面会话", async ({ page }, testInfo) => {
+  await page.route("**/api/auth/me", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ success: false, error: { message: "请先登录。" } }),
+    });
+  });
+  await page.route("**/api/auth/login", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(渠道测试用户),
+    });
+  });
+  await page.route("**/api/v2/**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ success: true, data: [], notifications: [] }),
+    });
+  });
+
+  await page.goto("/login");
+  await page.getByPlaceholder("请输入登录账号").fill("partner_staff");
+  await page.getByPlaceholder("请输入密码").fill("test-password");
+  await page.locator("button", { hasText: /登\s*录/ }).click();
+
+  if (testInfo.project.name === "移动浏览器") {
+    await expect(page).toHaveURL(/\/mobile\.html\?scope=partner#\/partner\/home$/);
+  } else {
+    await expect(page).toHaveURL(/\/partner\.html#\/dashboard$/);
+  }
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("partner_auth_token")))
+    .toBe("v2.cGFydG5lcl9zdGFmZg.test-token");
 });
 
 test("手机渠道路由使用渠道端一期底部导航", async ({ page }) => {

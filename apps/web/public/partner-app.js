@@ -15,6 +15,33 @@ if (typeof window.API_BASE === 'undefined') {
 }
 // 使用 window.API_BASE，避免重复声明 const
 
+function getPartnerAuthToken() {
+  const authToken = localStorage.getItem('partner_auth_token');
+  if (authToken) return authToken;
+  try {
+    const cache = JSON.parse(localStorage.getItem('partner_api_user') || 'null');
+    const cachedToken = cache?.token || '';
+    if (cachedToken) localStorage.setItem('partner_auth_token', cachedToken);
+    return cachedToken;
+  } catch (err) {
+    localStorage.removeItem('partner_api_user');
+    return '';
+  }
+}
+
+function partnerFetch(url, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  const authToken = getPartnerAuthToken();
+  if (authToken && !headers.Authorization) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return window.fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers
+  });
+}
+
 // API 请求辅助函数（如果 api-client.js 已加载则复用）
 async function apiRequest(method, endpoint, body = null) {
   const options = {
@@ -23,7 +50,7 @@ async function apiRequest(method, endpoint, body = null) {
   };
   if (body) options.body = JSON.stringify(body);
   
-  const res = await fetch(`${window.API_BASE}${endpoint}`, options);
+  const res = await partnerFetch(`${window.API_BASE}${endpoint}`, options);
   return res.json();
 }
 
@@ -387,7 +414,7 @@ const LoginPage = {
     // 检查 SSO 是否启用
     async function checkSSOConfig() {
       try {
-        const res = await fetch(`${window.API_BASE}/oauth/config`);
+        const res = await partnerFetch(`${window.API_BASE}/oauth/config`);
         const data = await res.json();
         ssoEnabled.value = data.enabled;
       } catch (e) {
@@ -904,13 +931,17 @@ const MainLayout = {
     function go(p) { router.push(p); }
     function logout() {
       if (confirm('确认退出登录？')) {
+        partnerFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
         // 清理 localStorage 中的登录数据
         localStorage.removeItem('partner_user_info');
         localStorage.removeItem('partner_auth_token');
         localStorage.removeItem('partner_api_user');
         localStorage.removeItem('api_user');
+        localStorage.removeItem('admin_user_info');
+        localStorage.removeItem('admin_auth_token');
+        localStorage.removeItem('admin_api_user');
         store.user = null;
-        router.push('/login');
+        window.location.href = '/login';
       }
     }
     function markAllRead() {
@@ -1289,7 +1320,7 @@ const Dashboard = {
       
       // 加载报备
       try {
-        const regRes = await fetch(`${window.API_BASE}/registrations?${params}`);
+        const regRes = await partnerFetch(`${window.API_BASE}/registrations?${params}`);
         const regData = await regRes.json();
         if (regData.success) {
           store.registrations = regData.data;
@@ -1298,7 +1329,7 @@ const Dashboard = {
       
       // 加载商机
       try {
-        const oppRes = await fetch(`${window.API_BASE}/opportunities?${params}`);
+        const oppRes = await partnerFetch(`${window.API_BASE}/opportunities?${params}`);
         const oppData = await oppRes.json();
         if (oppData.success) {
           store.opportunities = normalizeOpportunityList(oppData.data);
@@ -1307,7 +1338,7 @@ const Dashboard = {
       
       // 加载报价单
       try {
-        const quoteRes = await fetch(`${window.API_BASE}/quotes?${params}`);
+        const quoteRes = await partnerFetch(`${window.API_BASE}/quotes?${params}`);
         const quoteData = await quoteRes.json();
         if (quoteData.success) {
           store.quotes = quoteData.data;
@@ -1316,7 +1347,7 @@ const Dashboard = {
       
       // 加载订单
       try {
-        const orderRes = await fetch(`${window.API_BASE}/orders?${params}`);
+        const orderRes = await partnerFetch(`${window.API_BASE}/orders?${params}`);
         const orderData = await orderRes.json();
         if (orderData.success) {
           store.orders = orderData.data;
@@ -1328,7 +1359,7 @@ const Dashboard = {
         const partnerParams = new URLSearchParams();
         // 总是加载所有渠道商数据，以便正确识别一级/二级关系
         // 渠道商数量有限，性能影响不大
-        const partnerRes = await fetch(`${window.API_BASE}/partners?${partnerParams}`);
+        const partnerRes = await partnerFetch(`${window.API_BASE}/partners?${partnerParams}`);
         const partnerData = await partnerRes.json();
         if (partnerData.success && partnerData.data) {
           // 合并后端数据到 store.partners（更新 partnerLevel 等字段）
@@ -1522,7 +1553,7 @@ const RegistrationList = {
           params.append('status', filterStatus.value);
         }
         
-        const res = await fetch(`${window.API_BASE}/registrations?${params}`);
+        const res = await partnerFetch(`${window.API_BASE}/registrations?${params}`);
         const data = await res.json();
         if (data.success) {
           registrations.value = data.data;
@@ -1827,7 +1858,7 @@ const RegistrationNew = {
         searchingEnterprise.value = true;
         try {
           const apiBase = window.API_BASE || 'http://localhost:3000/api';
-          const res = await fetch(`${apiBase}/company-search?keyword=${encodeURIComponent(keyword)}`);
+          const res = await partnerFetch(`${apiBase}/company-search?keyword=${encodeURIComponent(keyword)}`);
           const data = await res.json();
           if (data.success) {
             enterpriseList.value = data.data || [];
@@ -2453,8 +2484,8 @@ const QuoteList = {
     async function loadProductData() {
       try {
         const [featRes, hwRes] = await Promise.all([
-          fetch(`${window.API_BASE}/features`).then(r => r.json()),
-          fetch(`${window.API_BASE}/hardware`).then(r => r.json())
+          partnerFetch(`${window.API_BASE}/features`).then(r => r.json()),
+          partnerFetch(`${window.API_BASE}/hardware`).then(r => r.json())
         ]);
         if (featRes.success) allFeaturesForDetail.value = featRes.data || [];
         if (hwRes.success) allHardwareForDetail.value = hwRes.data || [];
@@ -3708,14 +3739,14 @@ const QuoteNew = {
       loadingPackages.value = true;
       try {
         // 加载产品树结构
-        const res = await fetch(`${window.API_BASE}/product-tree?published=true`);
+        const res = await partnerFetch(`${window.API_BASE}/product-tree?published=true`);
         const result = await res.json();
         if (result.success) {
           productTree.value = result.data || [];
         }
         
         // 加载完整功能数据（包含价格阶梯信息）
-        const featRes = await fetch(`${window.API_BASE}/features?published=true`);
+        const featRes = await partnerFetch(`${window.API_BASE}/features?published=true`);
         const featResult = await featRes.json();
         if (featResult.success) {
           // 构建功能ID到功能详情的映射
@@ -3753,14 +3784,14 @@ const QuoteNew = {
         }
         
         // 加载套餐
-        const pkgRes = await fetch(`${window.API_BASE}/packages?published=true`);
+        const pkgRes = await partnerFetch(`${window.API_BASE}/packages?published=true`);
         const pkgResult = await pkgRes.json();
         if (pkgResult.success) {
           publishedPackages.value = pkgResult.data || [];
         }
         
         // 加载硬件（不强制过滤发布状态，显示所有硬件供选择）
-        const hwRes = await fetch(`${window.API_BASE}/hardware`);
+        const hwRes = await partnerFetch(`${window.API_BASE}/hardware`);
         const hwResult = await hwRes.json();
         if (hwResult.success) {
           publishedHardware.value = hwResult.data || [];
@@ -5741,9 +5772,9 @@ const Products = {
       try {
         // 并行加载所有数据
         const [treeRes, pkgRes, hwRes] = await Promise.all([
-          fetch(`${window.API_BASE}/product-tree?published=true`),
-          fetch(`${window.API_BASE}/packages?published=true`),
-          fetch(`${window.API_BASE}/hardware?published=true`)
+          partnerFetch(`${window.API_BASE}/product-tree?published=true`),
+          partnerFetch(`${window.API_BASE}/packages?published=true`),
+          partnerFetch(`${window.API_BASE}/hardware?published=true`)
         ]);
         
         const [tree, pkgData, hwData] = await Promise.all([
@@ -5825,7 +5856,7 @@ const Products = {
     async function viewPackage(pkg) {
       // 获取套餐详情
       try {
-        const res = await fetch(`${window.API_BASE}/packages/${pkg.id}`);
+        const res = await partnerFetch(`${window.API_BASE}/packages/${pkg.id}`);
         const data = await res.json();
         if (data.success) {
           detailPackage.value = data.data;
@@ -7940,10 +7971,10 @@ const OpportunityList = {
     async function loadProductCatalog() {
       try {
         const [treeRes, featRes, pkgRes, hwRes] = await Promise.all([
-          fetch(`${window.API_BASE}/product-tree?published=true`).then(r => r.json()),
-          fetch(`${window.API_BASE}/features`).then(r => r.json()),
-          fetch(`${window.API_BASE}/packages?published=true`).then(r => r.json()),
-          fetch(`${window.API_BASE}/hardware`).then(r => r.json())
+          partnerFetch(`${window.API_BASE}/product-tree?published=true`).then(r => r.json()),
+          partnerFetch(`${window.API_BASE}/features`).then(r => r.json()),
+          partnerFetch(`${window.API_BASE}/packages?published=true`).then(r => r.json()),
+          partnerFetch(`${window.API_BASE}/hardware`).then(r => r.json())
         ]);
         if (treeRes.success) {
           const features = [];
@@ -9097,7 +9128,7 @@ const OpportunityNew = {
         } else if (adminRegion.value) {
           params.append('region', adminRegion.value);
         }
-        const res = await fetch(`${window.API_BASE}/registrations?${params}`);
+        const res = await partnerFetch(`${window.API_BASE}/registrations?${params}`);
         const data = await res.json();
         if (data.success) {
           store.registrations = data.data;

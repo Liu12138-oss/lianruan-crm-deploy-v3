@@ -56,21 +56,27 @@ export function 创建应用(参数: 创建应用参数 = {}) {
     "/api/v2",
     创建V2兼容路由({
       build,
+      sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
     }),
   );
   app.use(
     "/api",
     创建V2导入导出兼容路由({
       build,
+      sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
     }),
   );
   app.use(
     "/api",
     创建业务路由({
       build,
+      sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
     }),
   );
   app.use("/health", 创建健康路由({ dependencyChecker, build }));

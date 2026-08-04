@@ -1,6 +1,13 @@
 import { defineStore } from "pinia";
 
-import { 登录, type 登录用户, 读取当前用户, 退出登录 } from "../api/auth-client.js";
+import {
+  单点登录,
+  type 单点登录入口,
+  登录,
+  type 登录用户,
+  读取当前用户,
+  退出登录,
+} from "../api/auth-client.js";
 
 export const useSessionStore = defineStore("session", {
   state: () => ({
@@ -37,6 +44,20 @@ export const useSessionStore = defineStore("session", {
       } catch (error) {
         this.user = null;
         this.errorMessage = error instanceof Error ? error.message : "登录失败，请稍后重试。";
+        throw error;
+      } finally {
+        this.loading = false;
+      }
+    },
+    async 单点登录系统(token: string, entry: 单点登录入口, clientType: string) {
+      this.loading = true;
+      try {
+        this.user = await 单点登录({ token, entry, clientType });
+        this.loaded = true;
+        this.errorMessage = "";
+      } catch (error) {
+        this.user = null;
+        this.errorMessage = error instanceof Error ? error.message : "单点登录失败，请重新进入。";
         throw error;
       } finally {
         this.loading = false;

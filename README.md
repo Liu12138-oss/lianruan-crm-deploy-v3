@@ -1,118 +1,55 @@
-# 联软渠道管理平台 v2.2.0
+# 联软渠道管理平台 V3
 
-## 快速部署
+## 重要维护边界
 
-### 一键安装（推荐）
+本仓库当前只维护 V3 工程化应用。后续功能改动、缺陷修复、入口调整和部署配置均以 `apps/web`、`apps/api`、`apps/worker`、`packages/*`、`deploy/single-server` 为准。
 
-```bash
-# 下载并解压部署包
-tar -xzf lianruan-crm-deploy-v2.2.0.tar.gz
-cd lianruan-crm-deploy-v2.2.0
+旧版 V2 静态目录 `frontend`、旧后端目录 `backend`、旧升级包和旧启动脚本已从主线清理，不再作为新需求落点。V3 迁移兼容资产继续保留，包括 `database/mapping`、`scripts/migration`、`apps/api/src/v2-compat-routes.ts` 及对应测试。
 
-# 执行安装
-chmod +x install.sh
-sudo ./install.sh
-```
+V3 对外发布优先只发布站点根路径 `/`。用户登录后由账号权限和访问设备自动进入现有正式业务页面：管理员电脑端 `/admin.html`、管理员移动端 `/admin-mobile.html`、渠道电脑端 `/partner.html`、渠道移动端 `/partner-mobile.html`。规则集中维护在 `apps/web/src/router/entry-target.ts`，详细协作约定见 `AGENTS.md`。
 
-### 手动部署
+V3 单机部署说明见 `deploy/single-server/README.md`。
+
+V3 现有功能收口、平台底座、组织架构、合同收款、企微 OA、公海与报备池、消息提醒及后续业务模块的实施基线，统一见 [V3业务平台底座与业务扩展实施交付方案](docs/V3业务平台底座与业务扩展实施交付方案.md)。
+
+## 本地开发
 
 ```bash
-# 1. 解压
-tar -xzf lianruan-crm-deploy-v2.2.0.tar.gz
-cd lianruan-crm-deploy-v2.2.0
-
-# 2. 安装后端依赖
-cd backend
 npm install
-cd ..
-
-# 3. 启动后端服务（端口 3000）
-cd backend
-node server.js &
-
-# 4. 启动前端服务（端口 8080）
-cd frontend
-python3 -m http.server 8080 &
+npm run build
+npm test
 ```
 
-## 访问地址
+## 单机部署
 
-| 入口 | 地址 |
-|------|------|
-| 统一入口（自动适配） | http://服务器IP:8080/login.html |
-| 管理后台 | http://服务器IP:8080/admin.html |
-| 渠道伙伴（电脑版） | http://服务器IP:8080/partner.html |
-| 渠道伙伴（手机版） | http://服务器IP:8080/partner-mobile.html |
+V3 单机部署以 `deploy/single-server` 为唯一维护入口，部署前请阅读 [离线安装说明](deploy/single-server/docs/离线安装说明.md)。
 
-## 演示账号
-
-| 角色 | 用户名 | 密码 |
-|------|--------|------|
-| 超级管理员 | admin | 123456 |
-| 区域管理员 | admin_sd | 123456 |
-| 渠道员工 | liujg | 123456 |
-
-## 系统要求
-
-- Node.js >= 16.0.0
-- Python 3.x
-- 内存: 最低 512MB
-- 磁盘: 最低 1GB
-
-## 技术架构
-
-- **前端**: Vue 3 + Element Plus (CDN)
-- **后端**: Node.js + Express + JSON 文件存储
-- **端口**: 前端 8080，后端 3000
-
-## 目录结构
-
-```
-lianruan-crm-deploy-v2.2.0/
-├── frontend/          # 前端文件
-│   ├── login.html     # 统一登录入口
-│   ├── admin.html     # 管理后台
-│   ├── partner.html   # 渠道伙伴（电脑版）
-│   └── ...
-├── backend/          # 后端文件
-│   ├── server.js      # 服务端
-│   ├── data.json     # 数据文件
-│   └── package.json
-├── scripts/          # 辅助脚本
-├── docs/             # 文档
-└── install.sh        # 一键安装脚本
-```
-
-## 注意事项
-
-1. 首次部署会初始化数据库
-2. 数据保存在 `backend/data.json`
-3. 建议定期备份 data.json 文件
-4. 如需开机自启，可配置 systemd 服务
-
-## 端口说明
-
-| 服务 | 端口 | 说明 |
-|------|------|------|
-| 前端 | 8080 | HTTP 服务 |
-| 后端 API | 3000 | RESTful API |
-
-## 防火墙设置
+常用校验命令：
 
 ```bash
-# 开放端口
-sudo firewall-cmd --permanent --add-port=8080/tcp
-sudo firewall-cmd --reload
+npm run verify
 ```
 
-或使用 ufw:
-```bash
-sudo ufw allow 8080
+## 入口说明
+
+| 场景 | V3 入口 |
+| --- | --- |
+| 统一入口 | `/` |
+| 登录页 | `/login` |
+| 管理员电脑端 | `/admin.html` |
+| 管理员移动端 | `/admin-mobile.html` |
+| 渠道电脑端 | `/partner.html` |
+| 渠道移动端 | `/partner-mobile.html` |
+
+入口分流规则集中维护在 `apps/web/src/router/entry-target.ts`。
+
+## 主线目录
+
 ```
-
-## 数据备份
-
-```bash
-# 备份数据文件
-cp /path/to/backend/data.json data-backup-$(date +%Y%m%d).json
+apps/web              V3 前端
+apps/api              V3 后端
+apps/worker           V3 后台任务进程
+packages/*            共享包
+deploy/single-server  V3 单机部署
+database              V3 迁移与数据库资产
 ```

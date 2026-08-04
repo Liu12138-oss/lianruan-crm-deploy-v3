@@ -15,13 +15,13 @@ if [ -f "${image_dir}/sha256sum.txt" ]; then
   (cd "${image_dir}" && sha256sum -c sha256sum.txt)
 fi
 
-for image_tar in "${image_dir}"/*.tar; do
-  [ -e "${image_tar}" ] || {
-    echo "未找到任何镜像tar文件。" >&2
+for image_file in "${image_dir}"/*.docker-image; do
+  [ -e "${image_file}" ] || {
+    echo "未找到任何镜像归档文件。" >&2
     exit 1
   }
-  echo "加载镜像：${image_tar}"
-  docker load -i "${image_tar}"
+  echo "加载镜像：${image_file}"
+  docker load -i "${image_file}"
 done
 
 echo "离线镜像加载完成。"

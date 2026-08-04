@@ -1405,6 +1405,7 @@
 
   async function doLogout() {
     try {
+      window.fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
       await api.logout(state.scope);
     } catch (error) {
       // 无论退出接口是否可达，都必须清除本机登录态，避免再次接续旧令牌。
@@ -1417,8 +1418,7 @@
     state.module = createModuleState();
     state.featureFlags = createFeatureFlagState();
     state.write = createWriteState();
-    setRoute('/login', true);
-    render();
+    window.location.href = '/login';
   }
 
   function buildListPath(module, page, filters) {

@@ -31,19 +31,19 @@ else
 fi
 
 echo "导出业务镜像和基础服务镜像。"
-docker save -o "${image_dir}/lianruan-crm-v3-api-${version_tag}.tar" "lianruan-crm-v3-api:${version_tag}"
-docker save -o "${image_dir}/lianruan-crm-v3-worker-${version_tag}.tar" "lianruan-crm-v3-worker:${version_tag}"
-docker save -o "${image_dir}/lianruan-crm-v3-nginx-${version_tag}.tar" "lianruan-crm-v3-nginx:${version_tag}"
-docker save -o "${image_dir}/postgres-16.4-alpine.tar" "${postgres_image}"
-docker save -o "${image_dir}/redis-7.2.5-alpine.tar" "${redis_image}"
+docker save -o "${image_dir}/lianruan-crm-v3-api-${version_tag}.docker-image" "lianruan-crm-v3-api:${version_tag}"
+docker save -o "${image_dir}/lianruan-crm-v3-worker-${version_tag}.docker-image" "lianruan-crm-v3-worker:${version_tag}"
+docker save -o "${image_dir}/lianruan-crm-v3-nginx-${version_tag}.docker-image" "lianruan-crm-v3-nginx:${version_tag}"
+docker save -o "${image_dir}/postgres-16.4-alpine.docker-image" "${postgres_image}"
+docker save -o "${image_dir}/redis-7.2.5-alpine.docker-image" "${redis_image}"
 
 cd "${image_dir}"
 image_files=(
-  "lianruan-crm-v3-api-${version_tag}.tar"
-  "lianruan-crm-v3-worker-${version_tag}.tar"
-  "lianruan-crm-v3-nginx-${version_tag}.tar"
-  "postgres-16.4-alpine.tar"
-  "redis-7.2.5-alpine.tar"
+  "lianruan-crm-v3-api-${version_tag}.docker-image"
+  "lianruan-crm-v3-worker-${version_tag}.docker-image"
+  "lianruan-crm-v3-nginx-${version_tag}.docker-image"
+  "postgres-16.4-alpine.docker-image"
+  "redis-7.2.5-alpine.docker-image"
 )
 if command -v sha256sum >/dev/null 2>&1; then
   sha256sum "${image_files[@]}" > sha256sum.txt

@@ -22,9 +22,42 @@ export type 阶段9模块 =
   | "notifications";
 
 export interface 当前业务用户 {
+  userId?: string;
+  externalUserId?: string;
   username: string;
   displayName: string;
+  roleCode?: string;
   roleName: string;
+  dataScopeCode?: string;
+  regionId?: string;
+  regionName?: string;
+  partnerIds?: string[];
+  partnerExternalIds?: string[];
+  partnerName?: string;
+}
+
+interface 业务用户上下文 {
+  userId: string;
+  externalUserId: string;
+  username: string;
+  displayName: string;
+  roleCode: string;
+  roleName: string;
+  dataScopeCode: string;
+  regionId: string;
+  regionName: string;
+  partnerIds: string[];
+  partnerExternalIds: string[];
+  partnerName: string;
+}
+
+interface 业务归属结果 {
+  partnerId: string | null;
+  partnerName: string;
+  ownerUserId: string | null;
+  ownerUserName: string;
+  regionId: string | null;
+  regionName: string;
 }
 
 export interface 阶段9查询参数 {
@@ -32,6 +65,9 @@ export interface 阶段9查询参数 {
   status?: string | undefined;
   level?: string | undefined;
   region?: string | undefined;
+  userId?: string | undefined;
+  partnerId?: string | undefined;
+  operatorId?: string | undefined;
   productType?: "feature" | "hardware" | "package" | undefined;
   page: number;
   pageSize: number;
@@ -185,9 +221,18 @@ export interface 交付工作量规则项 {
 
 export interface 业务数据服务 {
   读取概览(): Promise<阶段9概览>;
-  查询列表(模块: 阶段9模块, 查询: 阶段9查询参数): Promise<阶段9列表结果>;
-  查询详情(模块: 阶段9模块, id: string): Promise<阶段9记录>;
+  查询列表(
+    模块: 阶段9模块,
+    查询: 阶段9查询参数,
+    用户?: 当前业务用户 | null,
+  ): Promise<阶段9列表结果>;
+  查询详情(模块: 阶段9模块, id: string, 用户?: 当前业务用户 | null): Promise<阶段9记录>;
   创建报备(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
+  更新报备(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
   更新报备状态(
     id: string,
     输入: Record<string, unknown>,
@@ -341,11 +386,19 @@ class 内存业务数据服务 implements 业务数据服务 {
     };
   }
 
-  public async 查询列表(模块: 阶段9模块, 查询: 阶段9查询参数): Promise<阶段9列表结果> {
+  public async 查询列表(
+    模块: 阶段9模块,
+    查询: 阶段9查询参数,
+    _用户?: 当前业务用户 | null,
+  ): Promise<阶段9列表结果> {
     return 分页列表(this.取记录集合(模块), 查询);
   }
 
-  public async 查询详情(模块: 阶段9模块, id: string): Promise<阶段9记录> {
+  public async 查询详情(
+    模块: 阶段9模块,
+    id: string,
+    _用户?: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
     const 记录 = this.取记录集合(模块).find((项) => 项.id === id || 项.编号 === id);
     if (!记录) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
     return 记录;
@@ -428,6 +481,30 @@ class 内存业务数据服务 implements 业务数据服务 {
         updatedByName: 用户?.displayName || "阶段9测试账号",
       };
     }
+    return 记录;
+  }
+
+  public async 更新报备(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 记录 = await this.查询详情("registrations", id);
+    const now = new Date().toISOString();
+    const 渠道名称 = 读取文本(输入, ["partnerName", "assignedPartnerName"], 记录.渠道名称);
+    const 负责人 = 读取文本(输入, ["assignedStaffName", "ownerName"], 记录.负责人);
+    记录.渠道名称 = 渠道名称;
+    记录.负责人 = 负责人;
+    记录.更新时间 = now;
+    记录.原始数据 = {
+      ...记录.原始数据,
+      ...输入,
+      partnerName: 渠道名称,
+      assignedPartnerName: 渠道名称,
+      assignedStaffName: 负责人,
+      updatedAt: now,
+      updatedByName: 用户?.displayName || "阶段9测试账号",
+    };
     return 记录;
   }
 
@@ -860,6 +937,182 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     this.pool = new Pool({ connectionString: databaseUrl, max: 10 });
   }
 
+  private async 解析当前用户上下文(用户: 当前业务用户 | null): Promise<业务用户上下文 | null> {
+    if (!用户?.username && !用户?.userId && !用户?.externalUserId) return null;
+    const 伙伴编号 = Array.isArray(用户.partnerIds) ? 用户.partnerIds.filter(Boolean) : [];
+    const 伙伴外部编号 = Array.isArray(用户.partnerExternalIds)
+      ? 用户.partnerExternalIds.filter(Boolean)
+      : [];
+    const result = await this.pool.query<{
+      user_id: string;
+      external_user_id: string | null;
+      username: string;
+      display_name: string;
+      role_code: string | null;
+      role_name: string | null;
+      data_scope_code: string | null;
+      region_id: string | null;
+      region_name: string | null;
+      partner_ids: string[] | null;
+      partner_external_ids: string[] | null;
+      partner_names: string[] | null;
+      extra_partner_id: string | null;
+      extra_partner_name: string | null;
+      extra_region_name: string | null;
+    }>(
+      `
+      SELECT
+        u.id::text AS user_id,
+        u.v2_source_id AS external_user_id,
+        u.username::text AS username,
+        u.display_name::text AS display_name,
+        COALESCE(
+          (
+            array_agg(r.role_code ORDER BY
+              CASE r.role_code
+                WHEN 'superadmin' THEN 1
+                WHEN 'admin' THEN 2
+                WHEN 'region_manager' THEN 3
+                WHEN 'partner_admin' THEN 4
+                ELSE 5
+              END
+            ) FILTER (WHERE r.role_code IS NOT NULL)
+          )[1],
+          $4,
+          'staff'
+        ) AS role_code,
+        COALESCE(
+          (
+            array_agg(r.role_name ORDER BY
+              CASE r.role_code
+                WHEN 'superadmin' THEN 1
+                WHEN 'admin' THEN 2
+                WHEN 'region_manager' THEN 3
+                WHEN 'partner_admin' THEN 4
+                ELSE 5
+              END
+            ) FILTER (WHERE r.role_name IS NOT NULL)
+          )[1],
+          $5,
+          '渠道用户'
+        ) AS role_name,
+        COALESCE(sp.data_scope_code, $6) AS data_scope_code,
+        u.region_id::text AS region_id,
+        reg.region_name,
+        COALESCE(
+          array_agg(DISTINCT p.id::text) FILTER (WHERE p.id IS NOT NULL AND pm.status_code = 'active'),
+          ARRAY[]::text[]
+        ) || CASE WHEN p_extra.id IS NULL THEN ARRAY[]::text[] ELSE ARRAY[p_extra.id::text] END AS partner_ids,
+        COALESCE(
+          array_agg(DISTINCT COALESCE(p.v2_source_id, p.partner_code, p.id::text))
+            FILTER (WHERE p.id IS NOT NULL AND pm.status_code = 'active'),
+          ARRAY[]::text[]
+        ) || CASE
+          WHEN p_extra.id IS NULL THEN ARRAY[]::text[]
+          ELSE ARRAY[COALESCE(p_extra.v2_source_id, p_extra.partner_code, p_extra.id::text)]
+        END AS partner_external_ids,
+        COALESCE(
+          array_agg(DISTINCT p.partner_name)
+            FILTER (WHERE p.partner_name IS NOT NULL AND pm.status_code = 'active'),
+          ARRAY[]::text[]
+        ) || CASE WHEN p_extra.partner_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[p_extra.partner_name] END AS partner_names,
+        u.extra_json->>'partnerId' AS extra_partner_id,
+        u.extra_json->>'partnerName' AS extra_partner_name,
+        u.extra_json->>'region' AS extra_region_name
+      FROM iam.users u
+      LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
+      LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+      LEFT JOIN org.staff_profiles sp ON sp.user_id = u.id
+      LEFT JOIN org.regions reg ON reg.id = u.region_id
+      LEFT JOIN channel.partner_members pm ON pm.user_id = u.id
+      LEFT JOIN channel.partners p ON p.id = pm.partner_id AND p.status_code = 'active'
+      LEFT JOIN channel.partners p_extra ON p_extra.status_code = 'active'
+        AND NULLIF(u.extra_json->>'partnerId', '') IS NOT NULL
+        AND (
+          p_extra.id::text = u.extra_json->>'partnerId'
+          OR p_extra.v2_source_id = u.extra_json->>'partnerId'
+          OR p_extra.partner_code = u.extra_json->>'partnerId'
+        )
+      WHERE u.status_code = 'active'
+        AND (
+          ($1 <> '' AND u.id::text = $1)
+          OR ($2 <> '' AND (u.v2_source_id = $2 OR u.extra_json->>'id' = $2 OR u.extra_json->>'userId' = $2))
+          OR ($3 <> '' AND lower(u.username::text) = lower($3))
+        )
+      GROUP BY
+        u.id, u.v2_source_id, u.username, u.display_name, sp.data_scope_code,
+        reg.region_name, p_extra.id, p_extra.v2_source_id, p_extra.partner_code, p_extra.partner_name
+      LIMIT 1
+      `,
+      [
+        用户.userId || "",
+        用户.externalUserId || "",
+        用户.username || "",
+        用户.roleCode || "",
+        用户.roleName || "",
+        用户.dataScopeCode || "",
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    const roleCode = row.role_code || 用户.roleCode || "staff";
+    const dataScopeCode =
+      row.data_scope_code || 用户.dataScopeCode || 推断数据范围(roleCode) || "self";
+    return {
+      userId: row.user_id,
+      externalUserId: row.external_user_id || 用户.externalUserId || "",
+      username: row.username,
+      displayName: row.display_name || 用户.displayName || row.username,
+      roleCode,
+      roleName: row.role_name || 用户.roleName || 转角色显示名称(roleCode),
+      dataScopeCode,
+      regionId: row.region_id || 用户.regionId || "",
+      regionName: row.region_name || row.extra_region_name || 用户.regionName || "",
+      partnerIds: 去重文本([...(row.partner_ids || []), ...伙伴编号]),
+      partnerExternalIds: 去重文本([
+        ...(row.partner_external_ids || []),
+        row.extra_partner_id || "",
+        ...伙伴外部编号,
+      ]),
+      partnerName: row.partner_names?.[0] || row.extra_partner_name || 用户.partnerName || "",
+    };
+  }
+
+  private 构建数据范围条件(模块: 阶段9模块, 用户: 业务用户上下文 | null, 参数: unknown[]): string {
+    if (!用户) return "true";
+    if (模块 === "partners") return 构建渠道商数据范围条件(用户, 参数);
+    if (模块 === "users") return 构建账号数据范围条件(用户, 参数);
+    const alias = 数据范围表别名(模块);
+    if (!alias) return "true";
+    if (用户.roleCode === "superadmin" || 用户.dataScopeCode === "all") return "true";
+
+    if (用户.roleCode === "partner_admin" || 用户.dataScopeCode === "partner") {
+      if (!用户.partnerIds.length) return "false";
+      参数.push(用户.partnerIds);
+      return `${alias}.partner_id = ANY($${参数.length}::uuid[])`;
+    }
+
+    if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
+      参数.push(用户.userId);
+      return `${alias}.owner_user_id = $${参数.length}::uuid`;
+    }
+
+    if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
+      if (用户.regionId) {
+        参数.push(用户.regionId);
+        return `${alias}.region_id = $${参数.length}::uuid`;
+      }
+      if (用户.regionName) {
+        参数.push("%" + 用户.regionName + "%");
+        return `${alias}.extra_json->>'region' ILIKE $${参数.length}`;
+      }
+      return "false";
+    }
+
+    if (用户.roleCode === "admin") return "true";
+    return "false";
+  }
+
   public async 读取概览(): Promise<阶段9概览> {
     const 统计 = await Promise.all([
       this.统计表("渠道商", "channel.partners", "正式渠道主档"),
@@ -893,7 +1146,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     return { 统计, 待办, 最近业务, 迁移状态 };
   }
 
-  public async 查询列表(模块: 阶段9模块, 查询: 阶段9查询参数): Promise<阶段9列表结果> {
+  public async 查询列表(
+    模块: 阶段9模块,
+    查询: 阶段9查询参数,
+    用户?: 当前业务用户 | null,
+  ): Promise<阶段9列表结果> {
+    const 上下文 = await this.解析当前用户上下文(用户 || null);
     const 条件: string[] = ["true"];
     const 参数: unknown[] = [];
     if (查询.keyword) {
@@ -916,19 +1174,38 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       参数.push("%" + 查询.region + "%");
       条件.push(`("区域" ILIKE $${参数.length} OR "原始数据"->>'region' ILIKE $${参数.length})`);
     }
+    if (查询.partnerId && 应使用渠道兼容过滤(上下文)) {
+      参数.push(查询.partnerId);
+      条件.push(
+        `("原始数据"->>'partnerUuid' = $${参数.length} OR "原始数据"->>'partnerId' = $${参数.length} OR "原始数据"->>'assignedPartnerId' = $${参数.length})`,
+      );
+    }
+    const 兼容用户过滤 = 读取兼容用户过滤值(模块, 查询, 上下文);
+    if (兼容用户过滤) {
+      参数.push(兼容用户过滤);
+      条件.push(
+        `("原始数据"->>'ownerUserUuid' = $${参数.length} OR "原始数据"->>'assignedStaffId' = $${参数.length} OR "原始数据"->>'assignedStaffUserId' = $${参数.length})`,
+      );
+    }
     if (模块 === "products" && 查询.productType) {
       参数.push(产品类型名称(查询.productType));
       条件.push(`"类型" = $${参数.length}`);
     }
     const where = 条件.join(" AND ");
-    const baseSql = this.模块查询SQL(模块, "true");
+    const baseSql = this.模块查询SQL(模块, this.构建数据范围条件(模块, 上下文, 参数));
     return this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, 参数, 查询);
   }
 
-  public async 查询详情(模块: 阶段9模块, id: string): Promise<阶段9记录> {
+  public async 查询详情(
+    模块: 阶段9模块,
+    id: string,
+    用户?: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户 || null);
     const where = `"id" = $1 OR "编号" = $1`;
-    const baseSql = this.模块查询SQL(模块, "true");
-    const 列表 = await this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, [id], {
+    const 参数: unknown[] = [id];
+    const baseSql = this.模块查询SQL(模块, this.构建数据范围条件(模块, 上下文, 参数));
+    const 列表 = await this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, 参数, {
       page: 1,
       pageSize: 1,
     });
@@ -941,18 +1218,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const 客户名称 = 读取文本(输入, ["customer", "customerName", "客户名称"], "阶段9测试客户");
       const customerId = await 查询或创建客户(client, 客户名称, 输入);
-      const partnerId = await 查询渠道编号(client, 读取文本(输入, ["partnerId", "渠道编号"], ""));
-      const ownerUserId = await 查询账号编号(
-        client,
-        读取文本(输入, ["ownerUserId", "assignedStaffId"], ""),
-      );
-      const regionId = await 查询区域编号(client, 读取文本(输入, ["region", "区域"], ""));
-      const 初始状态 = 规范报备状态(读取文本(输入, ["status", "状态"], "pending"));
+      const 归属 = await 解析业务归属(client, 输入, 上下文);
+      const 初始状态 = 规范报备初始状态(读取文本(输入, ["status", "状态"], "pending"), 上下文);
       const now = new Date().toISOString();
       const result = await client.query<{ id: string }>(
         `
@@ -968,13 +1241,22 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         [
           "REG-V3-" + Date.now(),
           customerId,
-          partnerId,
-          ownerUserId,
-          regionId,
+          归属.partnerId,
+          归属.ownerUserId,
+          归属.regionId,
           初始状态,
           JSON.stringify({
             ...输入,
             customer: 客户名称,
+            customerName: 客户名称,
+            partnerId: 归属.partnerId || "",
+            assignedPartnerId: 归属.partnerId || "",
+            partnerName: 归属.partnerName,
+            assignedPartnerName: 归属.partnerName,
+            ownerUserId: 归属.ownerUserId || "",
+            assignedStaffId: 归属.ownerUserId || "",
+            assignedStaffName: 归属.ownerUserName,
+            region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
             status: 初始状态,
             createdByName: 用户?.displayName || "阶段9测试账号",
             approvedBy:
@@ -994,14 +1276,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       await 写入报备审批待办(client, {
         报备编号: id,
         状态: 初始状态,
-        申请人编号: ownerUserId,
-        渠道编号: partnerId,
+        申请人编号: 归属.ownerUserId,
+        渠道编号: 归属.partnerId,
         客户名称,
         输入,
         用户,
       });
       await client.query("COMMIT");
-      return this.查询详情("registrations", id);
+      return this.查询详情("registrations", id, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -1015,6 +1297,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    await this.查询详情("registrations", id, 用户);
     const 状态 = 规范报备状态(读取文本(输入, ["status", "状态"], "approved"));
     const client = await this.pool.connect();
     try {
@@ -1055,7 +1338,96 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         用户,
       });
       await client.query("COMMIT");
-      return this.查询详情("registrations", 报备.id);
+      return this.查询详情("registrations", 报备.id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 更新报备(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    await this.查询详情("registrations", id, 用户);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 当前 = await client.query<{
+        id: string;
+        customer_id: string;
+        partner_id: string | null;
+        owner_user_id: string | null;
+        region_id: string | null;
+        status_code: string;
+      }>(
+        `
+        SELECT id::text AS id, customer_id::text AS customer_id, partner_id::text AS partner_id,
+          owner_user_id::text AS owner_user_id, region_id::text AS region_id, status_code
+        FROM crm.registrations
+        WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
+        LIMIT 1
+        `,
+        [id],
+      );
+      const row = 当前.rows[0];
+      if (!row) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      const 客户名称 = 读取文本(输入, ["customer", "customerName", "客户名称"], "");
+      const customerId = 客户名称 ? await 查询或创建客户(client, 客户名称, 输入) : row.customer_id;
+      const 归属 = await 解析业务归属(client, 输入, 上下文, {
+        partnerId: row.partner_id,
+        ownerUserId: row.owner_user_id,
+        regionId: row.region_id,
+      });
+      const 状态 = 读取文本(输入, ["status", "状态"], "")
+        ? 规范报备状态(读取文本(输入, ["status", "状态"], row.status_code))
+        : row.status_code;
+      const extra = {
+        ...输入,
+        ...(客户名称 ? { customer: 客户名称, customerName: 客户名称 } : {}),
+        partnerId: 归属.partnerId || "",
+        assignedPartnerId: 归属.partnerId || "",
+        partnerName: 归属.partnerName,
+        assignedPartnerName: 归属.partnerName,
+        ownerUserId: 归属.ownerUserId || "",
+        assignedStaffId: 归属.ownerUserId || "",
+        assignedStaffName: 归属.ownerUserName,
+        region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
+        status: 状态,
+        updatedByName: 用户?.displayName || "阶段9测试账号",
+      };
+      const result = await client.query<{ id: string }>(
+        `
+        UPDATE crm.registrations
+        SET customer_id = $2::uuid,
+            partner_id = $3::uuid,
+            owner_user_id = $4::uuid,
+            region_id = $5::uuid,
+            status_code = $6,
+            updated_at = now(),
+            row_version = row_version + 1,
+            extra_json = extra_json || $7::jsonb
+        WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
+        RETURNING id::text AS id
+        `,
+        [
+          id,
+          customerId,
+          归属.partnerId,
+          归属.ownerUserId,
+          归属.regionId,
+          状态,
+          JSON.stringify(extra),
+        ],
+      );
+      const 报备编号 = result.rows[0]?.id;
+      if (!报备编号) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      await client.query("COMMIT");
+      return this.查询详情("registrations", 报备编号, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -1068,10 +1440,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const registrationId = 读取文本(输入, ["registrationId", "regId", "报备编号"], "");
+      if (registrationId) await this.查询详情("registrations", registrationId, 用户);
       const reg = registrationId
         ? await client.query<{
             id: string;
@@ -1100,12 +1474,11 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       }
       const 客户名称 = 读取文本(输入, ["customer", "customerName", "客户名称"], "阶段9测试客户");
       const customerId = 报备?.customer_id || (await 查询或创建客户(client, 客户名称, 输入));
-      const partnerId =
-        报备?.partner_id || (await 查询渠道编号(client, 读取文本(输入, ["partnerId"], "")));
-      const ownerUserId =
-        报备?.owner_user_id || (await 查询账号编号(client, 读取文本(输入, ["ownerUserId"], "")));
-      const regionId =
-        报备?.region_id || (await 查询区域编号(client, 读取文本(输入, ["region"], "")));
+      const 归属 = await 解析业务归属(client, 输入, 上下文, {
+        partnerId: 报备?.partner_id || null,
+        ownerUserId: 报备?.owner_user_id || null,
+        regionId: 报备?.region_id || null,
+      });
       const 阶段 = 读取文本(输入, ["stage", "阶段"], "registered");
       const result = await client.query<{ id: string }>(
         `
@@ -1121,14 +1494,24 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           "OPP-V3-" + Date.now(),
           customerId,
           报备?.id || null,
-          partnerId,
-          ownerUserId,
-          regionId,
+          归属.partnerId,
+          归属.ownerUserId,
+          归属.regionId,
           阶段,
           阶段,
           读取数字(输入, ["amount", "预计金额"], 0),
           JSON.stringify({
             ...输入,
+            customer: 客户名称,
+            customerName: 客户名称,
+            partnerId: 归属.partnerId || "",
+            assignedPartnerId: 归属.partnerId || "",
+            partnerName: 归属.partnerName,
+            assignedPartnerName: 归属.partnerName,
+            ownerUserId: 归属.ownerUserId || "",
+            assignedStaffId: 归属.ownerUserId || "",
+            assignedStaffName: 归属.ownerUserName,
+            region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
             createdByName: 用户?.displayName || "阶段9测试账号",
             stage: 阶段,
           }),
@@ -1154,7 +1537,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         );
       }
       await client.query("COMMIT");
-      return this.查询详情("opportunities", id);
+      return this.查询详情("opportunities", id, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -1168,44 +1551,100 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
-    const 阶段 = 读取文本(输入, ["stage", "阶段"], "contacted");
-    const 状态 = 规范商机状态(阶段);
-    const content = 读取文本(输入, ["followup", "content", "跟进内容"], "");
-    await this.pool.query(
-      `
-      UPDATE crm.opportunities
-      SET
-        stage_code = $2,
-        raw_stage_name = $3,
-        status_code = $4,
-        updated_at = now(),
-        row_version = row_version + 1,
-        extra_json = extra_json || $5::jsonb
-      WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
-      `,
-      [
-        id,
-        阶段,
-        阶段,
-        状态,
-        JSON.stringify({
-          stage: 阶段,
-          followup: content,
-          updatedByName: 用户?.displayName || "阶段9测试账号",
-        }),
-      ],
-    );
-    if (content) {
-      const detail = await this.查询详情("opportunities", id);
-      await this.pool.query(
+    const 上下文 = await this.解析当前用户上下文(用户);
+    await this.查询详情("opportunities", id, 用户);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 当前 = await client.query<{
+        id: string;
+        stage_code: string;
+        raw_stage_name: string | null;
+        partner_id: string | null;
+        owner_user_id: string | null;
+        region_id: string | null;
+        customer_id: string;
+      }>(
         `
-        INSERT INTO crm.opportunity_followups (opportunity_id, content, extra_json)
-        VALUES ($1, $2, $3::jsonb)
+        SELECT id::text AS id, stage_code, raw_stage_name, partner_id::text AS partner_id,
+          owner_user_id::text AS owner_user_id, region_id::text AS region_id, customer_id::text AS customer_id
+        FROM crm.opportunities
+        WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
+        LIMIT 1
         `,
-        [detail.id, content, JSON.stringify({ actorName: 用户?.displayName || "阶段9测试账号" })],
+        [id],
       );
+      const row = 当前.rows[0];
+      if (!row) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      const 归属 = await 解析业务归属(client, 输入, 上下文, {
+        partnerId: row.partner_id,
+        ownerUserId: row.owner_user_id,
+        regionId: row.region_id,
+      });
+      const 阶段 = 读取文本(输入, ["stage", "阶段"], row.raw_stage_name || row.stage_code);
+      const 状态 = 规范商机状态(阶段);
+      const content = 读取文本(输入, ["followup", "content", "跟进内容"], "");
+      const 客户名称 = 读取文本(输入, ["customer", "customerName", "客户名称"], "");
+      const customerId = 客户名称 ? await 查询或创建客户(client, 客户名称, 输入) : row.customer_id;
+      await client.query(
+        `
+        UPDATE crm.opportunities
+        SET
+          customer_id = $2::uuid,
+          partner_id = $3::uuid,
+          owner_user_id = $4::uuid,
+          region_id = $5::uuid,
+          stage_code = $6,
+          raw_stage_name = $7,
+          status_code = $8,
+          updated_at = now(),
+          row_version = row_version + 1,
+          extra_json = extra_json || $9::jsonb
+        WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
+        `,
+        [
+          id,
+          customerId,
+          归属.partnerId,
+          归属.ownerUserId,
+          归属.regionId,
+          阶段,
+          阶段,
+          状态,
+          JSON.stringify({
+            ...输入,
+            ...(客户名称 ? { customer: 客户名称, customerName: 客户名称 } : {}),
+            partnerId: 归属.partnerId || "",
+            assignedPartnerId: 归属.partnerId || "",
+            partnerName: 归属.partnerName,
+            assignedPartnerName: 归属.partnerName,
+            ownerUserId: 归属.ownerUserId || "",
+            assignedStaffId: 归属.ownerUserId || "",
+            assignedStaffName: 归属.ownerUserName,
+            region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
+            stage: 阶段,
+            followup: content,
+            updatedByName: 用户?.displayName || "阶段9测试账号",
+          }),
+        ],
+      );
+      if (content) {
+        await client.query(
+          `
+          INSERT INTO crm.opportunity_followups (opportunity_id, content, extra_json)
+          VALUES ($1::uuid, $2, $3::jsonb)
+          `,
+          [row.id, content, JSON.stringify({ actorName: 用户?.displayName || "阶段9测试账号" })],
+        );
+      }
+      await client.query("COMMIT");
+      return this.查询详情("opportunities", id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-    return this.查询详情("opportunities", id);
   }
 
   public async 试算报价(输入: Record<string, unknown>): Promise<报价试算结果> {
@@ -2825,6 +3264,125 @@ function 安全比较文本(left: string, right: string): boolean {
   );
 }
 
+function 去重文本(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function 构建渠道商数据范围条件(用户: 业务用户上下文, 参数: unknown[]): string {
+  if (是否全量数据范围(用户)) return "true";
+  if (
+    用户.roleCode === "partner_admin" ||
+    用户.roleCode === "staff" ||
+    用户.dataScopeCode === "partner" ||
+    用户.dataScopeCode === "self"
+  ) {
+    if (!用户.partnerIds.length) return "false";
+    参数.push(用户.partnerIds);
+    return `p.id = ANY($${参数.length}::uuid[])`;
+  }
+  if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
+    if (用户.regionId) {
+      参数.push(用户.regionId);
+      return `p.region_id = $${参数.length}::uuid`;
+    }
+    if (用户.regionName) {
+      参数.push("%" + 用户.regionName + "%");
+      return `p.extra_json->>'region' ILIKE $${参数.length}`;
+    }
+    return "false";
+  }
+  if (用户.roleCode === "admin") return "true";
+  return "false";
+}
+
+function 构建账号数据范围条件(用户: 业务用户上下文, 参数: unknown[]): string {
+  if (是否全量数据范围(用户)) return "true";
+  if (用户.roleCode === "partner_admin" || 用户.dataScopeCode === "partner") {
+    if (!用户.partnerIds.length) return "false";
+    参数.push(用户.partnerIds);
+    return `EXISTS (
+      SELECT 1
+      FROM channel.partner_members pm_scope
+      WHERE pm_scope.user_id = u.id
+        AND pm_scope.partner_id = ANY($${参数.length}::uuid[])
+    )`;
+  }
+  if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
+    参数.push(用户.userId);
+    return `u.id = $${参数.length}::uuid`;
+  }
+  if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
+    if (用户.regionId) {
+      参数.push(用户.regionId);
+      return `u.region_id = $${参数.length}::uuid`;
+    }
+    if (用户.regionName) {
+      参数.push("%" + 用户.regionName + "%");
+      return `u.extra_json->>'region' ILIKE $${参数.length}`;
+    }
+    return "false";
+  }
+  if (用户.roleCode === "admin") return "true";
+  return "false";
+}
+
+function 是否全量数据范围(用户: 业务用户上下文): boolean {
+  return 用户.roleCode === "superadmin" || 用户.dataScopeCode === "all";
+}
+
+function 应使用渠道兼容过滤(用户: 业务用户上下文 | null): boolean {
+  if (!用户) return true;
+  return !(
+    用户.roleCode === "partner_admin" ||
+    用户.roleCode === "staff" ||
+    用户.dataScopeCode === "partner" ||
+    用户.dataScopeCode === "self"
+  );
+}
+
+function 读取兼容用户过滤值(
+  模块: 阶段9模块,
+  查询: 阶段9查询参数,
+  用户: 业务用户上下文 | null,
+): string {
+  if (!支持负责人兼容过滤(模块)) return "";
+  if (!用户) return 查询.userId || 查询.operatorId || "";
+  if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
+    return 查询.userId || 查询.operatorId || "";
+  }
+  return "";
+}
+
+function 支持负责人兼容过滤(模块: 阶段9模块): boolean {
+  return ["registrations", "opportunities", "quotes", "orders"].includes(模块);
+}
+
+function 推断数据范围(roleCode: string): string {
+  if (roleCode === "superadmin" || roleCode === "admin") return "all";
+  if (roleCode === "region_manager") return "region";
+  if (roleCode === "partner_admin") return "partner";
+  return "self";
+}
+
+function 转角色显示名称(roleCode: string): string {
+  const 映射: Record<string, string> = {
+    superadmin: "超级管理员",
+    admin: "管理员",
+    region_manager: "区域管理员",
+    partner_admin: "渠道管理员",
+    staff: "渠道用户",
+  };
+  return 映射[roleCode] || "渠道用户";
+}
+
+function 数据范围表别名(模块: 阶段9模块): string {
+  if (模块 === "registrations") return "r";
+  if (模块 === "opportunities") return "o";
+  if (模块 === "quotes") return "q";
+  if (模块 === "orders") return "o";
+  return "";
+}
+
 function 是否内存硬件产品(项: 阶段9记录): boolean {
   return /硬件|hardware/i.test(`${项.类型} ${项.负责人} ${项.标题}`);
 }
@@ -2852,7 +3410,19 @@ function 报备查询SQL(where: string): string {
       0::numeric AS "金额",
       r.created_at AS "创建时间",
       r.updated_at AS "更新时间",
-      r.extra_json AS "原始数据"
+      r.extra_json || jsonb_build_object(
+        'partnerUuid', COALESCE(r.partner_id::text, ''),
+        'partnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'partnerId', ''),
+        'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'assignedPartnerId', ''),
+        'partnerName', COALESCE(p.partner_name, r.extra_json->>'partnerName', ''),
+        'assignedPartnerName', COALESCE(p.partner_name, r.extra_json->>'assignedPartnerName', ''),
+        'ownerUserUuid', COALESCE(r.owner_user_id::text, ''),
+        'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, r.extra_json->>'assignedStaffId', ''),
+        'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, r.extra_json->>'assignedStaffUserId', ''),
+        'assignedStaffName', COALESCE(u.display_name, r.extra_json->>'assignedStaffName', ''),
+        'regionId', COALESCE(r.region_id::text, ''),
+        'region', COALESCE(reg.region_name, r.extra_json->>'region', '')
+      ) AS "原始数据"
     FROM crm.registrations r
     JOIN crm.customers c ON c.id = r.customer_id
     LEFT JOIN channel.partners p ON p.id = r.partner_id
@@ -2883,7 +3453,19 @@ function 商机查询SQL(where: string): string {
       COALESCE(o.expected_amount, 0) AS "金额",
       o.created_at AS "创建时间",
       o.updated_at AS "更新时间",
-      o.extra_json AS "原始数据"
+      o.extra_json || jsonb_build_object(
+        'partnerUuid', COALESCE(o.partner_id::text, ''),
+        'partnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'partnerId', ''),
+        'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'assignedPartnerId', ''),
+        'partnerName', COALESCE(p.partner_name, o.extra_json->>'partnerName', ''),
+        'assignedPartnerName', COALESCE(p.partner_name, o.extra_json->>'assignedPartnerName', ''),
+        'ownerUserUuid', COALESCE(o.owner_user_id::text, ''),
+        'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffId', ''),
+        'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffUserId', ''),
+        'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', ''),
+        'regionId', COALESCE(o.region_id::text, ''),
+        'region', COALESCE(reg.region_name, o.extra_json->>'region', '')
+      ) AS "原始数据"
     FROM crm.opportunities o
     LEFT JOIN crm.customers c ON c.id = o.customer_id
     LEFT JOIN channel.partners p ON p.id = o.partner_id
@@ -2916,7 +3498,17 @@ function 报价查询SQL(where: string): string {
       q.total_amount AS "金额",
       q.created_at AS "创建时间",
       q.updated_at AS "更新时间",
-      q.extra_json AS "原始数据"
+      q.extra_json || jsonb_build_object(
+        'partnerUuid', COALESCE(q.partner_id::text, ''),
+        'partnerId', COALESCE(p.v2_source_id, p.partner_code, q.partner_id::text, q.extra_json->>'partnerId', ''),
+        'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, q.partner_id::text, q.extra_json->>'assignedPartnerId', ''),
+        'partnerName', COALESCE(p.partner_name, q.extra_json->>'partnerName', ''),
+        'assignedPartnerName', COALESCE(p.partner_name, q.extra_json->>'assignedPartnerName', ''),
+        'ownerUserUuid', COALESCE(q.owner_user_id::text, ''),
+        'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffId', ''),
+        'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffUserId', ''),
+        'assignedStaffName', COALESCE(u.display_name, q.extra_json->>'assignedStaffName', '')
+      ) AS "原始数据"
     FROM crm.quotes q
     LEFT JOIN crm.customers c ON c.id = q.customer_id
     LEFT JOIN channel.partners p ON p.id = q.partner_id
@@ -2948,7 +3540,17 @@ function 订单查询SQL(where: string): string {
       o.total_amount AS "金额",
       o.created_at AS "创建时间",
       o.updated_at AS "更新时间",
-      o.extra_json AS "原始数据"
+      o.extra_json || jsonb_build_object(
+        'partnerUuid', COALESCE(o.partner_id::text, ''),
+        'partnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'partnerId', ''),
+        'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'assignedPartnerId', ''),
+        'partnerName', COALESCE(p.partner_name, o.extra_json->>'partnerName', ''),
+        'assignedPartnerName', COALESCE(p.partner_name, o.extra_json->>'assignedPartnerName', ''),
+        'ownerUserUuid', COALESCE(o.owner_user_id::text, ''),
+        'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffId', ''),
+        'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffUserId', ''),
+        'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', '')
+      ) AS "原始数据"
     FROM crm.orders o
     LEFT JOIN crm.customers c ON c.id = o.customer_id
     LEFT JOIN channel.partners p ON p.id = o.partner_id
@@ -3451,6 +4053,104 @@ async function 同步报备审批状态(
   );
 }
 
+async function 解析业务归属(
+  client: PoolClient,
+  输入: Record<string, unknown>,
+  用户: 业务用户上下文 | null,
+  当前: {
+    partnerId: string | null;
+    ownerUserId: string | null;
+    regionId: string | null;
+  } = { partnerId: null, ownerUserId: null, regionId: null },
+): Promise<业务归属结果> {
+  const 请求渠道 = 读取文本(输入, ["partnerId", "assignedPartnerId", "渠道编号"], "");
+  const 请求员工 = 读取文本(
+    输入,
+    ["ownerUserId", "assignedStaffId", "assignedStaffUserId", "跟进员工编号"],
+    "",
+  );
+  let partnerId = 当前.partnerId;
+  let ownerUserId = 当前.ownerUserId;
+  let regionId = 当前.regionId;
+
+  if (!用户) {
+    partnerId = 请求渠道 ? await 必须查询渠道编号(client, 请求渠道) : partnerId;
+    ownerUserId = 请求员工 ? await 必须查询账号编号(client, 请求员工) : ownerUserId;
+    if (!partnerId && ownerUserId)
+      partnerId = (await 查询账号首个渠道(client, ownerUserId))?.id || null;
+  } else if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
+    ownerUserId = 用户.userId;
+    partnerId = 用户.partnerIds[0] || partnerId;
+    if (!partnerId) {
+      throw new 应用错误(
+        "V3_BUSINESS_PARTNER_BINDING_REQUIRED",
+        "当前渠道员工未绑定渠道商，不能提交业务记录。",
+        403,
+      );
+    }
+  } else if (用户.roleCode === "partner_admin" || 用户.dataScopeCode === "partner") {
+    const 指定渠道 = 请求渠道 ? await 必须查询渠道编号(client, 请求渠道) : "";
+    partnerId = 指定渠道 || 用户.partnerIds[0] || partnerId;
+    if (!partnerId || !用户.partnerIds.includes(partnerId)) {
+      throw new 应用错误(
+        "V3_BUSINESS_PARTNER_SCOPE_FORBIDDEN",
+        "只能操作当前渠道企业范围内的业务记录。",
+        403,
+      );
+    }
+    ownerUserId = 请求员工 ? await 必须查询账号编号(client, 请求员工) : ownerUserId || 用户.userId;
+    if (ownerUserId && !(await 是否渠道成员(client, partnerId, ownerUserId))) {
+      throw new 应用错误(
+        "V3_BUSINESS_STAFF_SCOPE_FORBIDDEN",
+        "请选择当前渠道企业下的跟进员工。",
+        403,
+      );
+    }
+  } else {
+    if (请求渠道) partnerId = await 必须查询渠道编号(client, 请求渠道);
+    if (请求员工) ownerUserId = await 必须查询账号编号(client, 请求员工);
+    if (!partnerId && ownerUserId)
+      partnerId = (await 查询账号首个渠道(client, ownerUserId))?.id || null;
+    if (partnerId && ownerUserId && !(await 是否渠道成员(client, partnerId, ownerUserId))) {
+      throw new 应用错误(
+        "V3_BUSINESS_STAFF_PARTNER_MISMATCH",
+        "跟进员工不属于所选渠道商，请重新选择。",
+        400,
+      );
+    }
+  }
+
+  const partner = partnerId ? await 查询渠道快照(client, partnerId) : null;
+  if (
+    用户 &&
+    (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") &&
+    partner?.regionId &&
+    用户.regionId &&
+    partner.regionId !== 用户.regionId
+  ) {
+    throw new 应用错误("V3_BUSINESS_REGION_SCOPE_FORBIDDEN", "只能指派本区域范围内的渠道商。", 403);
+  }
+
+  if (!regionId) {
+    regionId = partner?.regionId || null;
+  }
+  if (!regionId) {
+    regionId = await 查询区域编号(client, 读取文本(输入, ["region", "区域"], ""));
+  }
+  if (!regionId && 用户?.regionId) regionId = 用户.regionId;
+
+  const owner = ownerUserId ? await 查询账号快照(client, ownerUserId) : null;
+  const region = regionId ? await 查询区域快照(client, regionId) : null;
+  return {
+    partnerId: partner?.id || partnerId || null,
+    partnerName: partner?.name || 读取文本(输入, ["partnerName", "assignedPartnerName"], ""),
+    ownerUserId: owner?.id || ownerUserId || null,
+    ownerUserName: owner?.name || 读取文本(输入, ["assignedStaffName", "ownerName"], ""),
+    regionId: region?.id || regionId || null,
+    regionName: region?.name || 读取文本(输入, ["region", "区域"], ""),
+  };
+}
+
 async function 查询或创建客户(
   client: PoolClient,
   客户名称: string,
@@ -3476,11 +4176,17 @@ async function 查询或创建客户(
 }
 
 async function 查询渠道编号(client: PoolClient, 输入编号: string): Promise<string | null> {
+  if (!输入编号.trim()) return null;
   const result = await client.query<{ id: string }>(
     `
     SELECT id::text AS id
     FROM channel.partners
-    WHERE ($1 = '' OR id::text = $1 OR v2_source_id = $1 OR partner_code = $1 OR partner_name = $1)
+    WHERE id::text = $1
+       OR v2_source_id = $1
+       OR partner_code = $1
+       OR partner_name = $1
+       OR extra_json->>'id' = $1
+       OR extra_json->>'partnerId' = $1
     ORDER BY created_at
     LIMIT 1
     `,
@@ -3490,11 +4196,17 @@ async function 查询渠道编号(client: PoolClient, 输入编号: string): Pro
 }
 
 async function 查询账号编号(client: PoolClient, 输入编号: string): Promise<string | null> {
+  if (!输入编号.trim()) return null;
   const result = await client.query<{ id: string }>(
     `
     SELECT id::text AS id
     FROM iam.users
-    WHERE ($1 = '' OR id::text = $1 OR v2_source_id = $1 OR username = $1 OR display_name = $1)
+    WHERE id::text = $1
+       OR v2_source_id = $1
+       OR username::text = $1
+       OR display_name = $1
+       OR extra_json->>'id' = $1
+       OR extra_json->>'userId' = $1
     ORDER BY created_at
     LIMIT 1
     `,
@@ -3503,12 +4215,133 @@ async function 查询账号编号(client: PoolClient, 输入编号: string): Pro
   return result.rows[0]?.id || null;
 }
 
+async function 必须查询渠道编号(client: PoolClient, 输入编号: string): Promise<string> {
+  const id = await 查询渠道编号(client, 输入编号);
+  if (!id) throw new 应用错误("V3_BUSINESS_PARTNER_NOT_FOUND", "所选渠道商不存在。", 400);
+  return id;
+}
+
+async function 必须查询账号编号(client: PoolClient, 输入编号: string): Promise<string> {
+  const id = await 查询账号编号(client, 输入编号);
+  if (!id) throw new 应用错误("V3_BUSINESS_USER_NOT_FOUND", "所选跟进员工不存在。", 400);
+  return id;
+}
+
+async function 查询渠道快照(
+  client: PoolClient,
+  id: string,
+): Promise<{ id: string; name: string; regionId: string; regionName: string } | null> {
+  const result = await client.query<{
+    id: string;
+    name: string;
+    region_id: string | null;
+    region_name: string | null;
+  }>(
+    `
+    SELECT p.id::text AS id, p.partner_name AS name,
+      p.region_id::text AS region_id, reg.region_name
+    FROM channel.partners p
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
+    WHERE p.id::text = $1 OR p.v2_source_id = $1 OR p.partner_code = $1 OR p.extra_json->>'id' = $1
+    LIMIT 1
+    `,
+    [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    regionId: row.region_id || "",
+    regionName: row.region_name || "",
+  };
+}
+
+async function 查询账号快照(
+  client: PoolClient,
+  id: string,
+): Promise<{ id: string; name: string } | null> {
+  const result = await client.query<{ id: string; display_name: string }>(
+    `
+    SELECT id::text AS id, display_name
+    FROM iam.users
+    WHERE id::text = $1
+       OR v2_source_id = $1
+       OR username::text = $1
+       OR extra_json->>'id' = $1
+       OR extra_json->>'userId' = $1
+    LIMIT 1
+    `,
+    [id],
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, name: row.display_name } : null;
+}
+
+async function 查询账号首个渠道(
+  client: PoolClient,
+  userId: string,
+): Promise<{ id: string; name: string } | null> {
+  const result = await client.query<{ id: string; name: string }>(
+    `
+    SELECT p.id::text AS id, p.partner_name AS name
+    FROM channel.partner_members pm
+    JOIN channel.partners p ON p.id = pm.partner_id
+    WHERE pm.user_id = $1::uuid
+      AND pm.status_code = 'active'
+      AND p.status_code = 'active'
+    ORDER BY pm.started_at DESC
+    LIMIT 1
+    `,
+    [userId],
+  );
+  return result.rows[0] || null;
+}
+
+async function 是否渠道成员(
+  client: PoolClient,
+  partnerId: string,
+  userId: string,
+): Promise<boolean> {
+  const result = await client.query<{ exists: boolean }>(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM channel.partner_members
+      WHERE partner_id = $1::uuid
+        AND user_id = $2::uuid
+        AND status_code = 'active'
+    ) AS exists
+    `,
+    [partnerId, userId],
+  );
+  return Boolean(result.rows[0]?.exists);
+}
+
+async function 查询区域快照(
+  client: PoolClient,
+  id: string,
+): Promise<{ id: string; name: string } | null> {
+  const result = await client.query<{ id: string; region_name: string }>(
+    `
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE id::text = $1 OR region_code = $1 OR region_name = $1
+    LIMIT 1
+    `,
+    [id],
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, name: row.region_name } : null;
+}
+
 async function 查询区域编号(client: PoolClient, 输入名称: string): Promise<string | null> {
+  if (!输入名称.trim()) return null;
   const result = await client.query<{ id: string }>(
     `
     SELECT id::text AS id
     FROM org.regions
-    WHERE ($1 = '' OR region_name = $1 OR region_code = $1)
+    WHERE region_name = $1 OR region_code = $1 OR id::text = $1
     ORDER BY region_level DESC
     LIMIT 1
     `,
@@ -3862,6 +4695,19 @@ function 规范报备状态(status: string): string {
     return status;
   }
   return "pending";
+}
+
+function 规范报备初始状态(status: string, 用户: 业务用户上下文 | null): string {
+  if (
+    用户 &&
+    (用户.roleCode === "staff" ||
+      用户.roleCode === "partner_admin" ||
+      用户.dataScopeCode === "self" ||
+      用户.dataScopeCode === "partner")
+  ) {
+    return "pending";
+  }
+  return 规范报备状态(status);
 }
 
 function 规范商机状态(stage: string): string {

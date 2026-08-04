@@ -3,6 +3,7 @@ import { 创建成功响应, 应用错误 } from "@lianruan/shared";
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
 
+import { 读取请求会话用户名 } from "./auth-routes.js";
 import {
   type 业务数据服务,
   创建业务数据服务,
@@ -13,6 +14,8 @@ import {
 interface 业务路由参数 {
   build: 构建信息;
   databaseUrl?: string;
+  sessionSecret?: string;
+  env?: NodeJS.ProcessEnv;
   service?: 业务数据服务;
 }
 
@@ -62,6 +65,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   const service =
     参数.service ||
     (参数.databaseUrl ? 创建业务数据服务({ databaseUrl: 参数.databaseUrl }) : 创建业务数据服务({}));
+  const 读取用户 = (req: Request) => 读取当前业务用户(req, 参数);
 
   router.get("/dashboard/stats", async (req, res, next) => {
     try {
@@ -82,7 +86,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/stage9/:module", async (req, res, next) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, 参数.build, await service.查询列表(模块, 读取查询(req))));
+      res.json(成功(req, 参数.build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -91,7 +95,9 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/stage9/:module/:id", async (req, res, next) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, 参数.build, await service.查询详情(模块, 读取路由参数(req, "id"))));
+      res.json(
+        成功(req, 参数.build, await service.查询详情(模块, 读取路由参数(req, "id"), 读取用户(req))),
+      );
     } catch (error) {
       next(error);
     }
@@ -99,7 +105,13 @@ export function 创建业务路由(参数: 业务路由参数): Router {
 
   router.get("/notifications", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.查询列表("notifications", 读取查询(req))));
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.查询列表("notifications", 读取查询(req), 读取用户(req)),
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -114,11 +126,11 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     );
   });
 
-  router.get("/registrations", 列表处理器(service, 参数.build, "registrations"));
-  router.get("/registrations/:id", 详情处理器(service, 参数.build, "registrations"));
+  router.get("/registrations", 列表处理器(service, 参数.build, "registrations", 读取用户));
+  router.get("/registrations/:id", 详情处理器(service, 参数.build, "registrations", 读取用户));
   router.post("/registrations", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -129,7 +141,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新报备(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -142,7 +154,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -150,11 +162,11 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.get("/opportunities", 列表处理器(service, 参数.build, "opportunities"));
-  router.get("/opportunities/:id", 详情处理器(service, 参数.build, "opportunities"));
+  router.get("/opportunities", 列表处理器(service, 参数.build, "opportunities", 读取用户));
+  router.get("/opportunities/:id", 详情处理器(service, 参数.build, "opportunities", 读取用户));
   router.post("/opportunities", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -165,7 +177,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新商机(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新商机(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -173,8 +185,8 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.get("/quotes", 列表处理器(service, 参数.build, "quotes"));
-  router.get("/quotes/:id", 详情处理器(service, 参数.build, "quotes"));
+  router.get("/quotes", 列表处理器(service, 参数.build, "quotes", 读取用户));
+  router.get("/quotes/:id", 详情处理器(service, 参数.build, "quotes", 读取用户));
   router.post("/quotes/workload-preview", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.试算报价(req.body)));
@@ -191,7 +203,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
   router.post("/quotes", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报价(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建报价(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -202,7 +214,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报价(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新报价(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -215,7 +227,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报价状态(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新报价状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -223,11 +235,11 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.get("/orders", 列表处理器(service, 参数.build, "orders"));
-  router.get("/orders/:id", 详情处理器(service, 参数.build, "orders"));
+  router.get("/orders", 列表处理器(service, 参数.build, "orders", 读取用户));
+  router.get("/orders/:id", 详情处理器(service, 参数.build, "orders", 读取用户));
   router.post("/orders", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建订单(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建订单(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -238,7 +250,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新订单状态(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新订单状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -254,7 +266,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           await service.更新订单状态(
             读取路由参数(req, "id"),
             { ...req.body, status: "confirmed" },
-            读取当前业务用户(req),
+            读取用户(req),
           ),
         ),
       );
@@ -271,7 +283,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           await service.更新订单状态(
             读取路由参数(req, "id"),
             { ...req.body, status: "rejected" },
-            读取当前业务用户(req),
+            读取用户(req),
           ),
         ),
       );
@@ -280,10 +292,10 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.get("/partners", 列表处理器(service, 参数.build, "partners"));
-  router.get("/partners/:id", 详情处理器(service, 参数.build, "partners"));
-  router.get("/users", 列表处理器(service, 参数.build, "users"));
-  router.get("/products", 列表处理器(service, 参数.build, "products"));
+  router.get("/partners", 列表处理器(service, 参数.build, "partners", 读取用户));
+  router.get("/partners/:id", 详情处理器(service, 参数.build, "partners", 读取用户));
+  router.get("/users", 列表处理器(service, 参数.build, "users", 读取用户));
+  router.get("/products", 列表处理器(service, 参数.build, "products", 读取用户));
   router.get("/products/stats", async (req, res, next) => {
     try {
       const 列表 = await service.查询列表("products", { page: 1, pageSize: 1000 });
@@ -296,12 +308,12 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
-  router.get("/product-tree", 列表处理器(service, 参数.build, "products"));
-  router.get("/features", 产品列表处理器(service, 参数.build, "feature"));
-  router.get("/hardware", 产品列表处理器(service, 参数.build, "hardware"));
-  router.get("/packages", 产品列表处理器(service, 参数.build, "package"));
-  router.get("/audit-logs", 列表处理器(service, 参数.build, "audit"));
-  router.get("/workload/classifications", 列表处理器(service, 参数.build, "workload"));
+  router.get("/product-tree", 列表处理器(service, 参数.build, "products", 读取用户));
+  router.get("/features", 产品列表处理器(service, 参数.build, "feature", 读取用户));
+  router.get("/hardware", 产品列表处理器(service, 参数.build, "hardware", 读取用户));
+  router.get("/packages", 产品列表处理器(service, 参数.build, "package", 读取用户));
+  router.get("/audit-logs", 列表处理器(service, 参数.build, "audit", 读取用户));
+  router.get("/workload/classifications", 列表处理器(service, 参数.build, "workload", 读取用户));
   router.get("/workload/mappings", async (req, res, next) => {
     try {
       res.json(
@@ -317,7 +329,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.保存工作量映射(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.保存工作量映射(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -337,18 +349,14 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.保存交付工作量规则(
-            读取路由参数(req, "id"),
-            req.body,
-            读取当前业务用户(req),
-          ),
+          await service.保存交付工作量规则(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
       next(error);
     }
   });
-  router.get("/workload/rules", 列表处理器(service, 参数.build, "workload"));
+  router.get("/workload/rules", 列表处理器(service, 参数.build, "workload", 读取用户));
   router.get("/open-api/overview", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.读取开放接口总览(读取接口基准地址(req))));
@@ -379,9 +387,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
   router.post("/open-api/clients", async (req, res, next) => {
     try {
-      res.json(
-        成功(req, 参数.build, await service.创建开放接口客户端(req.body, 读取当前业务用户(req))),
-      );
+      res.json(成功(req, 参数.build, await service.创建开放接口客户端(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -392,11 +398,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新开放接口客户端(
-            读取路由参数(req, "id"),
-            req.body,
-            读取当前业务用户(req),
-          ),
+          await service.更新开放接口客户端(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -409,7 +411,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.重置开放接口密钥(读取路由参数(req, "id"), 读取当前业务用户(req)),
+          await service.重置开放接口密钥(读取路由参数(req, "id"), 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -430,21 +432,21 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
-  router.get("/approvals", 列表处理器(service, 参数.build, "approvals"));
-  router.get("/import-export/tasks", 列表处理器(service, 参数.build, "importExport"));
+  router.get("/approvals", 列表处理器(service, 参数.build, "approvals", 读取用户));
+  router.get("/import-export/tasks", 列表处理器(service, 参数.build, "importExport", 读取用户));
 
-  router.get("/mobile/:module", 移动列表处理器(service, 参数.build));
-  router.get("/mobile/:module/:id", 移动详情处理器(service, 参数.build));
+  router.get("/mobile/:module", 移动列表处理器(service, 参数.build, 读取用户));
+  router.get("/mobile/:module/:id", 移动详情处理器(service, 参数.build, 读取用户));
   router.post("/mobile/registrations", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
   });
   router.post("/mobile/opportunities", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取当前业务用户(req))));
+      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -455,7 +457,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新商机(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新商机(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -468,10 +470,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.创建订单(
-            { ...req.body, quoteId: 读取路由参数(req, "id") },
-            读取当前业务用户(req),
-          ),
+          await service.创建订单({ ...req.body, quoteId: 读取路由参数(req, "id") }, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -484,16 +483,16 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取当前业务用户(req)),
+          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
       next(error);
     }
   });
-  router.get("/mobile/pending-approvals", 列表处理器(service, 参数.build, "approvals"));
-  router.get("/mobile/partners", 列表处理器(service, 参数.build, "partners"));
-  router.get("/mobile/partners/:id", 详情处理器(service, 参数.build, "partners"));
+  router.get("/mobile/pending-approvals", 列表处理器(service, 参数.build, "approvals", 读取用户));
+  router.get("/mobile/partners", 列表处理器(service, 参数.build, "partners", 读取用户));
+  router.get("/mobile/partners/:id", 详情处理器(service, 参数.build, "partners", 读取用户));
   router.post("/mobile/logout", (_req, res) => {
     res.json(成功(_req, 参数.build, { loggedOut: true }));
   });
@@ -559,14 +558,21 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   return router;
 }
 
-function 列表处理器(service: 业务数据服务, build: 构建信息, 模块: 阶段9模块) {
+type 当前用户读取器 = (req: Request) => 当前业务用户 | null;
+
+function 列表处理器(
+  service: 业务数据服务,
+  build: 构建信息,
+  模块: 阶段9模块,
+  读取用户: 当前用户读取器,
+) {
   return async (
     req: Request,
     res: { json(value: unknown): void },
     next: (error: unknown) => void,
   ) => {
     try {
-      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req))));
+      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -577,6 +583,7 @@ function 产品列表处理器(
   service: 业务数据服务,
   build: 构建信息,
   productType: "feature" | "hardware" | "package",
+  读取用户: 当前用户读取器,
 ) {
   return async (
     req: Request,
@@ -585,7 +592,11 @@ function 产品列表处理器(
   ) => {
     try {
       res.json(
-        成功(req, build, await service.查询列表("products", { ...读取查询(req), productType })),
+        成功(
+          req,
+          build,
+          await service.查询列表("products", { ...读取查询(req), productType }, 读取用户(req)),
+        ),
       );
     } catch (error) {
       next(error);
@@ -593,21 +604,28 @@ function 产品列表处理器(
   };
 }
 
-function 详情处理器(service: 业务数据服务, build: 构建信息, 模块: 阶段9模块) {
+function 详情处理器(
+  service: 业务数据服务,
+  build: 构建信息,
+  模块: 阶段9模块,
+  读取用户: 当前用户读取器,
+) {
   return async (
     req: Request,
     res: { json(value: unknown): void },
     next: (error: unknown) => void,
   ) => {
     try {
-      res.json(成功(req, build, await service.查询详情(模块, 读取路由参数(req, "id"))));
+      res.json(
+        成功(req, build, await service.查询详情(模块, 读取路由参数(req, "id"), 读取用户(req))),
+      );
     } catch (error) {
       next(error);
     }
   };
 }
 
-function 移动列表处理器(service: 业务数据服务, build: 构建信息) {
+function 移动列表处理器(service: 业务数据服务, build: 构建信息, 读取用户: 当前用户读取器) {
   return async (
     req: Request,
     res: { json(value: unknown): void },
@@ -615,14 +633,14 @@ function 移动列表处理器(service: 业务数据服务, build: 构建信息)
   ) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req))));
+      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
     } catch (error) {
       next(error);
     }
   };
 }
 
-function 移动详情处理器(service: 业务数据服务, build: 构建信息) {
+function 移动详情处理器(service: 业务数据服务, build: 构建信息, 读取用户: 当前用户读取器) {
   return async (
     req: Request,
     res: { json(value: unknown): void },
@@ -630,7 +648,9 @@ function 移动详情处理器(service: 业务数据服务, build: 构建信息)
   ) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, build, await service.查询详情(模块, 读取路由参数(req, "id"))));
+      res.json(
+        成功(req, build, await service.查询详情(模块, 读取路由参数(req, "id"), 读取用户(req))),
+      );
     } catch (error) {
       next(error);
     }
@@ -673,6 +693,9 @@ function 读取查询(req: Request) {
     status: 读取查询文本(req, "status"),
     level: 读取查询文本(req, "level"),
     region: 读取查询文本(req, "region"),
+    userId: 读取查询文本(req, "userId"),
+    partnerId: 读取查询文本(req, "partnerId") || 读取查询文本(req, "assignedPartnerId"),
+    operatorId: 读取查询文本(req, "operatorId"),
     productType: 读取产品类型(req),
     page: 读取正整数(req, "page", 1),
     pageSize: Math.min(读取正整数(req, "pageSize", 20), 100),
@@ -795,14 +818,62 @@ function 读取正整数(req: Request, key: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function 读取当前业务用户(req: Request): 当前业务用户 | null {
-  const header = req.headers["x-v3-delivery-user"];
-  if (typeof header !== "string") return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as 当前业务用户;
-    if (!parsed.username || !parsed.displayName || !parsed.roleName) return null;
-    return parsed;
-  } catch {
-    return null;
+function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当前业务用户 | null {
+  const 会话用户名 = 读取请求会话用户名(req, {
+    sessionSecret: 参数.sessionSecret || "",
+    ...(参数.env ? { env: 参数.env } : {}),
+  });
+  if (会话用户名) {
+    return {
+      username: 会话用户名,
+      displayName: 会话用户名,
+      roleName: "V3登录用户",
+    };
   }
+
+  const v2用户名 = 读取V2令牌用户名(req);
+  if (v2用户名) {
+    return {
+      username: v2用户名,
+      displayName: v2用户名,
+      roleName: "V2页面用户",
+    };
+  }
+
+  const header = req.headers["x-v3-delivery-user"];
+  if (typeof header === "string") {
+    try {
+      const parsed = JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as 当前业务用户;
+      if (!parsed.username || !parsed.displayName || !parsed.roleName) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  const operatorId = 读取查询文本(req, "operatorId") || 读取请求体文本(req, "operatorId");
+  if (!operatorId) return null;
+  return {
+    username: operatorId,
+    externalUserId: operatorId,
+    displayName: 读取请求体文本(req, "operatorName") || operatorId,
+    roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
+  };
+}
+
+function 读取V2令牌用户名(req: Request): string {
+  const header = req.headers.authorization || "";
+  const match = /^Bearer\s+v2\.([^.]+)\./i.exec(header);
+  if (!match?.[1]) return "";
+  try {
+    return Buffer.from(match[1], "base64url").toString("utf8");
+  } catch {
+    return "";
+  }
+}
+
+function 读取请求体文本(req: Request, key: string): string {
+  const body = req.body as Record<string, unknown> | undefined;
+  const value = body?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
 }

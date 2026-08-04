@@ -10,8 +10,8 @@ output_dir="${output_root}/${package_name}"
 include_runtime="${V3_INCLUDE_RUNTIME:-1}"
 package_format="${V3_PACKAGE_FORMAT:-zip}"
 
-if ! ls "${project_root}/deploy/single-server/images/"*.tar >/dev/null 2>&1; then
-  echo "未找到离线镜像tar文件，请先执行 deploy/single-server/scripts/save-images.sh。" >&2
+if ! ls "${project_root}/deploy/single-server/images/"*.docker-image >/dev/null 2>&1; then
+  echo "未找到离线镜像归档文件，请先执行 deploy/single-server/scripts/save-images.sh。" >&2
   exit 1
 fi
 
@@ -100,15 +100,15 @@ mkdir -p "${output_dir}"
 cp -R "${project_root}/deploy/single-server/compose" "${output_dir}/compose"
 cp -R "${project_root}/deploy/single-server/config" "${output_dir}/config"
 mkdir -p "${output_dir}/images"
-cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-api-${version_tag}.tar" "${output_dir}/images/"
-cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-worker-${version_tag}.tar" "${output_dir}/images/"
-cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-nginx-${version_tag}.tar" "${output_dir}/images/"
-cp "${project_root}/deploy/single-server/images/postgres-16.4-alpine.tar" "${output_dir}/images/"
-cp "${project_root}/deploy/single-server/images/redis-7.2.5-alpine.tar" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-api-${version_tag}.docker-image" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-worker-${version_tag}.docker-image" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-nginx-${version_tag}.docker-image" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/postgres-16.4-alpine.docker-image" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/redis-7.2.5-alpine.docker-image" "${output_dir}/images/"
 if command -v sha256sum >/dev/null 2>&1; then
-  (cd "${output_dir}/images" && sha256sum *.tar > sha256sum.txt)
+  (cd "${output_dir}/images" && sha256sum *.docker-image > sha256sum.txt)
 else
-  (cd "${output_dir}/images" && shasum -a 256 *.tar > sha256sum.txt)
+  (cd "${output_dir}/images" && shasum -a 256 *.docker-image > sha256sum.txt)
 fi
 cp -R "${project_root}/deploy/single-server/scripts" "${output_dir}/scripts"
 mkdir -p "${output_dir}/database"

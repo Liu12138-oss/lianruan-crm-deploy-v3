@@ -9,6 +9,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: "登录", layout: "entry" },
   },
   {
+    path: "/login/singlesignonlogin/login.do",
+    name: "singleSignOnLogin",
+    component: () => import("./pages/SingleSignOnPage.vue"),
+    meta: { title: "单点登录", layout: "entry" },
+  },
+  {
     path: "/",
     name: "home",
     component: () => import("./views/HomeView.vue"),

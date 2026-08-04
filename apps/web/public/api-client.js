@@ -96,10 +96,27 @@ function withOperatorPayload(payload = {}) {
   };
 }
 
+function buildAuthHeaders(headers = {}) {
+  loadUserFromStorage();
+  const result = { ...headers };
+  if (authToken && !result.Authorization) {
+    result.Authorization = `Bearer ${authToken}`;
+  }
+  return result;
+}
+
+function apiFetch(url, options = {}) {
+  return window.fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: buildAuthHeaders(options.headers || {})
+  });
+}
+
 const apiClient = {
   // 登录
   async login(username, password, options = {}) {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await apiFetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -138,7 +155,7 @@ const apiClient = {
   // 创建报备
   async createRegistration(regData) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/registrations`, {
+    const res = await apiFetch(`${API_BASE}/registrations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -181,7 +198,7 @@ const apiClient = {
     
     const url = `${API_BASE}/registrations?${params}`;
     console.log('[API] 请求 URL:', url);
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     const result = await res.json();
     console.log('[API] 报备返回条数:', result.data?.length || 0);
     return result;
@@ -189,7 +206,7 @@ const apiClient = {
   
   // 更新报备状态（管理员审核）
   async updateRegistrationStatus(id, status, remark) {
-    const res = await fetch(`${API_BASE}/registrations/${id}/status`, {
+    const res = await apiFetch(`${API_BASE}/registrations/${id}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload({ status, remark }))
@@ -200,7 +217,7 @@ const apiClient = {
   // 创建商机
   async createOpportunity(oppData) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/opportunities`, {
+    const res = await apiFetch(`${API_BASE}/opportunities`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -234,14 +251,14 @@ const apiClient = {
     
     Object.entries(filters).forEach(([k, v]) => params.append(k, v));
     
-    const res = await fetch(`${API_BASE}/opportunities?${params}`);
+    const res = await apiFetch(`${API_BASE}/opportunities?${params}`);
     return res.json();
   },
   
   // 更新商机（包括跟进记录、阶段等）
   async updateOpportunity(id, updates) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/opportunities/${id}`, {
+    const res = await apiFetch(`${API_BASE}/opportunities/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload(updates || {}))
@@ -252,7 +269,7 @@ const apiClient = {
   // 更新报备记录（指派渠道商、跟进员工等）
   async updateRegistration(id, updates) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/registrations/${id}`, {
+    const res = await apiFetch(`${API_BASE}/registrations/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload(updates || {}))
@@ -267,14 +284,14 @@ const apiClient = {
     if (currentUser?.role === 'admin') {
       params.append('region', currentUser.region);
     }
-    const res = await fetch(`${API_BASE}/dashboard/stats?${params}`);
+    const res = await apiFetch(`${API_BASE}/dashboard/stats?${params}`);
     return res.json();
   },
   
   // 创建报价单
   async createQuote(quoteData) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/quotes`, {
+    const res = await apiFetch(`${API_BASE}/quotes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -305,14 +322,14 @@ const apiClient = {
     
     Object.entries(filters).forEach(([k, v]) => params.append(k, v));
     
-    const res = await fetch(`${API_BASE}/quotes?${params}`);
+    const res = await apiFetch(`${API_BASE}/quotes?${params}`);
     return res.json();
   },
   
   // 删除报价单
   async deleteQuote(quoteId) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/quotes/${quoteId}`, {
+    const res = await apiFetch(`${API_BASE}/quotes/${quoteId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -327,7 +344,7 @@ const apiClient = {
   // 创建订单
   async createOrder(orderData) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/orders`, {
+    const res = await apiFetch(`${API_BASE}/orders`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -358,14 +375,14 @@ const apiClient = {
     
     Object.entries(filters).forEach(([k, v]) => params.append(k, v));
     
-    const res = await fetch(`${API_BASE}/orders?${params}`);
+    const res = await apiFetch(`${API_BASE}/orders?${params}`);
     return res.json();
   },
 
   // 删除订单
   async deleteOrder(orderId) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/orders/${orderId}`, {
+    const res = await apiFetch(`${API_BASE}/orders/${orderId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -380,7 +397,7 @@ const apiClient = {
   // ???????????/?????
   async updateOrderStatus(orderId, status, remark = '') {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/orders/${orderId}/status`, {
+    const res = await apiFetch(`${API_BASE}/orders/${orderId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -413,7 +430,7 @@ const apiClient = {
       }
     });
 
-    const res = await fetch(`${API_BASE}/partners?${params}`);
+    const res = await apiFetch(`${API_BASE}/partners?${params}`);
     return res.json();
   },
 
@@ -427,14 +444,14 @@ const apiClient = {
     const query = params.toString() ? `?${params.toString()}` : '';
     const headers = {};
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    const res = await fetch(`${API_BASE}/partners/${partnerId}${query}`, { headers });
+    const res = await apiFetch(`${API_BASE}/partners/${partnerId}${query}`, { headers });
     return res.json();
   },
 
   // 更新渠道商
   async updatePartner(partnerId, updates) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/partners/${partnerId}`, {
+    const res = await apiFetch(`${API_BASE}/partners/${partnerId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload(updates || {}))
@@ -445,7 +462,7 @@ const apiClient = {
   // 删除渠道商
   async deletePartner(partnerId) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/partners/${partnerId}`, {
+    const res = await apiFetch(`${API_BASE}/partners/${partnerId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload())
@@ -456,7 +473,7 @@ const apiClient = {
   // 更新渠道商状态（审批）
   async updatePartnerStatus(partnerId, status, remark, approvedBy) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/partners/${partnerId}/status`, {
+    const res = await apiFetch(`${API_BASE}/partners/${partnerId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload({ status, remark, approvedBy }))
@@ -469,14 +486,14 @@ const apiClient = {
     loadUserFromStorage();
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([k, v]) => params.append(k, v));
-    const res = await fetch(`${API_BASE}/users?${params}`);
+    const res = await apiFetch(`${API_BASE}/users?${params}`);
     return res.json();
   },
 
   // 创建用户（管理员账号）
   async createUser(userData) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/users`, {
+    const res = await apiFetch(`${API_BASE}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData)
@@ -487,7 +504,7 @@ const apiClient = {
   // 更新用户
   async updateUser(userId, updates) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/users/${userId}`, {
+    const res = await apiFetch(`${API_BASE}/users/${userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload(updates || {}))
@@ -498,7 +515,7 @@ const apiClient = {
   // 删除用户
   async deleteUser(userId) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/users/${userId}`, {
+    const res = await apiFetch(`${API_BASE}/users/${userId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload())
@@ -509,7 +526,7 @@ const apiClient = {
   // 删除报备
   async deleteRegistration(regId) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/registrations/${regId}`, {
+    const res = await apiFetch(`${API_BASE}/registrations/${regId}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload())
@@ -520,7 +537,7 @@ const apiClient = {
   // 更新报价单
   async updateQuote(quoteId, updates) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/quotes/${quoteId}`, {
+    const res = await apiFetch(`${API_BASE}/quotes/${quoteId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload(updates || {}))
@@ -531,7 +548,7 @@ const apiClient = {
   // 更新报价单状态（发送/确认/撤回/转单）
   async updateQuoteStatus(quoteId, status) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/quotes/${quoteId}/status`, {
+    const res = await apiFetch(`${API_BASE}/quotes/${quoteId}/status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withOperatorPayload({ status }))
@@ -541,7 +558,7 @@ const apiClient = {
 
   async previewQuoteWorkload(payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/quotes/workload-preview`, {
+    const res = await apiFetch(`${API_BASE}/quotes/workload-preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {})
@@ -551,7 +568,7 @@ const apiClient = {
 
   async previewIpgQuote(payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/ipg/quote-preview`, {
+    const res = await apiFetch(`${API_BASE}/ipg/quote-preview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload || {})
@@ -564,13 +581,13 @@ const apiClient = {
     const params = new URLSearchParams();
     params.append('operatorId', currentUser?.id || '');
     if (keyword) params.append('keyword', keyword);
-    const res = await fetch(`${API_BASE}/workload/mappings?${params}`);
+    const res = await apiFetch(`${API_BASE}/workload/mappings?${params}`);
     return res.json();
   },
 
   async updateWorkloadMapping(featureId, payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/workload/mappings/${featureId}`, {
+    const res = await apiFetch(`${API_BASE}/workload/mappings/${featureId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -585,7 +602,7 @@ const apiClient = {
     loadUserFromStorage();
     const params = new URLSearchParams();
     params.append('operatorId', currentUser?.id || '');
-    const res = await fetch(`${API_BASE}/workload/rules?${params}`);
+    const res = await apiFetch(`${API_BASE}/workload/rules?${params}`);
     return res.json();
   },
 
@@ -593,13 +610,13 @@ const apiClient = {
     loadUserFromStorage();
     const params = new URLSearchParams();
     params.append('operatorId', currentUser?.id || '');
-    const res = await fetch(`${API_BASE}/workload/delivery-rules?${params}`);
+    const res = await apiFetch(`${API_BASE}/workload/delivery-rules?${params}`);
     return res.json();
   },
 
   async updateWorkloadDeliveryRule(ruleId, payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/workload/delivery-rules/${ruleId}`, {
+    const res = await apiFetch(`${API_BASE}/workload/delivery-rules/${ruleId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -612,7 +629,7 @@ const apiClient = {
 
   async createWorkloadRule(payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/workload/rules`, {
+    const res = await apiFetch(`${API_BASE}/workload/rules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -625,7 +642,7 @@ const apiClient = {
 
   async updateWorkloadRule(ruleId, payload) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/workload/rules/${ruleId}`, {
+    const res = await apiFetch(`${API_BASE}/workload/rules/${ruleId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -640,7 +657,7 @@ const apiClient = {
     loadUserFromStorage();
     const params = new URLSearchParams();
     params.append('operatorId', currentUser?.id || '');
-    const res = await fetch(`${API_BASE}/workload/rules/${ruleId}?${params}`, {
+    const res = await apiFetch(`${API_BASE}/workload/rules/${ruleId}?${params}`, {
       method: 'DELETE'
     });
     return res.json();
@@ -653,14 +670,14 @@ const apiClient = {
     if (currentUser) {
       params.append('userRole', currentUser.role);
     }
-    const res = await fetch(`${API_BASE}/pending-approvals?${params}`);
+    const res = await apiFetch(`${API_BASE}/pending-approvals?${params}`);
     return res.json();
   },
 
   // 审批/驳回账号申请
   async approvePendingAccount(approvalId, action) {
     loadUserFromStorage();
-    const res = await fetch(`${API_BASE}/pending-approvals/${approvalId}`, {
+    const res = await apiFetch(`${API_BASE}/pending-approvals/${approvalId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
