@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { 应用错误 } from "@lianruan/shared";
+import { 应用错误, 清理日志字段 } from "@lianruan/shared";
 import { Pool, type PoolClient } from "pg";
 
 export type 阶段9模块 =
@@ -22,6 +22,7 @@ export type 阶段9模块 =
   | "notifications";
 
 export interface 当前业务用户 {
+  requestId?: string;
   userId?: string;
   externalUserId?: string;
   username: string;
@@ -275,7 +276,11 @@ export interface 业务数据服务 {
   ): Promise<开放接口客户端>;
   重置开放接口密钥(id: string, 用户: 当前业务用户 | null): Promise<开放接口密钥结果>;
   查询开放接口日志(limit: number): Promise<开放接口日志[]>;
-  签发开放接口令牌(输入: Record<string, unknown>, ip: string): Promise<开放接口令牌>;
+  签发开放接口令牌(
+    输入: Record<string, unknown>,
+    ip: string,
+    requestId?: string,
+  ): Promise<开放接口令牌>;
   读取开放接口身份(token: string): Promise<开放接口身份>;
   记录开放接口调用(输入: {
     clientId?: string;
@@ -289,6 +294,7 @@ export interface 业务数据服务 {
     path: string;
     ip: string;
     message: string;
+    extra?: Record<string, unknown>;
   }): Promise<void>;
   查询工作量映射(keyword?: string): Promise<工作量映射项[]>;
   保存工作量映射(
@@ -317,7 +323,12 @@ const 状态中文: Record<string, string> = {
   won: "已赢单",
   lost: "已丢单",
   pending_primary_confirm: "待一级确认",
+  primary_confirmed: "一级已确认",
+  primary_rejected: "一级已驳回",
+  pending_superadmin_confirm: "待超管确认",
   confirmed: "已确认",
+  processing: "处理中",
+  shipped: "已发货",
   completed: "已完成",
   unread: "未读",
   read: "已读",
@@ -668,14 +679,21 @@ class 内存业务数据服务 implements 业务数据服务 {
     const 报价 = 报价编号 ? this.取记录集合("quotes").find((项) => 项.id === 报价编号) : null;
     if (!报价) throw new 应用错误("V3_STAGE9_QUOTE_NOT_FOUND", "报价单不存在，不能创建订单。", 404);
     const now = new Date().toISOString();
+    const 一级渠道编号 = 读取文本(
+      输入,
+      ["parentPartnerId", "assignedPartnerId", "primaryPartnerId"],
+      "",
+    );
+    const 初始状态 = 一级渠道编号 ? "pending_primary_confirm" : "primary_confirmed";
     const 原始数据 = {
       id: "ORD-V3-" + Date.now(),
       quoteId: 报价.id,
       customer: 报价.客户名称,
       total: 报价.金额,
-      status: "pending_primary_confirm",
+      status: 初始状态,
       partnerId: 报价.原始数据.partnerId,
       partnerName: 报价.渠道名称,
+      parentPartnerId: 一级渠道编号,
       region: 报价.区域,
       assignedStaffName: 用户?.displayName || "阶段9测试账号",
       createdByName: 用户?.displayName || "阶段9测试账号",
@@ -696,7 +714,10 @@ class 内存业务数据服务 implements 业务数据服务 {
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
     const 记录 = await this.查询详情("orders", id);
-    const 状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
+    const 状态 = 推导订单下一状态(
+      记录.状态,
+      规范订单状态(读取文本(输入, ["status", "状态"], "confirmed")),
+    );
     记录.状态 = 状态;
     记录.状态名称 = 状态中文[状态] || 状态;
     记录.更新时间 = new Date().toISOString();
@@ -777,7 +798,11 @@ class 内存业务数据服务 implements 业务数据服务 {
     return [];
   }
 
-  public async 签发开放接口令牌(): Promise<开放接口令牌> {
+  public async 签发开放接口令牌(
+    _输入?: Record<string, unknown>,
+    _ip?: string,
+    _requestId?: string,
+  ): Promise<开放接口令牌> {
     throw new 应用错误(
       "V3_OPEN_API_POSTGRES_REQUIRED",
       "开放接口令牌必须使用PostgreSQL正式表签发。",
@@ -1082,6 +1107,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     if (!用户) return "true";
     if (模块 === "partners") return 构建渠道商数据范围条件(用户, 参数);
     if (模块 === "users") return 构建账号数据范围条件(用户, 参数);
+    if (模块 === "approvals") return 构建审核数据范围条件(用户, 参数);
     const alias = 数据范围表别名(模块);
     if (!alias) return "true";
     if (用户.roleCode === "superadmin" || 用户.dataScopeCode === "all") return "true";
@@ -1099,10 +1125,16 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
 
     if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
       if (用户.regionId) {
+        if (模块 === "quotes" || 模块 === "orders") {
+          return 构建渠道区域关联条件(模块, 用户, 参数);
+        }
         参数.push(用户.regionId);
         return `${alias}.region_id = $${参数.length}::uuid`;
       }
       if (用户.regionName) {
+        if (模块 === "quotes" || 模块 === "orders") {
+          return 构建渠道区域关联条件(模块, 用户, 参数);
+        }
         参数.push("%" + 用户.regionName + "%");
         return `${alias}.extra_json->>'region' ILIKE $${参数.length}`;
       }
@@ -1838,15 +1870,61 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       }
       const quote = await client.query<{
         id: string;
+        quote_no: string | null;
+        v2_source_id: string | null;
         customer_id: string | null;
+        customer_name: string | null;
         partner_id: string | null;
+        partner_external_id: string | null;
+        partner_name: string | null;
+        partner_level_code: string | null;
         owner_user_id: string | null;
+        owner_user_name: string | null;
+        region_name: string | null;
         total_amount: string | number;
+        extra_json: Record<string, unknown> | null;
+        parent_partner_id: string | null;
+        parent_partner_external_id: string | null;
+        parent_partner_name: string | null;
       }>(
         `
-        SELECT id, customer_id, partner_id, owner_user_id, total_amount
-        FROM crm.quotes
-        WHERE id::text = $1 OR v2_source_id = $1 OR quote_no = $1
+        SELECT
+          q.id::text AS id,
+          q.quote_no,
+          q.v2_source_id,
+          q.customer_id::text AS customer_id,
+          c.customer_name,
+          q.partner_id::text AS partner_id,
+          COALESCE(p.v2_source_id, p.partner_code, p.id::text) AS partner_external_id,
+          p.partner_name,
+          p.partner_level_code,
+          q.owner_user_id::text AS owner_user_id,
+          u.display_name AS owner_user_name,
+          COALESCE(q.extra_json->>'region', '') AS region_name,
+          q.total_amount,
+          q.extra_json,
+          parent_rel.parent_partner_id,
+          parent_rel.parent_partner_external_id,
+          parent_rel.parent_partner_name
+        FROM crm.quotes q
+        LEFT JOIN crm.customers c ON c.id = q.customer_id
+        LEFT JOIN channel.partners p ON p.id = q.partner_id
+        LEFT JOIN iam.users u ON u.id = q.owner_user_id
+        LEFT JOIN LATERAL (
+          SELECT
+            parent.id::text AS parent_partner_id,
+            COALESCE(parent.v2_source_id, parent.partner_code, parent.id::text) AS parent_partner_external_id,
+            parent.partner_name AS parent_partner_name
+          FROM channel.partner_relations rel
+          JOIN channel.partners parent ON parent.id = rel.parent_partner_id
+          WHERE rel.child_partner_id = q.partner_id
+            AND rel.relation_code = 'primary_secondary'
+            AND rel.ended_at IS NULL
+            AND parent.status_code = 'active'
+          ORDER BY rel.started_at DESC
+          LIMIT 1
+        ) parent_rel ON true
+        WHERE q.id::text = $1 OR q.v2_source_id = $1 OR q.quote_no = $1
         LIMIT 1
         `,
         [quoteId],
@@ -1854,23 +1932,62 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 报价 = quote.rows[0];
       if (!报价)
         throw new 应用错误("V3_STAGE9_QUOTE_NOT_FOUND", "报价单不存在，不能创建订单。", 404);
+      const 一级渠道 = await 解析订单一级渠道(client, {
+        子渠道编号: 报价.partner_id,
+        子渠道层级: 报价.partner_level_code || "",
+        默认一级渠道编号: 报价.parent_partner_id,
+        默认一级渠道外部编号: 报价.parent_partner_external_id,
+        默认一级渠道名称: 报价.parent_partner_name,
+        输入,
+      });
+      const 初始状态 = 一级渠道 ? "pending_primary_confirm" : "primary_confirmed";
+      const now = new Date().toISOString();
+      const 订单编号 = "ORD-V3-" + Date.now();
+      const 金额 = Number(报价.total_amount) || 0;
+      const 操作人 = 用户?.displayName || "阶段9测试账号";
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO crm.orders (
           order_no, quote_id, customer_id, partner_id, owner_user_id, status_code,
           total_amount, created_at, updated_at, extra_json
         )
-        VALUES ($1, $2, $3, $4, $5, 'pending_primary_confirm', $6, now(), now(), $7::jsonb)
+        VALUES ($1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, now(), now(), $8::jsonb)
         RETURNING id
         `,
         [
-          "ORD-V3-" + Date.now(),
+          订单编号,
           报价.id,
           报价.customer_id,
           报价.partner_id,
           报价.owner_user_id,
-          Number(报价.total_amount) || 0,
-          JSON.stringify({ ...输入, createdByName: 用户?.displayName || "阶段9测试账号" }),
+          初始状态,
+          金额,
+          JSON.stringify({
+            ...输入,
+            id: 订单编号,
+            quoteId: 报价.quote_no || 报价.v2_source_id || quoteId || 报价.id,
+            quoteUuid: 报价.id,
+            customer: 报价.customer_name || 读取文本(输入, ["customer", "customerName"], ""),
+            customerName: 报价.customer_name || 读取文本(输入, ["customer", "customerName"], ""),
+            partnerId: 报价.partner_external_id || 读取文本(输入, ["partnerId"], ""),
+            partnerName: 报价.partner_name || 读取文本(输入, ["partnerName"], ""),
+            partnerLevel: 报价.partner_level_code || "",
+            parentPartnerId: 一级渠道?.externalId || "",
+            parentPartnerUuid: 一级渠道?.id || "",
+            parentPartnerName: 一级渠道?.name || "",
+            assignedPartnerId: 一级渠道?.externalId || 报价.partner_external_id || "",
+            assignedPartnerName: 一级渠道?.name || 报价.partner_name || "",
+            ownerUserId: 报价.owner_user_id || "",
+            assignedStaffId: 报价.owner_user_id || 读取文本(输入, ["assignedStaffId"], ""),
+            assignedStaffName: 报价.owner_user_name || 读取文本(输入, ["assignedStaffName"], ""),
+            region: 报价.region_name || 读取文本(输入, ["region", "区域"], ""),
+            total: 金额,
+            amount: 金额,
+            status: 初始状态,
+            createdByName: 操作人,
+            createdAt: now,
+            updatedAt: now,
+          }),
         ],
       );
       const id = 读取返回编号(result.rows[0]);
@@ -1888,8 +2005,28 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         "UPDATE crm.quotes SET status_code = 'converted', updated_at = now() WHERE id = $1",
         [报价.id],
       );
+      await 写入订单状态历史(client, {
+        订单编号: id,
+        原状态: "",
+        新状态: 初始状态,
+        原因:
+          初始状态 === "pending_primary_confirm"
+            ? "报价转订单，提交一级确认"
+            : "报价转订单，提交区管确认",
+        用户,
+      });
+      await 写入订单审批待办(client, {
+        订单编号: id,
+        步骤: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+        原因: 初始状态 === "pending_primary_confirm" ? "等待一级分销商确认" : "等待区管确认",
+        用户,
+      });
+      await 写入订单发件箱事件(client, id, "crm.order.approval.pending", {
+        status: 初始状态,
+        step: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+      });
       await client.query("COMMIT");
-      return this.查询详情("orders", id);
+      return this.查询详情("orders", id, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -1903,23 +2040,102 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
-    const 状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
-    await this.pool.query(
-      `
-      UPDATE crm.orders
-      SET status_code = $2, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb
-      WHERE id::text = $1 OR v2_source_id = $1 OR order_no = $1
-      `,
-      [
-        id,
-        状态,
-        JSON.stringify({
-          status: 状态,
-          lastOperatorName: 用户?.displayName || "阶段9测试账号",
-        }),
-      ],
-    );
-    return this.查询详情("orders", id);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 当前 = await client.query<{
+        id: string;
+        status_code: string;
+        total_amount: string | number;
+        extra_json: Record<string, unknown> | null;
+      }>(
+        `
+        SELECT id::text AS id, status_code, total_amount, extra_json
+        FROM crm.orders
+        WHERE id::text = $1 OR v2_source_id = $1 OR order_no = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [id],
+      );
+      const 订单 = 当前.rows[0];
+      if (!订单) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      const 请求状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
+      const 调价金额 = 读取订单调整金额(输入);
+      const 是否调价 = 调价金额 !== null || 读取文本(输入, ["action"], "") === "price_adjust";
+      const 状态 = 是否调价
+        ? "pending_superadmin_confirm"
+        : 推导订单下一状态(订单.status_code, 请求状态);
+      const 原因 = 读取文本(输入, ["reason", "remark", "adjustmentReason", "审核意见"], "");
+      const 操作人 = 用户?.displayName || 读取文本(输入, ["operatorName"], "阶段9测试账号");
+      const 旧金额 = Number(订单.total_amount) || 0;
+      const extra = 订单.extra_json || {};
+      const 调价记录 = 是否调价
+        ? [
+            ...(Array.isArray(extra.priceAdjustments) ? extra.priceAdjustments : []),
+            {
+              oldAmount: 旧金额,
+              newAmount: 调价金额 ?? 旧金额,
+              reason: 原因,
+              operatorName: 操作人,
+              timestamp: new Date().toISOString(),
+              adjustedAt: new Date().toISOString(),
+            },
+          ]
+        : undefined;
+      await client.query(
+        `
+        UPDATE crm.orders
+        SET status_code = $2,
+            total_amount = COALESCE($4::numeric, total_amount),
+            updated_at = now(),
+            row_version = row_version + 1,
+            extra_json = extra_json || $3::jsonb
+        WHERE id = $1::uuid
+        `,
+        [
+          订单.id,
+          状态,
+          JSON.stringify({
+            status: 状态,
+            amount: 调价金额 ?? undefined,
+            total: 调价金额 ?? undefined,
+            priceAdjustments: 调价记录,
+            reviewRemark: 原因,
+            lastOperatorName: 操作人,
+            updatedByName: 操作人,
+          }),
+          调价金额,
+        ],
+      );
+      await 写入订单状态历史(client, {
+        订单编号: 订单.id,
+        原状态: 订单.status_code,
+        新状态: 状态,
+        原因: 原因 || (是否调价 ? "区管调价后提交超管确认" : "订单状态流转"),
+        用户,
+      });
+      await 同步订单审批链路(client, {
+        订单编号: 订单.id,
+        原状态: 订单.status_code,
+        新状态: 状态,
+        是否调价,
+        原因,
+        用户,
+      });
+      await 写入订单发件箱事件(client, 订单.id, "crm.order.status.changed", {
+        fromStatus: 订单.status_code,
+        toStatus: 状态,
+        priceAdjusted: 是否调价,
+      });
+      await client.query("COMMIT");
+      return this.查询详情("orders", 订单.id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async 读取开放接口总览(baseUrl: string): Promise<开放接口总览> {
@@ -2201,14 +2417,27 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     }));
   }
 
-  public async 签发开放接口令牌(输入: Record<string, unknown>, ip: string): Promise<开放接口令牌> {
+  public async 签发开放接口令牌(
+    输入: Record<string, unknown>,
+    ip: string,
+    requestId?: string,
+  ): Promise<开放接口令牌> {
     const appKey = 读取文本(输入, ["appKey", "clientId"], "");
     const appSecret = 读取文本(输入, ["appSecret", "clientSecret"], "");
     const startedAt = performance.now();
     let clientId = "";
+    let 失败阶段 = "request";
+    const 认证诊断 = {
+      appKey,
+      appKeyPresent: Boolean(appKey),
+      appSecretPresent: Boolean(appSecret),
+      appSecretLength: appSecret.length,
+      appSecretFingerprint: 创建开放接口日志指纹(appSecret, "openapi-app-secret"),
+    };
     try {
       if (!appKey || !appSecret)
         throw new 应用错误("V3_OPEN_API_BAD_TOKEN_REQUEST", "请填写 AppKey 和 AppSecret。", 400);
+      失败阶段 = "client_lookup";
       const result = await this.pool.query<SQL开放接口密钥校验>(
         `
         SELECT
@@ -2240,17 +2469,21 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const row = result.rows[0];
       if (!row) throw new 应用错误("V3_OPEN_API_TOKEN_DENIED", "AppKey 或 AppSecret 不正确。", 401);
       clientId = row.client_id;
+      失败阶段 = "client_status";
       if (row.status_code !== "active")
         throw new 应用错误("V3_OPEN_API_CLIENT_DISABLED", "OpenAPI Client 已停用。", 403);
       if (row.expires_at && row.expires_at.getTime() <= Date.now())
         throw new 应用错误("V3_OPEN_API_CLIENT_EXPIRED", "OpenAPI Client 已过期。", 403);
+      失败阶段 = "ip_whitelist";
       const ipWhitelist = 解析JSON数组(row.allowed_ip_json);
       if (ipWhitelist.length && !ipWhitelist.includes("*") && !ipWhitelist.includes(ip)) {
         throw new 应用错误("V3_OPEN_API_IP_DENIED", "当前访问 IP 不在白名单内。", 403);
       }
+      失败阶段 = "secret_verify";
       if (!校验开放接口密钥(appSecret, row.secret_hash)) {
         throw new 应用错误("V3_OPEN_API_TOKEN_DENIED", "AppKey 或 AppSecret 不正确。", 401);
       }
+      失败阶段 = "issue_token";
       const ttl = 2 * 60 * 60;
       const allowedResources = row.resources.length
         ? row.resources
@@ -2266,6 +2499,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       });
       await this.记录开放接口调用({
         clientId,
+        ...(requestId ? { requestId } : {}),
         resourceCode: "auth",
         actionCode: "token",
         resultCode: "success",
@@ -2275,11 +2509,22 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         path: "/api/open/v1/auth/token",
         ip,
         message: "签发 OpenAPI 访问令牌",
+        extra: {
+          ...认证诊断,
+          clientId: row.client_id,
+          clientName: row.client_name,
+          clientCode: row.client_code,
+          allowedResourceCount: allowedResources.length,
+          accessTokenFingerprint: 创建开放接口日志指纹(accessToken, "openapi-access-token"),
+          accessTokenLength: accessToken.length,
+          expiresInSeconds: ttl,
+        },
       });
       return { accessToken, tokenType: "Bearer", expiresInSeconds: ttl, allowedResources };
     } catch (error) {
       await this.记录开放接口调用({
         clientId,
+        ...(requestId ? { requestId } : {}),
         resourceCode: "auth",
         actionCode: "token",
         resultCode: "failed",
@@ -2289,6 +2534,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         path: "/api/open/v1/auth/token",
         ip,
         message: error instanceof Error ? error.message : "签发令牌失败",
+        extra: {
+          ...认证诊断,
+          failedStep: 失败阶段,
+          errorCode: error instanceof 应用错误 ? error.code : "V3_OPEN_API_TOKEN_INTERNAL_ERROR",
+          errorMessage: error instanceof Error ? error.message : "签发令牌失败",
+        },
       });
       throw error;
     }
@@ -2324,6 +2575,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     path: string;
     ip: string;
     message: string;
+    extra?: Record<string, unknown>;
   }): Promise<void> {
     await this.pool.query(
       `
@@ -2346,6 +2598,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           path: 输入.path,
           ip: 输入.ip,
           message: 输入.message,
+          ...(清理日志字段(输入.extra || {}) as Record<string, unknown>),
         }),
       ],
     );
@@ -3058,6 +3311,18 @@ function 校验开放接口密钥(secret: string, storedHash: string): boolean {
   return 安全比较文本(derived.toString("base64url"), expected);
 }
 
+function 创建开放接口日志指纹(value: string, purpose: string): string {
+  if (!value) return "";
+  return crypto
+    .createHmac("sha256", 开放接口令牌密钥())
+    .update("log-fingerprint:")
+    .update(purpose)
+    .update(":")
+    .update(value)
+    .digest("hex")
+    .slice(0, 16);
+}
+
 function 签发开放接口访问令牌(输入: 开放接口身份 & { ttl: number }): string {
   const payload = {
     clientId: 输入.clientId,
@@ -3180,7 +3445,7 @@ async function 写入审计日志(
     VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
     `,
     [
-      "stage9.13-" + crypto.randomBytes(8).toString("hex"),
+      输入.用户?.requestId || "stage9.13-" + crypto.randomBytes(8).toString("hex"),
       输入.用户?.username || "system",
       输入.用户?.displayName || "系统",
       输入.用户?.roleName || "system",
@@ -3383,6 +3648,81 @@ function 数据范围表别名(模块: 阶段9模块): string {
   return "";
 }
 
+function 构建渠道区域关联条件(模块: 阶段9模块, 用户: 业务用户上下文, 参数: unknown[]): string {
+  const alias = 模块 === "quotes" ? "q" : "o";
+  if (用户.regionId) {
+    参数.push(用户.regionId);
+    return `EXISTS (
+      SELECT 1
+      FROM channel.partners p_scope
+      WHERE p_scope.id = ${alias}.partner_id
+        AND p_scope.region_id = $${参数.length}::uuid
+    )`;
+  }
+  if (用户.regionName) {
+    参数.push("%" + 用户.regionName + "%");
+    return `EXISTS (
+      SELECT 1
+      FROM channel.partners p_scope
+      LEFT JOIN org.regions reg_scope ON reg_scope.id = p_scope.region_id
+      WHERE p_scope.id = ${alias}.partner_id
+        AND (
+          reg_scope.region_name ILIKE $${参数.length}
+          OR p_scope.extra_json->>'region' ILIKE $${参数.length}
+          OR ${alias}.extra_json->>'region' ILIKE $${参数.length}
+        )
+    )`;
+  }
+  return "false";
+}
+
+function 构建审核数据范围条件(用户: 业务用户上下文, 参数: unknown[]): string {
+  if (用户.roleCode === "superadmin" || 用户.roleCode === "admin" || 用户.dataScopeCode === "all") {
+    return "true";
+  }
+
+  if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
+    if (用户.regionId) {
+      参数.push(用户.regionId);
+      return `"原始数据"->>'regionId' = $${参数.length}`;
+    }
+    if (用户.regionName) {
+      参数.push("%" + 用户.regionName + "%");
+      return `("区域" ILIKE $${参数.length} OR "原始数据"->>'region' ILIKE $${参数.length})`;
+    }
+    return "false";
+  }
+
+  if (用户.roleCode === "partner_admin" || 用户.dataScopeCode === "partner") {
+    const 条件: string[] = [];
+    if (用户.partnerIds.length) {
+      参数.push(用户.partnerIds);
+      条件.push(`"原始数据"->>'partnerUuid' = ANY($${参数.length}::text[])`);
+    }
+    if (用户.partnerExternalIds.length) {
+      参数.push(用户.partnerExternalIds);
+      条件.push(
+        `("原始数据"->>'partnerId' = ANY($${参数.length}::text[]) OR "原始数据"->>'assignedPartnerId' = ANY($${参数.length}::text[]))`,
+      );
+    }
+    return 条件.length ? `(${条件.join(" OR ")})` : "false";
+  }
+
+  if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
+    参数.push(用户.userId);
+    const 用户编号参数 = 参数.length;
+    参数.push([用户.externalUserId, 用户.username].filter(Boolean));
+    const 外部编号参数 = 参数.length;
+    return `(
+      "原始数据"->>'ownerUserUuid' = $${用户编号参数}
+      OR "原始数据"->>'assignedStaffId' = ANY($${外部编号参数}::text[])
+      OR "原始数据"->>'assignedStaffUserId' = ANY($${外部编号参数}::text[])
+    )`;
+  }
+
+  return "false";
+}
+
 function 是否内存硬件产品(项: 阶段9记录): boolean {
   return /硬件|hardware/i.test(`${项.类型} ${项.负责人} ${项.标题}`);
 }
@@ -3485,7 +3825,7 @@ function 报价查询SQL(where: string): string {
       COALESCE(c.customer_name, q.extra_json->>'customer') AS "客户名称",
       COALESCE(p.partner_name, q.extra_json->>'partnerName') AS "渠道名称",
       COALESCE(u.display_name, q.extra_json->>'assignedStaffName', q.extra_json->>'createdByName') AS "负责人",
-      COALESCE(q.extra_json->>'region', '') AS "区域",
+      COALESCE(reg.region_name, q.extra_json->>'region', p.extra_json->>'region', '') AS "区域",
       q.status_code AS "状态",
       CASE q.status_code
         WHEN 'draft' THEN '草稿'
@@ -3507,12 +3847,15 @@ function 报价查询SQL(where: string): string {
         'ownerUserUuid', COALESCE(q.owner_user_id::text, ''),
         'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffId', ''),
         'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffUserId', ''),
-        'assignedStaffName', COALESCE(u.display_name, q.extra_json->>'assignedStaffName', '')
+        'assignedStaffName', COALESCE(u.display_name, q.extra_json->>'assignedStaffName', ''),
+        'regionId', COALESCE(p.region_id::text, ''),
+        'region', COALESCE(reg.region_name, q.extra_json->>'region', p.extra_json->>'region', '')
       ) AS "原始数据"
     FROM crm.quotes q
     LEFT JOIN crm.customers c ON c.id = q.customer_id
     LEFT JOIN channel.partners p ON p.id = q.partner_id
     LEFT JOIN iam.users u ON u.id = q.owner_user_id
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
     WHERE ${where}
   `;
 }
@@ -3527,11 +3870,16 @@ function 订单查询SQL(where: string): string {
       COALESCE(c.customer_name, o.extra_json->>'customer') AS "客户名称",
       COALESCE(p.partner_name, o.extra_json->>'partnerName') AS "渠道名称",
       COALESCE(u.display_name, o.extra_json->>'assignedStaffName', o.extra_json->>'createdByName') AS "负责人",
-      COALESCE(o.extra_json->>'region', '') AS "区域",
+      COALESCE(reg.region_name, o.extra_json->>'region', p.extra_json->>'region', '') AS "区域",
       o.status_code AS "状态",
       CASE o.status_code
         WHEN 'pending_primary_confirm' THEN '待一级确认'
+        WHEN 'primary_confirmed' THEN '一级已确认'
+        WHEN 'primary_rejected' THEN '一级已驳回'
+        WHEN 'pending_superadmin_confirm' THEN '待超管确认'
         WHEN 'confirmed' THEN '已确认'
+        WHEN 'processing' THEN '处理中'
+        WHEN 'shipped' THEN '已发货'
         WHEN 'completed' THEN '已完成'
         WHEN 'rejected' THEN '已驳回'
         WHEN 'cancelled' THEN '已取消'
@@ -3543,18 +3891,55 @@ function 订单查询SQL(where: string): string {
       o.extra_json || jsonb_build_object(
         'partnerUuid', COALESCE(o.partner_id::text, ''),
         'partnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'partnerId', ''),
-        'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'assignedPartnerId', ''),
+        'assignedPartnerId', COALESCE(o.extra_json->>'assignedPartnerId', p.v2_source_id, p.partner_code, o.partner_id::text, ''),
         'partnerName', COALESCE(p.partner_name, o.extra_json->>'partnerName', ''),
-        'assignedPartnerName', COALESCE(p.partner_name, o.extra_json->>'assignedPartnerName', ''),
+        'assignedPartnerName', COALESCE(o.extra_json->>'assignedPartnerName', p.partner_name, ''),
+        'partnerLevel', COALESCE(p.partner_level_code, o.extra_json->>'partnerLevel', ''),
+        'parentPartnerId', COALESCE(o.extra_json->>'parentPartnerId', parent_rel.parent_partner_external_id, ''),
+        'parentPartnerUuid', COALESCE(o.extra_json->>'parentPartnerUuid', parent_rel.parent_partner_id, ''),
+        'parentPartnerName', COALESCE(o.extra_json->>'parentPartnerName', parent_rel.parent_partner_name, ''),
         'ownerUserUuid', COALESCE(o.owner_user_id::text, ''),
         'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffId', ''),
         'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffUserId', ''),
-        'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', '')
+        'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', ''),
+        'regionId', COALESCE(p.region_id::text, ''),
+        'region', COALESCE(reg.region_name, o.extra_json->>'region', p.extra_json->>'region', ''),
+        'statusHistory', COALESCE(order_history.status_history, '[]'::jsonb)
       ) AS "原始数据"
     FROM crm.orders o
     LEFT JOIN crm.customers c ON c.id = o.customer_id
     LEFT JOIN channel.partners p ON p.id = o.partner_id
     LEFT JOIN iam.users u ON u.id = o.owner_user_id
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
+    LEFT JOIN LATERAL (
+      SELECT
+        parent.id::text AS parent_partner_id,
+        COALESCE(parent.v2_source_id, parent.partner_code, parent.id::text) AS parent_partner_external_id,
+        parent.partner_name AS parent_partner_name
+      FROM channel.partner_relations rel
+      JOIN channel.partners parent ON parent.id = rel.parent_partner_id
+      WHERE rel.child_partner_id = o.partner_id
+        AND rel.relation_code = 'primary_secondary'
+        AND rel.ended_at IS NULL
+        AND parent.status_code = 'active'
+      ORDER BY rel.started_at DESC
+      LIMIT 1
+    ) parent_rel ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'from', h.from_status_code,
+          'to', h.to_status_code,
+          'operatorName', COALESCE(actor.display_name, ''),
+          'timestamp', h.changed_at,
+          'remark', COALESCE(h.reason, '')
+        )
+        ORDER BY h.changed_at
+      ) AS status_history
+      FROM crm.order_status_history h
+      LEFT JOIN iam.users actor ON actor.id = h.actor_user_id
+      WHERE h.order_id = o.id
+    ) order_history ON true
     WHERE ${where}
   `;
 }
@@ -3791,32 +4176,53 @@ function 审核查询SQL(where: string): string {
     SELECT * FROM (
       SELECT
         COALESCE(a.target_id::text, a.id::text) AS "id",
-        COALESCE(r.registration_no, a.v2_source_id, a.id::text) AS "编号",
-        CASE WHEN a.target_type = 'registration' THEN '客户报备' ELSE '审核任务' END AS "类型",
-        COALESCE(c.customer_name, a.extra_json->>'targetName', a.target_type) AS "标题",
-        COALESCE(c.customer_name, a.extra_json->>'customerName', '') AS "客户名称",
-        COALESCE(p.partner_name, a.extra_json->>'targetPartnerName') AS "渠道名称",
+        COALESCE(r.registration_no, o.order_no, a.v2_source_id, a.id::text) AS "编号",
+        CASE
+          WHEN a.target_type = 'registration' THEN '客户报备'
+          WHEN a.target_type = 'order' THEN '订单审批'
+          ELSE '审核任务'
+        END AS "类型",
+        COALESCE(c.customer_name, oc.customer_name, a.extra_json->>'targetName', a.target_type) AS "标题",
+        COALESCE(c.customer_name, oc.customer_name, a.extra_json->>'customerName', '') AS "客户名称",
+        COALESCE(p.partner_name, op.partner_name, a.extra_json->>'targetPartnerName') AS "渠道名称",
         COALESCE(u.display_name, a.extra_json->>'createdBy') AS "负责人",
-        COALESCE(reg.region_name, a.extra_json->>'region', '') AS "区域",
+        COALESCE(reg.region_name, oreg.region_name, a.extra_json->>'region', '') AS "区域",
         a.status_code AS "状态",
         CASE a.status_code WHEN 'approved' THEN '已通过' WHEN 'rejected' THEN '已驳回' ELSE '待审核' END AS "状态名称",
-        0::numeric AS "金额",
+        COALESCE(o.total_amount, 0::numeric) AS "金额",
         a.created_at AS "创建时间",
         a.updated_at AS "更新时间",
         a.extra_json || jsonb_build_object(
           'approvalId', a.id::text,
           'targetType', a.target_type,
           'targetId', COALESCE(a.target_id::text, ''),
+          'step', COALESCE(a.extra_json->>'step', ''),
+          'stepName', COALESCE(a.extra_json->>'stepName', ''),
           'industry', COALESCE(r.extra_json->>'industry', a.extra_json->>'industry', ''),
           'contact', COALESCE(r.extra_json->>'contact', a.extra_json->>'contact', ''),
-          'phone', COALESCE(r.extra_json->>'phone', a.extra_json->>'phone', '')
+          'phone', COALESCE(r.extra_json->>'phone', a.extra_json->>'phone', ''),
+          'orderStatus', COALESCE(o.status_code, a.extra_json->>'orderStatus', ''),
+          'amount', COALESCE(o.total_amount, 0::numeric),
+          'total', COALESCE(o.total_amount, 0::numeric),
+          'partnerUuid', COALESCE(r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'partnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'ownerUserUuid', COALESCE(r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
+          'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
+          'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
+          'regionId', COALESCE(r.region_id::text, op.region_id::text, p.region_id::text, a.extra_json->>'regionId', ''),
+          'region', COALESCE(reg.region_name, oreg.region_name, a.extra_json->>'region', '')
         ) AS "原始数据"
       FROM ops.approvals a
       LEFT JOIN crm.registrations r ON a.target_type = 'registration' AND r.id = a.target_id
       LEFT JOIN crm.customers c ON c.id = r.customer_id
+      LEFT JOIN crm.orders o ON a.target_type = 'order' AND o.id = a.target_id
+      LEFT JOIN crm.customers oc ON oc.id = o.customer_id
       LEFT JOIN iam.users u ON u.id = a.applicant_user_id
       LEFT JOIN channel.partners p ON p.id = COALESCE(r.partner_id, a.applicant_partner_id)
+      LEFT JOIN channel.partners op ON op.id = o.partner_id
       LEFT JOIN org.regions reg ON reg.id = r.region_id
+      LEFT JOIN org.regions oreg ON oreg.id = op.region_id
       UNION ALL
       SELECT
         r.id::text AS "id",
@@ -3843,7 +4249,15 @@ function 审核查询SQL(where: string): string {
           'targetId', r.id::text,
           'industry', COALESCE(r.extra_json->>'industry', ''),
           'contact', COALESCE(r.extra_json->>'contact', ''),
-          'phone', COALESCE(r.extra_json->>'phone', '')
+          'phone', COALESCE(r.extra_json->>'phone', ''),
+          'partnerUuid', COALESCE(r.partner_id::text, ''),
+          'partnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'partnerId', ''),
+          'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'assignedPartnerId', ''),
+          'ownerUserUuid', COALESCE(r.owner_user_id::text, ''),
+          'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, r.extra_json->>'assignedStaffId', ''),
+          'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, r.extra_json->>'assignedStaffUserId', ''),
+          'regionId', COALESCE(r.region_id::text, ''),
+          'region', COALESCE(reg.region_name, r.extra_json->>'region', '')
         ) AS "原始数据"
       FROM crm.registrations r
       JOIN crm.customers c ON c.id = r.customer_id
@@ -4051,6 +4465,410 @@ async function 同步报备审批状态(
       JSON.stringify({ actorName: 参数.用户?.displayName || "阶段9测试账号" }),
     ],
   );
+}
+
+type 订单审批步骤 = "primary_confirm" | "region_confirm" | "superadmin_confirm";
+
+async function 解析订单一级渠道(
+  client: PoolClient,
+  参数: {
+    子渠道编号: string | null;
+    子渠道层级: string;
+    默认一级渠道编号: string | null;
+    默认一级渠道外部编号: string | null;
+    默认一级渠道名称: string | null;
+    输入: Record<string, unknown>;
+  },
+): Promise<{ id: string; externalId: string; name: string } | null> {
+  if (参数.子渠道层级 !== "secondary") return null;
+  if (!参数.子渠道编号) {
+    throw new 应用错误("V3_ORDER_SECONDARY_PARTNER_REQUIRED", "二级渠道订单缺少渠道商信息。", 400);
+  }
+  const 指定一级 = 读取文本(
+    参数.输入,
+    ["parentPartnerId", "primaryPartnerId", "assignedParentPartnerId", "assignedPartnerId"],
+    "",
+  );
+  if (指定一级) {
+    const 指定一级编号 = await 查询渠道编号(client, 指定一级);
+    if (!指定一级编号) {
+      throw new 应用错误("V3_ORDER_PRIMARY_PARTNER_NOT_FOUND", "选择的一级分销商不存在。", 400);
+    }
+    const 指定关系 = await 查询一级渠道关系(client, 参数.子渠道编号, 指定一级编号);
+    if (!指定关系) {
+      throw new 应用错误(
+        "V3_ORDER_PRIMARY_PARTNER_SCOPE_FORBIDDEN",
+        "选择的一级分销商未绑定当前二级分销商。",
+        400,
+      );
+    }
+    return 指定关系;
+  }
+  if (参数.默认一级渠道编号 && 参数.默认一级渠道外部编号 && 参数.默认一级渠道名称) {
+    return {
+      id: 参数.默认一级渠道编号,
+      externalId: 参数.默认一级渠道外部编号,
+      name: 参数.默认一级渠道名称,
+    };
+  }
+  const 默认关系 = await 查询一级渠道关系(client, 参数.子渠道编号);
+  if (!默认关系) {
+    throw new 应用错误(
+      "V3_ORDER_PRIMARY_PARTNER_BINDING_REQUIRED",
+      "二级分销商未绑定一级分销商，不能转订单。",
+      400,
+    );
+  }
+  return 默认关系;
+}
+
+async function 查询一级渠道关系(
+  client: PoolClient,
+  子渠道编号: string,
+  指定一级编号?: string,
+): Promise<{ id: string; externalId: string; name: string } | null> {
+  const 参数: string[] = [子渠道编号];
+  const 指定条件 = 指定一级编号 ? "AND parent.id::text = $2" : "";
+  if (指定一级编号) 参数.push(指定一级编号);
+  const result = await client.query<{ id: string; external_id: string; name: string }>(
+    `
+    SELECT
+      parent.id::text AS id,
+      COALESCE(parent.v2_source_id, parent.partner_code, parent.id::text) AS external_id,
+      parent.partner_name AS name
+    FROM channel.partner_relations rel
+    JOIN channel.partners parent ON parent.id = rel.parent_partner_id
+    WHERE rel.child_partner_id = $1::uuid
+      AND rel.relation_code = 'primary_secondary'
+      AND rel.ended_at IS NULL
+      AND parent.status_code = 'active'
+      ${指定条件}
+    ORDER BY rel.started_at DESC
+    LIMIT 1
+    `,
+    参数,
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, externalId: row.external_id, name: row.name } : null;
+}
+
+async function 写入订单审批待办(
+  client: PoolClient,
+  参数: { 订单编号: string; 步骤: 订单审批步骤; 原因: string; 用户: 当前业务用户 | null },
+): Promise<void> {
+  const 快照 = await client.query<{
+    id: string;
+    order_no: string | null;
+    customer_name: string | null;
+    partner_name: string | null;
+    parent_partner_name: string | null;
+    region_name: string | null;
+    status_code: string;
+    total_amount: string | number;
+    owner_user_id: string | null;
+    partner_id: string | null;
+  }>(
+    `
+    SELECT
+      o.id::text AS id,
+      o.order_no,
+      c.customer_name,
+      p.partner_name,
+      COALESCE(o.extra_json->>'parentPartnerName', o.extra_json->>'assignedPartnerName', '') AS parent_partner_name,
+      COALESCE(reg.region_name, o.extra_json->>'region', '') AS region_name,
+      o.status_code,
+      o.total_amount,
+      o.owner_user_id::text AS owner_user_id,
+      o.partner_id::text AS partner_id
+    FROM crm.orders o
+    LEFT JOIN crm.customers c ON c.id = o.customer_id
+    LEFT JOIN channel.partners p ON p.id = o.partner_id
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
+    WHERE o.id::text = $1
+    LIMIT 1
+    `,
+    [参数.订单编号],
+  );
+  const row = 快照.rows[0];
+  if (!row) return;
+  const result = await client.query<{ id: string }>(
+    `
+    INSERT INTO ops.approvals (
+      v2_source_id, approval_type_code, target_type, target_id, applicant_user_id,
+      applicant_partner_id, status_code, created_at, updated_at, extra_json
+    )
+    VALUES ($1, 'order', 'order', $2::uuid, $3::uuid, $4::uuid, 'pending', now(), now(), $5::jsonb)
+    ON CONFLICT (v2_source_id) DO UPDATE
+    SET status_code = 'pending',
+        updated_at = now(),
+        extra_json = ops.approvals.extra_json || EXCLUDED.extra_json
+    RETURNING id::text AS id
+    `,
+    [
+      `order:${参数.步骤}:${row.id}`,
+      row.id,
+      row.owner_user_id,
+      row.partner_id,
+      JSON.stringify({
+        status: "pending",
+        type: "order",
+        step: 参数.步骤,
+        stepName: 订单审批步骤名称(参数.步骤),
+        targetName: row.customer_name || row.order_no || row.id,
+        customerName: row.customer_name || "",
+        targetNo: row.order_no || "",
+        targetPartnerName: row.partner_name || "",
+        parentPartnerName: row.parent_partner_name || "",
+        region: row.region_name || "",
+        amount: Number(row.total_amount) || 0,
+        total: Number(row.total_amount) || 0,
+        orderStatus: row.status_code,
+        createdBy: 参数.用户?.displayName || "阶段9测试账号",
+        reason: 参数.原因,
+      }),
+    ],
+  );
+  const approvalId = 读取返回编号(result.rows[0]);
+  await client.query(
+    `
+    INSERT INTO ops.approval_events (approval_id, event_code, to_status_code, reason, extra_json)
+    VALUES ($1::uuid, 'submit', 'pending', $2, $3::jsonb)
+    `,
+    [
+      approvalId,
+      参数.原因,
+      JSON.stringify({
+        actorName: 参数.用户?.displayName || "阶段9测试账号",
+        step: 参数.步骤,
+      }),
+    ],
+  );
+}
+
+async function 同步订单审批状态(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    步骤: 订单审批步骤;
+    状态: "approved" | "rejected" | "cancelled";
+    原因: string;
+    用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const 当前 = await client.query<{ id: string; status_code: string }>(
+    `
+    SELECT id::text AS id, status_code
+    FROM ops.approvals
+    WHERE target_type = 'order'
+      AND target_id::text = $1
+      AND extra_json->>'step' = $2
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [参数.订单编号, 参数.步骤],
+  );
+  const approval = 当前.rows[0];
+  if (!approval) return;
+  await client.query(
+    `
+    UPDATE ops.approvals
+    SET status_code = $2, updated_at = now(), extra_json = extra_json || $3::jsonb
+    WHERE id::text = $1
+    `,
+    [
+      approval.id,
+      参数.状态,
+      JSON.stringify({
+        status: 参数.状态,
+        reviewRemark: 参数.原因,
+        updatedByName: 参数.用户?.displayName || "阶段9测试账号",
+      }),
+    ],
+  );
+  await client.query(
+    `
+    INSERT INTO ops.approval_events (
+      approval_id, event_code, from_status_code, to_status_code, reason, extra_json
+    )
+    VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+    `,
+    [
+      approval.id,
+      参数.状态 === "approved" ? "approve" : 参数.状态 === "rejected" ? "reject" : "cancel",
+      approval.status_code,
+      参数.状态,
+      参数.原因,
+      JSON.stringify({
+        actorName: 参数.用户?.displayName || "阶段9测试账号",
+        step: 参数.步骤,
+      }),
+    ],
+  );
+}
+
+async function 同步订单审批链路(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    原状态: string;
+    新状态: string;
+    是否调价: boolean;
+    原因: string;
+    用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const 原因 = 参数.原因 || 订单状态默认原因(参数.新状态, 参数.是否调价);
+  if (参数.新状态 === "primary_confirmed") {
+    await 同步订单审批状态(client, {
+      订单编号: 参数.订单编号,
+      步骤: "primary_confirm",
+      状态: "approved",
+      原因,
+      用户: 参数.用户,
+    });
+    await 写入订单审批待办(client, {
+      订单编号: 参数.订单编号,
+      步骤: "region_confirm",
+      原因: "一级已确认，等待区管确认",
+      用户: 参数.用户,
+    });
+    return;
+  }
+  if (参数.新状态 === "pending_superadmin_confirm") {
+    if (参数.原状态 !== "pending_superadmin_confirm") {
+      const 步骤 = 订单状态审批步骤(参数.原状态) || "region_confirm";
+      await 同步订单审批状态(client, {
+        订单编号: 参数.订单编号,
+        步骤,
+        状态: "approved",
+        原因,
+        用户: 参数.用户,
+      });
+    }
+    await 写入订单审批待办(client, {
+      订单编号: 参数.订单编号,
+      步骤: "superadmin_confirm",
+      原因: 参数.是否调价 ? "区管调价后等待超管确认" : "区管已确认，等待超管确认",
+      用户: 参数.用户,
+    });
+    return;
+  }
+  if (参数.新状态 === "confirmed") {
+    await 同步订单审批状态(client, {
+      订单编号: 参数.订单编号,
+      步骤: "superadmin_confirm",
+      状态: "approved",
+      原因,
+      用户: 参数.用户,
+    });
+    await 写入订单发件箱事件(client, 参数.订单编号, "crm.order.confirmed", {
+      status: "confirmed",
+    });
+    return;
+  }
+  if (["primary_rejected", "rejected", "cancelled"].includes(参数.新状态)) {
+    const 步骤 = 订单状态审批步骤(参数.原状态) || "region_confirm";
+    await 同步订单审批状态(client, {
+      订单编号: 参数.订单编号,
+      步骤,
+      状态: 参数.新状态 === "cancelled" ? "cancelled" : "rejected",
+      原因,
+      用户: 参数.用户,
+    });
+  }
+}
+
+async function 写入订单状态历史(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    原状态: string;
+    新状态: string;
+    原因: string;
+    用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const 操作人编号 = await 查询操作人编号(client, 参数.用户);
+  await client.query(
+    `
+    INSERT INTO crm.order_status_history (
+      order_id, from_status_code, to_status_code, actor_user_id, changed_at, reason
+    )
+    VALUES ($1::uuid, $2, $3, $4::uuid, now(), $5)
+    `,
+    [参数.订单编号, 参数.原状态 || null, 参数.新状态, 操作人编号, 参数.原因],
+  );
+}
+
+async function 写入订单发件箱事件(
+  client: PoolClient,
+  订单编号: string,
+  事件类型: string,
+  载荷: Record<string, unknown>,
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO ops.outbox_events (
+      event_type, aggregate_type, aggregate_id, payload_json, status_code, created_at
+    )
+    VALUES ($1, 'order', $2::uuid, $3::jsonb, 'pending', now())
+    `,
+    [事件类型, 订单编号, JSON.stringify({ orderId: 订单编号, ...载荷 })],
+  );
+}
+
+async function 查询操作人编号(
+  client: PoolClient,
+  用户: 当前业务用户 | null,
+): Promise<string | null> {
+  if (!用户) return null;
+  const 候选 = [用户.userId || "", 用户.externalUserId || "", 用户.username || ""].filter(Boolean);
+  for (const 编号 of 候选) {
+    const 用户编号 = await 查询账号编号(client, 编号);
+    if (用户编号) return 用户编号;
+  }
+  return null;
+}
+
+function 订单审批步骤名称(步骤: 订单审批步骤): string {
+  const 映射: Record<订单审批步骤, string> = {
+    primary_confirm: "一级分销商确认",
+    region_confirm: "区管确认",
+    superadmin_confirm: "超管确认",
+  };
+  return 映射[步骤];
+}
+
+function 订单状态审批步骤(status: string): 订单审批步骤 | null {
+  if (status === "pending_primary_confirm") return "primary_confirm";
+  if (status === "primary_confirmed") return "region_confirm";
+  if (status === "pending_superadmin_confirm") return "superadmin_confirm";
+  return null;
+}
+
+function 订单状态默认原因(status: string, 是否调价: boolean): string {
+  if (status === "primary_confirmed") return "一级分销商确认通过";
+  if (status === "pending_superadmin_confirm")
+    return 是否调价 ? "区管调价后提交超管确认" : "区管确认通过";
+  if (status === "confirmed") return "超管确认通过";
+  if (status === "primary_rejected") return "一级分销商驳回";
+  if (status === "rejected") return "订单驳回";
+  if (status === "cancelled") return "订单取消";
+  return "订单状态流转";
+}
+
+function 读取订单调整金额(输入: Record<string, unknown>): number | null {
+  for (const key of ["newAmount", "amount", "total"]) {
+    if (!Object.prototype.hasOwnProperty.call(输入, key)) continue;
+    const value = 输入[key];
+    if (value === null || value === undefined || value === "") continue;
+    const number = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(number) || number < 0) {
+      throw new 应用错误("V3_ORDER_PRICE_ADJUST_INVALID", "请输入有效的调整后价格。", 400);
+    }
+    return number;
+  }
+  return null;
 }
 
 async function 解析业务归属(
@@ -4730,16 +5548,51 @@ function 规范订单状态(status: string): string {
     [
       "draft",
       "pending_primary_confirm",
+      "primary_confirmed",
+      "primary_rejected",
+      "pending_superadmin_confirm",
       "confirmed",
       "rejected",
       "cancelled",
+      "processing",
+      "shipped",
       "completed",
     ].includes(status)
   ) {
     return status;
   }
-  if (status === "pending" || status === "processing") return "pending_primary_confirm";
+  if (status === "pending") return "pending_primary_confirm";
+  if (status === "pending_region_confirm" || status === "pending_region_review")
+    return "primary_confirmed";
+  if (status === "superadmin_confirm" || status === "pending_superadmin_review")
+    return "pending_superadmin_confirm";
+  if (status === "approved") return "confirmed";
   return "confirmed";
+}
+
+function 推导订单下一状态(当前状态: string, 请求状态: string): string {
+  if (["rejected", "primary_rejected", "cancelled", "shipped", "completed"].includes(请求状态)) {
+    return 请求状态;
+  }
+  if (
+    当前状态 === "pending_primary_confirm" &&
+    ["primary_confirmed", "confirmed", "processing", "pending_superadmin_confirm"].includes(
+      请求状态,
+    )
+  ) {
+    return "primary_confirmed";
+  }
+  if (
+    当前状态 === "primary_confirmed" &&
+    ["confirmed", "processing", "pending_superadmin_confirm"].includes(请求状态)
+  ) {
+    return "pending_superadmin_confirm";
+  }
+  if (当前状态 === "pending_superadmin_confirm" && ["confirmed", "processing"].includes(请求状态)) {
+    return "confirmed";
+  }
+  if (当前状态 === "confirmed" && 请求状态 === "processing") return "processing";
+  return 请求状态;
 }
 
 function 读取返回编号(row: { id?: string } | undefined): string {

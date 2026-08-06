@@ -3,6 +3,14 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router"
 import type { 阶段9模块 } from "../api/business-client.js";
 import { useSessionStore } from "../stores/session.js";
 import { 是否业务页面路径, 是否移动访问, 选择登录后路径 } from "./entry-target.js";
+import {
+  Iam平台单点登录路径,
+  UniSdp平台单点登录路径,
+  构建UniSdp单点登录跳转,
+  构建单点登录跳转,
+  需要转入UniSdp单点登录,
+  需要转入单点登录,
+} from "./sso-entry.js";
 
 type 页面动作 = "overview" | "list" | "create" | "import" | "platform";
 
@@ -439,12 +447,31 @@ export const 错误路由表: RouteRecordRaw[] = [
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: "/", redirect: "/login" },
+    {
+      path: "/",
+      redirect: (to) => {
+        if (需要转入UniSdp单点登录(to)) return 构建UniSdp单点登录跳转(to);
+        if (需要转入单点登录(to) || 是否移动访问()) {
+          return 构建单点登录跳转(to, { 自动尝试: true, 失败回登录: true });
+        }
+        return "/login";
+      },
+    },
     { path: "/admin/system/import-export", redirect: "/admin/platform-admin" },
     { path: "/login", name: "登录", component: () => import("../pages/LoginPage.vue") },
     {
       path: "/login/singlesignonlogin/login.do",
       name: "单点登录兼容入口",
+      component: () => import("../pages/SingleSignOnPage.vue"),
+    },
+    {
+      path: Iam平台单点登录路径,
+      name: "IAM平台单点登录入口",
+      component: () => import("../pages/SingleSignOnPage.vue"),
+    },
+    {
+      path: UniSdp平台单点登录路径,
+      name: "UniSDP平台单点登录入口",
       component: () => import("../pages/SingleSignOnPage.vue"),
     },
     ...布局路由表,
@@ -453,9 +480,17 @@ export const router = createRouter({
 });
 
 router.beforeEach(async (to) => {
+  if (需要转入UniSdp单点登录(to)) return 构建UniSdp单点登录跳转(to);
+  if (需要转入单点登录(to)) return 构建单点登录跳转(to, { 失败回登录: true });
   const 会话 = useSessionStore();
   await 会话.恢复会话();
-  if (to.path === "/login" && 会话.已登录) {
+  if (
+    (to.path === "/login" ||
+      to.path === "/login/singlesignonlogin/login.do" ||
+      to.path === Iam平台单点登录路径 ||
+      to.path === UniSdp平台单点登录路径) &&
+    会话.已登录
+  ) {
     const 实际页面 = 选择登录后路径(会话.user, { 移动访问: 是否移动访问() });
     if (是否业务页面路径(实际页面)) {
       window.location.replace(实际页面);

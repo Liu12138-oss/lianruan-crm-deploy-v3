@@ -1,4 +1,6 @@
-import type { 构建信息 } from "@lianruan/shared";
+import crypto from "node:crypto";
+
+import type { 日志器, 日志字段, 构建信息 } from "@lianruan/shared";
 import { 创建成功响应, 应用错误 } from "@lianruan/shared";
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
@@ -17,6 +19,7 @@ interface 业务路由参数 {
   sessionSecret?: string;
   env?: NodeJS.ProcessEnv;
   service?: 业务数据服务;
+  logger?: 日志器;
 }
 
 const 模块映射: Record<string, 阶段9模块> = {
@@ -282,7 +285,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           参数.build,
           await service.更新订单状态(
             读取路由参数(req, "id"),
-            { ...req.body, status: "rejected" },
+            { ...req.body, status: "primary_rejected" },
             读取用户(req),
           ),
         ),
@@ -498,17 +501,70 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
 
   router.post("/open/v1/auth/token", async (req, res, next) => {
+    const startedAt = performance.now();
+    const ip = 读取客户端IP(req);
+    const 诊断字段 = 读取开放接口令牌诊断(req, 参数.sessionSecret || "");
+    记录开放接口认证事件(参数.logger, "info", "OpenAPI令牌签发开始", {
+      event: "auth.open_api_token.started",
+      ...读取开放接口请求字段(req),
+      ...诊断字段,
+    });
     try {
-      res.json(成功(req, 参数.build, await service.签发开放接口令牌(req.body, 读取客户端IP(req))));
+      const 令牌 = await service.签发开放接口令牌(req.body, ip, req.requestId);
+      记录开放接口认证事件(参数.logger, "info", "OpenAPI令牌签发成功", {
+        event: "auth.open_api_token.succeeded",
+        ...读取开放接口请求字段(req),
+        ...诊断字段,
+        accessTokenFingerprint: 创建开放接口认证指纹(
+          令牌.accessToken,
+          参数.sessionSecret || "",
+          "openapi-access-token",
+        ),
+        accessTokenLength: 令牌.accessToken.length,
+        expiresInSeconds: 令牌.expiresInSeconds,
+        allowedResourceCount: 令牌.allowedResources.length,
+        durationMs: Math.round(performance.now() - startedAt),
+        resultCode: "success",
+      });
+      res.json(成功(req, 参数.build, 令牌));
     } catch (error) {
+      记录开放接口认证失败(参数.logger, "open_api_token", "OpenAPI令牌签发失败", req, error, {
+        ...诊断字段,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
       next(error);
     }
   });
 
   router.get("/open/v1/auth/me", async (req, res, next) => {
+    const startedAt = performance.now();
+    const 诊断字段 = 读取开放接口访问令牌诊断(req, 参数.sessionSecret || "");
+    记录开放接口认证事件(参数.logger, "info", "OpenAPI访问令牌校验开始", {
+      event: "auth.open_api_session.started",
+      ...读取开放接口请求字段(req),
+      ...诊断字段,
+    });
     try {
-      res.json(成功(req, 参数.build, await service.读取开放接口身份(读取开放接口令牌(req))));
+      const 身份 = await service.读取开放接口身份(读取开放接口令牌(req));
+      记录开放接口认证事件(参数.logger, "info", "OpenAPI访问令牌校验成功", {
+        event: "auth.open_api_session.succeeded",
+        ...读取开放接口请求字段(req),
+        ...诊断字段,
+        clientId: 身份.clientId,
+        clientName: 身份.clientName,
+        appKey: 身份.appKey,
+        allowedResourceCount: 身份.allowedResources.length,
+        boundUserId: 身份.boundUserId,
+        boundUserName: 身份.boundUserName,
+        durationMs: Math.round(performance.now() - startedAt),
+        resultCode: "success",
+      });
+      res.json(成功(req, 参数.build, 身份));
     } catch (error) {
+      记录开放接口认证失败(参数.logger, "open_api_session", "OpenAPI访问令牌校验失败", req, error, {
+        ...诊断字段,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
       next(error);
     }
   });
@@ -516,6 +572,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/open/v1/:module", async (req, res, next) => {
     const startedAt = performance.now();
     const resource = 读取路由参数(req, "module");
+    const 令牌诊断 = 读取开放接口访问令牌诊断(req, 参数.sessionSecret || "");
     let clientId = "";
     try {
       const 身份 = await service.读取开放接口身份(读取开放接口令牌(req));
@@ -535,6 +592,12 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         path: req.originalUrl,
         ip: 读取客户端IP(req),
         message: "OpenAPI资源读取成功",
+        extra: {
+          ...令牌诊断,
+          appKey: 身份.appKey,
+          clientName: 身份.clientName,
+          allowedResourceCount: 身份.allowedResources.length,
+        },
       });
       res.json(成功(req, 参数.build, 数据));
     } catch (error) {
@@ -550,6 +613,11 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         path: req.originalUrl,
         ip: 读取客户端IP(req),
         message: error instanceof Error ? error.message : "OpenAPI资源读取失败",
+        extra: {
+          ...令牌诊断,
+          errorCode: error instanceof 应用错误 ? error.code : "V3_OPEN_API_RESOURCE_INTERNAL_ERROR",
+          errorMessage: error instanceof Error ? error.message : "OpenAPI资源读取失败",
+        },
       });
       next(error);
     }
@@ -659,6 +727,110 @@ function 移动详情处理器(service: 业务数据服务, build: 构建信息,
 
 function 成功<T>(req: Request, build: 构建信息, data: T) {
   return 创建成功响应({ data, requestId: req.requestId, build });
+}
+
+function 记录开放接口认证事件(
+  logger: 日志器 | undefined,
+  level: "info" | "warn" | "error",
+  message: string,
+  fields: 日志字段,
+): void {
+  logger?.[level](message, fields);
+}
+
+function 记录开放接口认证失败(
+  logger: 日志器 | undefined,
+  流程: string,
+  message: string,
+  req: Request,
+  error: unknown,
+  fields: 日志字段 = {},
+): void {
+  const 应用级错误 = error instanceof 应用错误 ? error : null;
+  const statusCode = 应用级错误?.statusCode || 500;
+  记录开放接口认证事件(logger, statusCode >= 500 ? "error" : "warn", message, {
+    event: "auth." + 流程 + ".failed",
+    ...读取开放接口请求字段(req),
+    ...fields,
+    errorCode: 应用级错误?.code || "V3_OPEN_API_AUTH_INTERNAL_ERROR",
+    errorMessage: error instanceof Error ? error.message : "OpenAPI认证失败，原因未知。",
+    statusCode,
+    resultCode: "failed",
+  });
+}
+
+function 读取开放接口请求字段(req: Request): 日志字段 {
+  return {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.path,
+    route: 读取匹配路由(req),
+    queryKeys: Object.keys(req.query).sort(),
+    bodyKeys: Object.keys(读取请求体对象(req)).sort(),
+    ip: 读取客户端IP(req),
+    userAgent: req.get("user-agent") || "",
+    referer: req.get("referer") || "",
+  };
+}
+
+function 读取开放接口令牌诊断(req: Request, sessionSecret: string): 日志字段 {
+  const appKey = 读取请求体文本(req, "appKey") || 读取请求体文本(req, "clientId");
+  const appSecret = 读取请求体文本(req, "appSecret") || 读取请求体文本(req, "clientSecret");
+  return {
+    appKey,
+    appKeyPresent: Boolean(appKey),
+    appSecretPresent: Boolean(appSecret),
+    appSecretLength: appSecret.length,
+    appSecretFingerprint: 创建开放接口认证指纹(appSecret, sessionSecret, "openapi-app-secret"),
+  };
+}
+
+function 读取开放接口访问令牌诊断(req: Request, sessionSecret: string): 日志字段 {
+  const header = req.headers.authorization || "";
+  const accessToken = 读取请求授权令牌(req);
+  return {
+    authorizationHeaderPresent: Boolean(header),
+    authorizationHeaderLength: String(header).length,
+    authScheme: accessToken ? "Bearer" : "",
+    accessTokenPresent: Boolean(accessToken),
+    accessTokenLength: accessToken.length,
+    accessTokenFingerprint: 创建开放接口认证指纹(
+      accessToken,
+      sessionSecret,
+      "openapi-access-token",
+    ),
+  };
+}
+
+function 读取请求授权令牌(req: Request): string {
+  const header = req.headers.authorization || "";
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  return match?.[1]?.trim() || "";
+}
+
+function 创建开放接口认证指纹(value: string, sessionSecret: string, purpose: string): string {
+  if (!value) return "";
+  const secret =
+    sessionSecret || process.env.SESSION_SECRET || "local-dev-session-secret-change-me";
+  return crypto
+    .createHmac("sha256", secret)
+    .update("log-fingerprint:")
+    .update(purpose)
+    .update(":")
+    .update(value)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function 读取请求体对象(req: Request): Record<string, unknown> {
+  return req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+}
+
+function 读取匹配路由(req: Request): string {
+  const 路由 = req.route as { path?: string } | undefined;
+  if (!路由?.path) return "";
+  if (typeof 路由.path === "string") return 路由.path;
+  return "";
 }
 
 function 读取模块(value: string | undefined): 阶段9模块 {
@@ -825,6 +997,7 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
   });
   if (会话用户名) {
     return {
+      requestId: req.requestId,
       username: 会话用户名,
       displayName: 会话用户名,
       roleName: "V3登录用户",
@@ -834,6 +1007,7 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
   const v2用户名 = 读取V2令牌用户名(req);
   if (v2用户名) {
     return {
+      requestId: req.requestId,
       username: v2用户名,
       displayName: v2用户名,
       roleName: "V2页面用户",
@@ -845,7 +1019,7 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
     try {
       const parsed = JSON.parse(Buffer.from(header, "base64url").toString("utf8")) as 当前业务用户;
       if (!parsed.username || !parsed.displayName || !parsed.roleName) return null;
-      return parsed;
+      return { ...parsed, requestId: req.requestId };
     } catch {
       return null;
     }
@@ -854,6 +1028,7 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
   const operatorId = 读取查询文本(req, "operatorId") || 读取请求体文本(req, "operatorId");
   if (!operatorId) return null;
   return {
+    requestId: req.requestId,
     username: operatorId,
     externalUserId: operatorId,
     displayName: 读取请求体文本(req, "operatorName") || operatorId,

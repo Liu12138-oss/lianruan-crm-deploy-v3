@@ -124,7 +124,7 @@
 
 | 材料 | 路径 |
 | --- | --- |
-| 发布交付说明 | `docs/stage-records/HexHub阶段9.13.3发布交付说明书.md` |
+| 发布交付说明 | 历史阶段交付说明已从主线清理 |
 | 健康检查 | `output/hexhub-stage9-13-3/健康检查-最终-20260728T171218.txt` |
 | 广覆盖页面巡检 | `output/playwright/hexhub-stage9-13-3/页面巡检结果.json` |
 | V2体感关键流程巡检 | `output/playwright/hexhub-stage9-13-3-v2-flow/页面巡检结果.json` |

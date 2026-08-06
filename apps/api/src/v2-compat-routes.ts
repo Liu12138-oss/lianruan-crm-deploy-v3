@@ -740,13 +740,12 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
   router.put(
     "/orders/:id/price-adjust",
     捕获(async (req, res) => {
-      const 记录 = await 调整订单价格(
-        需要数据库(pool),
+      const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
-        读取正文(req),
+        { ...读取正文(req), status: "pending_superadmin_confirm", action: "price_adjust" },
         读取当前V2业务用户(req, 参数),
       );
-      res.json(成功(记录));
+      res.json(成功(转V2业务记录("orders", 记录)));
     }),
   );
 
@@ -767,7 +766,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
     捕获(async (req, res) => {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
-        { ...读取正文(req), status: "rejected" },
+        { ...读取正文(req), status: "primary_rejected" },
         读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
@@ -2264,7 +2263,12 @@ async function 查询V2用户按标识(pool: Pool, id: string) {
 }
 
 async function 单点登录降级响应(pool: Pool, req: Request) {
-  const username = 读取正文文本(读取正文(req), ["username", "account", "operatorId"], "");
+  const body = 读取正文(req);
+  const clientType = 读取正文文本(body, ["clientType"], "");
+  if (clientType !== "mobile") {
+    return 失败("旧版 PC 单点登录已关闭，请从 UniSDP 门户或统一入口进入。");
+  }
+  const username = 读取正文文本(body, ["username", "account", "operatorId"], "");
   const 用户 = username ? await 查询V2用户(pool, username) : await 查询首个管理员(pool);
   if (!用户) return 失败("当前未配置单点登录，请使用账号密码登录。");
   const { passwordHash: _passwordHash, ...安全用户 } = 用户;
@@ -2307,7 +2311,7 @@ async function 保存用户密码(
   if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
 }
 
-async function 调整订单价格(
+async function _调整订单价格(
   pool: Pool,
   id: string,
   输入: 字典,

@@ -3,7 +3,12 @@ import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { type 单点登录入口, type 单点登录配置, 读取单点登录配置 } from "../api/auth-client.js";
-import { 选择登录后路径 } from "../router/entry-target.js";
+import { 是否移动访问, 选择登录后路径 } from "../router/entry-target.js";
+import {
+  type 单点登录提供方,
+  是平台专属单点登录路径,
+  识别单点登录提供方,
+} from "../router/sso-entry.js";
 import { useSessionStore } from "../stores/session.js";
 
 type Emm回调 = (data: unknown) => void;
@@ -20,17 +25,32 @@ declare global {
   }
 }
 
-const 凭证参数名 = ["token", "sso_token", "ssotoken"];
+const 凭证标准参数名 = new Set(["token", "ssotoken", "code"]);
 const 默认超时毫秒 = 8000;
+const 自动单点桌面超时毫秒 = 3000;
 
 const 路由 = useRoute();
 const 路由器 = useRouter();
 const 会话 = useSessionStore();
 const 状态消息 = ref("正在准备单点登录...");
 const 错误消息 = ref("");
-const 当前入口 = computed<单点登录入口>(() => 识别入口());
-const 入口名称 = computed(() => (当前入口.value === "partner" ? "渠道伙伴入口" : "厂商管理入口"));
-const 客户端类型 = computed(() => 读取查询文本("clientType") || (是移动访问() ? "mobile" : "pc"));
+const 当前入口 = computed<单点登录入口 | null>(() => 识别入口());
+const 入口名称 = computed(() => {
+  if (当前入口.value === "partner") return "渠道伙伴入口";
+  if (当前入口.value === "admin") return "厂商管理入口";
+  return "统一单点登录入口";
+});
+const 客户端类型 = computed(() => 读取查询文本("clientType") || (是否移动访问() ? "mobile" : "pc"));
+const 单点提供方 = computed<单点登录提供方>(() =>
+  识别单点登录提供方(路由),
+);
+const 自动单点登录 = computed(() => 读取查询文本("autoSso") === "1");
+const 失败回登录 = computed(
+  () =>
+    是平台专属单点登录路径(路由.path) ||
+    读取查询文本("fallback") === "login" ||
+    自动单点登录.value,
+);
 
 onMounted(() => {
   void 执行单点登录();
@@ -39,31 +59,47 @@ onMounted(() => {
 async function 执行单点登录() {
   错误消息.value = "";
   try {
-    状态消息.value = "正在读取单点登录配置...";
-    const 配置 = await 读取单点登录配置();
     状态消息.value = "正在读取单点登录凭证...";
-    const token = 读取Url凭证() || (await 读取Emm凭证(配置));
+    const token =
+      单点提供方.value === "unisdp" ? 读取Url凭证() : await 读取IamH5单点凭证();
     清理Url敏感参数();
     状态消息.value = "正在校验单点登录身份...";
-    await 会话.单点登录系统(token, 当前入口.value, 客户端类型.value);
+    await 会话.单点登录系统(token, 当前入口.value, 客户端类型.value, 单点提供方.value);
     状态消息.value = "单点登录成功，正在进入系统...";
     window.location.replace(读取安全跳转地址());
   } catch (error) {
     清理Url敏感参数();
+    if (失败回登录.value) {
+      返回登录页(true);
+      return;
+    }
     错误消息.value = error instanceof Error ? error.message : "单点登录失败，请重新进入。";
     状态消息.value = "单点登录未完成";
   }
 }
 
-function 识别入口(): 单点登录入口 {
-  const entry = 读取查询文本("entry") || 读取查询文本("scope") || 读取查询文本("入口");
-  if (entry === "partner" || entry === "渠道") return "partner";
-  if (entry === "admin" || entry === "厂商") return "admin";
+async function 读取IamH5单点凭证(): Promise<string> {
+  if (客户端类型.value !== "mobile" && !允许主动读取Emm凭证()) {
+    return 读取Url凭证() || "";
+  }
+  状态消息.value = "正在读取 IAM 单点登录配置...";
+  const 配置 = await 读取单点登录配置();
+  return 读取Url凭证() || (await 读取Emm凭证(配置));
+}
+
+function 识别入口(): 单点登录入口 | null {
+  const entry = (
+    读取查询文本("entry") ||
+    读取查询文本("scope") ||
+    读取查询文本("入口")
+  ).toLowerCase();
+  if (entry === "partner" || entry === "渠道" || entry === "渠道端") return "partner";
+  if (entry === "admin" || entry === "厂商" || entry === "管理端") return "admin";
 
   const redirect = 读取查询文本("redirect");
   if (redirect.startsWith("/partner") || redirect.startsWith("/mobile/partner")) return "partner";
   if (redirect.startsWith("/admin") || redirect.startsWith("/mobile/admin")) return "admin";
-  return 是移动访问() ? "partner" : "admin";
+  return null;
 }
 
 function 读取查询文本(name: string): string {
@@ -82,9 +118,8 @@ function 读取Url凭证(): string {
 
   for (const queryText of 查询集合) {
     const params = new URLSearchParams(queryText);
-    for (const name of 凭证参数名) {
-      const value = String(params.get(name) || "").trim();
-      if (value) return value;
+    for (const [name, value] of params.entries()) {
+      if (是凭证参数名(name) && value.trim()) return value.trim();
     }
   }
   return "";
@@ -92,7 +127,7 @@ function 读取Url凭证(): string {
 
 async function 读取Emm凭证(配置: 单点登录配置): Promise<string> {
   if (!配置.enabled) throw new Error("单点登录未启用。");
-  if (!是移动访问() && 读取查询文本("source") !== "emm") {
+  if (!允许主动读取Emm凭证()) {
     throw new Error("缺少单点登录凭证，请从 IAM 入口重新进入。");
   }
   await 加载Emm桥接脚本();
@@ -127,6 +162,7 @@ function 加载Emm桥接脚本(): Promise<void> {
 }
 
 function 请求Emm凭证(配置: 单点登录配置): Promise<string> {
+  const 请求标识 = 读取Emm请求标识(配置);
   return new Promise((resolve, reject) => {
     if (!window.JQAPI?.getSSOToken) {
       reject(new Error("当前环境未检测到 EMM 单点登录能力。"));
@@ -137,7 +173,7 @@ function 请求Emm凭证(配置: 单点登录配置): Promise<string> {
       if (finished) return;
       finished = true;
       reject(new Error("未能从 EMM 获取单点登录凭证，请确认当前页面在 EMM 客户端中打开。"));
-    }, 配置.timeoutMs || 默认超时毫秒);
+    }, 读取Emm超时毫秒(配置));
 
     function finish(callback: Emm回调): Emm回调 {
       return (data) => {
@@ -149,7 +185,7 @@ function 请求Emm凭证(配置: 单点登录配置): Promise<string> {
     }
 
     window.JQAPI.getSSOToken(
-      { ISAID: 配置.requestIsaidByEntry[当前入口.value] },
+      { ISAID: 请求标识 },
       finish((data) => {
         const token = 解析Emm返回凭证(data);
         if (!token) {
@@ -163,6 +199,30 @@ function 请求Emm凭证(配置: 单点登录配置): Promise<string> {
       }),
     );
   });
+}
+
+function 允许主动读取Emm凭证(): boolean {
+  return 是否移动访问() || 读取查询文本("source") === "emm";
+}
+
+function 读取Emm超时毫秒(配置: 单点登录配置): number {
+  const timeoutMs = 配置.timeoutMs || 默认超时毫秒;
+  if (自动单点登录.value && 客户端类型.value === "pc") {
+    return Math.min(timeoutMs, 自动单点桌面超时毫秒);
+  }
+  return timeoutMs;
+}
+
+function 读取Emm请求标识(配置: 单点登录配置): string {
+  if (当前入口.value) return 配置.requestIsaidByEntry[当前入口.value].trim();
+  const 管理员标识 = 配置.requestIsaidByEntry.admin.trim();
+  const 渠道标识 = 配置.requestIsaidByEntry.partner.trim();
+  if (管理员标识 && 渠道标识 && 管理员标识 !== 渠道标识) {
+    throw new Error("统一单点登录缺少入口，且管理员/渠道 EMM 标识不一致。");
+  }
+  const 请求标识 = 管理员标识 || 渠道标识;
+  if (!请求标识) throw new Error("单点登录配置缺少 EMM 标识。");
+  return 请求标识;
 }
 
 function 解析Emm返回凭证(data: unknown): string {
@@ -193,7 +253,7 @@ function 解析Emm返回(data: unknown): {
 function 读取安全跳转地址(): string {
   const redirect = 读取查询文本("redirect");
   return 选择登录后路径(会话.user, {
-    移动访问: 是移动访问(),
+    移动访问: 是否移动访问(),
     候选路径: redirect,
   });
 }
@@ -211,7 +271,9 @@ function 清理Url敏感参数() {
 function 清理查询字符串(search: string): string {
   if (!search) return "";
   const params = new URLSearchParams(search);
-  凭证参数名.forEach((name) => params.delete(name));
+  Array.from(params.keys())
+    .filter(是凭证参数名)
+    .forEach((name) => params.delete(name));
   const text = params.toString();
   return text ? `?${text}` : "";
 }
@@ -220,21 +282,28 @@ function 清理Hash(hash: string): string {
   if (!hash || !hash.includes("?")) return hash;
   const [path = "", query = ""] = hash.split("?");
   const params = new URLSearchParams(query);
-  凭证参数名.forEach((name) => params.delete(name));
+  Array.from(params.keys())
+    .filter(是凭证参数名)
+    .forEach((name) => params.delete(name));
   const text = params.toString();
   return text ? `${path}?${text}` : path;
 }
 
-function 返回登录页() {
-  void 路由器.replace({ path: "/login", query: { entry: 当前入口.value } });
+function 是凭证参数名(name: string): boolean {
+  return 凭证标准参数名.has(标准化参数名(name));
 }
 
-function 是移动访问() {
-  const userAgent = navigator.userAgent.toLowerCase();
-  const isMobile = /iphone|ipad|ipod|android|webos|blackberry|windows phone/i.test(userAgent);
-  const isTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-  const isSmallScreen = window.innerWidth < 768;
-  return isMobile || (isSmallScreen && isTouch);
+function 标准化参数名(name: string): string {
+  return name.replace(/[_-]/g, "").toLowerCase();
+}
+
+function 返回登录页(单点失败 = false) {
+  const entry = 当前入口.value;
+  const query: Record<string, string> = {};
+  if (entry) query.entry = entry;
+  if (单点失败) query.ssoFallback = "1";
+  if (单点失败) query.provider = 单点提供方.value;
+  void 路由器.replace({ path: "/login", query });
 }
 </script>
 
@@ -250,7 +319,7 @@ function 是移动访问() {
         <p>{{ 状态消息 }}</p>
       </div>
       <p v-if="错误消息" class="错误提示">{{ 错误消息 }}</p>
-      <button v-if="错误消息" class="登录按钮" type="button" @click="返回登录页">
+      <button v-if="错误消息" class="登录按钮" type="button" @click="返回登录页()">
         返回账号密码登录
       </button>
     </section>

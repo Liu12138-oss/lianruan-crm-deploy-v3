@@ -12,10 +12,20 @@ V3 应用主线为：
 - 共享包：`packages/*`
 - 单机部署：`deploy/single-server`
 
-旧版 V2 静态目录、旧后端、旧升级包和旧启动脚本已从主线清理，不再维护，不再新增能力，不再作为新需求落点：
+旧版 V2 静态目录、旧后端、旧升级包、历史交付包、阶段性过程资产和旧启动脚本已从主线清理，不再维护，不再新增能力，不再作为新需求落点：
 
 - `frontend`
 - `backend`
+- `deliverables`
+- `docs/baseline`
+- `docs/phase-5-frontend-migration`
+- `docs/stage-records`
+- `scripts/database`
+- `scripts/phase4`
+- `tests/phase3`
+- `tests/phase4`
+- `tests/phase-5-frontend-migration`
+- `tests/phase7`
 - 根目录旧版启动、升级、备份脚本中仅服务 V2 的内容
 
 V3 迁移兼容资产必须保留，包括：
@@ -52,3 +62,15 @@ V3 迁移兼容资产必须保留，包括：
 以上四个页面位于 `apps/web/public`，属于 V3 当前正式业务页面，不等同于根目录历史 V2 的 `frontend` 页面。统一入口不得把用户导向 `/admin/dashboard`、`/partner/dashboard`、`/mobile/admin/home`、`/mobile/partner/home` 等工程化迁移中的未替换页面。
 
 统一登录成功后必须同时建立 HttpOnly Cookie 会话和四套正式业务页面所需的本地页面会话，然后使用浏览器整页跳转，禁止使用 Vue Router 在单页应用内部跳转到上述 `.html` 页面。入口分流规则集中维护在 `apps/web/src/router/entry-target.ts`。任何人调整登录、单点登录、根路径、移动端落点、角色落点或认证响应时，必须先阅读并同步更新该文件、`apps/web/src/api/auth-client.ts` 及其测试。
+
+## 升级包自检规则
+
+制作 V3 升级包时，升级脚本、验证脚本和 `tests/smoke.sh` 的断言必须和本次真实业务设计保持一致，禁止复制旧包脚本后不复核断言。
+
+特别是登录和单点登录相关升级：
+
+- 保留移动端 IAM 单点登录、关闭旧 PC IAM 通道时，接口 `/api/auth/sso/iam/config` 的正确断言是 `enabled:true` 且 `pcEnabled:false`，不得再断言 `enabled:false`。
+- 自检脚本不得写死 Vite 构建后的哈希资源文件名，例如 `/assets/index-xxxx.js`、`SingleSignOnPage-xxxx.js`；必须从 `/login` 或当前入口页面动态读取实际资源路径，或检查稳定的入口文件。
+- 自检脚本里的每个关键字必须先在本地构建产物或目标环境接口响应中验证存在，再写入升级包。
+- 升级包交付前必须实际执行：外层 `.zip.sha256` 校验、`unzip` 解压、包内 `manifest/SHA256SUMS` 校验、所有脚本 `bash -n`、以及自检脚本关键断言的本地等价验证。
+- 如果升级已完成但仅自检脚本误判失败，应优先出 R2 修正包并说明可直接执行 `verify.sh`，不得要求用户回退已经健康通过的服务。

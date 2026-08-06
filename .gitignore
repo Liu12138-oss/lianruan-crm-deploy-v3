@@ -40,6 +40,16 @@ apps/web/playwright-report/
 backup*/
 backups/
 upgrade_logs/
+deliverables/
+docs/baseline/
+docs/phase-5-frontend-migration/
+docs/stage-records/
+scripts/database/
+scripts/phase4/
+tests/phase3/
+tests/phase4/
+tests/phase-5-frontend-migration/
+tests/phase7/
 *.zip
 *.zip.sha256
 *.tar

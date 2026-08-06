@@ -647,10 +647,10 @@ const PartnerSingleSignOnPageV2 = {
       router.replace('/login');
     }
 
-    async function doSingleSignOn() {
+    function doSingleSignOn() {
       const traceId = createPcSingleSignOnTraceId('partner');
       const entryUrl = window.location.href;
-      console.log(`[IAM-SSO][PC][渠道端][${traceId}][页面进入]`, {
+      console.log(`[IAM-SSO][PC][渠道端][${traceId}][旧通道关闭]`, {
         entryUrl,
         enteredAt: new Date().toISOString()
       });
@@ -668,75 +668,25 @@ const PartnerSingleSignOnPageV2 = {
       const tokenInfo = readPcSingleSignOnToken();
       const token = tokenInfo.token;
       if (!token) {
-        console.error(`[IAM-SSO][PC][渠道端][${traceId}][凭证获取失败]`, {
+        console.error(`[IAM-SSO][PC][渠道端][${traceId}][旧通道无凭证]`, {
           entryUrl,
           supportedParameters: ['token', 'sso_token', 'ssotoken']
         });
-        message.value = '缺少单点登录凭证，请从 IAM 入口重新进入。';
+        message.value = '旧版 PC 单点登录已关闭，请从 UniSDP 门户或统一入口进入。';
         showBack.value = true;
         return;
       }
 
-      const acquiredAt = new Date().toISOString();
-      console.log(`[IAM-SSO][PC][渠道端][${traceId}][凭证获取成功]`, {
-        source: 'hash',
+      const params = new URLSearchParams({
+        sso_token: token,
+        provider: 'unisdp',
+        fallback: 'login'
+      });
+      console.log(`[IAM-SSO][PC][渠道端][${traceId}][转入UniSDP]`, {
         parameter: tokenInfo.parameter,
-        ssoToken: token,
-        ssoTokenLength: token.length,
-        entryUrl,
-        acquiredAt
+        ssoTokenLength: token.length
       });
-
-      clearPcSingleSignOnTokenFromUrl();
-      console.log(`[IAM-SSO][PC][渠道端][${traceId}][地址凭证清理完成]`, {
-        cleanUrl: window.location.href
-      });
-
-      try {
-        const endpoint = '/sso/iam/partner-login-v2';
-        console.log(`[IAM-SSO][PC][渠道端][${traceId}][提交后端校验]`, {
-          endpoint,
-          clientType: 'pc',
-          ssoToken: token,
-          ssoTokenLength: token.length
-        });
-        const res = await apiRequest('POST', endpoint, {
-          token,
-          clientType: 'pc',
-          ssoTrace: {
-            id: traceId,
-            source: 'hash',
-            parameter: tokenInfo.parameter,
-            entryUrl,
-            acquiredAt
-          }
-        });
-        if (!res.success || !res.user || !res.token) {
-          throw new Error(res.error || '单点登录失败');
-        }
-        console.log(`[IAM-SSO][PC][渠道端][${traceId}][后端校验成功]`, {
-          username: res.user.username || '',
-          role: res.user.role || '',
-          userId: res.user.id || ''
-        });
-        persistPartnerLogin(res.user, res.token);
-        if (Array.isArray(res.notifications)) {
-          store.notifications = normalizeNotifications(res.notifications);
-        } else {
-          await loadNotificationsFromServer();
-        }
-        window.history.replaceState({}, '', `${window.location.pathname}#/dashboard`);
-        router.replace('/dashboard');
-        setTimeout(() => showLoginDueReminderDialog(getLoginDueReminders(res)), 300);
-      } catch (err) {
-        console.error(`[IAM-SSO][PC][渠道端][${traceId}][登录失败]`, {
-          error: err.message || '单点登录失败',
-          ssoToken: token,
-          ssoTokenLength: token.length
-        });
-        message.value = err.message || '单点登录失败';
-        showBack.value = true;
-      }
+      window.location.replace(`/login/singlesignonlogin/login.do?${params.toString()}`);
     }
 
     doSingleSignOn();
@@ -4898,8 +4848,10 @@ const OrderList = {
       </div>
       <select class="form-control" v-model="filterStatus" style="width:150px">
         <option value="">全部状态</option>
-        <option value="pending">待确认</option>
+        <option value="pending_primary_confirm">待一级确认</option>
         <option value="primary_confirmed">一级已确认</option>
+        <option value="pending_superadmin_confirm">待超管确认</option>
+        <option value="confirmed">已确认</option>
         <option value="primary_rejected">已驳回</option>
         <option value="processing">处理中</option>
         <option value="shipped">已发货</option>
@@ -4933,7 +4885,7 @@ const OrderList = {
               <td style="font-size:12px;color:#888;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ o.deliveryAddr }}</td>
               <td @click.stop>
                 <!-- 一级渠道商：对待确认的二级订单显示确认/驳回按钮 -->
-                <template v-if="isPrimaryPartner && o.status === 'pending' && isSecondarySubOrder(o)">
+                <template v-if="isPrimaryPartner && isPrimaryPendingStatus(o.status) && isSecondarySubOrder(o)">
                   <button class="btn btn-primary btn-sm" style="margin-right:4px" @click.stop="openConfirmModal(o)">✅ 确认</button>
                   <button class="btn btn-danger btn-sm" @click.stop="openRejectModal(o)">❌ 驳回</button>
                 </template>
@@ -5021,9 +4973,9 @@ const OrderList = {
               </div>
               <!-- 二级渠道商订单专有：一级确认步骤 -->
               <div class="timeline-item" v-if="detail.partnerId && isSecondarySubOrder(detail)"
-                   :class="{active:['primary_confirmed','processing','shipped','completed'].includes(detail.status)}">
+                   :class="{active:['primary_confirmed','pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)}">
                 <div class="timeline-dot-wrap">
-                  <div class="timeline-dot" :class="{active:['primary_confirmed','processing','shipped','completed'].includes(detail.status), 'danger-dot': detail.status==='primary_rejected'}"></div>
+                  <div class="timeline-dot" :class="{active:['primary_confirmed','pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status), 'danger-dot': detail.status==='primary_rejected'}"></div>
                   <div class="timeline-line"></div>
                 </div>
                 <div class="timeline-content">
@@ -5033,17 +4985,24 @@ const OrderList = {
                   <div class="tl-desc" v-if="detail.primaryConfirmedByName">
                     确认人：{{ detail.primaryConfirmedByName }}
                   </div>
-                  <div class="tl-desc" v-else-if="detail.status === 'pending'">等待一级渠道商确认...</div>
+                  <div class="tl-desc" v-else-if="isPrimaryPendingStatus(detail.status)">等待一级渠道商确认...</div>
                 </div>
               </div>
-              <div class="timeline-item" :class="{active:['processing','shipped','completed'].includes(detail.status)}">
-                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active:['processing','shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
+              <div class="timeline-item" :class="{active:['pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)}">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active:['pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
                 <div class="timeline-content">
-                  <div class="tl-title">厂商确认处理中</div>
-                  <div class="tl-desc" v-if="detail.lastOperatorName && ['processing','shipped','completed'].includes(detail.status)">
+                  <div class="tl-title">区管确认或调价</div>
+                  <div class="tl-desc" v-if="detail.lastOperatorName && ['pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)">
                     确认人：{{ detail.lastOperatorName }}
                   </div>
-                  <div class="tl-desc" v-else-if="['pending','primary_confirmed'].includes(detail.status)">等待厂商确认...</div>
+                  <div class="tl-desc" v-else-if="detail.status==='primary_confirmed'">等待区管确认...</div>
+                </div>
+              </div>
+              <div class="timeline-item" :class="{active:['confirmed','processing','shipped','completed'].includes(detail.status)}">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active:['confirmed','processing','shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
+                <div class="timeline-content">
+                  <div class="tl-title">超管确认</div>
+                  <div class="tl-desc" v-if="detail.status==='pending_superadmin_confirm'">等待超管确认...</div>
                 </div>
               </div>
               <div class="timeline-item" :class="{active:['shipped','completed'].includes(detail.status)}">
@@ -5051,7 +5010,7 @@ const OrderList = {
                 <div class="timeline-content">
                   <div class="tl-title">已发货 / License 已下发</div>
                   <div class="tl-time" v-if="getShippedTime()">{{ getShippedTime() }}</div>
-                  <div class="tl-desc" v-else-if="['processing','pending','primary_confirmed'].includes(detail.status)">等待发货...</div>
+                  <div class="tl-desc" v-else-if="['processing','pending','pending_primary_confirm','primary_confirmed','pending_superadmin_confirm','confirmed'].includes(detail.status)">等待发货...</div>
                 </div>
               </div>
               <div class="timeline-item" :class="{active:detail.status==='completed'}">
@@ -5074,8 +5033,8 @@ const OrderList = {
                 <span style="margin-left:8px" :class="{'text-success':h.to==='completed','text-danger':h.to==='cancelled'||h.to==='primary_rejected'}">
                   {{ h.to==='primary_confirmed' ? '（一级渠道商）确认了订单' :
                      h.to==='primary_rejected' ? '（一级渠道商）驳回了订单' :
-                     h.from==='pending' && h.to==='processing' ? '确认了订单' : 
-                     h.from==='primary_confirmed' && h.to==='processing' ? '（厂商）确认处理' :
+                     h.to==='pending_superadmin_confirm' ? '（区管）确认或调价后提交超管确认' :
+                     h.to==='confirmed' ? '（超管）确认了订单' :
                      h.from==='processing' && h.to==='shipped' ? '确认已发货' :
                      h.from==='shipped' && h.to==='completed' ? '完成了订单' :
                      h.to==='cancelled' ? '取消了订单' : '修改了状态' }}
@@ -5087,7 +5046,7 @@ const OrderList = {
         </div>
         <div class="modal-footer">
           <!-- 一级渠道商在详情弹窗中也可以确认/驳回 -->
-          <template v-if="isPrimaryPartner && detail.status === 'pending' && isSecondarySubOrder(detail)">
+          <template v-if="isPrimaryPartner && isPrimaryPendingStatus(detail.status) && isSecondarySubOrder(detail)">
             <button class="btn btn-danger" @click="openRejectModal(detail);detail=null">❌ 驳回</button>
             <button class="btn btn-primary" @click="openConfirmModal(detail);detail=null">✅ 确认接受</button>
           </template>
@@ -5141,7 +5100,7 @@ const OrderList = {
     // 一级渠道商待确认的下属二级订单
     const pendingSecondaryOrders = computed(() => {
       if (!isPrimaryPartner.value) return [];
-      return store.orders.filter(o => o.status === 'pending' && isSecondarySubOrder(o));
+      return store.orders.filter(o => isPrimaryPendingStatus(o.status) && isSecondarySubOrder(o));
     });
     
     // 确认/驳回弹窗状态
@@ -5301,8 +5260,9 @@ const OrderList = {
       return mK && mS;
     }));
     
-    function oClass(s) { return { pending:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待确认', primary_confirmed:'一级已确认', primary_rejected:'已驳回', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消' }[s]||s; }
+    function isPrimaryPendingStatus(status) { return status === 'pending' || status === 'pending_primary_confirm'; }
+    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
+    function oLabel(s) { return { pending:'待一级确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
     
     // 获取发货时间
@@ -5323,7 +5283,7 @@ const OrderList = {
       isPrimaryPartner, isSecondarySubOrder, pendingSecondaryOrders,
       showConfirmModal, showRejectModal, confirmTargetOrder, rejectTargetOrder,
       confirmRemark, rejectRemark, confirmLoading,
-      openConfirmModal, openRejectModal, doPrimaryConfirm, doPrimaryReject };
+      openConfirmModal, openRejectModal, doPrimaryConfirm, doPrimaryReject, isPrimaryPendingStatus };
   }
 };
 

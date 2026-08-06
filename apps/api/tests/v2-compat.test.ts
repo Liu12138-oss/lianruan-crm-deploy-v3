@@ -333,6 +333,7 @@ describe("V2真实页面兼容接口", () => {
         .expect(200);
       expect(调价.body.success).toBe(true);
       expect(调价.body.data.id).toBe(订单.id);
+      expect(调价.body.data.status).toBe("pending_superadmin_confirm");
     }
   });
 

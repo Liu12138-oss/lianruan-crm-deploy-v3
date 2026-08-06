@@ -49,10 +49,15 @@ export const useSessionStore = defineStore("session", {
         this.loading = false;
       }
     },
-    async 单点登录系统(token: string, entry: 单点登录入口, clientType: string) {
+    async 单点登录系统(
+      token: string,
+      entry: 单点登录入口 | null,
+      clientType: string,
+      provider: "iam" | "unisdp" = "iam",
+    ) {
       this.loading = true;
       try {
-        this.user = await 单点登录({ token, entry, clientType });
+        this.user = await 单点登录({ token, entry, clientType, provider });
         this.loaded = true;
         this.errorMessage = "";
       } catch (error) {

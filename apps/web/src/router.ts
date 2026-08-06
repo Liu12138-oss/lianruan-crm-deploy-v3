@@ -15,6 +15,18 @@ export const routes: RouteRecordRaw[] = [
     meta: { title: "单点登录", layout: "entry" },
   },
   {
+    path: "/sso/iam",
+    name: "iamSingleSignOnLogin",
+    component: () => import("./pages/SingleSignOnPage.vue"),
+    meta: { title: "IAM 单点登录", layout: "entry" },
+  },
+  {
+    path: "/sso/unisdp",
+    name: "uniSdpSingleSignOnLogin",
+    component: () => import("./pages/SingleSignOnPage.vue"),
+    meta: { title: "UniSDP 单点登录", layout: "entry" },
+  },
+  {
     path: "/",
     name: "home",
     component: () => import("./views/HomeView.vue"),

@@ -7,6 +7,8 @@ describe("前端测试路由", () => {
     const paths = routes.map((route) => route.path);
     expect(paths).toContain("/");
     expect(paths).toContain("/login");
+    expect(paths).toContain("/sso/iam");
+    expect(paths).toContain("/sso/unisdp");
     expect(paths).toContain("/admin");
     expect(paths).toContain("/partner");
     expect(paths).toContain("/mobile");

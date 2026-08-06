@@ -36,4 +36,16 @@ describe("健康检查接口", () => {
     expect(res.body.success).toBe(false);
     expect(res.body.error.message).toContain("接口不存在");
   });
+
+  it("请求编号支持透传且会拒绝异常格式", async () => {
+    const app = 创建应用({ config });
+    const 正常编号 = await request(app).get("/health/live").set("x-request-id", "req-test-001");
+    expect(正常编号.headers["x-request-id"]).toBe("req-test-001");
+
+    const 异常编号 = await request(app).get("/health/live").set("x-request-id", "req test 001");
+    expect(异常编号.headers["x-request-id"]).not.toBe("req test 001");
+    expect(String(异常编号.headers["x-request-id"])).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+  });
 });

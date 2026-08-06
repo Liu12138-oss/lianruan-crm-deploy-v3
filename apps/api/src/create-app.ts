@@ -6,12 +6,12 @@ import cors from "cors";
 import type { ErrorRequestHandler, RequestHandler } from "express";
 import express from "express";
 
-import { 创建认证路由 } from "./auth-routes.js";
+import { 创建门户单点登录路由, 创建认证路由 } from "./auth-routes.js";
 import { 创建业务路由 } from "./business-routes.js";
 import type { 依赖检查器 } from "./dependencies.js";
 import { 创建依赖检查器 } from "./dependencies.js";
 import { 创建健康路由 } from "./health-routes.js";
-import { 创建日志器, 记录请求完成 } from "./logger.js";
+import { 创建日志器, type 日志器, 记录请求完成 } from "./logger.js";
 import { 请求编号中间件 } from "./request-context.js";
 import { 创建V2兼容路由, 创建V2导入导出兼容路由 } from "./v2-compat-routes.js";
 
@@ -20,6 +20,7 @@ export interface 创建应用参数 {
   dependencyChecker?: 依赖检查器;
   build?: 构建信息;
   env?: NodeJS.ProcessEnv;
+  logger?: 日志器;
 }
 
 export function 创建应用(参数: 创建应用参数 = {}) {
@@ -31,7 +32,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       V3_BUILD_COMMIT: config.build.commit,
       V3_BUILD_TIME: config.build.time,
     });
-  const logger = 创建日志器(config);
+  const logger = 参数.logger || 创建日志器(config);
   const dependencyChecker = 参数.dependencyChecker || 创建依赖检查器(config);
   const app = express();
 
@@ -44,12 +45,23 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   app.use(请求日志中间件(logger));
 
   app.use(
+    "/",
+    创建门户单点登录路由({
+      build,
+      sessionSecret: config.session.secret,
+      ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
+      logger,
+    }),
+  );
+  app.use(
     "/api/auth",
     创建认证路由({
       build,
       sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
       ...(参数.env ? { env: 参数.env } : {}),
+      logger,
     }),
   );
   app.use(
@@ -77,6 +89,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
       ...(参数.env ? { env: 参数.env } : {}),
+      logger,
     }),
   );
   app.use("/health", 创建健康路由({ dependencyChecker, build }));
@@ -89,7 +102,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   return app;
 }
 
-function 请求日志中间件(logger: ReturnType<typeof 创建日志器>): RequestHandler {
+function 请求日志中间件(logger: 日志器): RequestHandler {
   return (req, res, next) => {
     const startedAt = process.hrtime.bigint();
     res.on("finish", () => 记录请求完成(logger, req, res, startedAt));
@@ -99,7 +112,7 @@ function 请求日志中间件(logger: ReturnType<typeof 创建日志器>): Requ
 
 function 错误处理中间件(
   build: 构建信息,
-  logger: ReturnType<typeof 创建日志器>,
+  logger: 日志器,
   includeStack: boolean,
 ): ErrorRequestHandler {
   return (error, req, res, _next) => {
@@ -107,11 +120,16 @@ function 错误处理中间件(
       error instanceof 应用错误
         ? error
         : new 应用错误("V3_INTERNAL_ERROR", "系统处理失败，请联系管理员。", 500);
-    logger.error("接口请求失败", {
+    const level = 应用级错误.statusCode >= 500 ? "error" : "warn";
+    logger[level]("接口请求失败", {
+      event: "api.request.failed",
       requestId: req.requestId,
-      code: 应用级错误.code,
-      message: 应用级错误.message,
+      method: req.method,
+      path: req.path,
+      errorCode: 应用级错误.code,
+      errorMessage: 应用级错误.message,
       statusCode: 应用级错误.statusCode,
+      resultCode: "failed",
       stack: includeStack && error instanceof Error ? error.stack : undefined,
     });
     res.status(应用级错误.statusCode).json(

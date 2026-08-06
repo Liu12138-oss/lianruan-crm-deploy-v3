@@ -439,5 +439,4 @@ secret, appSecret, privateKey, session, cookie, captcha, salt
 1. `docs/openapi-aiagent-latest-guide.md`：最新联调说明，含账号密码处理、Markdown 分析模式和测试顺序。
 2. `docs/openapi-aiagent-api-contract.md`：标准 API 契约，含完整资源授权值、产品目录接口和 Markdown 取数约束。
 3. `docs/openapi-aiagent-self-test-record.md`：联调自测记录。
-4. `deliverables/openapi-field-completion-confirmation_20260615.md`：字段补齐确认。
-5. `deliverables/openapi-md-agent-handoff-guide_20260616.md`：本文档，可直接发给对方。
+4. 历史交付包中的字段确认和交接资料已从主线清理，不作为当前对接入口。

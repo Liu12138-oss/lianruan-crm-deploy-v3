@@ -76,14 +76,22 @@ export async function 读取单点登录配置(): Promise<单点登录配置> {
 
 export async function 单点登录(参数: {
   token: string;
-  entry: 单点登录入口;
+  entry?: 单点登录入口 | null;
   clientType: string;
+  provider?: "iam" | "unisdp";
 }): Promise<登录用户> {
-  const 响应 = await fetch("/api/auth/sso/iam/login", {
+  const 请求体: { token: string; entry?: 单点登录入口; clientType: string } = {
+    token: 参数.token,
+    clientType: 参数.clientType,
+  };
+  if (参数.entry) 请求体.entry = 参数.entry;
+  const 登录路径 =
+    参数.provider === "unisdp" ? "/api/auth/sso/unisdp/login" : "/api/auth/sso/iam/login";
+  const 响应 = await fetch(登录路径, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(参数),
+    body: JSON.stringify(请求体),
   });
   const 内容 = (await 响应.json()) as 标准接口响应<认证结果>;
   if (!响应.ok || !内容.success || !内容.data) {

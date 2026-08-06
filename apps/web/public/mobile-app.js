@@ -10,7 +10,7 @@
   const PARTNER_ROLES = ['staff', 'partner_admin'];
   const ADMIN_ROLES = ['admin', 'superadmin'];
   const EMM_H5_SSO_ISAIDS = Object.freeze({
-    partner: 'QdCRMkeduduan123',
+    partner: 'QdCRMguanlyuan123',
     admin: 'QdCRMguanlyuan123'
   });
   const EMM_H5_SSO_TIMEOUT_MS = 8000;
@@ -19,6 +19,8 @@
   const STATUS_TEXT = {
     pending: '待审核', reviewing: '审核中', approved: '已通过', rejected: '已驳回',
     active: '已生效', inactive: '已停用', draft: '草稿', sent: '已发送',
+    pending_primary_confirm: '待一级确认', primary_confirmed: '一级已确认',
+    primary_rejected: '一级已驳回', pending_superadmin_confirm: '待超管确认',
     confirmed: '已确认', converted: '已转订单', processing: '处理中', shipped: '已发货',
     completed: '已完成', cancelled: '已取消', contacted: '已联系', registered: '已报备',
     quoted: '已报价', budget: '明确预算', design: '方案设计', testing: '产品测试',
@@ -61,9 +63,40 @@
     return data;
   }
 
+  function readErrorMessage(value, fallback = '操作失败，请稍后重试。') {
+    if (!value) return fallback;
+    if (value instanceof Error) return readErrorMessage(value.message, fallback);
+    if (typeof value === 'string') {
+      const text = value.trim();
+      return text && text !== '[object Object]' ? text : fallback;
+    }
+    if (typeof value === 'object') {
+      return (
+        readErrorMessage(value.message, '') ||
+        readErrorMessage(value.error, '') ||
+        readErrorMessage(value.msg, '') ||
+        readErrorMessage(value.detail, '') ||
+        fallback
+      );
+    }
+    const text = String(value || '').trim();
+    return text && text !== '[object Object]' ? text : fallback;
+  }
+
   function translateSingleSignOnError(message) {
-    const text = String(message || '').trim();
-    return text || '单点登录失败，请稍后重试。';
+    return readErrorMessage(message, '单点登录失败，请稍后重试。');
+  }
+
+  function normalizeSingleSignOnResult(result) {
+    const pageSession = result?.data?.pageSession;
+    if (pageSession?.token && pageSession?.user) {
+      return {
+        success: true,
+        user: pageSession.user,
+        token: pageSession.token
+      };
+    }
+    return result || {};
   }
 
   function readSession() {
@@ -118,7 +151,7 @@
         window.dispatchEvent(new CustomEvent('mobile-auth-expired'));
         throw new Error('登录状态已失效，请重新登录');
       }
-      const message = result?.error || result?.message || `请求失败（${response.status}）`;
+      const message = readErrorMessage(result?.error || result?.message, `请求失败（${response.status}）`);
       throw new Error(message);
     }
     return result;
@@ -423,7 +456,7 @@
       });
 
       function flash(message, type = 'success') {
-        toast.message = message;
+        toast.message = readErrorMessage(message, type === 'error' ? '操作失败，请稍后重试。' : '操作成功');
         toast.type = type;
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => { toast.message = ''; }, 2600);
@@ -935,14 +968,17 @@
 
         try {
           const ssoToken = await readSingleSignOnToken();
-          const endpoint = isPartnerScope.value ? '/sso/iam/partner-login-v2' : '/sso/iam/admin-login-v2';
           const allowedRoles = isPartnerScope.value ? PARTNER_ROLES : ADMIN_ROLES;
           let response;
           try {
-            response = await fetch(`${window.API_BASE}${endpoint}`, {
+            response = await fetch('/api/auth/sso/iam/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ token: ssoToken, clientType: 'mobile' })
+              body: JSON.stringify({
+                token: ssoToken,
+                entry: isPartnerScope.value ? 'partner' : 'admin',
+                clientType: 'mobile'
+              })
             });
           } catch (error) {
             throw new Error('单点登录请求失败，请检查手机网络、后端接口地址或 HTTPS 配置。');
@@ -958,6 +994,7 @@
             throw new Error(translateSingleSignOnError(result?.error || result?.message || `单点登录失败（${response.status}）`));
           }
 
+          result = normalizeSingleSignOnResult(result);
           const nextUser = { ...(result.user || {}), _storagePrefix: APP_PREFIX };
           if (!allowedRoles.includes(nextUser.role)) {
             if (redirectToMatchedScope(result, nextUser)) return;
@@ -1296,7 +1333,7 @@
           Object.assign(quoteOrderForm, { deliveryContactName: '', deliveryContactPhone: '', deliveryAddress: '', invoiceTitle: '', remark: '' });
           await Promise.all([fetchCollection('quotes', '/quotes'), fetchCollection('orders', '/orders')]);
           const orderId = result.data?.id;
-          flash('已确认报价已转为订单');
+          flash('已转为订单，请等待下一步审批');
           if (orderId) go(`/partner/orders/${encodeURIComponent(orderId)}`);
           else await loadDetail();
         } catch (error) {

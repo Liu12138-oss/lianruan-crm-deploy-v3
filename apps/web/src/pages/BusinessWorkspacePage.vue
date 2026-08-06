@@ -463,6 +463,8 @@ const 状态选项列表 = computed<状态选项[]>(() => {
     orders: [
       { 标签: "全部状态", 值: "" },
       { 标签: "待一级确认", 值: "pending_primary_confirm" },
+      { 标签: "一级已确认", 值: "primary_confirmed" },
+      { 标签: "待超管确认", 值: "pending_superadmin_confirm" },
       { 标签: "已确认", 值: "confirmed" },
       { 标签: "已完成", 值: "completed" },
       { 标签: "已驳回", 值: "rejected" },
@@ -1158,7 +1160,7 @@ async function 提交创建() {
     }
     if (模块.value === "orders") {
       await 创建订单({ quoteId: 表单.quoteId });
-      ElMessage.success("订单已创建，等待一级确认。");
+      ElMessage.success("订单已创建，请等待下一步审批。");
       await 路由器.push(列表返回路径("orders"));
     }
   } catch (error) {
@@ -1237,8 +1239,14 @@ async function 转订单(row: 阶段9记录) {
 }
 
 async function 确认订单(row: 阶段9记录) {
-  await 更新订单状态(row.id, "confirmed");
-  ElMessage.success("订单已确认。");
+  const targetStatus =
+    row.状态 === "pending_superadmin_confirm"
+      ? "confirmed"
+      : row.状态 === "primary_confirmed"
+        ? "pending_superadmin_confirm"
+        : "confirmed";
+  await 更新订单状态(row.id, targetStatus);
+  ElMessage.success(targetStatus === "confirmed" ? "订单已确认。" : "订单已提交超管确认。");
   await 加载页面();
 }
 
@@ -3770,12 +3778,15 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
                       转订单
                     </button>
                     <button
-                      v-if="当前业务模块 === 'orders'"
+                      v-if="
+                        当前业务模块 === 'orders' &&
+                        ['primary_confirmed', 'pending_superadmin_confirm'].includes(row.状态)
+                      "
                       class="btn btn-text btn-sm"
                       type="button"
                       @click="确认订单(row)"
                     >
-                      确认
+                      {{ row.状态 === "pending_superadmin_confirm" ? "超管确认" : "区管确认" }}
                     </button>
                     <button
                       v-if="当前业务模块 === 'partners'"

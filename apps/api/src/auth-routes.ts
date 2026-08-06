@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import type { 构建信息 } from "@lianruan/shared";
+import type { 日志器, 日志字段, 构建信息 } from "@lianruan/shared";
 import { 创建成功响应, 应用错误 } from "@lianruan/shared";
 import type { Request, Router } from "express";
 import { Router as createRouter } from "express";
@@ -13,6 +13,12 @@ import {
   解析单点登录入口,
   读取IamH5单点登录配置,
 } from "./iam-sso.js";
+import {
+  type UniSdp单点登录身份,
+  type UniSdp单点登录配置,
+  校验UniSdp单点登录凭证,
+  读取UniSdp单点登录配置,
+} from "./unisdp-sso.js";
 
 interface 交付用户 {
   username: string;
@@ -64,6 +70,27 @@ interface 认证配置 {
   databaseUrl?: string | undefined;
   pool?: Pool | undefined;
   sso: IamH5单点登录配置;
+  uniSdpSso: UniSdp单点登录配置;
+  logger?: 日志器 | undefined;
+}
+
+interface 数据库用户行 {
+  id: string;
+  v2_source_id: string | null;
+  username: string;
+  display_name: string;
+  password_hash: string | null;
+  role_code: string | null;
+  role_name: string | null;
+  region_name: string | null;
+  extra_json: Record<string, unknown> | null;
+  partner_id: string | null;
+  partner_name: string | null;
+}
+
+interface UniSdp本地用户匹配结果 {
+  用户: 交付用户;
+  匹配方式: "username" | "partner_phone" | "partner_phone_username";
 }
 
 interface 认证路由参数 {
@@ -71,6 +98,7 @@ interface 认证路由参数 {
   sessionSecret: string;
   databaseUrl?: string | undefined;
   env?: NodeJS.ProcessEnv;
+  logger?: 日志器 | undefined;
 }
 
 interface 会话用户名读取参数 {
@@ -87,7 +115,17 @@ export function 创建认证路由(参数: 认证路由参数): Router {
 
   注册账号密码路由(router, 配置, 参数.build);
   注册Iam单点登录路由(router, 配置, 参数.build);
+  注册UniSdp单点登录路由(router, 配置, 参数.build);
   注册会话路由(router, 配置, 参数.build);
+
+  return router;
+}
+
+export function 创建门户单点登录路由(参数: 认证路由参数): Router {
+  const router = createRouter();
+  const 配置 = 读取认证配置(参数);
+
+  注册UniSdp门户单点登录路由(router, 配置);
 
   return router;
 }
@@ -109,6 +147,12 @@ export function 读取请求会话用户名(req: Request, 参数: 会话用户�
 
 function 注册账号密码路由(router: Router, 配置: 认证配置, build: 构建信息): void {
   router.post("/login", async (req, res, next) => {
+    const 诊断字段 = 读取账号密码登录诊断(req, 配置);
+    记录认证事件(配置, "info", "账号密码登录开始", {
+      event: "auth.password.started",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+    });
     try {
       if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
       const { username, password } = 读取登录请求(req);
@@ -118,19 +162,36 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
       }
 
       const token = 签发会话令牌(用户.username, 配置);
+      const 页面会话 = 创建业务页面会话(用户);
       写入会话Cookie(res, 配置, token);
+      记录认证事件(配置, "info", "账号密码登录成功", {
+        event: "auth.password.succeeded",
+        ...读取认证请求字段(req),
+        username: 用户.username,
+        displayName: 用户.displayName,
+        roleName: 用户.roleName,
+        defaultPath: 用户.defaultPath,
+        allowedPathCount: 用户.allowedPaths.length,
+        sessionTokenFingerprint: 创建认证指纹(token, 配置, "auth-session"),
+        pageSessionTokenFingerprint: 创建认证指纹(页面会话.token, 配置, "page-session"),
+        sessionCookieWritten: true,
+        cookieSecure: 配置.cookieSecure,
+        ttlSeconds: 配置.ttlSeconds,
+        resultCode: "success",
+      });
       res.json(
         创建成功响应({
           requestId: req.requestId,
           build,
           data: {
             user: 转换用户响应(用户),
-            pageSession: 创建业务页面会话(用户),
+            pageSession: 页面会话,
             expiresInSeconds: 配置.ttlSeconds,
           },
         }),
       );
     } catch (error) {
+      记录认证失败(配置, "password", "账号密码登录失败", req, error, 诊断字段);
       next(error);
     }
   });
@@ -146,6 +207,7 @@ function 注册Iam单点登录路由(router: Router, 配置: 认证配置, build
           build,
           data: {
             enabled: 配置.sso.enabled,
+            pcEnabled: 配置.sso.pcEnabled,
             entries: ["admin", "partner"],
             requestIsaidByEntry: 配置.sso.requestIsaidByEntry,
             timeoutMs: 配置.sso.timeoutMs,
@@ -172,26 +234,54 @@ function 注册Iam单点登录路由(router: Router, 配置: 认证配置, build
 
 function 注册会话路由(router: Router, 配置: 认证配置, build: 构建信息): void {
   router.get("/me", async (req, res, next) => {
+    const 会话诊断 = 读取会话诊断(req, 配置);
+    记录认证事件(配置, "info", "当前会话校验开始", {
+      event: "auth.session.started",
+      ...读取认证请求字段(req),
+      ...会话诊断,
+    });
     try {
       if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
       const 用户 = await 读取当前用户(req, 配置);
+      const 页面会话 = 创建业务页面会话(用户);
+      记录认证事件(配置, "info", "当前会话校验成功", {
+        event: "auth.session.succeeded",
+        ...读取认证请求字段(req),
+        ...会话诊断,
+        username: 用户.username,
+        displayName: 用户.displayName,
+        roleName: 用户.roleName,
+        defaultPath: 用户.defaultPath,
+        allowedPathCount: 用户.allowedPaths.length,
+        pageSessionTokenFingerprint: 创建认证指纹(页面会话.token, 配置, "page-session"),
+        resultCode: "success",
+      });
       res.json(
         创建成功响应({
           requestId: req.requestId,
           build,
           data: {
             user: 转换用户响应(用户),
-            pageSession: 创建业务页面会话(用户),
+            pageSession: 页面会话,
           },
         }),
       );
     } catch (error) {
+      记录认证失败(配置, "session", "当前会话校验失败", req, error, 会话诊断);
       next(error);
     }
   });
 
   router.post("/logout", (req, res) => {
+    const 会话诊断 = 读取会话诊断(req, 配置);
     清理会话Cookie(res, 配置);
+    记录认证事件(配置, "info", "用户退出登录完成", {
+      event: "auth.logout.completed",
+      ...读取认证请求字段(req),
+      ...会话诊断,
+      sessionCookieCleared: true,
+      resultCode: "success",
+    });
     res.json(
       创建成功响应({
         requestId: req.requestId,
@@ -215,7 +305,24 @@ function 读取认证配置(参数: 认证路由参数): 认证配置 {
     databaseUrl: 参数.databaseUrl,
     pool: 参数.databaseUrl ? new Pool({ connectionString: 参数.databaseUrl }) : undefined,
     sso: 读取IamH5单点登录配置(env),
+    uniSdpSso: 读取UniSdp单点登录配置(env),
+    logger: 参数.logger,
   };
+}
+
+function 注册UniSdp单点登录路由(router: Router, 配置: 认证配置, build: 构建信息): void {
+  router.post("/sso/unisdp/login", (req, res, next) => {
+    处理UniSdp单点登录(req, res, next, 配置, build);
+  });
+}
+
+function 注册UniSdp门户单点登录路由(router: Router, 配置: 认证配置): void {
+  router.post("/app/sso.htm", (req, res, next) => {
+    处理UniSdp门户单点登录(req, res, next, 配置);
+  });
+  router.get("/app/sso.htm", (req, res, next) => {
+    处理UniSdp门户单点登录(req, res, next, 配置);
+  });
 }
 
 async function 处理Iam单点登录(
@@ -229,42 +336,297 @@ async function 处理Iam单点登录(
   build: 构建信息,
   固定入口?: 单点登录入口,
 ): Promise<void> {
+  const 诊断字段 = 读取Iam单点登录诊断(req, 配置, 固定入口);
+  let 失败阶段 = "request";
+  let 校验入口: 单点登录入口 | null = null;
+  记录认证事件(配置, "info", "IAM单点登录开始", {
+    event: "auth.iam_sso.started",
+    ...读取认证请求字段(req),
+    ...诊断字段,
+  });
   try {
     if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
     const { token, entry, clientType } = 读取单点登录请求(req, 固定入口);
-    const iam身份 = await 校验IamH5单点登录凭证(token, entry, 配置.sso);
+    if (!配置.sso.pcEnabled && clientType !== "mobile") {
+      throw new 应用错误("V3_AUTH_SSO_PC_DISABLED", "旧版 PC 单点登录已关闭。", 403);
+    }
+    校验入口 = 选择单点登录校验入口(entry, 配置.sso);
+    失败阶段 = "provider";
+    记录认证事件(配置, "info", "IAM单点登录开始调用认证服务", {
+      event: "auth.iam_sso.provider_started",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      entry: 校验入口,
+      timeoutMs: 配置.sso.timeoutMs,
+      validateUrlConfigured: Boolean(配置.sso.validateUrl),
+      validateIsaidFingerprint: 创建认证指纹(
+        配置.sso.validateIsaidByEntry[校验入口],
+        配置,
+        "iam-isaid",
+      ),
+      validateIsaidLength: 配置.sso.validateIsaidByEntry[校验入口].length,
+    });
+    const iam身份 = await 校验IamH5单点登录凭证(token, 校验入口, 配置.sso);
+    失败阶段 = "local_user";
+    记录认证事件(配置, "info", "IAM单点登录认证服务校验通过", {
+      event: "auth.iam_sso.provider_succeeded",
+      ...读取认证请求字段(req),
+      entry: 校验入口,
+      iamUsername: iam身份.username,
+      iamRawUsername: iam身份.rawUsername,
+      iamDisplayName: iam身份.displayName,
+      iamUserId: iam身份.userId,
+      iamDeptId: iam身份.deptId,
+      iamDeptName: iam身份.deptName,
+      resultCode: "success",
+    });
     const 用户 = await 查找可登录用户(iam身份.username, 配置);
     if (!用户) {
       throw new 应用错误("V3_AUTH_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
     }
-    if (!允许进入工作区(用户, entry)) {
+    const 登录入口 = entry || 识别用户单点登录入口(用户);
+    if (!允许进入工作区(用户, 登录入口)) {
       throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通该单点登录入口。", 403);
     }
 
     const sessionToken = 签发会话令牌(用户.username, 配置);
+    const 页面会话 = 创建业务页面会话(用户);
     写入会话Cookie(res, 配置, sessionToken);
+    记录认证事件(配置, "info", "IAM单点登录成功", {
+      event: "auth.iam_sso.succeeded",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      username: 用户.username,
+      displayName: 用户.displayName,
+      roleName: 用户.roleName,
+      entry: 登录入口,
+      clientType,
+      defaultPath: 用户.defaultPath,
+      allowedPathCount: 用户.allowedPaths.length,
+      sessionTokenFingerprint: 创建认证指纹(sessionToken, 配置, "auth-session"),
+      pageSessionTokenFingerprint: 创建认证指纹(页面会话.token, 配置, "page-session"),
+      sessionCookieWritten: true,
+      cookieSecure: 配置.cookieSecure,
+      ttlSeconds: 配置.ttlSeconds,
+      resultCode: "success",
+    });
     res.json(
       创建成功响应({
         requestId: req.requestId,
         build,
         data: {
           user: 转换用户响应(用户),
-          pageSession: 创建业务页面会话(用户),
-          entry,
+          pageSession: 页面会话,
+          entry: 登录入口,
           clientType,
           expiresInSeconds: 配置.ttlSeconds,
         },
       }),
     );
   } catch (error) {
+    记录认证失败(配置, "iam_sso", "IAM单点登录失败", req, error, {
+      ...诊断字段,
+      failedStep: 失败阶段,
+      entry: 校验入口 || (诊断字段.entry as string | undefined) || "",
+    });
     next(error);
   }
+}
+
+async function 处理UniSdp单点登录(
+  req: Request,
+  res: {
+    json(body: unknown): void;
+    setHeader(name: string, value: string): void;
+  },
+  next: (error?: unknown) => void,
+  配置: 认证配置,
+  build: 构建信息,
+): Promise<void> {
+  const 诊断字段 = 读取UniSdp单点登录诊断(req, 配置);
+  let 失败阶段 = "request";
+  记录认证事件(配置, "info", "UniSDP单点登录开始", {
+    event: "auth.unisdp_sso.started",
+    ...读取认证请求字段(req),
+    ...诊断字段,
+  });
+  try {
+    if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
+    const token = 读取UniSdp单点凭证(req);
+    失败阶段 = "provider";
+    记录认证事件(配置, "info", "UniSDP单点登录开始调用认证服务", {
+      event: "auth.unisdp_sso.provider_started",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      timeoutMs: 配置.uniSdpSso.timeoutMs,
+      validateUrlConfigured: Boolean(配置.uniSdpSso.validateUrl),
+      isaidFingerprint: 创建认证指纹(配置.uniSdpSso.isaid, 配置, "unisdp-isaid"),
+      isaidLength: 配置.uniSdpSso.isaid.length,
+    });
+    const uniSdp身份 = await 校验UniSdp单点登录凭证(token, 配置.uniSdpSso);
+    失败阶段 = "local_user";
+    记录认证事件(配置, "info", "UniSDP单点登录认证服务校验通过", {
+      event: "auth.unisdp_sso.provider_succeeded",
+      ...读取认证请求字段(req),
+      ...读取UniSdp身份日志字段(uniSdp身份, 配置),
+      resultCode: "success",
+    });
+    const 本地匹配 = await 查找UniSdp单点登录用户(uniSdp身份, 配置);
+    if (!本地匹配) {
+      throw new 应用错误("V3_AUTH_UNISDP_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
+    }
+    const 用户 = 本地匹配.用户;
+    const 登录入口 = 识别用户单点登录入口(用户);
+    const sessionToken = 签发会话令牌(用户.username, 配置);
+    const 页面会话 = 创建业务页面会话(用户);
+    写入会话Cookie(res, 配置, sessionToken);
+    记录认证事件(配置, "info", "UniSDP单点登录成功", {
+      event: "auth.unisdp_sso.succeeded",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      username: 用户.username,
+      displayName: 用户.displayName,
+      roleName: 用户.roleName,
+      uniSdpLocalUserMatchMode: 本地匹配.匹配方式,
+      entry: 登录入口,
+      clientType: "pc",
+      defaultPath: 用户.defaultPath,
+      allowedPathCount: 用户.allowedPaths.length,
+      sessionTokenFingerprint: 创建认证指纹(sessionToken, 配置, "auth-session"),
+      pageSessionTokenFingerprint: 创建认证指纹(页面会话.token, 配置, "page-session"),
+      sessionCookieWritten: true,
+      cookieSecure: 配置.cookieSecure,
+      ttlSeconds: 配置.ttlSeconds,
+      ...读取UniSdp手机号日志字段(uniSdp身份, 配置),
+      resultCode: "success",
+    });
+    res.json(
+      创建成功响应({
+        requestId: req.requestId,
+        build,
+        data: {
+          user: 转换用户响应(用户),
+          pageSession: 页面会话,
+          entry: 登录入口,
+          clientType: "pc",
+          provider: "unisdp",
+          expiresInSeconds: 配置.ttlSeconds,
+        },
+      }),
+    );
+  } catch (error) {
+    记录认证失败(配置, "unisdp_sso", "UniSDP单点登录失败", req, error, {
+      ...诊断字段,
+      failedStep: 失败阶段,
+    });
+    next(error);
+  }
+}
+
+async function 处理UniSdp门户单点登录(
+  req: Request,
+  res: {
+    setHeader(name: string, value: string): void;
+    redirect(status: number, url: string): void;
+    send(body: string): void;
+  },
+  next: (error?: unknown) => void,
+  配置: 认证配置,
+): Promise<void> {
+  const 诊断字段 = 读取UniSdp单点登录诊断(req, 配置);
+  let 失败阶段 = "request";
+  记录认证事件(配置, "info", "UniSDP门户单点登录开始", {
+    event: "auth.unisdp_portal_sso.started",
+    ...读取认证请求字段(req),
+    ...诊断字段,
+  });
+  try {
+    if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
+    const token = 读取UniSdp单点凭证(req);
+    失败阶段 = "provider";
+    记录认证事件(配置, "info", "UniSDP门户单点登录开始调用认证服务", {
+      event: "auth.unisdp_portal_sso.provider_started",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      timeoutMs: 配置.uniSdpSso.timeoutMs,
+      validateUrlConfigured: Boolean(配置.uniSdpSso.validateUrl),
+      isaidFingerprint: 创建认证指纹(配置.uniSdpSso.isaid, 配置, "unisdp-isaid"),
+      isaidLength: 配置.uniSdpSso.isaid.length,
+    });
+    const uniSdp身份 = await 校验UniSdp单点登录凭证(token, 配置.uniSdpSso);
+    失败阶段 = "local_user";
+    记录认证事件(配置, "info", "UniSDP门户单点登录认证服务校验通过", {
+      event: "auth.unisdp_portal_sso.provider_succeeded",
+      ...读取认证请求字段(req),
+      ...读取UniSdp身份日志字段(uniSdp身份, 配置),
+      resultCode: "success",
+    });
+    const 本地匹配 = await 查找UniSdp单点登录用户(uniSdp身份, 配置);
+    if (!本地匹配) {
+      throw new 应用错误("V3_AUTH_UNISDP_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
+    }
+    const 用户 = 本地匹配.用户;
+
+    const sessionToken = 签发会话令牌(用户.username, 配置);
+    const 页面会话 = 创建业务页面会话(用户);
+    const 目标路径 = 读取门户登录后路径(用户);
+    写入会话Cookie(res, 配置, sessionToken);
+    记录认证事件(配置, "info", "UniSDP门户单点登录成功", {
+      event: "auth.unisdp_portal_sso.succeeded",
+      ...读取认证请求字段(req),
+      ...诊断字段,
+      username: 用户.username,
+      displayName: 用户.displayName,
+      roleName: 用户.roleName,
+      uniSdpLocalUserMatchMode: 本地匹配.匹配方式,
+      targetPath: 目标路径,
+      defaultPath: 用户.defaultPath,
+      allowedPathCount: 用户.allowedPaths.length,
+      sessionTokenFingerprint: 创建认证指纹(sessionToken, 配置, "auth-session"),
+      pageSessionTokenFingerprint: 创建认证指纹(页面会话.token, 配置, "page-session"),
+      sessionCookieWritten: true,
+      cookieSecure: 配置.cookieSecure,
+      ttlSeconds: 配置.ttlSeconds,
+      ...读取UniSdp手机号日志字段(uniSdp身份, 配置),
+      resultCode: "success",
+    });
+    发送门户登录完成页(res, 页面会话, 目标路径);
+  } catch (error) {
+    if (error instanceof 应用错误) {
+      记录认证失败(配置, "unisdp_portal_sso", "UniSDP门户单点登录失败", req, error, {
+        ...诊断字段,
+        failedStep: 失败阶段,
+        fallbackRedirect: "/login?ssoFallback=1&provider=unisdp",
+        sessionCookieCleared: true,
+      });
+      清理会话Cookie(res, 配置);
+      res.redirect(302, "/login?ssoFallback=1&provider=unisdp");
+      return;
+    }
+    记录认证失败(配置, "unisdp_portal_sso", "UniSDP门户单点登录异常", req, error, {
+      ...诊断字段,
+      failedStep: 失败阶段,
+    });
+    next(error);
+  }
+}
+
+function 读取UniSdp单点凭证(req: Request): string {
+  const body = 转为请求对象(req.body);
+  const query = 转为请求对象(req.query);
+  const token =
+    读取请求文本(body, ["sso_token", "ssoToken", "ssotoken", "token", "code"]) ||
+    读取请求文本(query, ["sso_token", "ssoToken", "ssotoken", "token", "code"]);
+  if (!token) {
+    throw new 应用错误("V3_AUTH_UNISDP_SSO_BAD_REQUEST", "缺少 UniSDP 单点登录凭证。", 400);
+  }
+  return token;
 }
 
 function 读取单点登录请求(
   req: Request,
   固定入口?: 单点登录入口,
-): { token: string; entry: 单点登录入口; clientType: string } {
+): { token: string; entry: 单点登录入口 | null; clientType: string } {
   const body = req.body as Record<string, unknown>;
   const token = typeof body.token === "string" ? body.token.trim() : "";
   const entry = 固定入口 || 解析单点登录入口(body.entry || body.scope || body.入口);
@@ -272,15 +634,44 @@ function 读取单点登录请求(
   if (!token) {
     throw new 应用错误("V3_AUTH_SSO_BAD_REQUEST", "缺少单点登录凭证。", 400);
   }
-  if (!entry) {
-    throw new 应用错误("V3_AUTH_SSO_BAD_REQUEST", "缺少单点登录入口。", 400);
-  }
   return { token, entry, clientType };
+}
+
+function 选择单点登录校验入口(entry: 单点登录入口 | null, 配置: IamH5单点登录配置): 单点登录入口 {
+  if (entry) return entry;
+  const 管理员标识 = 配置.validateIsaidByEntry.admin.trim();
+  const 渠道标识 = 配置.validateIsaidByEntry.partner.trim();
+  if (管理员标识 && 渠道标识 && 管理员标识 !== 渠道标识) {
+    throw new 应用错误(
+      "V3_AUTH_SSO_BAD_REQUEST",
+      "统一单点登录缺少入口，且管理员/渠道 IAM 校验标识不一致。",
+      400,
+    );
+  }
+  return 管理员标识 ? "admin" : "partner";
+}
+
+function 识别用户单点登录入口(用户: 交付用户): 单点登录入口 {
+  if (是工作区路径(用户.defaultPath, "admin") && 允许进入工作区(用户, "admin")) return "admin";
+  if (是工作区路径(用户.defaultPath, "partner") && 允许进入工作区(用户, "partner"))
+    return "partner";
+  if (允许进入工作区(用户, "admin")) return "admin";
+  if (允许进入工作区(用户, "partner")) return "partner";
+  throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通可用的单点登录入口。", 403);
+}
+
+function 读取门户登录后路径(用户: 交付用户): string {
+  return 识别用户单点登录入口(用户) === "partner" ? "/partner.html" : "/admin.html";
 }
 
 function 允许进入工作区(用户: 交付用户, entry: 单点登录入口): boolean {
   const prefix = entry === "admin" ? "/admin" : "/partner";
   return 用户.allowedPaths.some((path) => path === prefix || path.startsWith(prefix + "/"));
+}
+
+function 是工作区路径(path: string, entry: 单点登录入口): boolean {
+  const prefix = entry === "admin" ? "/admin" : "/partner";
+  return path === prefix || path.startsWith(prefix + "/");
 }
 
 function 读取登录请求(req: Request): { username: string; password: string } {
@@ -291,6 +682,184 @@ function 读取登录请求(req: Request): { username: string; password: string 
     throw new 应用错误("V3_AUTH_BAD_REQUEST", "请输入用户名和密码。", 400);
   }
   return { username, password };
+}
+
+function 转为请求对象(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function 读取请求文本(source: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (Array.isArray(value) && typeof value[0] === "string" && value[0].trim())
+      return value[0].trim();
+  }
+  return "";
+}
+
+function 记录认证事件(
+  配置: 认证配置,
+  level: "info" | "warn" | "error",
+  message: string,
+  fields: 日志字段,
+): void {
+  配置.logger?.[level](message, fields);
+}
+
+function 记录认证失败(
+  配置: 认证配置,
+  流程: string,
+  message: string,
+  req: Request,
+  error: unknown,
+  fields: 日志字段 = {},
+): void {
+  const 应用级错误 = error instanceof 应用错误 ? error : null;
+  const statusCode = 应用级错误?.statusCode || 500;
+  记录认证事件(配置, statusCode >= 500 ? "error" : "warn", message, {
+    event: "auth." + 流程 + ".failed",
+    ...读取认证请求字段(req),
+    ...fields,
+    errorCode: 应用级错误?.code || "V3_AUTH_INTERNAL_ERROR",
+    errorMessage: error instanceof Error ? error.message : "认证失败，原因未知。",
+    statusCode,
+    resultCode: "failed",
+  });
+}
+
+function 读取认证请求字段(req: Request): 日志字段 {
+  return {
+    requestId: req.requestId,
+    method: req.method,
+    path: req.path,
+    route: 读取认证匹配路由(req),
+    queryKeys: Object.keys(req.query).sort(),
+    bodyKeys: Object.keys(转为请求对象(req.body)).sort(),
+    ip: 读取客户端IP(req),
+    userAgent: req.get("user-agent") || "",
+    referer: req.get("referer") || "",
+  };
+}
+
+function 读取账号密码登录诊断(req: Request, 配置: 认证配置): 日志字段 {
+  const body = 转为请求对象(req.body);
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  return {
+    authEnabled: 配置.enabled,
+    username,
+    usernamePresent: Boolean(username),
+    passwordPresent: Boolean(password),
+    passwordLength: password.length,
+    passwordFingerprint: 创建认证指纹(password, 配置, "password"),
+  };
+}
+
+function 读取Iam单点登录诊断(req: Request, 配置: 认证配置, 固定入口?: 单点登录入口): 日志字段 {
+  const body = 转为请求对象(req.body);
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  const entry = 固定入口 || 解析单点登录入口(body.entry || body.scope || body.入口);
+  const clientType = typeof body.clientType === "string" ? body.clientType.trim() : "";
+  return {
+    authEnabled: 配置.enabled,
+    ssoEnabled: 配置.sso.enabled,
+    ssoPcEnabled: 配置.sso.pcEnabled,
+    entry: entry || "",
+    fixedEntry: 固定入口 || "",
+    clientType,
+    ssoTokenPresent: Boolean(token),
+    ssoTokenLength: token.length,
+    ssoTokenFingerprint: 创建认证指纹(token, 配置, "iam-sso-token"),
+  };
+}
+
+function 读取UniSdp单点登录诊断(req: Request, 配置: 认证配置): 日志字段 {
+  const 凭证 = 读取UniSdp单点凭证诊断(req);
+  return {
+    authEnabled: 配置.enabled,
+    ssoEnabled: 配置.uniSdpSso.enabled,
+    provider: "unisdp",
+    inputSource: 凭证.source,
+    ssoTokenPresent: Boolean(凭证.token),
+    ssoTokenLength: 凭证.token.length,
+    ssoTokenFingerprint: 创建认证指纹(凭证.token, 配置, "unisdp-sso-token"),
+  };
+}
+
+function 读取UniSdp身份日志字段(身份: UniSdp单点登录身份, 配置: 认证配置): 日志字段 {
+  const 原始用户名 = 身份.rawUsername || 身份.username;
+  const 用户名手机号 = 规范中国大陆手机号(原始用户名);
+  return {
+    uniSdpUsername: 用户名手机号 ? 脱敏手机号(用户名手机号) : 身份.username,
+    uniSdpRawUsername: 用户名手机号 ? 脱敏手机号(用户名手机号) : 身份.rawUsername,
+    uniSdpUsernameLooksLikePhone: Boolean(用户名手机号),
+    uniSdpUsernameFingerprint: 创建认证指纹(原始用户名, 配置, "unisdp-username"),
+    ...读取UniSdp手机号日志字段(身份, 配置),
+  };
+}
+
+function 读取UniSdp手机号日志字段(身份: UniSdp单点登录身份, 配置: 认证配置): 日志字段 {
+  const mobile = 身份.mobile || 身份.rawMobile;
+  return {
+    uniSdpMobilePresent: Boolean(mobile),
+    uniSdpMobileLength: mobile.length,
+    uniSdpMobileMasked: 脱敏手机号(mobile),
+    uniSdpMobileFingerprint: 创建认证指纹(mobile, 配置, "unisdp-mobile"),
+  };
+}
+
+function 读取UniSdp单点凭证诊断(req: Request): { token: string; source: string } {
+  const body = 转为请求对象(req.body);
+  const query = 转为请求对象(req.query);
+  const bodyToken = 读取请求文本(body, ["sso_token", "ssoToken", "ssotoken", "token", "code"]);
+  if (bodyToken) return { token: bodyToken, source: "body" };
+  const queryToken = 读取请求文本(query, ["sso_token", "ssoToken", "ssotoken", "token", "code"]);
+  if (queryToken) return { token: queryToken, source: "query" };
+  return { token: "", source: "" };
+}
+
+function 读取会话诊断(req: Request, 配置: 认证配置): 日志字段 {
+  const token = 读取Cookie(req, 配置.cookieName) || "";
+  return {
+    authEnabled: 配置.enabled,
+    sessionCookiePresent: Boolean(token),
+    sessionTokenLength: token.length,
+    sessionTokenFingerprint: 创建认证指纹(token, 配置, "auth-session"),
+  };
+}
+
+function 创建认证指纹(value: string, 配置: 认证配置, purpose: string): string {
+  if (!value) return "";
+  return crypto
+    .createHmac("sha256", 配置.sessionSecret)
+    .update("log-fingerprint:")
+    .update(purpose)
+    .update(":")
+    .update(value)
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function 脱敏手机号(value: string): string {
+  if (!value) return "";
+  if (value.length <= 4) return "*".repeat(value.length);
+  if (value.length <= 7) return value.slice(0, 1) + "****" + value.slice(-2);
+  return value.slice(0, 3) + "****" + value.slice(-4);
+}
+
+function 读取客户端IP(req: Request): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim())
+    return forwarded.split(",")[0]?.trim() || "";
+  return req.ip || req.socket.remoteAddress || "";
+}
+
+function 读取认证匹配路由(req: Request): string {
+  const 路由 = req.route as { path?: string } | undefined;
+  if (!路由?.path) return "";
+  if (typeof 路由.path === "string") return 路由.path;
+  return "";
 }
 
 function 解析交付用户(value: string | undefined): 交付用户[] {
@@ -357,6 +926,26 @@ async function 查找可登录用户(username: string, 配置: 认证配置): Pr
   return 配置.users.find((项) => 项.username.toLowerCase() === username.toLowerCase()) || null;
 }
 
+async function 查找UniSdp单点登录用户(
+  身份: UniSdp单点登录身份,
+  配置: 认证配置,
+): Promise<UniSdp本地用户匹配结果 | null> {
+  const 单点用户名手机号 = 规范中国大陆手机号(身份.username);
+  if (单点用户名手机号) {
+    const 渠道手机号用户 = await 查询渠道手机号用户(单点用户名手机号, 配置);
+    if (渠道手机号用户) return { 用户: 渠道手机号用户, 匹配方式: "partner_phone" };
+
+    const 渠道用户名用户 = await 查找可登录用户(身份.username, 配置);
+    if (渠道用户名用户 && 是仅渠道账号(渠道用户名用户)) {
+      return { 用户: 渠道用户名用户, 匹配方式: "partner_phone_username" };
+    }
+    return null;
+  }
+
+  const 用户名用户 = await 查找可登录用户(身份.username, 配置);
+  return 用户名用户 ? { 用户: 用户名用户, 匹配方式: "username" } : null;
+}
+
 async function 查找并校验用户(
   username: string,
   password: string,
@@ -373,98 +962,167 @@ async function 查找并校验用户(
 async function 查询数据库用户(username: string, 配置: 认证配置): Promise<交付用户 | null> {
   if (!配置.pool) return null;
   try {
-    const result = await 配置.pool.query<{
-      id: string;
-      v2_source_id: string | null;
-      username: string;
-      display_name: string;
-      password_hash: string | null;
-      role_code: string | null;
-      role_name: string | null;
-      region_name: string | null;
-      extra_json: Record<string, unknown> | null;
-      partner_id: string | null;
-      partner_name: string | null;
-    }>(
-      `
-      SELECT
-        u.id::text AS id,
-        u.v2_source_id,
-        u.username::text AS username,
-        u.display_name::text AS display_name,
-        pc.password_hash,
-        COALESCE(
-          (
-            array_agg(r.role_code ORDER BY
-              CASE r.role_code
-                WHEN 'superadmin' THEN 1
-                WHEN 'admin' THEN 2
-                WHEN 'region_manager' THEN 3
-                WHEN 'partner_admin' THEN 4
-                ELSE 5
-              END
-            ) FILTER (WHERE r.role_code IS NOT NULL)
-          )[1],
-          'staff'
-        ) AS role_code,
-        COALESCE(
-          (
-            array_agg(r.role_name ORDER BY
-              CASE r.role_code
-                WHEN 'superadmin' THEN 1
-                WHEN 'admin' THEN 2
-                WHEN 'region_manager' THEN 3
-                WHEN 'partner_admin' THEN 4
-                ELSE 5
-              END
-            ) FILTER (WHERE r.role_name IS NOT NULL)
-          )[1],
-          '渠道用户'
-        ) AS role_name,
-        reg.region_name,
-        u.extra_json,
-        COALESCE(
-          u.extra_json->>'partnerId',
-          (array_agg(COALESCE(p.v2_source_id, p.partner_code, p.id::text))
-            FILTER (WHERE p.id IS NOT NULL))[1],
-          ''
-        ) AS partner_id,
-        COALESCE(
-          u.extra_json->>'partnerName',
-          (array_agg(p.partner_name) FILTER (WHERE p.partner_name IS NOT NULL))[1],
-          ''
-        ) AS partner_name
-      FROM iam.users u
-      LEFT JOIN iam.password_credentials pc ON pc.user_id = u.id
-      LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
-      LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
-      LEFT JOIN org.regions reg ON reg.id = u.region_id
-      LEFT JOIN channel.partner_members pm ON pm.user_id = u.id
-      LEFT JOIN channel.partners p ON p.id = pm.partner_id
-      WHERE lower(u.username::text) = lower($1)
-        AND u.status_code = 'active'
-      GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash,
-        reg.region_name, u.extra_json
-      LIMIT 1
-      `,
-      [username],
-    );
-    const row = result.rows[0];
-    if (!row?.password_hash) return null;
-    const roleCode = row.role_code || "staff";
-    const pageUser = 创建数据库业务页面用户(row, roleCode);
-    return {
-      username: row.username,
-      displayName: row.display_name || row.username,
-      roleName: row.role_name || 转角色名称(roleCode),
-      passwordHash: row.password_hash,
-      defaultPath: 角色默认路径(roleCode),
-      allowedPaths: 角色允许路径(roleCode),
-      pageUser,
-    };
+    const rows = await 查询数据库用户行(配置, "lower(u.username::text) = lower($1)", [username], 1);
+    return 从数据库行创建交付用户(rows[0]);
   } catch {
     return null;
   }
+}
+
+async function 查询渠道手机号用户(mobile: string, 配置: 认证配置): Promise<交付用户 | null> {
+  if (!配置.pool) return null;
+  const 手机字段 = `
+    regexp_replace(
+      COALESCE(
+        NULLIF(u.phone, ''),
+        NULLIF(u.extra_json->>'phone', ''),
+        NULLIF(u.extra_json->>'mobile', ''),
+        NULLIF(u.extra_json->>'mobilePhone', ''),
+        NULLIF(u.extra_json->>'phoneNumber', ''),
+        ''
+      ),
+      '\\D+',
+      '',
+      'g'
+    )
+  `;
+  try {
+    const rows = await 查询数据库用户行(
+      配置,
+      `
+      length(${手机字段}) >= 11
+        AND right(${手机字段}, 11) = $1
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM iam.user_roles ur2
+            JOIN iam.roles r2 ON r2.id = ur2.role_id AND r2.status_code = 'active'
+            WHERE ur2.user_id = u.id
+              AND r2.role_code IN ('partner_admin', 'staff')
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM channel.partner_members pm2
+            WHERE pm2.user_id = u.id
+              AND pm2.status_code = 'active'
+          )
+        )
+      `,
+      [mobile],
+      2,
+    );
+    const 可登录用户 = rows.map(从数据库行创建交付用户).filter((用户) => 用户 !== null);
+    if (可登录用户.length > 1) {
+      throw new 应用错误(
+        "V3_AUTH_UNISDP_SSO_PHONE_NOT_UNIQUE",
+        "CRM 中存在多个渠道账号使用同一手机号，请先处理账号手机号唯一性。",
+        409,
+      );
+    }
+    return 可登录用户[0] || null;
+  } catch (error) {
+    if (error instanceof 应用错误) throw error;
+    return null;
+  }
+}
+
+async function 查询数据库用户行(
+  配置: 认证配置,
+  whereSql: string,
+  params: unknown[],
+  limit: 1 | 2,
+): Promise<数据库用户行[]> {
+  if (!配置.pool) return [];
+  const result = await 配置.pool.query<数据库用户行>(
+    `
+    SELECT
+      u.id::text AS id,
+      u.v2_source_id,
+      u.username::text AS username,
+      u.display_name::text AS display_name,
+      pc.password_hash,
+      COALESCE(
+        (
+          array_agg(r.role_code ORDER BY
+            CASE r.role_code
+              WHEN 'superadmin' THEN 1
+              WHEN 'admin' THEN 2
+              WHEN 'region_manager' THEN 3
+              WHEN 'partner_admin' THEN 4
+              ELSE 5
+            END
+          ) FILTER (WHERE r.role_code IS NOT NULL)
+        )[1],
+        'staff'
+      ) AS role_code,
+      COALESCE(
+        (
+          array_agg(r.role_name ORDER BY
+            CASE r.role_code
+              WHEN 'superadmin' THEN 1
+              WHEN 'admin' THEN 2
+              WHEN 'region_manager' THEN 3
+              WHEN 'partner_admin' THEN 4
+              ELSE 5
+            END
+          ) FILTER (WHERE r.role_name IS NOT NULL)
+        )[1],
+        '渠道用户'
+      ) AS role_name,
+      reg.region_name,
+      u.extra_json,
+      COALESCE(
+        u.extra_json->>'partnerId',
+        (array_agg(COALESCE(p.v2_source_id, p.partner_code, p.id::text))
+          FILTER (WHERE p.id IS NOT NULL))[1],
+        ''
+      ) AS partner_id,
+      COALESCE(
+        u.extra_json->>'partnerName',
+        (array_agg(p.partner_name) FILTER (WHERE p.partner_name IS NOT NULL))[1],
+        ''
+      ) AS partner_name
+    FROM iam.users u
+    LEFT JOIN iam.password_credentials pc ON pc.user_id = u.id
+    LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
+    LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+    LEFT JOIN org.regions reg ON reg.id = u.region_id
+    LEFT JOIN channel.partner_members pm ON pm.user_id = u.id
+    LEFT JOIN channel.partners p ON p.id = pm.partner_id
+    WHERE (${whereSql})
+      AND u.status_code = 'active'
+    GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash,
+      reg.region_name, u.extra_json
+    LIMIT ${limit}
+    `,
+    params,
+  );
+  return result.rows;
+}
+
+function 从数据库行创建交付用户(row: 数据库用户行 | undefined): 交付用户 | null {
+  if (!row?.password_hash) return null;
+  const roleCode = row.role_code || "staff";
+  const pageUser = 创建数据库业务页面用户(row, roleCode);
+  return {
+    username: row.username,
+    displayName: row.display_name || row.username,
+    roleName: row.role_name || 转角色名称(roleCode),
+    passwordHash: row.password_hash,
+    defaultPath: 角色默认路径(roleCode),
+    allowedPaths: 角色允许路径(roleCode),
+    pageUser,
+  };
+}
+
+function 规范中国大陆手机号(value: string): string {
+  const digits = value.replace(/\D+/g, "");
+  const 手机号 = digits.length === 13 && digits.startsWith("86") ? digits.slice(2) : digits;
+  return /^1\d{10}$/.test(手机号) ? 手机号 : "";
+}
+
+function 是仅渠道账号(用户: 交付用户): boolean {
+  return 允许进入工作区(用户, "partner") && !允许进入工作区(用户, "admin");
 }
 
 function 创建配置业务页面用户(用户: {
@@ -700,4 +1358,70 @@ function 清理会话Cookie(
   const parts = [`${配置.cookieName}=`, "HttpOnly", "Path=/", "SameSite=Lax", "Max-Age=0"];
   if (配置.cookieSecure) parts.push("Secure");
   res.setHeader("Set-Cookie", parts.join("; "));
+}
+
+function 发送门户登录完成页(
+  res: { setHeader(name: string, value: string): void; send(body: string): void },
+  页面会话: 业务页面会话,
+  目标路径: string,
+): void {
+  const prefix = 读取业务页面存储前缀(页面会话.user.role);
+  const 页面用户 = { ...页面会话.user, _storagePrefix: prefix };
+  const payload = {
+    prefix,
+    token: 页面会话.token,
+    user: 页面用户,
+    targetPath: 目标路径,
+    fallbackPath: "/login?ssoFallback=1&provider=unisdp&storage=1",
+  };
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.send(`<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>正在完成单点登录</title>
+</head>
+<body>
+  <p>正在完成 UniSDP 单点登录，请稍候...</p>
+  <script>
+    (function () {
+      var data = ${序列化脚本Json(payload)};
+      try {
+        [
+          "admin_auth_token",
+          "admin_user_info",
+          "admin_api_user",
+          "partner_auth_token",
+          "partner_user_info",
+          "partner_api_user",
+          "api_user"
+        ].forEach(function (key) { window.localStorage.removeItem(key); });
+        window.localStorage.setItem(data.prefix + "auth_token", data.token);
+        window.localStorage.setItem(data.prefix + "user_info", JSON.stringify(data.user));
+        window.localStorage.setItem(
+          data.prefix + "api_user",
+          JSON.stringify({ user: data.user, token: data.token })
+        );
+        if (data.prefix === "partner_") {
+          window.localStorage.setItem("api_user", JSON.stringify({ user: data.user, token: data.token }));
+        }
+        window.location.replace(data.targetPath);
+      } catch (error) {
+        window.location.replace(data.fallbackPath);
+      }
+    })();
+  </script>
+</body>
+</html>`);
+}
+
+function 读取业务页面存储前缀(role: 业务页面角色): "admin_" | "partner_" {
+  if (role === "admin" || role === "superadmin") return "admin_";
+  return "partner_";
+}
+
+function 序列化脚本Json(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
 }

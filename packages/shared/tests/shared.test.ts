@@ -1,6 +1,14 @@
-import { describe, expect, it } from "vitest";
+import * as fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import { 创建错误响应, 判断健康状态, 应用错误 } from "../src/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { 创建结构化日志器, 创建错误响应, 判断健康状态, 应用错误 } from "../src/index.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("共享响应结构", () => {
   it("能够生成中文错误响应", () => {
@@ -22,5 +30,80 @@ describe("共享响应结构", () => {
     expect(
       判断健康状态([{ name: "redis", status: "failed", message: "失败", checkedAt: "now" }]),
     ).toBe("failed");
+  });
+
+  it("能够输出统一结构化日志并隐藏敏感字段", () => {
+    const 输出 = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const logger = 创建结构化日志器({
+      service: "api",
+      appEnv: "test",
+      minLevel: "info",
+      defaultFields: { buildVersion: "测试版本" },
+    });
+
+    logger.info("接口请求完成", {
+      event: "api.request.completed",
+      requestId: "req-test",
+      password: "明文密码",
+      passwordLength: 4,
+      passwordFingerprint: "abc123",
+      nested: { token: "访问令牌", keep: "保留字段" },
+    });
+
+    const 日志 = JSON.parse(String(输出.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(日志.level).toBe("info");
+    expect(日志.service).toBe("api");
+    expect(日志.event).toBe("api.request.completed");
+    expect(日志.password).toBe("***已隐藏***");
+    expect(日志.passwordLength).toBe(4);
+    expect(日志.passwordFingerprint).toBe("abc123");
+    expect((日志.nested as Record<string, unknown>).token).toBe("***已隐藏***");
+    expect((日志.nested as Record<string, unknown>).keep).toBe("保留字段");
+  });
+
+  it("能够按最小级别过滤日志", () => {
+    const 输出 = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const logger = 创建结构化日志器({ service: "worker", appEnv: "test", minLevel: "warn" });
+
+    logger.info("低级别日志不会输出");
+
+    expect(输出).not.toHaveBeenCalled();
+  });
+
+  it("能够写入文件并按大小压缩轮转", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const 目录 = await fs.mkdtemp(path.join(os.tmpdir(), "lianruan-log-test-"));
+    try {
+      const logger = 创建结构化日志器({
+        service: "api",
+        appEnv: "test",
+        minLevel: "info",
+        file: {
+          enabled: true,
+          dir: 目录,
+          fileName: "api.log",
+          maxBytes: 900,
+          maxFiles: 2,
+          compressRotated: true,
+        },
+      });
+
+      for (let index = 0; index < 8; index += 1) {
+        logger.info("日志轮转测试", {
+          event: "logger.rotation.test",
+          index,
+          payload: "x".repeat(420),
+        });
+      }
+      await logger.flush();
+
+      const 文件列表 = await fs.readdir(目录);
+      const 压缩备份 = 文件列表.filter((文件名) => 文件名.endsWith(".log.gz"));
+      expect(文件列表).toContain("api.log");
+      expect(压缩备份.length).toBeGreaterThan(0);
+      expect(压缩备份.length).toBeLessThanOrEqual(2);
+    } finally {
+      await fs.rm(目录, { recursive: true, force: true });
+    }
   });
 });

@@ -4,6 +4,15 @@ import { z } from "zod";
 const 环境结构 = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]).default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+  LOG_TO_FILE: z.enum(["true", "false"]).default("false"),
+  LOG_DIR: z.string().default("/app/logs"),
+  LOG_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .default(10 * 1024 * 1024),
+  LOG_MAX_FILES: z.coerce.number().int().min(1).default(10),
+  LOG_COMPRESS_ROTATED: z.enum(["true", "false"]).default("true"),
   API_HOST: z.string().default("0.0.0.0"),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   REQUEST_BODY_LIMIT: z.string().default("1mb"),
@@ -23,6 +32,15 @@ const 环境结构 = z.object({
 export interface 应用配置 {
   appEnv: 应用环境;
   logLevel: "debug" | "info" | "warn" | "error";
+  log: {
+    file: {
+      enabled: boolean;
+      dir: string;
+      maxBytes: number;
+      maxFiles: number;
+      compressRotated: boolean;
+    };
+  };
   api: {
     host: string;
     port: number;
@@ -94,6 +112,15 @@ export function 读取应用配置(env: NodeJS.ProcessEnv = process.env): 应用
   return {
     appEnv: 原始.APP_ENV,
     logLevel: 原始.LOG_LEVEL,
+    log: {
+      file: {
+        enabled: 原始.LOG_TO_FILE === "true",
+        dir: 原始.LOG_DIR,
+        maxBytes: 原始.LOG_MAX_BYTES,
+        maxFiles: 原始.LOG_MAX_FILES,
+        compressRotated: 原始.LOG_COMPRESS_ROTATED === "true",
+      },
+    },
     api: {
       host: 原始.API_HOST,
       port: 原始.API_PORT,

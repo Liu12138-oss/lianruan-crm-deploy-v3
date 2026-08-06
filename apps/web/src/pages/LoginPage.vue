@@ -9,6 +9,9 @@ const 会话 = useSessionStore();
 const 当前路由 = useRoute();
 const 表单 = reactive({ username: "", password: "" });
 const 提交中 = computed(() => 会话.loading);
+const 单点兜底提示 = computed(() =>
+  当前路由.query.ssoFallback === "1" ? "单点登录未完成，请使用账号密码登录。" : "",
+);
 
 async function 提交登录() {
   await 会话.登录系统(表单.username, 表单.password);
@@ -55,6 +58,7 @@ async function 提交登录() {
             type="password"
           />
         </label>
+        <p v-if="单点兜底提示" class="错误提示">{{ 单点兜底提示 }}</p>
         <p v-if="会话.errorMessage" class="错误提示">{{ 会话.errorMessage }}</p>
         <button class="btn btn-primary login-submit" type="submit" :disabled="提交中">
           <span>{{ 提交中 ? "登录中..." : "登 录" }}</span>

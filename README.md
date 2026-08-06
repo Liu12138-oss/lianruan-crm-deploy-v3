@@ -4,7 +4,7 @@
 
 本仓库当前只维护 V3 工程化应用。后续功能改动、缺陷修复、入口调整和部署配置均以 `apps/web`、`apps/api`、`apps/worker`、`packages/*`、`deploy/single-server` 为准。
 
-旧版 V2 静态目录 `frontend`、旧后端目录 `backend`、旧升级包和旧启动脚本已从主线清理，不再作为新需求落点。V3 迁移兼容资产继续保留，包括 `database/mapping`、`scripts/migration`、`apps/api/src/v2-compat-routes.ts` 及对应测试。
+旧版 V2 静态目录 `frontend`、旧后端目录 `backend`、旧升级包、历史交付包、阶段性过程资产和旧启动脚本已从主线清理，不再作为新需求落点。V3 迁移兼容资产继续保留，包括 `database/mapping`、`scripts/migration`、`apps/api/src/v2-compat-routes.ts` 及对应测试。
 
 V3 对外发布优先只发布站点根路径 `/`。用户登录后由账号权限和访问设备自动进入现有正式业务页面：管理员电脑端 `/admin.html`、管理员移动端 `/admin-mobile.html`、渠道电脑端 `/partner.html`、渠道移动端 `/partner-mobile.html`。规则集中维护在 `apps/web/src/router/entry-target.ts`，详细协作约定见 `AGENTS.md`。
 

@@ -140,7 +140,7 @@
 
 | 材料         | 路径                                                                                                                    |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| 交付说明书   | `/Users/liu/Documents/Codex/lianruan-crm-deploy-v3/docs/stage-records/HexHub阶段9.20-V2等价最终交付说明书.md`           |
+| 交付说明书   | 历史阶段交付说明已从主线清理                                                                                            |
 | 使用手册     | `/Users/liu/Documents/Codex/lianruan-crm-deploy-v3/docs/user-manuals/V3版本使用手册-HexHub阶段9.20-V2等价最终交付版.md` |
 | 健康检查     | `/Users/liu/Documents/Codex/lianruan-crm-deploy-v3/output/hexhub-stage9-20/健康检查-最终-20260729T171700.txt`           |
 | 入口登录巡检 | `/Users/liu/Documents/Codex/lianruan-crm-deploy-v3/output/playwright/stage9.20-final/入口登录巡检结果.json`             |

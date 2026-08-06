@@ -1193,8 +1193,7 @@ OpenAPI 文档：
 | `docs/openapi-aiagent-latest-guide.md` | 最新对接说明，适合给对方联调用。 |
 | `docs/openapi-aiagent-api-contract.md` | API 契约，适合开发和验收。 |
 | `docs/openapi-aiagent-self-test-record.md` | 自测记录和实现补充。 |
-| `deliverables/openapi-md-agent-handoff-guide_20260616.md` | 对外交接补充说明。 |
-| `deliverables/openapi-field-completion-confirmation_20260615.md` | 字段补齐确认。 |
+| 历史交付包中的 OpenAPI 交接资料 | 已从主线清理，不作为当前对接入口。 |
 
 核心代码：
 

@@ -129,13 +129,146 @@ describe("阶段9业务兼容接口", () => {
       .post("/api/orders")
       .send({ quoteId: 报价.body.data.id })
       .expect(200);
-    expect(订单.body.data.状态).toBe("pending_primary_confirm");
+    expect(订单.body.data.状态).toBe("primary_confirmed");
 
-    const 一级确认 = await request(app)
+    const 区管确认 = await request(app)
       .put(`/api/orders/${订单.body.data.id}/primary-confirm`)
-      .send({ reason: "阶段9自动化一级确认" })
+      .send({ reason: "阶段9自动化区管确认" })
       .expect(200);
-    expect(一级确认.body.data.状态).toBe("confirmed");
+    expect(区管确认.body.data.状态).toBe("pending_superadmin_confirm");
+
+    const 超管确认 = await request(app)
+      .put(`/api/orders/${订单.body.data.id}/status`)
+      .send({ status: "confirmed", reason: "阶段9自动化超管确认" })
+      .expect(200);
+    expect(超管确认.body.data.状态).toBe("confirmed");
+  });
+
+  it("二级分销商报价转订单后必须经过一级、区管和超管确认", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-FLOW-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 一级分销商 = await 创建渠道范围测试渠道(pool, 批次, "一级", 区域编号);
+      const 二级分销商 = await 创建渠道范围测试渠道(pool, 批次, "二级", 区域编号);
+      await pool.query(
+        `
+        UPDATE channel.partners
+        SET partner_level_code = 'secondary',
+            extra_json = extra_json || $2::jsonb,
+            updated_at = now()
+        WHERE id = $1::uuid
+        `,
+        [
+          二级分销商.id,
+          JSON.stringify({
+            partnerLevel: "secondary",
+            parentPartnerId: 一级分销商.partner_code,
+            parentPartnerIds: [一级分销商.partner_code],
+          }),
+        ],
+      );
+      await pool.query("DELETE FROM channel.partner_relations WHERE child_partner_id = $1::uuid", [
+        二级分销商.id,
+      ]);
+      await pool.query(
+        `
+        INSERT INTO channel.partner_relations (parent_partner_id, child_partner_id, relation_code)
+        VALUES ($1::uuid, $2::uuid, 'primary_secondary')
+        `,
+        [一级分销商.id, 二级分销商.id],
+      );
+      const 二级员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "secondary_staff",
+        "二级员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 二级分销商.id, 二级员工.id, "staff");
+      const 客户名称 = `${批次}-二级订单审批客户`;
+      const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 二级员工.id, 二级分销商.id);
+      const 报价编号 = `${批次}-QUOTE-二级`;
+      const 报价结果 = await pool.query<{ id: string }>(
+        `
+        INSERT INTO crm.quotes (
+          quote_no, customer_id, partner_id, owner_user_id, status_code,
+          total_amount, discount_amount, extra_json
+        )
+        VALUES ($1, $2::uuid, $3::uuid, $4::uuid, 'approved', 16800, 0, $5::jsonb)
+        ON CONFLICT (quote_no) DO UPDATE
+        SET customer_id = EXCLUDED.customer_id,
+            partner_id = EXCLUDED.partner_id,
+            owner_user_id = EXCLUDED.owner_user_id,
+            status_code = EXCLUDED.status_code,
+            total_amount = EXCLUDED.total_amount,
+            extra_json = crm.quotes.extra_json || EXCLUDED.extra_json,
+            updated_at = now()
+        RETURNING id::text AS id
+        `,
+        [
+          报价编号,
+          客户编号,
+          二级分销商.id,
+          二级员工.id,
+          JSON.stringify({
+            id: 报价编号,
+            customer: 客户名称,
+            customerName: 客户名称,
+            partnerId: 二级分销商.partner_code,
+            partnerName: 二级分销商.partner_name,
+            assignedPartnerId: 一级分销商.partner_code,
+            assignedPartnerName: 一级分销商.partner_name,
+            assignedStaffId: 二级员工.username,
+            assignedStaffName: 二级员工.display_name,
+            region: `${批次}-测试区域`,
+            total: 16800,
+          }),
+        ],
+      );
+      const 报价 = 报价结果.rows[0];
+      if (!报价) throw new Error("创建二级订单审批测试报价失败。");
+
+      const 订单 = await request(app)
+        .post("/api/orders")
+        .send({ quoteId: 报价.id, assignedPartnerId: 一级分销商.partner_code })
+        .expect(200);
+      expect(订单.body.data.状态).toBe("pending_primary_confirm");
+
+      const 一级待办 = await request(app)
+        .get(`/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+        .expect(200);
+      expect(
+        一级待办.body.data.数据.some(
+          (项: { 类型: string; 原始数据?: { step?: string } }) =>
+            项.类型 === "订单审批" && 项.原始数据?.step === "primary_confirm",
+        ),
+      ).toBe(true);
+
+      const 一级确认 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/primary-confirm`)
+        .send({ reason: "一级分销商确认" })
+        .expect(200);
+      expect(一级确认.body.data.状态).toBe("primary_confirmed");
+
+      const 区管确认 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/status`)
+        .send({ status: "pending_superadmin_confirm", reason: "区管确认" })
+        .expect(200);
+      expect(区管确认.body.data.状态).toBe("pending_superadmin_confirm");
+
+      const 超管确认 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/status`)
+        .send({ status: "confirmed", reason: "超管确认" })
+        .expect(200);
+      expect(超管确认.body.data.状态).toBe("confirmed");
+    } finally {
+      await pool.end();
+    }
   });
 
   it("客户报备初始状态与V2管理员和渠道提交流程一致", async () => {
@@ -317,6 +450,45 @@ describe("阶段9业务兼容接口", () => {
       expect(超管订单列表.body.data.map((item: { id: string }) => item.id)).toContain(
         数据.订单.编号,
       );
+
+      await 创建渠道范围测试订单审批待办(pool, 批次, 数据.订单, 数据.渠道一, 数据.员工一);
+      await 创建渠道范围测试订单审批待办(
+        pool,
+        批次,
+        数据.其他区域订单,
+        数据.其他区域渠道,
+        数据.其他区域员工,
+      );
+
+      const 区管报价列表 = await request(app)
+        .get(`/api/v2/quotes?keyword=${encodeURIComponent(批次)}&pageSize=100`)
+        .set("Authorization", 签发测试V2令牌(数据.区域管理员.username))
+        .expect(200);
+      const 区管报价编号 = 区管报价列表.body.data.map((item: { id: string }) => item.id);
+      expect(区管报价编号).toContain(数据.报价.编号);
+      expect(区管报价编号).not.toContain(数据.其他区域报价.编号);
+      expect(
+        区管报价列表.body.data.find((item: { id: string }) => item.id === 数据.报价.编号)?.region,
+      ).toBe(`${批次}-测试区域`);
+
+      const 区管订单列表 = await request(app)
+        .get(`/api/v2/orders?keyword=${encodeURIComponent(批次)}&pageSize=100`)
+        .set("Authorization", 签发测试V2令牌(数据.区域管理员.username))
+        .expect(200);
+      const 区管订单编号 = 区管订单列表.body.data.map((item: { id: string }) => item.id);
+      expect(区管订单编号).toContain(数据.订单.编号);
+      expect(区管订单编号).not.toContain(数据.其他区域订单.编号);
+      expect(
+        区管订单列表.body.data.find((item: { id: string }) => item.id === 数据.订单.编号)?.region,
+      ).toBe(`${批次}-测试区域`);
+
+      const 区管审核列表 = await request(app)
+        .get(`/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(批次)}&pageSize=100`)
+        .set("Authorization", 签发测试V2令牌(数据.区域管理员.username))
+        .expect(200);
+      const 区管审核编号 = 区管审核列表.body.data.数据.map((item: { 编号: string }) => item.编号);
+      expect(区管审核编号).toContain(数据.订单.编号);
+      expect(区管审核编号).not.toContain(数据.其他区域订单.编号);
 
       const 改派报备 = await request(app)
         .put(`/api/v2/registrations/${数据.其他渠道报备.id}`)
@@ -515,10 +687,12 @@ async function 读取可登录测试用户(): Promise<{ username: string }> {
 
 async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
   const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+  const 其他区域编号 = await 准备渠道范围测试区域(pool, `${批次}-外区`);
   await 准备渠道范围测试角色(pool);
 
   const 渠道一 = await 创建渠道范围测试渠道(pool, 批次, "一", 区域编号);
   const 渠道二 = await 创建渠道范围测试渠道(pool, 批次, "二", 区域编号);
+  const 其他区域渠道 = await 创建渠道范围测试渠道(pool, 批次, "外区", 其他区域编号);
   const 超级管理员 = await 创建渠道范围测试用户(
     pool,
     批次,
@@ -526,6 +700,15 @@ async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
     "超级管理员",
     "superadmin",
     "all",
+    区域编号,
+  );
+  const 区域管理员 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "region_admin",
+    "区域管理员",
+    "region_manager",
+    "region",
     区域编号,
   );
   const 企业管理员 = await 创建渠道范围测试用户(
@@ -573,11 +756,21 @@ async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
     "self",
     区域编号,
   );
+  const 其他区域员工 = await 创建渠道范围测试用户(
+    pool,
+    批次,
+    "outside_region_staff",
+    "外区员工",
+    "staff",
+    "self",
+    其他区域编号,
+  );
 
   await 绑定渠道范围测试成员(pool, 渠道一.id, 企业管理员.id, "partner_admin");
   await 绑定渠道范围测试成员(pool, 渠道一.id, 员工一.id, "staff");
   await 绑定渠道范围测试成员(pool, 渠道一.id, 员工二.id, "staff");
   await 绑定渠道范围测试成员(pool, 渠道二.id, 其他渠道员工.id, "staff");
+  await 绑定渠道范围测试成员(pool, 其他区域渠道.id, 其他区域员工.id, "staff");
   await 写入渠道范围测试用户扩展绑定(pool, 企业管理员仅扩展.id, 渠道一);
 
   const 员工本人报备 = await 创建渠道范围测试报备(
@@ -622,20 +815,33 @@ async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
     渠道一,
     员工一,
   );
+  const 其他区域报价订单 = await 创建渠道范围测试报价和订单(
+    pool,
+    批次,
+    `${批次}-其他区域报价订单客户`,
+    其他区域渠道,
+    其他区域员工,
+    "其他区域",
+  );
 
   return {
     渠道一,
     渠道二,
+    其他区域渠道,
     超级管理员,
+    区域管理员,
     企业管理员,
     企业管理员仅扩展,
     员工一,
+    其他区域员工,
     员工本人报备,
     其他渠道报备,
     其他渠道商机,
     员工本人商机: { ...员工本人商机, 编号: `${批次}-员工本人商机` },
     报价: 报价订单.报价,
     订单: 报价订单.订单,
+    其他区域报价: 其他区域报价订单.报价,
+    其他区域订单: 其他区域报价订单.订单,
   };
 }
 
@@ -684,6 +890,7 @@ async function 准备渠道范围测试角色(pool: Pool): Promise<void> {
     INSERT INTO iam.roles (role_code, role_name, status_code)
     VALUES
       ('superadmin', '超级管理员', 'active'),
+      ('region_manager', '区域管理员', 'active'),
       ('partner_admin', '渠道管理员', 'active'),
       ('staff', '销售代表', 'active')
     ON CONFLICT (role_code) DO UPDATE
@@ -944,9 +1151,10 @@ async function 创建渠道范围测试报价和订单(
   客户名称: string,
   渠道: 渠道范围测试渠道,
   员工: 渠道范围测试用户,
+  标识 = "员工本人",
 ): Promise<{ 报价: 渠道范围测试业务记录; 订单: 渠道范围测试业务记录 }> {
   const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
-  const 报价编号 = `${批次}-QUOTE-员工本人`;
+  const 报价编号 = `${批次}-QUOTE-${标识}`;
   const 报价结果 = await pool.query<渠道范围测试业务记录>(
     `
     INSERT INTO crm.quotes (
@@ -986,7 +1194,7 @@ async function 创建渠道范围测试报价和订单(
   const 报价 = 报价行 ? { ...报价行, 编号: 报价编号 } : undefined;
   if (!报价) throw new Error("创建渠道范围测试报价失败。");
 
-  const 订单编号 = `${批次}-ORDER-员工本人`;
+  const 订单编号 = `${批次}-ORDER-${标识}`;
   const 订单结果 = await pool.query<渠道范围测试业务记录>(
     `
     INSERT INTO crm.orders (
@@ -1029,6 +1237,45 @@ async function 创建渠道范围测试报价和订单(
   const 订单 = 订单行 ? { ...订单行, 编号: 订单编号 } : undefined;
   if (!订单) throw new Error("创建渠道范围测试订单失败。");
   return { 报价, 订单 };
+}
+
+async function 创建渠道范围测试订单审批待办(
+  pool: Pool,
+  批次: string,
+  订单: 渠道范围测试业务记录,
+  渠道: 渠道范围测试渠道,
+  员工: 渠道范围测试用户,
+): Promise<void> {
+  await pool.query(
+    `
+    INSERT INTO ops.approvals (
+      v2_source_id, approval_type_code, target_type, target_id,
+      applicant_user_id, applicant_partner_id, status_code, extra_json
+    )
+    VALUES ($1, 'order', 'order', $2::uuid, $3::uuid, $4::uuid, 'pending', $5::jsonb)
+    ON CONFLICT (v2_source_id) DO UPDATE
+    SET target_id = EXCLUDED.target_id,
+        applicant_user_id = EXCLUDED.applicant_user_id,
+        applicant_partner_id = EXCLUDED.applicant_partner_id,
+        status_code = EXCLUDED.status_code,
+        extra_json = ops.approvals.extra_json || EXCLUDED.extra_json,
+        updated_at = now()
+    `,
+    [
+      `${批次}-APPROVAL-${订单.编号}`,
+      订单.id,
+      员工.id,
+      渠道.id,
+      JSON.stringify({
+        step: "region_confirm",
+        stepName: "区管确认",
+        targetName: 订单.编号,
+        customerName: 订单.编号,
+        targetPartnerName: 渠道.partner_name,
+        status: "pending",
+      }),
+    ],
+  );
 }
 
 async function 创建渠道范围测试客户(

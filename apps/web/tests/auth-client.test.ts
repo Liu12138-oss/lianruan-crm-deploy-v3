@@ -82,6 +82,105 @@ describe("认证接口客户端", () => {
   });
 
   it("可以提交单点登录凭证并返回用户", async () => {
+    let 单点请求体文本 = "";
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      单点请求体文本 = String(init?.body || "{}");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            user: {
+              username: "delivery_admin",
+              displayName: "产品交付验收账号",
+              roleName: "产品交付总监",
+              defaultPath: "/admin/dashboard",
+              allowedPaths: ["/admin"],
+            },
+            pageSession: {
+              token: "v2.admin.sso-token",
+              user: {
+                id: "admin-001",
+                userId: "admin-001",
+                username: "delivery_admin",
+                name: "产品交付验收账号",
+                displayName: "产品交付验收账号",
+                role: "admin",
+                roleName: "管理员",
+                status: "active",
+                region: "华东",
+                bigRegion: "东区",
+                partnerId: "",
+                partnerName: "",
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const 用户 = await 单点登录({ token: "sso-token", entry: "admin", clientType: "pc" });
+    expect(用户.username).toBe("delivery_admin");
+    expect(localStorage.getItem("admin_auth_token")).toBe("v2.admin.sso-token");
+    const 请求体 = JSON.parse(单点请求体文本) as Record<string, unknown>;
+    expect(请求体.entry).toBe("admin");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/auth/sso/iam/login",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+      }),
+    );
+  });
+
+  it("统一单点登录无入口时不提交入口字段", async () => {
+    let 单点请求体文本 = "";
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      单点请求体文本 = String(init?.body || "{}");
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            user: {
+              username: "partner_staff",
+              displayName: "渠道员工",
+              roleName: "渠道用户",
+              defaultPath: "/partner/dashboard",
+              allowedPaths: ["/partner", "/mobile"],
+            },
+            pageSession: {
+              token: "v2.partner.sso-token",
+              user: {
+                id: "staff-001",
+                userId: "staff-001",
+                username: "partner_staff",
+                name: "渠道员工",
+                displayName: "渠道员工",
+                role: "staff",
+                roleName: "渠道用户",
+                status: "active",
+                region: "华南",
+                bigRegion: "南区",
+                partnerId: "partner-001",
+                partnerName: "测试渠道商",
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await 单点登录({ token: "sso-token", entry: null, clientType: "mobile" });
+
+    const 请求体 = JSON.parse(单点请求体文本) as Record<string, unknown>;
+    expect(请求体).toEqual({ token: "sso-token", clientType: "mobile" });
+    expect(localStorage.getItem("partner_auth_token")).toBe("v2.partner.sso-token");
+  });
+
+  it("可以提交UniSDP单点登录凭证", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(
@@ -96,7 +195,7 @@ describe("认证接口客户端", () => {
                 allowedPaths: ["/admin"],
               },
               pageSession: {
-                token: "v2.admin.sso-token",
+                token: "v2.admin.unisdp-token",
                 user: {
                   id: "admin-001",
                   userId: "admin-001",
@@ -119,16 +218,16 @@ describe("认证接口客户端", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const 用户 = await 单点登录({ token: "sso-token", entry: "admin", clientType: "pc" });
-    expect(用户.username).toBe("delivery_admin");
-    expect(localStorage.getItem("admin_auth_token")).toBe("v2.admin.sso-token");
+    await 单点登录({ token: "unisdp-token", entry: null, clientType: "pc", provider: "unisdp" });
+
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/sso/iam/login",
+      "/api/auth/sso/unisdp/login",
       expect.objectContaining({
         method: "POST",
         credentials: "include",
       }),
     );
+    expect(localStorage.getItem("admin_auth_token")).toBe("v2.admin.unisdp-token");
   });
 
   it("渠道登录会清理管理员页面会话并保存渠道页面会话", async () => {
