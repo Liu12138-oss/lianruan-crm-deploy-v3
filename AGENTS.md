@@ -69,7 +69,7 @@ V3 迁移兼容资产必须保留，包括：
 
 特别是登录和单点登录相关升级：
 
-- 保留移动端 IAM 单点登录、关闭旧 PC IAM 通道时，接口 `/api/auth/sso/iam/config` 的正确断言是 `enabled:true` 且 `pcEnabled:false`，不得再断言 `enabled:false`。
+- 自 KB-20260812-021-R2 起，PC IAM、PC UniSDP 与移动端 IAM 统一入口识别和统一会话返回，IAM 配置接口不再依赖废弃的 PC 独立开关，`pcEnabled` 字段和 `V3_AUTH_SSO_PC_DISABLED` 拦截已从代码中整体移除。接口 `/api/auth/sso/iam/config` 的正确断言是 `enabled:true`，且响应包含 `entries`、`requestIsaidByEntry`、`timeoutMs` 字段；不得再断言 `enabled:false`，也不得再断言已删除的 `pcEnabled` 字段。
 - 自检脚本不得写死 Vite 构建后的哈希资源文件名，例如 `/assets/index-xxxx.js`、`SingleSignOnPage-xxxx.js`；必须从 `/login` 或当前入口页面动态读取实际资源路径，或检查稳定的入口文件。
 - 自检脚本里的每个关键字必须先在本地构建产物或目标环境接口响应中验证存在，再写入升级包。
 - 升级包交付前必须实际执行：外层 `.zip.sha256` 校验、`unzip` 解压、包内 `manifest/SHA256SUMS` 校验、所有脚本 `bash -n`、以及自检脚本关键断言的本地等价验证。
