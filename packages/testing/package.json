@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/testing",
-  "version": "3.0.0-stage9.20260727",
+  "version": "3.0.0-stage9.39.20260812-kb021",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@lianruan/config": "3.0.0-stage9.20260727",
-    "@lianruan/shared": "3.0.0-stage9.20260727"
+    "@lianruan/config": "3.0.0-stage9.39.20260812-kb021",
+    "@lianruan/shared": "3.0.0-stage9.39.20260812-kb021"
   }
 }
