@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: public.ecr.aws/docker/library/redis:7.2.5-alpine
+    image: public.ecr.aws/docker/library/redis:8-alpine
     container_name: lianruan-crm-v3-redis
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "lianruan_dev_redis"]
     ports:
