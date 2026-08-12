@@ -6,12 +6,18 @@ import cors from "cors";
 import type { ErrorRequestHandler, RequestHandler } from "express";
 import express from "express";
 
-import { 创建门户单点登录路由, 创建认证路由 } from "./auth-routes.js";
+import { 创建认证路由, 创建门户单点登录路由 } from "./auth-routes.js";
 import { 创建业务路由 } from "./business-routes.js";
 import type { 依赖检查器 } from "./dependencies.js";
 import { 创建依赖检查器 } from "./dependencies.js";
 import { 创建健康路由 } from "./health-routes.js";
-import { 创建日志器, type 日志器, 记录请求完成 } from "./logger.js";
+import {
+  创建日志器,
+  创建认证流程日志器,
+  type 日志器,
+  type 认证流程日志器,
+  记录请求完成,
+} from "./logger.js";
 import { 请求编号中间件 } from "./request-context.js";
 import { 创建V2兼容路由, 创建V2导入导出兼容路由 } from "./v2-compat-routes.js";
 
@@ -21,6 +27,7 @@ export interface 创建应用参数 {
   build?: 构建信息;
   env?: NodeJS.ProcessEnv;
   logger?: 日志器;
+  authFlowLogger?: 认证流程日志器;
 }
 
 export function 创建应用(参数: 创建应用参数 = {}) {
@@ -33,6 +40,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       V3_BUILD_TIME: config.build.time,
     });
   const logger = 参数.logger || 创建日志器(config);
+  const authFlowLogger = 参数.authFlowLogger || 创建认证流程日志器(config);
   const dependencyChecker = 参数.dependencyChecker || 创建依赖检查器(config);
   const app = express();
 
@@ -52,6 +60,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
       ...(参数.env ? { env: 参数.env } : {}),
       logger,
+      authFlowLogger,
     }),
   );
   app.use(
@@ -62,6 +71,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
       ...(参数.env ? { env: 参数.env } : {}),
       logger,
+      authFlowLogger,
     }),
   );
   app.use(

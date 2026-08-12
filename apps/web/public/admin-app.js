@@ -12,6 +12,26 @@ if (typeof window.API_BASE === 'undefined') {
 }
 // 使用 window.API_BASE，避免重复声明 const
 
+function formatBusinessDateTime(value, emptyText = '—') {
+  if (value === null || value === undefined || String(value).trim() === '') return emptyText;
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text.replace('T', ' ').replace(/(\.\d+)?Z$/, '').slice(0, 16);
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    }).formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+}
+
 function readAdminApiUserCache() {
   try {
     const cache = localStorage.getItem('admin_api_user');
@@ -704,7 +724,7 @@ const AdminSingleSignOnPageV2 = {
     function doSingleSignOn() {
       const traceId = createPcSingleSignOnTraceId('admin');
       const entryUrl = window.location.href;
-      console.log(`[IAM-SSO][PC][管理员端][${traceId}][旧通道关闭]`, {
+      console.log(`[IAM-SSO][PC][管理员端][${traceId}][开始处理]`, {
         entryUrl,
         enteredAt: new Date().toISOString()
       });
@@ -722,11 +742,11 @@ const AdminSingleSignOnPageV2 = {
       const tokenInfo = readPcSingleSignOnToken();
       const token = tokenInfo.token;
       if (!token) {
-        console.error(`[IAM-SSO][PC][管理员端][${traceId}][旧通道无凭证]`, {
+        console.error(`[IAM-SSO][PC][管理员端][${traceId}][缺少凭证]`, {
           entryUrl,
           supportedParameters: ['token', 'sso_token', 'ssotoken']
         });
-        message.value = '旧版 PC 单点登录已关闭，请从 UniSDP 门户或统一入口进入。';
+        message.value = '未获取到单点登录凭证，请从单点登录平台重新进入。';
         showBack.value = true;
         return;
       }
@@ -891,7 +911,7 @@ const MainLayout = {
         <div v-for="n in store.notifications" :key="n.id" class="notif-item" :class="{unread:n.unread}" @click="markNotificationRead(n)">
           <div class="ni-title">{{ n.title }}</div>
           <div class="ni-desc">{{ n.desc }}</div>
-          <div class="ni-time">{{ n.time }}</div>
+          <div class="ni-time">{{ $formatBusinessDateTime(n.time) }}</div>
         </div>
       </div>
     </div>
@@ -1558,7 +1578,7 @@ const RegistrationList = {
               <td><span class="tag tag-purple">{{ r.industry }}</span></td>
               <td>{{ r.contact }}<br/><span style="font-size:11px;color:#aaa">{{ r.phone }}</span></td>
               <td><span class="tag" :class="statusClass(r.status)">{{ statusLabel(r.status) }}</span></td>
-              <td style="font-size:12px;color:#888">{{ r.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(r.createdAt) }}</td>
               <td style="font-size:12px" :style="{color: isExpiringSoon(r)?'#faad14':'#888'}">
                 {{ r.expireAt }}
                 <span v-if="isExpiringSoon(r)" style="font-size:11px;color:#faad14;display:block">⚠️ 即将到期</span>
@@ -1594,6 +1614,7 @@ const RegistrationList = {
         <div class="modal-body">
           <div class="form-grid">
             <div class="form-item"><label class="form-label">客户名称</label><div style="padding:8px 0;font-weight:600">{{ detail.customer }}</div></div>
+            <div class="form-item"><label class="form-label">统一社会信用代码</label><div style="padding:8px 0">{{ detail.creditCode || '—' }}</div></div>
             <div class="form-item">
               <label class="form-label">行业</label>
               <div v-if="isAdmin" style="padding:8px 0">
@@ -1614,7 +1635,7 @@ const RegistrationList = {
               <div v-if="isAdmin" style="padding:8px 0"><input class="form-control" v-model="regEditPhone" placeholder="请输入联系电话" /></div>
               <div v-else style="padding:8px 0">{{ detail.phone }}</div>
             </div>
-            <div class="form-item"><label class="form-label">报备日期</label><div style="padding:8px 0">{{ detail.createdAt }}</div></div>
+            <div class="form-item"><label class="form-label">报备日期</label><div style="padding:8px 0">{{ $formatBusinessDateTime(detail.createdAt) }}</div></div>
             <div class="form-item">
               <label class="form-label">保护期至</label>
               <div v-if="isAdmin" style="padding:8px 0">
@@ -1699,13 +1720,13 @@ const RegistrationList = {
             <div class="timeline">
               <div class="timeline-item">
                 <div class="timeline-dot-wrap"><div class="timeline-dot"></div><div class="timeline-line"></div></div>
-                <div class="timeline-content"><div class="tl-title">提交报备申请</div><div class="tl-time">{{ detail.createdAt }}</div></div>
+                <div class="timeline-content"><div class="tl-title">提交报备申请</div><div class="tl-time">{{ $formatBusinessDateTime(detail.createdAt) }}</div></div>
               </div>
               <div class="timeline-item" v-if="detail.status!=='pending'">
                 <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{gray:detail.status==='rejected'}"></div><div class="timeline-line"></div></div>
                 <div class="timeline-content">
                   <div class="tl-title">{{ detail.status==='approved'?'厂商审批通过':detail.status==='reviewing'?'厂商审核中':'审批未通过' }}</div>
-                  <div class="tl-time">{{ detail.status==='approved'?detail.createdAt:'处理中' }}</div>
+                  <div class="tl-time">{{ detail.status==='approved' ? $formatBusinessDateTime(detail.createdAt) : '处理中' }}</div>
                 </div>
               </div>
               <div class="timeline-item" v-if="detail.status==='approved'">
@@ -2561,7 +2582,7 @@ const RegistrationNew = {
         
         if (existingByName) {
           submitting.value = false;
-          alert(`该客户已被报备，不能重复报备。\n\n客户名称：${existingByName.customer}\n报备时间：${existingByName.createdAt || '未知'}`);
+          alert(`该客户已被报备，不能重复报备。\n\n客户名称：${existingByName.customer}\n报备时间：${formatBusinessDateTime(existingByName.createdAt, '未知')}`);
           return;
         }
         
@@ -2731,7 +2752,7 @@ const QuoteList = {
               </td>
               <td>{{ getQuoteDisplayEndpoints(q) }} 台</td>
               <td style="font-weight:700;color:#1677ff">{{ fmt(q.total) }}</td>
-              <td style="font-size:12px;color:#888">{{ q.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(q.createdAt) }}</td>
               <td style="font-size:12px;color:#888">{{ q.validDays }} 天</td>
               <td @click.stop style="white-space:nowrap">
                 <!-- 已转单：显示状态 -->
@@ -2785,7 +2806,7 @@ const QuoteList = {
                 <span v-if="detail.oppId">{{ getOppName(detail.oppId) }}</span>
                 <span v-else style="color:#aaa">—</span>
               </div>
-              <div class="quote-meta-item"><label>报价日期</label><span>{{ detail.createdAt }}</span></div>
+              <div class="quote-meta-item"><label>报价日期</label><span>{{ $formatBusinessDateTime(detail.createdAt) }}</span></div>
               <div class="quote-meta-item"><label>有效期</label><span>{{ detail.validDays }} 天</span></div>
               <div class="quote-meta-item"><label>端点数量</label><span>{{ getQuoteDisplayEndpoints(detail) }} 台</span></div>
               <div class="quote-meta-item"><label>报价状态</label><span>{{ qLabel(detail.status) }}</span></div>
@@ -3726,7 +3747,7 @@ const QuoteNew = {
                 @click="toggleSupplementFeature(feat.id)">
                 <div class="check-mark">✓</div>
                 <div class="feat-name">{{ feat.name }}</div>
-                <div class="feat-price">{{ getFeaturePriceDisplay(feat) }}</div>
+                <div v-if="getFeaturePriceDisplay(feat)" class="feat-price">{{ getFeaturePriceDisplay(feat) }}</div>
               </div>
             </div>
           </div>
@@ -3781,7 +3802,7 @@ const QuoteNew = {
                     @click="toggleCustomFeature(feat.id)">
                     <span class="chip-check">✓</span>
                     <span class="chip-label">{{ feat.name }}</span>
-                    <span v-if="getFeaturePriceDisplay(feat) !== '面议'" class="chip-price-tag">{{ getFeaturePriceDisplay(feat) }}</span>
+                    <span v-if="getFeaturePriceDisplay(feat)" class="chip-price-tag">{{ getFeaturePriceDisplay(feat) }}</span>
                   </div>
                 </div>
               </div>
@@ -4550,7 +4571,7 @@ const QuoteNew = {
       if (feat.unitPrice) {
         return fmt(feat.unitPrice) + '/端点';
       }
-      return '面议';
+      return '';
     }
     
     // 获取功能价格
@@ -5323,7 +5344,7 @@ const OrderList = {
           <tbody>
             <tr v-for="o in paginatedData" :key="o.id" @click="view(o)" style="cursor:pointer">
               <td style="font-family:monospace;font-size:12px;color:#888">{{ o.id }}</td>
-              <td style="font-size:12px;color:#1677ff">{{ o.quoteId }}</td>
+              <td style="font-size:12px;color:#1677ff">{{ o.quoteNo || o.quoteId }}</td>
               <td style="font-weight:600">{{ o.customer }}</td>
               <td>
                 <div style="font-weight:500;color:#1677ff">{{ getPartnerDisplayName(o) }}</div>
@@ -5332,7 +5353,7 @@ const OrderList = {
               </td>
               <td style="font-weight:700;color:#1677ff">{{ fmt(o.total) }}</td>
               <td><span class="tag" :class="oClass(o.status)">{{ oLabel(o.status) }}</span></td>
-              <td style="font-size:12px;color:#888">{{ o.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(o.createdAt) }}</td>
               <td style="font-size:12px;color:#888;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ o.deliveryAddr }}</td>
               <td @click.stop>
                 <!-- 管理员/超级管理员可以操作订单状态 -->
@@ -5377,7 +5398,7 @@ const OrderList = {
         <div class="modal-body">
           <div class="form-grid">
             <div class="form-item"><label class="form-label">客户名称</label><div style="padding:8px 0;font-weight:600">{{ detail.customer }}</div></div>
-            <div class="form-item"><label class="form-label">关联报价单</label><div style="padding:8px 0;color:#1677ff">{{ detail.quoteId }}</div></div>
+            <div class="form-item"><label class="form-label">关联报价单</label><div style="padding:8px 0;color:#1677ff">{{ detail.quoteNo || detail.quoteId }}</div></div>
             <div class="form-item"><label class="form-label">订单金额</label><div style="padding:8px 0;font-weight:700;color:#1677ff;font-size:18px">{{ fmt(detail.total) }}</div></div>
             <div class="form-item"><label class="form-label">当前状态</label><div style="padding:8px 0"><span class="tag" :class="oClass(detail.status)">{{ oLabel(detail.status) }}</span></div></div>
             <div class="form-item full"><label class="form-label">合作伙伴</label><div style="padding:8px 0;font-weight:600;color:#1677ff">{{ detail.partnerName || '—' }}</div><div v-if="detail.partnerId" style="font-size:12px;color:#aaa;font-family:monospace">{{ detail.partnerId }}</div></div>
@@ -5389,7 +5410,7 @@ const OrderList = {
             <div class="timeline">
               <div class="timeline-item">
                 <div class="timeline-dot-wrap"><div class="timeline-dot active"></div><div class="timeline-line"></div></div>
-                <div class="timeline-content"><div class="tl-title">订单已创建</div><div class="tl-time">{{ detail.createdAt }}</div></div>
+                <div class="timeline-content"><div class="tl-title">订单已创建</div><div class="tl-time">{{ $formatBusinessDateTime(detail.createdAt) }}</div></div>
               </div>
               <div class="timeline-item" v-if="['pending_primary_confirm','primary_confirmed','pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)">
                 <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active: ['primary_confirmed','pending_superadmin_confirm','confirmed','processing','shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
@@ -5649,9 +5670,7 @@ const OrderList = {
     
     // 格式化时间
     function formatTime(isoString) {
-      if (!isoString) return '';
-      const d = new Date(isoString);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      return formatBusinessDateTime(isoString, '');
     }
     
     // 确认订单审批链路
@@ -9269,8 +9288,7 @@ const Partners = {
     function profileUpdatedText() {
       const value = partnerProfile.value?.profile?.updatedAt || detail.value?.joinDate || '';
       if (!value) return '待补充';
-      const text = String(value).replace('T', ' ').slice(0, 16);
-      return text || '待补充';
+      return formatBusinessDateTime(value, '待补充');
     }
 
     function canEditCurrentProfile() {
@@ -10498,7 +10516,7 @@ const PartnerAdminManage = {
             <td>{{ a.targetPartnerName || '—' }}</td>
             <td>—</td>
             <td>{{ a.createdBy }}</td>
-            <td>{{ new Date(a.createdAt).toLocaleDateString() }}</td>
+            <td>{{ $formatBusinessDateTime(a.createdAt) }}</td>
             <td>
               <button class="btn btn-primary btn-sm" @click="approveAdmin(a.id)">通过</button>
               <button class="btn btn-text btn-sm" style="color:#ff4d4f" @click="rejectAdmin(a.id)">驳回</button>
@@ -11636,7 +11654,7 @@ const AccountManage = {
                   {{ a.status==='active' ? '启用' : '停用' }}
                 </span>
               </td>
-              <td style="font-size:12px;color:#888">{{ a.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(a.createdAt) }}</td>
               <td style="font-size:12px;color:#888">{{ a.remark || '-' }}</td>
               <td @click.stop>
                 <button class="btn btn-text btn-sm" @click="openEdit(a)">编辑</button>
@@ -11676,7 +11694,7 @@ const AccountManage = {
                   {{ a.status==='active' ? '启用' : '停用' }}
                 </span>
               </td>
-              <td style="font-size:12px;color:#888">{{ a.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(a.createdAt) }}</td>
               <td style="font-size:12px;color:#888">{{ a.remark || '-' }}</td>
               <td @click.stop>
                 <button class="btn btn-text btn-sm" @click="openEdit(a)">编辑</button>
@@ -12011,7 +12029,7 @@ const AdminReview = {
               <td>{{ r.industry }}</td>
               <td>{{ r.contact }}</td>
               <td><span class="tag" :class="sClass(r.status)">{{ sLabel(r.status) }}</span></td>
-              <td style="font-size:12px;color:#888">{{ r.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(r.createdAt) }}</td>
               <td>
                 <button class="btn btn-success btn-sm" @click="approveReg(r)" v-if="r.status==='pending'||r.status==='reviewing'">✓ 通过</button>
                 <button class="btn btn-danger btn-sm" style="margin-left:6px" @click="rejectReg(r)" v-if="r.status==='pending'||r.status==='reviewing'">✕ 拒绝</button>
@@ -12099,7 +12117,7 @@ const AdminReview = {
               <td>{{ s.role }}</td>
               <td>{{ s.phone }}</td>
               <td><span class="tag" :class="sClass(s.status)">{{ sLabel(s.status) }}</span></td>
-              <td style="font-size:12px;color:#888">{{ s.createdAt }}</td>
+              <td style="font-size:12px;color:#888">{{ $formatBusinessDateTime(s.createdAt) }}</td>
               <td>
                 <button class="btn btn-success btn-sm" @click="approveStaff(s)" v-if="s.status==='pending'">✓ 通过</button>
                 <button class="btn btn-danger btn-sm" style="margin-left:6px" @click="rejectStaff(s)" v-if="s.status==='pending'">✕ 拒绝</button>
@@ -12318,7 +12336,7 @@ const AdminReview = {
           phone: staffInfo?.phone || user?.phone || '-',
           status: a.status,
           type: a.type,
-          createdAt: a.createdAt?.split('T')[0] || '-'
+          createdAt: a.createdAt || '-'
         };
       }).filter(s => s.status === 'pending' || s.status === 'rejected');
     });
@@ -12563,10 +12581,11 @@ const OpportunityList = {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>商机名称</th><th>客户</th><th>合作伙伴</th><th>阶段</th><th>金额</th><th>预计关闭</th><th>最近跟进</th><th>负责人</th><th>操作</th></tr>
+            <tr><th>商机编号</th><th>商机名称</th><th>客户</th><th>合作伙伴</th><th>阶段</th><th>金额</th><th>预计关闭</th><th>最近跟进</th><th>负责人</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="o in paginatedData" :key="o.id" style="cursor:pointer" @click="openDetail(o)">
+              <td style="font-family:monospace;font-size:12px;color:#1677ff;white-space:nowrap">{{ o.code || o.id }}</td>
               <td>
                 <div style="font-weight:600;color:#1a1a1a">{{ o.name }}</div>
                 <div style="font-size:11px;color:#aaa;margin-top:2px">
@@ -12663,6 +12682,10 @@ const OpportunityList = {
           <div style="width:320px;flex-shrink:0;border-right:1px solid #f0f0f0;overflow-y:auto;padding:20px">
             <div style="margin-bottom:16px">
               <span class="tag" :class="stageTagClass(detail.stage)" style="font-size:13px;padding:4px 12px">{{ stageLabel(detail.stage) }}</span>
+            </div>
+            <div class="form-item" style="margin-bottom:14px">
+              <label class="form-label">商机编号</label>
+              <div style="font-family:monospace;font-size:12px;color:#1677ff;padding-top:4px">{{ detail.code || detail.id }}</div>
             </div>
             <div class="form-item" style="margin-bottom:14px">
               <label class="form-label">商机名称</label>
@@ -12769,7 +12792,7 @@ const OpportunityList = {
               </div>
               <div v-if="detail.quoteId" style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:13px">
                 <span style="color:#888">报价单</span>
-                <span style="color:#1677ff;cursor:pointer;font-weight:500" @click="openQuoteDetailModal(detail.quoteId)">📄 {{ detail.quoteId }}（点击查看详情）</span>
+                <span style="color:#1677ff;cursor:pointer;font-weight:500" @click="openQuoteDetailModal(detail.quoteId)">📄 {{ detail.quoteNo || detail.quoteId }}（点击查看详情）</span>
               </div>
               <div v-else-if="detail.stage === 'won' || detail.stage === 'closing'" style="font-size:12px;color:#faad14;background:#fffbe6;padding:8px 12px;border-radius:6px;margin-bottom:8px">
                 💡 商机已赢单但尚未创建报价单，可点击下方「创建报价单」生成
@@ -12799,7 +12822,7 @@ const OpportunityList = {
                 <div class="timeline-content" style="padding-bottom:16px">
                   <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
                     <span class="tag tag-blue" style="font-size:11px">{{ f.type }}</span>
-                    <span style="font-size:12px;color:#aaa">{{ f.date }} · {{ f.user }}</span>
+                    <span style="font-size:12px;color:#aaa">{{ $formatBusinessDateTime(f.date) }} · {{ f.user }}</span>
                   </div>
                   <div style="font-size:13.5px;color:#333;line-height:1.7;background:#f8f9fa;border-radius:8px;padding:12px">{{ f.content }}</div>
                 </div>
@@ -13199,7 +13222,7 @@ const OpportunityList = {
           </div>
           <div style="background:#fafafa;border-radius:8px;padding:14px">
             <div style="font-size:11px;color:#888;margin-bottom:6px">创建时间</div>
-            <div style="font-size:13px;font-weight:500">{{ quoteDetailData?.createdAt || quoteDetailData?.date || '—' }}</div>
+            <div style="font-size:13px;font-weight:500">{{ $formatBusinessDateTime(quoteDetailData?.createdAt || quoteDetailData?.date) }}</div>
           </div>
         </div>
       </div>
@@ -14616,9 +14639,9 @@ const OpportunityNew = {
         </div>
         <div class="form-item"><label class="form-label">负责人</label><input class="form-control" v-model="form.owner" placeholder="销售负责人姓名"/></div>
         <div class="form-item full"><label class="form-label">标签（回车添加）</label>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid #d9d9d9;border-radius:6px;padding:6px 10px;min-height:40px" @click="$refs.tagInput.focus()">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;border:1px solid #d9d9d9;border-radius:6px;padding:6px 10px;min-height:40px" @click="$refs.tagInputElement.focus()">
             <span v-for="t in form.tags" :key="t" class="tag tag-blue" style="font-size:12px">{{ t }} <span @click.stop="removeTag(t)" style="cursor:pointer;margin-left:2px">×</span></span>
-            <input ref="tagInput" style="border:none;outline:none;font-size:13px;min-width:80px" v-model="tagInput" @keydown.enter.prevent="addTag" placeholder="输入标签后回车"/>
+            <input ref="tagInputElement" style="border:none;outline:none;font-size:13px;min-width:80px" v-model="tagInput" @keydown.enter.prevent="addTag" placeholder="输入标签后回车"/>
           </div>
         </div>
         <div class="form-item full"><label class="form-label">备注</label><textarea class="form-control" v-model="form.notes" rows="3" placeholder="项目背景、竞争情况、关键决策人..."></textarea></div>
@@ -15805,9 +15828,7 @@ const AuditLogs = {
     }
 
     function formatTime(value) {
-      if (!value) return '-';
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+      return formatBusinessDateTime(value, '-');
     }
 
     function formatActor(item) {
@@ -16551,9 +16572,7 @@ const OpenApiIntegration = {
     }
 
     function formatTime(value) {
-      if (!value) return '-';
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+      return formatBusinessDateTime(value, '-');
     }
 
     function toDateInput(value) {
@@ -17329,4 +17348,5 @@ const app = createApp({
 });
 app.use(router);
 app.use(ElementPlus);
+app.config.globalProperties.$formatBusinessDateTime = formatBusinessDateTime;
 app.mount('#app');

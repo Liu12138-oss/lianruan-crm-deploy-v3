@@ -5,11 +5,12 @@ import { 创建成功响应, 应用错误 } from "@lianruan/shared";
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
 
-import { 读取请求会话用户名 } from "./auth-routes.js";
+import { 读取移动端会话身份, 读取请求会话用户名, 读取请求会话角色 } from "./auth-routes.js";
 import {
   type 业务数据服务,
   创建业务数据服务,
   type 当前业务用户,
+  type 移动端幂等参数,
   type 阶段9模块,
 } from "./business-store.js";
 
@@ -38,6 +39,7 @@ const 模块映射: Record<string, 阶段9模块> = {
   importExport: "importExport",
   "import-export": "importExport",
   approvals: "approvals",
+  "pending-approvals": "approvals",
   notifications: "notifications",
 };
 
@@ -69,6 +71,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     参数.service ||
     (参数.databaseUrl ? 创建业务数据服务({ databaseUrl: 参数.databaseUrl }) : 创建业务数据服务({}));
   const 读取用户 = (req: Request) => 读取当前业务用户(req, 参数);
+  const 读取移动用户 = (req: Request) => 读取当前移动端业务用户(req, 参数);
 
   router.get("/dashboard/stats", async (req, res, next) => {
     try {
@@ -438,29 +441,40 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/approvals", 列表处理器(service, 参数.build, "approvals", 读取用户));
   router.get("/import-export/tasks", 列表处理器(service, 参数.build, "importExport", 读取用户));
 
-  router.get("/mobile/:module", 移动列表处理器(service, 参数.build, 读取用户));
-  router.get("/mobile/:module/:id", 移动详情处理器(service, 参数.build, 读取用户));
+  router.get("/mobile/:module", 移动列表处理器(service, 参数.build, 读取移动用户));
+  router.get("/mobile/:module/:id", 移动详情处理器(service, 参数.build, 读取移动用户));
   router.post("/mobile/registrations", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取用户(req))));
+      const 用户 = 读取移动用户(req);
+      const 数据 = await 执行移动端写入(req, service, 用户, async () =>
+        service.创建报备(req.body, 用户),
+      );
+      res.json(成功(req, 参数.build, 数据));
     } catch (error) {
       next(error);
     }
   });
   router.post("/mobile/opportunities", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取用户(req))));
+      const 用户 = 读取移动用户(req);
+      const 数据 = await 执行移动端写入(req, service, 用户, async () =>
+        service.创建商机(req.body, 用户),
+      );
+      res.json(成功(req, 参数.build, 数据));
     } catch (error) {
       next(error);
     }
   });
   router.post("/mobile/opportunities/:id/follow-ups", async (req, res, next) => {
     try {
+      const 用户 = 读取移动用户(req);
       res.json(
         成功(
           req,
           参数.build,
-          await service.更新商机(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          await 执行移动端写入(req, service, 用户, async () =>
+            service.更新商机(读取路由参数(req, "id"), req.body, 用户),
+          ),
         ),
       );
     } catch (error) {
@@ -469,11 +483,14 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
   router.post("/mobile/quotes/:id/convert-order", async (req, res, next) => {
     try {
+      const 用户 = 读取移动用户(req);
       res.json(
         成功(
           req,
           参数.build,
-          await service.创建订单({ ...req.body, quoteId: 读取路由参数(req, "id") }, 读取用户(req)),
+          await 执行移动端写入(req, service, 用户, async () =>
+            service.创建订单({ ...req.body, quoteId: 读取路由参数(req, "id") }, 用户),
+          ),
         ),
       );
     } catch (error) {
@@ -482,21 +499,55 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
   router.put("/mobile/registrations/:id/status", async (req, res, next) => {
     try {
+      const 用户 = 读取移动用户(req);
+      const 数据 = await 执行移动端写入(req, service, 用户, async () =>
+        service.审核移动端报备状态(读取路由参数(req, "id"), req.body, 用户),
+      );
+      res.json(成功(req, 参数.build, 数据));
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.put("/mobile/partners/:id/status", async (req, res, next) => {
+    try {
+      const 用户 = 读取移动用户(req);
       res.json(
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          await 执行移动端写入(req, service, 用户, async () =>
+            service.更新渠道商状态(读取路由参数(req, "id"), req.body, 用户),
+          ),
         ),
       );
     } catch (error) {
       next(error);
     }
   });
-  router.get("/mobile/pending-approvals", 列表处理器(service, 参数.build, "approvals", 读取用户));
-  router.get("/mobile/partners", 列表处理器(service, 参数.build, "partners", 读取用户));
-  router.get("/mobile/partners/:id", 详情处理器(service, 参数.build, "partners", 读取用户));
+  router.put("/mobile/pending-approvals/:id", async (req, res, next) => {
+    try {
+      const 用户 = 读取移动用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行移动端写入(req, service, 用户, async () =>
+            service.更新待审批状态(读取路由参数(req, "id"), req.body, 用户),
+          ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.get(
+    "/mobile/pending-approvals",
+    列表处理器(service, 参数.build, "approvals", 读取移动用户),
+  );
+  router.get("/mobile/partners", 列表处理器(service, 参数.build, "partners", 读取移动用户));
+  router.get("/mobile/partners/:id", 详情处理器(service, 参数.build, "partners", 读取移动用户));
   router.post("/mobile/logout", (_req, res) => {
+    if (!读取当前移动端业务用户(_req, 参数)) return;
     res.json(成功(_req, 参数.build, { loggedOut: true }));
   });
 
@@ -1034,6 +1085,66 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
     displayName: 读取请求体文本(req, "operatorName") || operatorId,
     roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
   };
+}
+
+function 读取当前移动端业务用户(req: Request, 参数: 业务路由参数): 当前业务用户 {
+  const 会话参数 = {
+    sessionSecret: 参数.sessionSecret || "",
+    ...(参数.env ? { env: 参数.env } : {}),
+  };
+  const 移动端会话 = 读取移动端会话身份(req, 会话参数);
+  const username = 读取请求会话用户名(req, 会话参数) || 移动端会话?.username;
+  if (!username) {
+    throw new 应用错误("V3_MOBILE_AUTH_REQUIRED", "请先登录后再访问移动端业务。", 401);
+  }
+  const roleCode = 移动端会话?.role || 转移动端角色代码(读取请求会话角色(req, 会话参数));
+  return {
+    requestId: req.requestId,
+    username,
+    displayName: username,
+    roleName: "V3移动端登录用户",
+    ...(roleCode ? { roleCode } : {}),
+  };
+}
+
+function 转移动端角色代码(role: string): 当前业务用户["roleCode"] {
+  if (role === "superadmin" || role === "admin") return role;
+  if (role === "partner_admin" || role === "staff") return role;
+  return undefined;
+}
+
+async function 执行移动端写入<T>(
+  req: Request,
+  service: 业务数据服务,
+  用户: 当前业务用户,
+  操作: () => Promise<T>,
+): Promise<T> {
+  const 幂等键 = 读取移动端幂等键(req);
+  if (!幂等键) return 操作();
+  const 参数: 移动端幂等参数 = {
+    作用域: `mobile:${用户.username}:${req.method}:${req.path}`,
+    幂等键,
+    请求哈希: 创建移动端请求哈希(req),
+  };
+  return service.执行移动端幂等(参数, 操作);
+}
+
+function 读取移动端幂等键(req: Request): string {
+  const value = req.headers["idempotency-key"];
+  if (typeof value !== "string") return "";
+  const key = value.trim();
+  if (!key) return "";
+  if (key.length > 200) {
+    throw new 应用错误("V3_MOBILE_IDEMPOTENCY_KEY_INVALID", "幂等键长度不能超过200个字符。", 400);
+  }
+  return key;
+}
+
+function 创建移动端请求哈希(req: Request): string {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ method: req.method, path: req.path, body: req.body || null }), "utf8")
+    .digest("hex");
 }
 
 function 读取V2令牌用户名(req: Request): string {

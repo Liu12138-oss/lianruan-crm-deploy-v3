@@ -1,5 +1,5 @@
-import { 创建测试环境变量 } from "@lianruan/testing";
 import type { 日志器, 日志字段 } from "@lianruan/shared";
+import { 创建测试环境变量 } from "@lianruan/testing";
 import { Pool } from "pg";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { 创建密码散列 } from "../src/auth-routes.js";
 import { 读取IamH5单点登录配置 } from "../src/iam-sso.js";
 import { 创建应用 } from "../src/index.js";
+import type { 认证流程日志器 } from "../src/logger.js";
 import { 读取UniSdp单点登录配置 } from "../src/unisdp-sso.js";
 
 const 密码散列 = 创建密码散列("LrCRM@2026!", Buffer.from("0123456789abcdef"));
@@ -52,6 +53,15 @@ function 合并日志字段(默认字段: 日志字段, fields: 日志字段 | u
   return { ...默认字段, ...(fields || {}) };
 }
 
+function 创建捕获认证流程日志器(): 认证流程日志器 & { lines: string[] } {
+  const lines: string[] = [];
+  return {
+    lines,
+    write: (line) => lines.push(line),
+    flush: () => Promise.resolve(),
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -68,11 +78,13 @@ describe("交付验收登录接口", () => {
     expect(login.body.success).toBe(true);
     expect(login.body.data.user.displayName).toBe("产品交付验收账号");
     expect(login.body.data.pageSession.token).toMatch(/^v2\./);
+    expect(login.body.data.mobileSession.token).toMatch(/^v3m\./);
     expect(login.body.data.pageSession.user.role).toBe("admin");
 
     const me = await agent.get("/api/auth/me").expect(200);
     expect(me.body.data.user.username).toBe("delivery_admin");
     expect(me.body.data.pageSession.user.username).toBe("delivery_admin");
+    expect(me.body.data.mobileSession.user.username).toBe("delivery_admin");
   });
 
   it("密码错误时返回中文错误", async () => {
@@ -110,10 +122,9 @@ describe("交付验收登录接口", () => {
 });
 
 describe("IAM单点登录成功流程", () => {
-  it("默认保留手机IAM单点登录并关闭旧PC通道", () => {
+  it("IAM单点登录同时支持电脑和手机端", () => {
     const 配置 = 读取IamH5单点登录配置({});
     expect(配置.enabled).toBe(true);
-    expect(配置.pcEnabled).toBe(false);
     expect(配置.validateUrl).toBe("http://10.10.2.62:8192/emm-cgi/oidc/getUserFromSsoToken");
     expect(配置.validateIsaidByEntry.admin).toBe("QdCRMguanlyuan123");
     expect(配置.validateIsaidByEntry.partner).toBe("QdCRMguanlyuan123");
@@ -266,22 +277,34 @@ describe("IAM单点登录失败场景", () => {
     expect(res.body.error.message).toContain("缺少单点登录凭证");
   });
 
-  it("旧PC IAM单点登录默认关闭", async () => {
+  it("历史PC开关不会阻断IAM电脑端单点登录", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ status: 2000, data: { mailuser: { username: "delivery_admin" } } }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
     const app = 创建应用({
       env: 创建测试环境变量({
         ...认证环境,
         DATABASE_URL: "",
         V3_IAM_H5_SSO_ENABLED: "true",
         V3_IAM_H5_SSO_PC_ENABLED: "false",
+        V3_IAM_H5_SSO_VALIDATE_URL: "https://iam.example.test/validate",
+        V3_IAM_H5_SSO_VALIDATE_ISAID: "crm-v3-test",
       }),
     });
 
     const res = await request(app)
       .post("/api/auth/sso/iam/login")
-      .send({ token: "old-pc-token", clientType: "pc" })
-      .expect(403);
+      .send({ token: "iam-pc-token", clientType: "pc" })
+      .expect(200);
 
-    expect(res.body.error.message).toContain("旧版 PC 单点登录已关闭");
+    expect(res.body.data.user.username).toBe("delivery_admin");
   });
 
   it("IAM拒绝单点凭证时返回401", async () => {
@@ -371,6 +394,7 @@ describe("UniSDP门户单点登录流程", () => {
   it("UniSDP JSON接口登录成功后写入新版会话", async () => {
     let 校验地址文本 = "";
     const logger = 创建捕获日志器();
+    const authFlowLogger = 创建捕获认证流程日志器();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: unknown) => {
@@ -397,6 +421,7 @@ describe("UniSDP门户单点登录流程", () => {
         V3_UNISDP_SSO_ISAID: "crm-unisdp-test",
       }),
       logger,
+      authFlowLogger,
     });
 
     const agent = request.agent(app);
@@ -428,10 +453,21 @@ describe("UniSDP门户单点登录流程", () => {
     expect(服务校验通过事件?.fields.uniSdpMobileFingerprint).toBeTruthy();
     expect(登录成功事件?.fields.uniSdpMobilePresent).toBe(true);
     expect(日志文本).not.toContain("13800138000");
+
+    const 摘要文本 = authFlowLogger.lines.join("\n");
+    expect(摘要文本).toContain("[UNISDP-SSO] [全流程]");
+    expect(摘要文本).toContain(
+      "[认证服务校验通过] UniSDP返回账号：delivery_admin，手机号：138****8000",
+    );
+    expect(摘要文本).toContain("[登录成功] 本地账号：delivery_admin");
+    expect(摘要文本).toContain('"requestId"');
+    expect(摘要文本).not.toContain("unisdp-token-for-test");
+    expect(摘要文本).not.toContain("13800138000");
   });
 
   it("UniSDP返回手机号用户名时优先匹配渠道账号手机号", async () => {
     const logger = 创建捕获日志器();
+    const authFlowLogger = 创建捕获认证流程日志器();
     const 渠道用户行 = {
       id: "channel-user-001",
       v2_source_id: "channel-source-001",
@@ -455,16 +491,17 @@ describe("UniSDP门户单点登录流程", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            status: 2000,
-            username: "13536920924",
-            isLogin: true,
-            errmsg: "ok",
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 2000,
+              username: "13536920924",
+              isLogin: true,
+              errmsg: "ok",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
       ),
     );
     const app = 创建应用({
@@ -477,6 +514,7 @@ describe("UniSDP门户单点登录流程", () => {
         V3_UNISDP_SSO_ISAID: "crm-unisdp-test",
       }),
       logger,
+      authFlowLogger,
     });
 
     const agent = request.agent(app);
@@ -503,6 +541,13 @@ describe("UniSDP门户单点登录流程", () => {
     expect(服务校验通过事件?.fields.uniSdpUsernameFingerprint).toBeTruthy();
     expect(登录成功事件?.fields.uniSdpLocalUserMatchMode).toBe("partner_phone");
     expect(日志文本).not.toContain("13536920924");
+
+    const 摘要文本 = authFlowLogger.lines.join("\n");
+    expect(摘要文本).toContain("UniSDP返回账号：135****0924，手机号：未返回");
+    expect(摘要文本).toContain('"uniSdpUsernameLooksLikePhone":true');
+    expect(摘要文本).toContain('"ssoTokenFingerprint"');
+    expect(摘要文本).not.toContain("unisdp-token-for-channel");
+    expect(摘要文本).not.toContain("13536920924");
   });
 
   it("UniSDP门户表单登录成功后返回写入页面会话的过渡页", async () => {

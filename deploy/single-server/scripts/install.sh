@@ -135,7 +135,6 @@ chmod 700 "${install_root}/secrets"
   local target_file="$1"
 
   更新环境变量 "${target_file}" "V3_IAM_H5_SSO_ENABLED" "true"
-  更新环境变量 "${target_file}" "V3_IAM_H5_SSO_PC_ENABLED" "true"
   更新环境变量 "${target_file}" "V3_IAM_H5_SSO_VALIDATE_URL" "http://10.10.2.62:8192/emm-cgi/oidc/getUserFromSsoToken"
   更新环境变量 "${target_file}" "V3_IAM_H5_SSO_VALIDATE_ISAID" "QdCRMguanlyuan123"
   更新环境变量 "${target_file}" "V3_IAM_H5_SSO_ADMIN_VALIDATE_ISAID" ""

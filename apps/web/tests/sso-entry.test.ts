@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   Iam平台单点登录路径,
-  单点登录路径,
   UniSdp平台单点登录路径,
+  单点登录路径,
+  是平台专属单点登录路径,
   构建UniSdp单点登录跳转,
   构建单点登录跳转,
-  是平台专属单点登录路径,
   识别单点登录提供方,
   需要转入UniSdp单点登录,
   需要转入单点登录,
@@ -39,13 +39,40 @@ describe("统一链接单点登录入口识别", () => {
     expect(需要转入单点登录(测试路由("/", { code: "test-token" }))).toBe(false);
   });
 
+  it("IAM占位符链接带needtransfer参数时转入IAM单点入口", () => {
+    const 路由 = 测试路由("/", { needtransfer: "1", code: "test-token" });
+
+    expect(需要转入单点登录(路由)).toBe(true);
+    expect(构建单点登录跳转(路由)).toEqual({
+      path: Iam平台单点登录路径,
+      query: { needtransfer: "1", code: "test-token" },
+      hash: "",
+    });
+  });
+
+  it("IAM标记只接受值1，并支持哈希参数", () => {
+    expect(需要转入单点登录(测试路由("/", { needtransfer: "0", code: "test-token" }))).toBe(false);
+    expect(需要转入单点登录(测试路由("/", {}, "#/login?needtransfer=1&code=test-token"))).toBe(
+      true,
+    );
+  });
+
+  it("UniSDP凭证优先于IAM标记", () => {
+    const 路由 = 测试路由("/", {
+      needtransfer: "1",
+      code: "iam-token",
+      sso_token: "unisdp-token",
+    });
+
+    expect(需要转入UniSdp单点登录(路由)).toBe(true);
+    expect(需要转入单点登录(路由)).toBe(false);
+  });
+
   it("兼容PC平台单点凭证参数的大小写和下划线差异", () => {
     expect(需要转入UniSdp单点登录(测试路由("/", { ssoToken: "test-token" }))).toBe(true);
     expect(需要转入UniSdp单点登录(测试路由("/", { SSOTOKEN: "test-token" }))).toBe(true);
     expect(需要转入UniSdp单点登录(测试路由("/", { SSO_TOKEN: "test-token" }))).toBe(true);
-    expect(需要转入UniSdp单点登录(测试路由("/", {}, "#/login?Sso_Token=test-token"))).toBe(
-      true,
-    );
+    expect(需要转入UniSdp单点登录(测试路由("/", {}, "#/login?Sso_Token=test-token"))).toBe(true);
   });
 
   it("根路径 hash 带UniSDP凭证时自动转入后端门户单点入口", () => {

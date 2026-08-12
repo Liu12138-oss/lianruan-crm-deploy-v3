@@ -412,7 +412,19 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       }
 
       const token = 签发V2令牌(用户.username);
-      res.json({ success: true, user: 用户, token, notifications: [], build: 参数.build });
+      const dueReminders = await 需要服务(service).查询到期提醒({
+        username: 用户.username,
+        displayName: 用户.name || 用户.username,
+        roleName: 用户.roleName || "V2页面用户",
+      });
+      res.json({
+        success: true,
+        user: 用户,
+        token,
+        notifications: [],
+        dueReminders,
+        build: 参数.build,
+      });
     }),
   );
 
@@ -1983,7 +1995,10 @@ function 读取阶段9查询(req: Request) {
 
 function 转V2业务记录(模块: 阶段9模块, 记录: 阶段9记录): 字典 {
   const 原始 = 记录.原始数据 || {};
-  const id = 读取对象文本(原始, "id") || 记录.编号 || 记录.id;
+  const 使用正式业务编号 = ["registrations", "opportunities", "quotes", "orders"].includes(模块);
+  const id = 使用正式业务编号
+    ? 记录.编号 || 记录.id
+    : 读取对象文本(原始, "id") || 记录.编号 || 记录.id;
   const common = {
     ...原始,
     id,
@@ -2266,7 +2281,7 @@ async function 单点登录降级响应(pool: Pool, req: Request) {
   const body = 读取正文(req);
   const clientType = 读取正文文本(body, ["clientType"], "");
   if (clientType !== "mobile") {
-    return 失败("旧版 PC 单点登录已关闭，请从 UniSDP 门户或统一入口进入。");
+    return 失败("当前单点登录请求不受支持，请使用统一登录页。");
   }
   const username = 读取正文文本(body, ["username", "account", "operatorId"], "");
   const 用户 = username ? await 查询V2用户(pool, username) : await 查询首个管理员(pool);
@@ -4308,10 +4323,13 @@ async function 写入导入报备(pool: Pool, item: 字典): Promise<"created" |
     读取对象文本(item, "creditCode"),
   );
   const code = existing?.id || 生成导入编号("REG");
+  const 报备业务编号 = existing ? "" : await 生成导入业务编号(pool, "registration", staff.username);
   const now = new Date().toISOString();
   const extra = {
     ...item,
-    id: code,
+    id: 报备业务编号 || code,
+    registrationNo: 报备业务编号 || code,
+    legacyBusinessNumber: existing ? undefined : code,
     customer: 读取对象文本(item, "customer"),
     customerName: 读取对象文本(item, "customer"),
     partnerId: partner.id,
@@ -4352,9 +4370,9 @@ async function 写入导入报备(pool: Pool, item: 字典): Promise<"created" |
       v2_source_id, registration_no, customer_id, partner_id, owner_user_id, region_id,
       status_code, submitted_at, approved_at, created_at, updated_at, extra_json
     )
-    VALUES ($1, $1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'approved', now(), now(), now(), now(), $6::jsonb)
+    VALUES ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6::uuid, 'approved', now(), now(), now(), now(), $7::jsonb)
     `,
-    [code, customerId, partner.uuid, staff.uuid, regionId, JSON.stringify(extra)],
+    [code, 报备业务编号, customerId, partner.uuid, staff.uuid, regionId, JSON.stringify(extra)],
   );
   return "created";
 }
@@ -4378,6 +4396,7 @@ async function 写入导入商机(pool: Pool, item: 字典): Promise<"created" |
     读取对象文本(item, "customer"),
   );
   const code = existing?.id || 生成导入编号("OPP");
+  const 商机业务编号 = existing ? "" : await 生成导入业务编号(pool, "opportunity");
   const stage = 读取对象文本(item, "stage") || "contacted";
   const extra = {
     ...item,
@@ -4399,6 +4418,7 @@ async function 写入导入商机(pool: Pool, item: 字典): Promise<"created" |
     stage,
     tags: [],
     source: "导入",
+    legacyBusinessNumber: code,
   };
   if (existing) {
     await pool.query(
@@ -4438,10 +4458,11 @@ async function 写入导入商机(pool: Pool, item: 字典): Promise<"created" |
       v2_source_id, opportunity_no, customer_id, registration_id, partner_id, owner_user_id,
       region_id, stage_code, raw_stage_name, status_code, expected_amount, created_at, updated_at, extra_json
     )
-    VALUES ($1, $1, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7, $7, $8, $9, now(), now(), $10::jsonb)
+    VALUES ($1, $2, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::uuid, $8, $8, $9, $10, now(), now(), $11::jsonb)
     `,
     [
       code,
+      商机业务编号,
       customerId,
       registration.uuid,
       partner.uuid,
@@ -4545,7 +4566,7 @@ async function 查询已通过报备(pool: Pool, customerName: string): Promise<
     `
     SELECT
       r.id::text AS uuid,
-      COALESCE(r.v2_source_id, r.registration_no, r.id::text) AS id,
+      COALESCE(r.registration_no, r.v2_source_id, r.id::text) AS id,
       c.customer_name AS "customerName"
     FROM crm.registrations r
     JOIN crm.customers c ON c.id = r.customer_id
@@ -4568,7 +4589,7 @@ async function 查询报备按客户(
     `
     SELECT
       r.id::text AS uuid,
-      COALESCE(r.v2_source_id, r.registration_no, r.id::text) AS id,
+      COALESCE(r.registration_no, r.v2_source_id, r.id::text) AS id,
       c.customer_name AS "customerName"
     FROM crm.registrations r
     JOIN crm.customers c ON c.id = r.customer_id
@@ -4803,6 +4824,20 @@ function 规范商机状态码(stage: string): string {
 
 function 生成导入编号(prefix: string): string {
   return `${prefix}-IMP-${Date.now()}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+async function 生成导入业务编号(
+  pool: Pool,
+  类型: "registration" | "opportunity",
+  提报账号 = "",
+): Promise<string> {
+  const result = await pool.query<{ 编号: string }>(
+    'SELECT crm.next_business_number($1, $2) AS "编号"',
+    [类型, 提报账号],
+  );
+  const 编号 = result.rows[0]?.编号;
+  if (!编号) throw new Error("导入业务编号生成失败。");
+  return 编号;
 }
 
 function 拆分导入列表(value: unknown): string[] {

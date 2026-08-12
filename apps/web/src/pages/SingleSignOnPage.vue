@@ -41,15 +41,11 @@ const 入口名称 = computed(() => {
   return "统一单点登录入口";
 });
 const 客户端类型 = computed(() => 读取查询文本("clientType") || (是否移动访问() ? "mobile" : "pc"));
-const 单点提供方 = computed<单点登录提供方>(() =>
-  识别单点登录提供方(路由),
-);
+const 单点提供方 = computed<单点登录提供方>(() => 识别单点登录提供方(路由));
 const 自动单点登录 = computed(() => 读取查询文本("autoSso") === "1");
 const 失败回登录 = computed(
   () =>
-    是平台专属单点登录路径(路由.path) ||
-    读取查询文本("fallback") === "login" ||
-    自动单点登录.value,
+    是平台专属单点登录路径(路由.path) || 读取查询文本("fallback") === "login" || 自动单点登录.value,
 );
 
 onMounted(() => {
@@ -60,8 +56,7 @@ async function 执行单点登录() {
   错误消息.value = "";
   try {
     状态消息.value = "正在读取单点登录凭证...";
-    const token =
-      单点提供方.value === "unisdp" ? 读取Url凭证() : await 读取IamH5单点凭证();
+    const token = 单点提供方.value === "unisdp" ? 读取Url凭证() : await 读取IamH5单点凭证();
     清理Url敏感参数();
     状态消息.value = "正在校验单点登录身份...";
     await 会话.单点登录系统(token, 当前入口.value, 客户端类型.value, 单点提供方.value);

@@ -230,6 +230,14 @@ describe("V2真实页面兼容接口", () => {
     expect(执行报备.body.success).toBe(true);
     expect(执行报备.body.results.success + 执行报备.body.results.updated).toBeGreaterThanOrEqual(1);
 
+    const 导入报备回读 = await request(app)
+      .get(`/api/v2/registrations?keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+      .expect(200);
+    const 导入报备 = 导入报备回读.body.data.find(
+      (item: { customer?: string }) => item.customer === 客户名称,
+    );
+    expect(导入报备?.id).toMatch(/^BB-.+-\d{8}-\d{4}$/);
+
     const 商机文件 = 生成Excel([
       [
         "商机名称*",
@@ -267,6 +275,14 @@ describe("V2真实页面兼容接口", () => {
       .expect(200);
     expect(执行商机.body.success).toBe(true);
     expect(执行商机.body.results.success + 执行商机.body.results.updated).toBeGreaterThanOrEqual(1);
+
+    const 商机回读 = await request(app)
+      .get(`/api/v2/opportunities?keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+      .expect(200);
+    const 导入商机 = 商机回读.body.data.find(
+      (item: { name?: string }) => item.name === `${客户名称}安全项目`,
+    );
+    expect(导入商机?.code).toMatch(/^SJ-\d{8}-\d{4}$/);
 
     const 回读 = await request(app)
       .get(`/api/v2/registrations?keyword=${encodeURIComponent(客户名称)}`)

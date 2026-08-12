@@ -597,6 +597,7 @@ const 当前列 = computed<列定义[]>(() => {
   }
   if (当前业务模块.value === "opportunities") {
     return 过滤渠道端列([
+      { 标题: "商机编号", 宽度: "180px", 取值: (row) => 字段(row, "编号", "id") },
       { 标题: "商机名称", 宽度: "240px", 取值: (row) => 主标题(row) },
       {
         标题: "客户",
@@ -637,7 +638,7 @@ const 当前列 = computed<列定义[]>(() => {
       { 标题: "订单编号", 宽度: "180px", 取值: (row) => 字段(row, "编号", "id") },
       {
         标题: "关联报价",
-        取值: (row) => 字段(row, "quoteId", "报价编号"),
+        取值: (row) => 字段(row, "quoteNo", "quoteId", "报价编号"),
       },
       { 标题: "客户", 取值: (row) => 字段(row, "客户名称", "customerName", "customer") },
       { 标题: "合作伙伴", 取值: (row) => 字段(row, "渠道名称", "partnerName") },
@@ -4097,7 +4098,7 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
               </div>
               <div>
                 <span>报价单</span>
-                <b>{{ 字段(详情, "quoteId", "报价编号") || "未创建" }}</b>
+                <b>{{ 字段(详情, "quoteNo", "quoteId", "报价编号") || "未创建" }}</b>
               </div>
             </div>
           </aside>

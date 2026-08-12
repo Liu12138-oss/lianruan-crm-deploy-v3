@@ -19,7 +19,12 @@ interface 单点登录跳转参数 {
 export function 需要转入单点登录(路由: 路由片段): boolean {
   if (是单点登录处理路径(路由.path)) return false;
   if (需要转入UniSdp单点登录(路由)) return false;
-  return 查询包含单点标记(路由.query) || Hash包含单点标记(路由.hash);
+  return (
+    查询包含单点标记(路由.query) ||
+    查询包含Iam单点标记(路由.query) ||
+    Hash包含单点标记(路由.hash) ||
+    Hash包含Iam单点标记(路由.hash)
+  );
 }
 
 export function 需要转入UniSdp单点登录(路由: 路由片段): boolean {
@@ -67,6 +72,10 @@ function 查询包含单点标记(query: 路由片段["query"]): boolean {
   return 读取查询文本(query, "source").toLowerCase() === "emm";
 }
 
+function 查询包含Iam单点标记(query: 路由片段["query"]): boolean {
+  return 读取查询文本(query, "needtransfer") === "1";
+}
+
 function 查询包含UniSdp单点凭证(query: 路由片段["query"]): boolean {
   return Object.entries(query).some(
     ([name, value]) => 是UniSdp凭证参数名(name) && 读取查询值(value),
@@ -77,6 +86,12 @@ function Hash包含单点标记(hash: string): boolean {
   const query = 读取Hash查询(hash);
   if (!query) return false;
   return 读取Hash参数文本(query, "source").toLowerCase() === "emm";
+}
+
+function Hash包含Iam单点标记(hash: string): boolean {
+  const query = 读取Hash查询(hash);
+  if (!query) return false;
+  return 读取Hash参数文本(query, "needtransfer") === "1";
 }
 
 function Hash包含UniSdp单点凭证(hash: string): boolean {

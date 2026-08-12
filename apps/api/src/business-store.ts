@@ -227,6 +227,7 @@ export interface 业务数据服务 {
     查询: 阶段9查询参数,
     用户?: 当前业务用户 | null,
   ): Promise<阶段9列表结果>;
+  查询到期提醒(用户: 当前业务用户 | null): Promise<到期提醒项[]>;
   查询详情(模块: 阶段9模块, id: string, 用户?: 当前业务用户 | null): Promise<阶段9记录>;
   创建报备(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
   更新报备(
@@ -239,6 +240,12 @@ export interface 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录>;
+  审核移动端报备状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户,
+  ): Promise<阶段9记录>;
+  执行移动端幂等<T>(参数: 移动端幂等参数, 操作: () => Promise<T>): Promise<T>;
   创建商机(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
   更新商机(
     id: string,
@@ -259,6 +266,16 @@ export interface 业务数据服务 {
   ): Promise<阶段9记录>;
   创建订单(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
   更新订单状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
+  更新渠道商状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
+  更新待审批状态(
     id: string,
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
@@ -310,6 +327,21 @@ export interface 业务数据服务 {
   ): Promise<交付工作量规则项>;
 }
 
+export interface 移动端幂等参数 {
+  作用域: string;
+  幂等键: string;
+  请求哈希: string;
+}
+
+export interface 到期提醒项 {
+  type: "registration" | "opportunity";
+  targetId: string;
+  targetName: string;
+  customer: string;
+  dueDate: string;
+  daysLeft: number;
+}
+
 const 状态中文: Record<string, string> = {
   active: "启用",
   disabled: "停用",
@@ -338,6 +370,30 @@ const 状态中文: Record<string, string> = {
   failed: "已失败",
 };
 
+function 校验超级管理员(用户: 当前业务用户 | null): void {
+  if (!用户 || 用户.roleCode !== "superadmin") {
+    throw new 应用错误("V3_PERMISSION_DENIED", "只有超级管理员可以处理该审核事项。", 403);
+  }
+}
+
+function 校验超级管理员上下文(用户: 业务用户上下文 | null): void {
+  if (!用户 || 用户.roleCode !== "superadmin") {
+    throw new 应用错误("V3_PERMISSION_DENIED", "只有超级管理员可以处理该审核事项。", 403);
+  }
+}
+
+function 校验移动端审核管理员(用户: 当前业务用户): void {
+  if (用户.roleCode !== "admin" && 用户.roleCode !== "superadmin") {
+    throw new 应用错误("V3_PERMISSION_DENIED", "只有管理角色可以处理移动端审核。", 403);
+  }
+}
+
+function 规范渠道审核状态(value: string): "active" | "disabled" {
+  if (value === "active") return "active";
+  if (value === "rejected" || value === "disabled") return "disabled";
+  throw new 应用错误("V3_PARTNER_STATUS_INVALID", "渠道商审核状态不正确。", 400);
+}
+
 export function 创建业务数据服务(参数: { databaseUrl?: string }): 业务数据服务 {
   if (参数.databaseUrl) return new PostgreSQL业务数据服务(参数.databaseUrl);
   return new 内存业务数据服务();
@@ -346,6 +402,14 @@ export function 创建业务数据服务(参数: { databaseUrl?: string }): 业�
 class 内存业务数据服务 implements 业务数据服务 {
   private readonly 数据: Record<string, Record<string, unknown>[]>;
   private readonly 记录: Map<阶段9模块, 阶段9记录[]>;
+  private readonly 移动端幂等记录 = new Map<
+    string,
+    {
+      请求哈希: string;
+      状态: "处理中" | "成功";
+      响应: unknown;
+    }
+  >();
 
   public constructor() {
     this.数据 = 读取阶段8导出数据();
@@ -403,6 +467,10 @@ class 内存业务数据服务 implements 业务数据服务 {
     _用户?: 当前业务用户 | null,
   ): Promise<阶段9列表结果> {
     return 分页列表(this.取记录集合(模块), 查询);
+  }
+
+  public async 查询到期提醒(_用户: 当前业务用户 | null): Promise<到期提醒项[]> {
+    return [];
   }
 
   public async 查询详情(
@@ -495,6 +563,38 @@ class 内存业务数据服务 implements 业务数据服务 {
     return 记录;
   }
 
+  public async 审核移动端报备状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户,
+  ): Promise<阶段9记录> {
+    校验移动端审核管理员(用户);
+    return this.更新报备状态(id, 输入, 用户);
+  }
+
+  public async 执行移动端幂等<T>(参数: 移动端幂等参数, 操作: () => Promise<T>): Promise<T> {
+    const 编号 = `${参数.作用域}:${参数.幂等键}`;
+    const 已有记录 = this.移动端幂等记录.get(编号);
+    if (已有记录) {
+      if (已有记录.请求哈希 !== 参数.请求哈希) {
+        throw new 应用错误("V3_MOBILE_IDEMPOTENCY_CONFLICT", "幂等键已用于不同的请求内容。", 409);
+      }
+      if (已有记录.状态 === "处理中") {
+        throw new 应用错误("V3_MOBILE_IDEMPOTENCY_PROCESSING", "请求正在处理中，请稍后重试。", 409);
+      }
+      return 已有记录.响应 as T;
+    }
+    this.移动端幂等记录.set(编号, { 请求哈希: 参数.请求哈希, 状态: "处理中", 响应: null });
+    try {
+      const 响应 = await 操作();
+      this.移动端幂等记录.set(编号, { 请求哈希: 参数.请求哈希, 状态: "成功", 响应 });
+      return 响应;
+    } catch (error) {
+      this.移动端幂等记录.delete(编号);
+      throw error;
+    }
+  }
+
   public async 更新报备(
     id: string,
     输入: Record<string, unknown>,
@@ -515,6 +615,52 @@ class 内存业务数据服务 implements 业务数据服务 {
       assignedStaffName: 负责人,
       updatedAt: now,
       updatedByName: 用户?.displayName || "阶段9测试账号",
+    };
+    return 记录;
+  }
+
+  public async 更新渠道商状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    校验超级管理员(用户);
+    const 记录 = await this.查询详情("partners", id);
+    const 状态 = 规范渠道审核状态(读取文本(输入, ["status"], "active"));
+    const now = new Date().toISOString();
+    记录.状态 = 状态;
+    记录.状态名称 = 状态中文[状态] || 状态;
+    记录.更新时间 = now;
+    记录.原始数据 = {
+      ...记录.原始数据,
+      status: 状态,
+      reviewRemark: 读取文本(输入, ["remark", "reason"], ""),
+      reviewedByName: 用户?.displayName || "",
+      reviewedAt: now,
+      updatedAt: now,
+    };
+    return 记录;
+  }
+
+  public async 更新待审批状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    校验超级管理员(用户);
+    const 记录 = await this.查询详情("approvals", id);
+    const 状态 = 读取文本(输入, ["action"], "approve") === "reject" ? "rejected" : "approved";
+    const now = new Date().toISOString();
+    记录.状态 = 状态;
+    记录.状态名称 = 状态中文[状态] || 状态;
+    记录.更新时间 = now;
+    记录.原始数据 = {
+      ...记录.原始数据,
+      status: 状态,
+      reviewRemark: 读取文本(输入, ["remark", "reason"], ""),
+      reviewedByName: 用户?.displayName || "",
+      reviewedAt: now,
+      updatedAt: now,
     };
     return 记录;
   }
@@ -541,7 +687,7 @@ class 内存业务数据服务 implements 业务数据服务 {
       "阶段9测试客户";
     const now = new Date().toISOString();
     const 原始数据 = {
-      id: "OPP-V3-" + Date.now(),
+      id: 生成内存商机编号(this.取记录集合("opportunities")),
       name: 读取文本(输入, ["name", "opportunityName", "商机名称"], 客户名称 + "商机"),
       customer: 客户名称,
       regId: 报备?.id || 报备编号,
@@ -1104,10 +1250,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
   }
 
   private 构建数据范围条件(模块: 阶段9模块, 用户: 业务用户上下文 | null, 参数: unknown[]): string {
-    if (!用户) return "true";
+    if (!用户) return 模块 === "notifications" ? "false" : "true";
     if (模块 === "partners") return 构建渠道商数据范围条件(用户, 参数);
     if (模块 === "users") return 构建账号数据范围条件(用户, 参数);
     if (模块 === "approvals") return 构建审核数据范围条件(用户, 参数);
+    if (模块 === "notifications") {
+      参数.push(用户.userId);
+      return `n.recipient_user_id = $${参数.length}::uuid`;
+    }
     const alias = 数据范围表别名(模块);
     if (!alias) return "true";
     if (用户.roleCode === "superadmin" || 用户.dataScopeCode === "all") return "true";
@@ -1228,6 +1378,77 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     return this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, 参数, 查询);
   }
 
+  public async 查询到期提醒(用户: 当前业务用户 | null): Promise<到期提醒项[]> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    const 报备参数: unknown[] = [];
+    const 商机参数: unknown[] = [];
+    const 报备范围 = this.构建数据范围条件("registrations", 上下文, 报备参数);
+    const 商机范围 = this.构建数据范围条件("opportunities", 上下文, 商机参数);
+    const [报备结果, 商机结果] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        编号: string;
+        标题: string;
+        客户名称: string;
+        到期日: string;
+        剩余天数: number;
+      }>(
+        `
+        SELECT "id", "编号", "标题", "客户名称",
+          substring("原始数据"->>'expireAt' FROM 1 FOR 10) AS "到期日",
+          (substring("原始数据"->>'expireAt' FROM 1 FOR 10)::date - CURRENT_DATE)::integer AS "剩余天数"
+        FROM (${报备查询SQL(报备范围)}) s
+        WHERE "状态" = 'approved'
+          AND COALESCE("原始数据"->>'expireAt', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+          AND substring("原始数据"->>'expireAt' FROM 1 FOR 10)::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+        ORDER BY "到期日", "标题"
+        `,
+        报备参数,
+      ),
+      this.pool.query<{
+        id: string;
+        编号: string;
+        标题: string;
+        客户名称: string;
+        到期日: string;
+        剩余天数: number;
+      }>(
+        `
+        SELECT "id", "编号", "标题", "客户名称",
+          substring("原始数据"->>'expectedClose' FROM 1 FOR 10) AS "到期日",
+          (substring("原始数据"->>'expectedClose' FROM 1 FOR 10)::date - CURRENT_DATE)::integer AS "剩余天数"
+        FROM (${商机查询SQL(商机范围)}) s
+        WHERE "状态" = 'active'
+          AND COALESCE("原始数据"->>'expectedClose', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+          AND substring("原始数据"->>'expectedClose' FROM 1 FOR 10)::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 30
+        ORDER BY "到期日", "标题"
+        `,
+        商机参数,
+      ),
+    ]);
+    return [
+      ...报备结果.rows.map((row) => ({
+        type: "registration" as const,
+        targetId: row.编号 || row.id,
+        targetName: row.标题,
+        customer: row.客户名称,
+        dueDate: row.到期日,
+        daysLeft: Number(row.剩余天数),
+      })),
+      ...商机结果.rows.map((row) => ({
+        type: "opportunity" as const,
+        targetId: row.编号 || row.id,
+        targetName: row.标题,
+        customer: row.客户名称,
+        dueDate: row.到期日,
+        daysLeft: Number(row.剩余天数),
+      })),
+    ].sort(
+      (left, right) =>
+        left.daysLeft - right.daysLeft || left.targetName.localeCompare(right.targetName, "zh-CN"),
+    );
+  }
+
   public async 查询详情(
     模块: 阶段9模块,
     id: string,
@@ -1259,6 +1480,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 归属 = await 解析业务归属(client, 输入, 上下文);
       const 初始状态 = 规范报备初始状态(读取文本(输入, ["status", "状态"], "pending"), 上下文);
       const now = new Date().toISOString();
+      const protectDays = 读取报备保护天数(输入);
+      const expireAt = 初始状态 === "approved" ? 计算报备保护到期日(now, protectDays) : "";
+      const 提报账号 = 读取提报账号(
+        await 查询业务负责人账号(client, 归属.ownerUserId),
+        上下文?.username,
+        用户?.username,
+      );
+      const 报备编号 = await 生成业务编号(client, "registration", 提报账号);
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO crm.registrations (
@@ -1271,7 +1500,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         RETURNING id
         `,
         [
-          "REG-V3-" + Date.now(),
+          报备编号,
           customerId,
           归属.partnerId,
           归属.ownerUserId,
@@ -1289,6 +1518,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             assignedStaffId: 归属.ownerUserId || "",
             assignedStaffName: 归属.ownerUserName,
             region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
+            submittedByUsername: 提报账号,
             status: 初始状态,
             createdByName: 用户?.displayName || "阶段9测试账号",
             approvedBy:
@@ -1299,6 +1529,8 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
               初始状态 === "approved"
                 ? 读取文本(输入, ["approvedAt"], now)
                 : 读取文本(输入, ["approvedAt"], ""),
+            protectDays,
+            expireAt,
             createdAt: now,
             updatedAt: now,
           }),
@@ -1334,6 +1566,20 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const 当前 = await client.query<{
+        approved_at: Date | null;
+        extra_json: Record<string, unknown>;
+      }>(
+        `
+        SELECT approved_at, extra_json
+        FROM crm.registrations
+        WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
+        LIMIT 1
+        `,
+        [id],
+      );
+      const 当前报备 = 当前.rows[0];
+      if (!当前报备) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
       const result = await client.query<{
         id: string;
         customer_id: string;
@@ -1358,6 +1604,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             status: 状态,
             reviewRemark: 读取文本(输入, ["reason", "remark", "审核意见"], ""),
             updatedByName: 用户?.displayName || "阶段9测试账号",
+            ...(状态 === "approved"
+              ? {
+                  protectDays: 读取报备保护天数(当前报备.extra_json),
+                  expireAt: 计算报备保护到期日(
+                    当前报备.approved_at?.toISOString() || new Date().toISOString(),
+                    读取报备保护天数(当前报备.extra_json),
+                  ),
+                }
+              : {}),
           }),
         ],
       );
@@ -1371,6 +1626,249 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       });
       await client.query("COMMIT");
       return this.查询详情("registrations", 报备.id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 审核移动端报备状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户,
+  ): Promise<阶段9记录> {
+    校验移动端审核管理员(用户);
+    return this.更新报备状态(id, 输入, 用户);
+  }
+
+  public async 执行移动端幂等<T>(参数: 移动端幂等参数, 操作: () => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 新记录 = await client.query<{ id: string }>(
+        `
+        INSERT INTO ops.idempotency_keys (
+          scope_code, idem_key, request_hash, status_code, expires_at
+        )
+        VALUES ($1, $2, $3, 'processing', now() + interval '24 hours')
+        ON CONFLICT (scope_code, idem_key) DO NOTHING
+        RETURNING id::text AS id
+        `,
+        [参数.作用域, 参数.幂等键, 参数.请求哈希],
+      );
+      if (!新记录.rows[0]) {
+        const 已有记录 = await client.query<{
+          request_hash: string;
+          status_code: "processing" | "succeeded" | "failed";
+          response_json: T | null;
+          expires_at: Date;
+        }>(
+          `
+          SELECT request_hash, status_code, response_json, expires_at
+          FROM ops.idempotency_keys
+          WHERE scope_code = $1 AND idem_key = $2
+          FOR UPDATE
+          `,
+          [参数.作用域, 参数.幂等键],
+        );
+        const 记录 = 已有记录.rows[0];
+        if (!记录 || 记录.request_hash !== 参数.请求哈希) {
+          throw new 应用错误("V3_MOBILE_IDEMPOTENCY_CONFLICT", "幂等键已用于不同的请求内容。", 409);
+        }
+        if (记录.status_code === "succeeded" && 记录.response_json !== null) {
+          await client.query("COMMIT");
+          return 记录.response_json;
+        }
+        const 可以接管 =
+          记录.status_code === "failed" || new Date(记录.expires_at).getTime() <= Date.now();
+        if (!可以接管) {
+          throw new 应用错误(
+            "V3_MOBILE_IDEMPOTENCY_PROCESSING",
+            "请求正在处理中，请稍后重试。",
+            409,
+          );
+        }
+        await client.query(
+          `
+          UPDATE ops.idempotency_keys
+          SET status_code = 'processing', response_hash = NULL, response_json = NULL,
+            expires_at = now() + interval '24 hours'
+          WHERE scope_code = $1 AND idem_key = $2
+          `,
+          [参数.作用域, 参数.幂等键],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    try {
+      const 响应 = await 操作();
+      await this.pool.query(
+        `
+        UPDATE ops.idempotency_keys
+        SET status_code = 'succeeded', response_hash = $3, response_json = $4::jsonb
+        WHERE scope_code = $1 AND idem_key = $2 AND status_code = 'processing'
+        `,
+        [参数.作用域, 参数.幂等键, 创建响应哈希(响应), JSON.stringify(响应)],
+      );
+      return 响应;
+    } catch (error) {
+      await this.pool.query(
+        `
+        UPDATE ops.idempotency_keys
+        SET status_code = 'failed'
+        WHERE scope_code = $1 AND idem_key = $2 AND status_code = 'processing'
+        `,
+        [参数.作用域, 参数.幂等键],
+      );
+      throw error;
+    }
+  }
+
+  public async 更新渠道商状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    校验超级管理员上下文(上下文);
+    const 状态 = 规范渠道审核状态(读取文本(输入, ["status"], "active"));
+    const 原因 = 读取文本(输入, ["remark", "reason"], "");
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<{ id: string; partner_name: string }>(
+        `
+        UPDATE channel.partners
+        SET status_code = $2, updated_at = now(), row_version = row_version + 1,
+          extra_json = extra_json || $3::jsonb
+        WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
+        RETURNING id::text AS id, partner_name
+        `,
+        [
+          id,
+          状态,
+          JSON.stringify({
+            status: 状态,
+            reviewRemark: 原因,
+            reviewedByName: 用户?.displayName || "",
+            reviewedAt: new Date().toISOString(),
+          }),
+        ],
+      );
+      const 渠道商 = result.rows[0];
+      if (!渠道商) throw new 应用错误("V3_PARTNER_NOT_FOUND", "渠道商不存在。", 404);
+      await 写入审计日志(client, {
+        用户,
+        模块: "partners",
+        动作: "review_partner",
+        对象类型: "partner",
+        对象编号: 渠道商.id,
+        对象名称: 渠道商.partner_name,
+        结果: "success",
+        说明: 状态 === "active" ? "移动端审核通过渠道商" : "移动端驳回渠道商",
+        变更后: { status: 状态, remark: 原因 },
+      });
+      await client.query("COMMIT");
+      return this.查询详情("partners", 渠道商.id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 更新待审批状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    校验超级管理员上下文(上下文);
+    const 状态 = 读取文本(输入, ["action"], "approve") === "reject" ? "rejected" : "approved";
+    const 原因 = 读取文本(输入, ["remark", "reason"], "");
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 当前 = await client.query<{
+        id: string;
+        status_code: string;
+        target_type: string;
+        target_id: string | null;
+        title: string;
+      }>(
+        `
+        SELECT id::text AS id, status_code, target_type, target_id::text AS target_id,
+          COALESCE(extra_json->>'targetName', target_type) AS title
+        FROM ops.approvals
+        WHERE id::text = $1 OR v2_source_id = $1 OR target_id::text = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [id],
+      );
+      const 审批 = 当前.rows[0];
+      if (!审批) throw new 应用错误("V3_APPROVAL_NOT_FOUND", "待审批事项不存在。", 404);
+      await client.query(
+        `
+        UPDATE ops.approvals
+        SET status_code = $2, updated_at = now(), extra_json = extra_json || $3::jsonb
+        WHERE id::text = $1
+        `,
+        [
+          审批.id,
+          状态,
+          JSON.stringify({
+            status: 状态,
+            reviewRemark: 原因,
+            reviewedByName: 用户?.displayName || "",
+            reviewedAt: new Date().toISOString(),
+          }),
+        ],
+      );
+      await client.query(
+        `
+        INSERT INTO ops.approval_events (
+          approval_id, event_code, from_status_code, to_status_code, reason, extra_json
+        )
+        VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+        `,
+        [
+          审批.id,
+          状态 === "approved" ? "approve" : "reject",
+          审批.status_code,
+          状态,
+          原因,
+          JSON.stringify({ actorName: 用户?.displayName || "" }),
+        ],
+      );
+      if (审批.target_type === "user" && 审批.target_id) {
+        await client.query(`UPDATE iam.users SET status_code = $2 WHERE id::text = $1`, [
+          审批.target_id,
+          状态 === "approved" ? "active" : "disabled",
+        ]);
+      }
+      await 写入审计日志(client, {
+        用户,
+        模块: "approvals",
+        动作: "review_pending_approval",
+        对象类型: 审批.target_type,
+        对象编号: 审批.id,
+        对象名称: 审批.title,
+        结果: "success",
+        说明: 状态 === "approved" ? "移动端审核通过待审批事项" : "移动端驳回待审批事项",
+        变更后: { status: 状态, remark: 原因 },
+      });
+      await client.query("COMMIT");
+      return this.查询详情("approvals", 审批.id, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -1396,10 +1894,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         owner_user_id: string | null;
         region_id: string | null;
         status_code: string;
+        approved_at: Date | null;
+        extra_json: Record<string, unknown>;
       }>(
         `
         SELECT id::text AS id, customer_id::text AS customer_id, partner_id::text AS partner_id,
-          owner_user_id::text AS owner_user_id, region_id::text AS region_id, status_code
+          owner_user_id::text AS owner_user_id, region_id::text AS region_id, status_code, approved_at, extra_json
         FROM crm.registrations
         WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
         LIMIT 1
@@ -1418,6 +1918,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 状态 = 读取文本(输入, ["status", "状态"], "")
         ? 规范报备状态(读取文本(输入, ["status", "状态"], row.status_code))
         : row.status_code;
+      const protectDays = 读取报备保护天数(输入, 读取报备保护天数(row.extra_json));
       const extra = {
         ...输入,
         ...(客户名称 ? { customer: 客户名称, customerName: 客户名称 } : {}),
@@ -1430,6 +1931,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         assignedStaffName: 归属.ownerUserName,
         region: 归属.regionName || 读取文本(输入, ["region", "区域"], ""),
         status: 状态,
+        protectDays,
+        ...(状态 === "approved"
+          ? {
+              expireAt: 计算报备保护到期日(
+                row.approved_at?.toISOString() || new Date().toISOString(),
+                protectDays,
+              ),
+            }
+          : {}),
         updatedByName: 用户?.displayName || "阶段9测试账号",
       };
       const result = await client.query<{ id: string }>(
@@ -1512,6 +2022,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         regionId: 报备?.region_id || null,
       });
       const 阶段 = 读取文本(输入, ["stage", "阶段"], "registered");
+      const 商机编号 = await 生成业务编号(client, "opportunity");
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO crm.opportunities (
@@ -1523,7 +2034,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         RETURNING id
         `,
         [
-          "OPP-V3-" + Date.now(),
+          商机编号,
           customerId,
           报备?.id || null,
           归属.partnerId,
@@ -1554,16 +2065,32 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         await client.query(
           `
           UPDATE crm.registrations
-          SET status_code = 'converted', updated_at = now(), row_version = row_version + 1,
+          SET updated_at = now(), row_version = row_version + 1,
               extra_json = extra_json || $2::jsonb
           WHERE id = $1
           `,
           [
             报备.id,
             JSON.stringify({
-              status: "converted",
               convertedOpportunityId: id,
+              convertedAt: new Date().toISOString(),
               updatedByName: 用户?.displayName || "阶段9测试账号",
+            }),
+          ],
+        );
+        await client.query(
+          `
+          INSERT INTO crm.registration_events (
+            registration_id, event_code, from_status_code, to_status_code, actor_user_id, reason, extra_json
+          )
+          VALUES ($1::uuid, 'opportunity_created', 'approved', 'approved', $2::uuid, '已关联商机', $3::jsonb)
+          `,
+          [
+            报备.id,
+            用户?.userId || null,
+            JSON.stringify({
+              opportunityId: id,
+              opportunityName: 读取文本(输入, ["name", "商机名称"], ""),
             }),
           ],
         );
@@ -1732,6 +2259,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    const 当前用户上下文 = await this.解析当前用户上下文(用户);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -1741,17 +2269,21 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         customer_id: string | null;
         partner_id: string | null;
         owner_user_id: string | null;
+        owner_username: string | null;
       }>(
         `
-        SELECT id, customer_id, partner_id, owner_user_id
-        FROM crm.opportunities
-        WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
+        SELECT o.id, o.customer_id, o.partner_id, o.owner_user_id, u.username::text AS owner_username
+        FROM crm.opportunities o
+        LEFT JOIN iam.users u ON u.id = o.owner_user_id
+        WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.opportunity_no = $1
         LIMIT 1
         `,
         [opportunityId],
       );
       const 商机 = opp.rows[0];
       const 试算 = await this.试算报价(输入);
+      const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 商机?.owner_username);
+      const 报价编号 = await 生成业务编号(client, "quote", 提报账号);
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO crm.quotes (
@@ -1762,7 +2294,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         RETURNING id
         `,
         [
-          "QT-V3-" + Date.now(),
+          报价编号,
           商机?.id || null,
           商机?.customer_id || null,
           商机?.partner_id || null,
@@ -1773,6 +2305,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             total: 试算.total,
             workloadSnapshot: 试算,
             workloadSummary: 试算.workloadSummary,
+            submittedByUsername: 提报账号,
             createdByName: 用户?.displayName || "阶段9测试账号",
           }),
         ],
@@ -1849,6 +2382,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    const 当前用户上下文 = await this.解析当前用户上下文(用户);
     const quoteId = 读取文本(输入, ["quoteId", "报价编号"], "");
     const client = await this.pool.connect();
     try {
@@ -1880,6 +2414,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         partner_level_code: string | null;
         owner_user_id: string | null;
         owner_user_name: string | null;
+        owner_username: string | null;
         region_name: string | null;
         total_amount: string | number;
         extra_json: Record<string, unknown> | null;
@@ -1900,6 +2435,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           p.partner_level_code,
           q.owner_user_id::text AS owner_user_id,
           u.display_name AS owner_user_name,
+          u.username::text AS owner_username,
           COALESCE(q.extra_json->>'region', '') AS region_name,
           q.total_amount,
           q.extra_json,
@@ -1942,7 +2478,8 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       });
       const 初始状态 = 一级渠道 ? "pending_primary_confirm" : "primary_confirmed";
       const now = new Date().toISOString();
-      const 订单编号 = "ORD-V3-" + Date.now();
+      const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 报价.owner_username);
+      const 订单编号 = await 生成业务编号(client, "order", 提报账号);
       const 金额 = Number(报价.total_amount) || 0;
       const 操作人 = 用户?.displayName || "阶段9测试账号";
       const result = await client.query<{ id: string }>(
@@ -1984,6 +2521,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             total: 金额,
             amount: 金额,
             status: 初始状态,
+            submittedByUsername: 提报账号,
             createdByName: 操作人,
             createdAt: now,
             updatedAt: now,
@@ -3529,6 +4067,10 @@ function 安全比较文本(left: string, right: string): boolean {
   );
 }
 
+function 创建响应哈希(响应: unknown): string {
+  return crypto.createHash("sha256").update(JSON.stringify(响应), "utf8").digest("hex");
+}
+
 function 去重文本(values: string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
@@ -3751,6 +4293,7 @@ function 报备查询SQL(where: string): string {
       r.created_at AS "创建时间",
       r.updated_at AS "更新时间",
       r.extra_json || jsonb_build_object(
+        'creditCode', COALESCE(NULLIF(c.credit_code, ''), r.extra_json->>'creditCode', r.extra_json->>'统一社会信用代码', ''),
         'partnerUuid', COALESCE(r.partner_id::text, ''),
         'partnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'partnerId', ''),
         'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, r.partner_id::text, r.extra_json->>'assignedPartnerId', ''),
@@ -3804,13 +4347,25 @@ function 商机查询SQL(where: string): string {
         'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, o.owner_user_id::text, o.extra_json->>'assignedStaffUserId', ''),
         'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', ''),
         'regionId', COALESCE(o.region_id::text, ''),
-        'region', COALESCE(reg.region_name, o.extra_json->>'region', '')
+        'region', COALESCE(reg.region_name, o.extra_json->>'region', ''),
+        'registrationUuid', COALESCE(report.id::text, ''),
+        'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, ''),
+        'quoteUuid', COALESCE(linked_quote.id::text, ''),
+        'quoteNo', COALESCE(linked_quote.quote_no, linked_quote.v2_source_id, linked_quote.id::text, '')
       ) AS "原始数据"
     FROM crm.opportunities o
     LEFT JOIN crm.customers c ON c.id = o.customer_id
     LEFT JOIN channel.partners p ON p.id = o.partner_id
     LEFT JOIN iam.users u ON u.id = o.owner_user_id
     LEFT JOIN org.regions reg ON reg.id = o.region_id
+    LEFT JOIN crm.registrations report ON report.id = o.registration_id
+    LEFT JOIN LATERAL (
+      SELECT q.id, q.v2_source_id, q.quote_no
+      FROM crm.quotes q
+      WHERE q.opportunity_id = o.id
+      ORDER BY q.created_at DESC, q.id DESC
+      LIMIT 1
+    ) linked_quote ON true
     WHERE ${where}
   `;
 }
@@ -3849,13 +4404,19 @@ function 报价查询SQL(where: string): string {
         'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffUserId', ''),
         'assignedStaffName', COALESCE(u.display_name, q.extra_json->>'assignedStaffName', ''),
         'regionId', COALESCE(p.region_id::text, ''),
-        'region', COALESCE(reg.region_name, q.extra_json->>'region', p.extra_json->>'region', '')
+        'region', COALESCE(reg.region_name, q.extra_json->>'region', p.extra_json->>'region', ''),
+        'opportunityUuid', COALESCE(related_opportunity.id::text, ''),
+        'opportunityNo', COALESCE(related_opportunity.opportunity_no, related_opportunity.v2_source_id, related_opportunity.id::text, ''),
+        'registrationUuid', COALESCE(report.id::text, ''),
+        'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, '')
       ) AS "原始数据"
     FROM crm.quotes q
     LEFT JOIN crm.customers c ON c.id = q.customer_id
     LEFT JOIN channel.partners p ON p.id = q.partner_id
     LEFT JOIN iam.users u ON u.id = q.owner_user_id
     LEFT JOIN org.regions reg ON reg.id = p.region_id
+    LEFT JOIN crm.opportunities related_opportunity ON related_opportunity.id = q.opportunity_id
+    LEFT JOIN crm.registrations report ON report.id = related_opportunity.registration_id
     WHERE ${where}
   `;
 }
@@ -3904,6 +4465,12 @@ function 订单查询SQL(where: string): string {
         'assignedStaffName', COALESCE(u.display_name, o.extra_json->>'assignedStaffName', ''),
         'regionId', COALESCE(p.region_id::text, ''),
         'region', COALESCE(reg.region_name, o.extra_json->>'region', p.extra_json->>'region', ''),
+        'quoteUuid', COALESCE(related_quote.id::text, ''),
+        'quoteNo', COALESCE(related_quote.quote_no, related_quote.v2_source_id, related_quote.id::text, ''),
+        'opportunityUuid', COALESCE(related_opportunity.id::text, ''),
+        'opportunityNo', COALESCE(related_opportunity.opportunity_no, related_opportunity.v2_source_id, related_opportunity.id::text, ''),
+        'registrationUuid', COALESCE(report.id::text, ''),
+        'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, ''),
         'statusHistory', COALESCE(order_history.status_history, '[]'::jsonb)
       ) AS "原始数据"
     FROM crm.orders o
@@ -3911,6 +4478,9 @@ function 订单查询SQL(where: string): string {
     LEFT JOIN channel.partners p ON p.id = o.partner_id
     LEFT JOIN iam.users u ON u.id = o.owner_user_id
     LEFT JOIN org.regions reg ON reg.id = p.region_id
+    LEFT JOIN crm.quotes related_quote ON related_quote.id = o.quote_id
+    LEFT JOIN crm.opportunities related_opportunity ON related_opportunity.id = related_quote.opportunity_id
+    LEFT JOIN crm.registrations report ON report.id = related_opportunity.registration_id
     LEFT JOIN LATERAL (
       SELECT
         parent.id::text AS parent_partner_id,
@@ -5469,6 +6039,19 @@ function 读取数字(来源: Record<string, unknown>, keys: string[], fallback:
   return fallback;
 }
 
+function 读取报备保护天数(来源: Record<string, unknown>, fallback = 180): number {
+  const value = 读取数字(来源, ["protectDays", "protectionDays", "保护天数"], fallback);
+  if (!Number.isInteger(value) || value < 1 || value > 3650) return fallback;
+  return value;
+}
+
+function 计算报备保护到期日(开始时间: string, protectDays: number): string {
+  const 开始日期 = new Date(开始时间);
+  if (Number.isNaN(开始日期.getTime())) return "";
+  开始日期.setUTCDate(开始日期.getUTCDate() + protectDays);
+  return 开始日期.toISOString().slice(0, 10);
+}
+
 function 读取布尔(来源: Record<string, unknown>, keys: string[], fallback: boolean): boolean {
   for (const key of keys) {
     const value = 来源[key];
@@ -5598,6 +6181,57 @@ function 推导订单下一状态(当前状态: string, 请求状态: string): s
 function 读取返回编号(row: { id?: string } | undefined): string {
   if (!row?.id) throw new 应用错误("V3_STAGE9_WRITE_FAILED", "业务记录写入失败。", 500);
   return row.id;
+}
+
+function 读取提报账号(...候选账号: Array<string | null | undefined>): string {
+  const 提报账号 = 候选账号.find((账号) => typeof 账号 === "string" && 账号.trim())?.trim();
+  if (提报账号) return 提报账号;
+  return "system";
+}
+
+function 生成内存商机编号(商机列表: 阶段9记录[]): string {
+  const 日期格式化器 = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const 日期 = Object.fromEntries(
+    日期格式化器
+      .formatToParts(new Date())
+      .filter((项) => 项.type !== "literal")
+      .map((项) => [项.type, 项.value]),
+  );
+  const 日期编号 = `${日期.year}${日期.month}${日期.day}`;
+  const 编号正则 = new RegExp(`^SJ-${日期编号}-(\\d{4})$`);
+  const 当前最大流水 = 商机列表.reduce((最大值, 商机) => {
+    const 匹配 = 商机.编号.match(编号正则);
+    return Math.max(最大值, Number(匹配?.[1] || 0));
+  }, 0);
+  return `SJ-${日期编号}-${String(当前最大流水 + 1).padStart(4, "0")}`;
+}
+
+async function 生成业务编号(
+  client: PoolClient,
+  类型: "registration" | "quote" | "order" | "opportunity",
+  提报账号 = "",
+): Promise<string> {
+  const result = await client.query<{ 编号: string }>(
+    'SELECT crm.next_business_number($1, $2) AS "编号"',
+    [类型, 提报账号],
+  );
+  const 编号 = result.rows[0]?.编号;
+  if (!编号) throw new 应用错误("V3_BUSINESS_NUMBER_GENERATE_FAILED", "业务编号生成失败。", 500);
+  return 编号;
+}
+
+async function 查询业务负责人账号(client: PoolClient, userId: string | null): Promise<string> {
+  if (!userId) return "";
+  const result = await client.query<{ username: string }>(
+    "SELECT username::text AS username FROM iam.users WHERE id = $1::uuid LIMIT 1",
+    [userId],
+  );
+  return result.rows[0]?.username?.trim() || "";
 }
 
 function 归一化名称(value: string): string {

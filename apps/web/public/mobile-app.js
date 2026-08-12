@@ -83,36 +83,83 @@
     return text && text !== '[object Object]' ? text : fallback;
   }
 
+  function normalizeMobileRecord(record) {
+    if (!record || typeof record !== 'object' || !record.原始数据) return record;
+    const raw = record.原始数据 && typeof record.原始数据 === 'object' ? record.原始数据 : {};
+    return {
+      ...raw,
+      id: raw.id || record.编号 || record.id,
+      uuid: record.id,
+      code: record.编号,
+      name: raw.name || raw.opportunityName || record.标题,
+      targetName: raw.targetName || raw.name || record.客户名称 || record.标题,
+      type: raw.type || raw.targetType || record.类型,
+      customer: raw.customer || raw.customerName || record.客户名称,
+      customerName: raw.customerName || raw.customer || record.客户名称,
+      partnerName: raw.partnerName || record.渠道名称,
+      assignedStaffName: raw.assignedStaffName || record.负责人,
+      ownerName: raw.ownerName || record.负责人,
+      region: raw.region || record.区域,
+      status: record.状态,
+      statusName: record.状态名称,
+      amount: raw.amount ?? record.金额,
+      total: raw.total ?? record.金额,
+      createdAt: raw.createdAt || record.创建时间,
+      updatedAt: raw.updatedAt || record.更新时间
+    };
+  }
+
+  function normalizeMobileResult(result) {
+    const list = result?.data;
+    if (!Array.isArray(list?.数据) || !list?.分页) {
+      return { ...result, data: normalizeMobileRecord(list) };
+    }
+    const page = Number(list.分页.页码) || 1;
+    const pageSize = Number(list.分页.每页) || 20;
+    const total = Number(list.分页.总数) || 0;
+    return {
+      ...result,
+      data: list.数据.map(normalizeMobileRecord),
+      page,
+      pageSize,
+      total,
+      hasMore: page * pageSize < total
+    };
+  }
+
   function translateSingleSignOnError(message) {
     return readErrorMessage(message, '单点登录失败，请稍后重试。');
   }
 
   function normalizeSingleSignOnResult(result) {
-    const pageSession = result?.data?.pageSession;
-    if (pageSession?.token && pageSession?.user) {
+    const mobileSession = result?.data?.mobileSession;
+    if (mobileSession?.token && mobileSession?.user) {
       return {
         success: true,
-        user: pageSession.user,
-        token: pageSession.token
+        user: mobileSession.user,
+        token: mobileSession.token
       };
     }
     return result || {};
   }
 
+  function mobileSessionKey(key) {
+    return `${APP_PREFIX}mobile_${key}`;
+  }
+
   function readSession() {
     try {
-      const raw = localStorage.getItem(`${APP_PREFIX}api_user`);
+      const raw = localStorage.getItem(mobileSessionKey('api_user'));
       if (raw) return JSON.parse(raw);
     } catch (error) {
       console.warn('读取移动端登录态失败：', error);
     }
-    const token = localStorage.getItem(`${APP_PREFIX}auth_token`) || localStorage.getItem(`${APP_PREFIX}auth_token`);
-    return token ? { token, user: null } : null;
+    return null;
   }
 
   function readAuthToken() {
     const session = readSession();
-    return session && session.token ? session.token : localStorage.getItem(`${APP_PREFIX}auth_token`);
+    return session?.token || '';
   }
 
   /**
@@ -125,12 +172,14 @@
       window.dispatchEvent(new CustomEvent('mobile-auth-expired'));
       throw new Error('登录状态已失效，请重新登录');
     }
-
     const headers = { Accept: 'application/json', Authorization: `Bearer ${token}` };
     const requestOptions = { method: options.method || 'GET', headers, cache: 'no-store', credentials: 'include' };
     if (options.body !== undefined) {
       headers['Content-Type'] = 'application/json';
       requestOptions.body = JSON.stringify(options.body);
+    }
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(requestOptions.method.toUpperCase())) {
+      headers['Idempotency-Key'] = options.idempotencyKey || createIdempotencyKey();
     }
 
     let response;
@@ -154,9 +203,14 @@
       const message = readErrorMessage(result?.error || result?.message, `请求失败（${response.status}）`);
       throw new Error(message);
     }
-    return result;
+    return normalizeMobileResult(result);
   }
   window.mobileRequest = mobileRequest;
+
+  function createIdempotencyKey() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
 
   function statusText(value) {
     return STATUS_TEXT[value] || value || '—';
@@ -167,6 +221,26 @@
     if (['rejected', 'cancelled', 'lost'].includes(value)) return 'status-danger';
     if (['pending', 'reviewing', 'draft', 'contacted', 'registered'].includes(value)) return 'status-pending';
     return 'status-neutral';
+  }
+
+  function formatDateTime(value) {
+    if (!value) return '—';
+    const text = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text.replace('T', ' ').replace(/(\.\d+)?Z$/, '').slice(0, 16);
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23'
+      }).formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value])
+    );
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
   }
 
   function formatDate(value) {
@@ -197,7 +271,7 @@
         ['编号', item.id], ['状态', statusText(item.status)], ['客户名称', recordName(item)],
         ['统一社会信用代码', item.creditCode], ['所属行业', item.industry], ['联系人', item.contact],
         ['联系电话', item.phone], ['所在城市', item.city], ['所属区域', item.region],
-        ['渠道商', item.partnerName || item.assignedPartnerName], ['审核意见', item.remark], ['提交时间', formatDate(item.createdAt)],
+        ['渠道商', item.partnerName || item.assignedPartnerName], ['审核意见', item.remark], ['提交时间', formatDateTime(item.createdAt)],
         ['需求说明', item.notes]
       ],
       opportunity: [
@@ -205,18 +279,18 @@
         ['客户名称', item.customer || item.customerName], ['关联报备', item.regId], ['预计金额', formatAmount(item.amount)],
         ['预计终端数', item.endpoints], ['预计成交日期', formatDate(item.expectedClose)], ['所属区域', item.region],
         ['负责人', item.assignedStaffName || item.owner || item.createdByName], ['渠道商', item.partnerName || item.assignedPartnerName],
-        ['创建时间', formatDate(item.createdAt)], ['跟进说明', item.notes]
+        ['创建时间', formatDateTime(item.createdAt)], ['跟进说明', item.notes]
       ],
       quote: [
         ['报价单号', item.id], ['状态', statusText(item.status)], ['客户名称', item.customerName || item.customer],
         ['关联报备', item.regId], ['报价金额', formatAmount(item.total ?? item.amount)], ['终端数量', item.endpoints],
-        ['渠道商', item.partnerName], ['转订单编号', item.convertedOrderId], ['创建时间', formatDate(item.createdAt)],
+        ['渠道商', item.partnerName], ['转订单编号', item.convertedOrderId], ['创建时间', formatDateTime(item.createdAt)],
         ['产品', Array.isArray(item.products) ? item.products.join('、') : item.products]
       ],
       order: [
         ['订单号', item.id], ['状态', statusText(item.status)], ['客户名称', item.customerName || item.customer],
         ['关联报价', item.quoteId], ['订单金额', formatAmount(item.total ?? item.amount)], ['渠道商', item.partnerName],
-        ['下单时间', formatDate(item.createdAt)], ['收货地址', item.deliveryAddr || item.deliveryAddress],
+        ['下单时间', formatDateTime(item.createdAt)], ['收货地址', item.deliveryAddr || item.deliveryAddress],
         ['联系人', item.deliveryContactName || item.contacts], ['联系电话', item.deliveryContactPhone],
         ['发票抬头', item.invoiceTitle], ['订单备注', item.remark]
       ],
@@ -244,14 +318,14 @@
     props: { items: { type: Array, default: () => [] }, type: String, emptyText: String, hasMore: Boolean, loadingMore: Boolean },
     emits: ['open', 'load-more'],
     components: { EmptyState },
-    methods: { recordName, statusText, statusClass, formatDate, formatAmount, itemAmount },
+    methods: { recordName, statusText, statusClass, formatDate, formatDateTime, formatAmount, itemAmount },
     template: `
       <div v-if="items.length" class="card-list">
         <button v-for="item in items" :key="item.id" class="record-card" type="button" @click="$emit('open', item)">
           <div class="record-card__top"><span class="record-card__status" :class="statusClass(item.status || item.stage)">{{ statusText(item.status || item.stage) }}</span><small>{{ item.id }}</small></div>
           <strong>{{ recordName(item) }}</strong>
           <p>{{ item.partnerName || item.contact || item.createdByName || '—' }}</p>
-          <div class="record-card__bottom"><span>{{ formatDate(item.createdAt || item.joinDate) }}</span><b v-if="itemAmount(item, type) !== undefined">{{ formatAmount(itemAmount(item, type)) }}</b></div>
+          <div class="record-card__bottom"><span>{{ formatDateTime(item.createdAt || item.joinDate) }}</span><b v-if="itemAmount(item, type) !== undefined">{{ formatAmount(itemAmount(item, type)) }}</b></div>
         </button>
       </div>
       <empty-state v-else :text="emptyText"></empty-state>
@@ -260,12 +334,12 @@
 
   const DetailCard = {
     props: { item: { type: Object, required: true }, type: { type: String, required: true } },
-    methods: { detailRows, statusText },
+    methods: { detailRows, statusText, formatDateTime },
     template: `
       <article class="detail-card">
         <div class="detail-card__title"><h1>{{ item.name || item.customerName || item.customer || item.id }}</h1><span>{{ item.id }}</span></div>
         <dl class="detail-list"><div v-for="row in detailRows(item, type)" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
-        <section v-if="type === 'opportunity' && Array.isArray(item.followUps) && item.followUps.length" class="detail-timeline"><h2>跟进记录</h2><div v-for="followUp in item.followUps" :key="followUp.id || followUp.date"><b>{{ followUp.type || '跟进' }}</b><p>{{ followUp.content || '—' }}</p><small>{{ followUp.user || '—' }} · {{ followUp.date || '—' }}<template v-if="followUp.stage"> · 阶段 {{ statusText(followUp.stage) }}</template><template v-if="followUp.nextFollowAt"> · 下次 {{ followUp.nextFollowAt }}</template></small></div></section>
+        <section v-if="type === 'opportunity' && Array.isArray(item.followUps) && item.followUps.length" class="detail-timeline"><h2>跟进记录</h2><div v-for="followUp in item.followUps" :key="followUp.id || followUp.date"><b>{{ followUp.type || '跟进' }}</b><p>{{ followUp.content || '—' }}</p><small>{{ followUp.user || '—' }} · {{ formatDateTime(followUp.date) }}<template v-if="followUp.stage"> · 阶段 {{ statusText(followUp.stage) }}</template><template v-if="followUp.nextFollowAt"> · 下次 {{ followUp.nextFollowAt }}</template></small></div></section>
       </article>`
   };
 
@@ -274,14 +348,14 @@
     props: { items: { type: Array, default: () => [] }, kind: String, emptyText: String, hasMore: Boolean, loadingMore: Boolean },
     emits: ['review', 'load-more'],
     components: { EmptyState },
-    methods: { recordName, formatDate },
+    methods: { recordName, formatDate, formatDateTime },
     template: `
       <div v-if="items.length" class="card-list review-list">
         <button v-for="item in items" :key="item.id" class="record-card" type="button" @click="$emit('review', item)">
           <div class="record-card__top"><span class="record-card__status status-pending">待审核</span><small>{{ item.id }}</small></div>
           <strong>{{ recordName(item) }}</strong>
           <p>{{ item.partnerName || item.createdByName || item.region || item.type || '—' }}</p>
-          <div class="record-card__bottom"><span>{{ formatDate(item.createdAt) }}</span><b>处理 ›</b></div>
+          <div class="record-card__bottom"><span>{{ formatDateTime(item.createdAt) }}</span><b>处理 ›</b></div>
         </button>
       </div>
       <empty-state v-else :text="emptyText"></empty-state>
@@ -450,7 +524,7 @@
         if (type === 'account') return [
           { label: '申请编号', value: reviewDialog.item.id || '—' }, { label: '账号类型', value: reviewDialog.item.type || '—' },
           { label: '申请对象', value: reviewDialog.item.targetName || reviewDialog.item.targetId || '—' }, { label: '所属区域', value: reviewDialog.item.region || '—' },
-          { label: '申请时间', value: formatDate(reviewDialog.item.createdAt) }
+          { label: '申请时间', value: formatDateTime(reviewDialog.item.createdAt) }
         ];
         return detailRows(reviewDialog.item, type).slice(0, 10);
       });
@@ -521,7 +595,7 @@
         if (!scope.value) return;
         if (shouldStartSingleSignOn(path.value)) {
           if (user.value) {
-            clearDesktopSession();
+            clearMobileSession();
             user.value = null;
           }
           startSingleSignOn();
@@ -848,12 +922,10 @@
         }
       }
 
-      function persistDesktopSession(loginResult, nextUser) {
-        const prefix = isPartnerScope.value ? 'partner_' : 'admin_';
-        const desktopUser = { ...nextUser, _storagePrefix: prefix };
-        localStorage.setItem(`${prefix}auth_token`, loginResult.token);
-        localStorage.setItem(`${prefix}user_info`, JSON.stringify(desktopUser));
-        localStorage.setItem(`${prefix}api_user`, JSON.stringify({ user: desktopUser, token: loginResult.token }));
+      function persistMobileSession(loginResult, nextUser) {
+        localStorage.setItem(mobileSessionKey('auth_token'), loginResult.token);
+        localStorage.setItem(mobileSessionKey('user_info'), JSON.stringify(nextUser));
+        localStorage.setItem(mobileSessionKey('api_user'), JSON.stringify({ user: nextUser, token: loginResult.token }));
       }
 
       function scopeByRole(role) {
@@ -866,28 +938,27 @@
         return nextScope === 'partner' ? '/partner/home' : '/admin/home';
       }
 
-      function persistDesktopSessionForScope(loginResult, nextUser, nextScope) {
+      function persistMobileSessionForScope(loginResult, nextUser, nextScope) {
         const prefix = nextScope === 'partner' ? 'partner_' : 'admin_';
-        const desktopUser = { ...nextUser, _storagePrefix: prefix };
-        localStorage.setItem(`${prefix}auth_token`, loginResult.token);
-        localStorage.setItem(`${prefix}user_info`, JSON.stringify(desktopUser));
-        localStorage.setItem(`${prefix}api_user`, JSON.stringify({ user: desktopUser, token: loginResult.token }));
+        const storageKey = key => `${prefix}mobile_${key}`;
+        localStorage.setItem(storageKey('auth_token'), loginResult.token);
+        localStorage.setItem(storageKey('user_info'), JSON.stringify(nextUser));
+        localStorage.setItem(storageKey('api_user'), JSON.stringify({ user: nextUser, token: loginResult.token }));
       }
 
       function redirectToMatchedScope(loginResult, nextUser) {
         const nextScope = scopeByRole(nextUser.role);
         if (!nextScope || nextScope === scope.value) return false;
-        clearDesktopSession();
-        persistDesktopSessionForScope(loginResult, nextUser, nextScope);
+        clearMobileSession();
+        persistMobileSessionForScope(loginResult, nextUser, nextScope);
         window.location.assign(`mobile.html?scope=${nextScope}#${homeByScope(nextScope)}`);
         return true;
       }
 
-      function clearDesktopSession() {
-        const prefix = isPartnerScope.value ? 'partner_' : 'admin_';
-        localStorage.removeItem(`${prefix}auth_token`);
-        localStorage.removeItem(`${prefix}user_info`);
-        localStorage.removeItem(`${prefix}api_user`);
+      function clearMobileSession() {
+        localStorage.removeItem(mobileSessionKey('auth_token'));
+        localStorage.removeItem(mobileSessionKey('user_info'));
+        localStorage.removeItem(mobileSessionKey('api_user'));
       }
 
       function emmSsoIsaid() {
@@ -1001,8 +1072,7 @@
             throw new Error(isPartnerScope.value ? '该账号应使用厂商管理入口登录' : '该账号应使用渠道伙伴入口登录');
           }
 
-          persistDesktopSession(result, nextUser);
-          window.syncUser(nextUser);
+          persistMobileSession(result, nextUser);
           user.value = nextUser;
           singleSignOnPaused = false;
           ssoState.message = '单点登录成功，正在进入移动端…';
@@ -1010,7 +1080,7 @@
           replaceCleanRoute(defaultHome());
           await reloadForRoute();
         } catch (error) {
-          clearDesktopSession();
+          clearMobileSession();
           loginError.value = translateSingleSignOnError(error.message);
           replaceCleanRoute('/login');
         } finally {
@@ -1028,17 +1098,24 @@
         }
         submitting.value = true;
         try {
-          const result = await window.apiClient.login(loginForm.username, loginForm.password, { prefix: APP_PREFIX });
+          const response = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ username: loginForm.username, password: loginForm.password })
+          });
+          const rawResult = await response.json();
+          if (!response.ok || rawResult?.success === false) throw new Error(readErrorMessage(rawResult?.error, '登录失败，请稍后重试'));
+          const result = normalizeSingleSignOnResult(rawResult);
           const nextUser = { ...(result.user || {}), _storagePrefix: APP_PREFIX };
           const allowedRoles = isPartnerScope.value ? PARTNER_ROLES : ADMIN_ROLES;
           if (!allowedRoles.includes(nextUser.role)) {
             if (redirectToMatchedScope(result, nextUser)) return;
-            window.apiClient.logout();
+            clearMobileSession();
             loginError.value = isPartnerScope.value ? '该账号应使用厂商管理入口登录' : '该账号应使用渠道伙伴入口登录';
             return;
           }
-          persistDesktopSession(result, nextUser);
-          window.syncUser(nextUser);
+          persistMobileSession(result, nextUser);
           user.value = nextUser;
           singleSignOnPaused = false;
           loginForm.password = '';
@@ -1053,17 +1130,29 @@
         }
       }
 
-      function restoreLogin() {
+      async function restoreLogin() {
         const session = readSession();
-        if (!session?.user || !session?.token) return;
-        const nextUser = { ...session.user, _storagePrefix: APP_PREFIX };
+        let nextSession = session;
+        if (!nextSession?.user || !nextSession?.token) {
+          try {
+            const response = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
+            const result = await response.json();
+            if (!response.ok || result?.success === false) return;
+            const normalized = normalizeSingleSignOnResult(result);
+            if (!normalized?.user || !normalized?.token) return;
+            nextSession = normalized;
+            persistMobileSession(normalized, normalized.user);
+          } catch (error) {
+            return;
+          }
+        }
+        const nextUser = { ...nextSession.user, _storagePrefix: APP_PREFIX };
         const allowedRoles = isPartnerScope.value ? PARTNER_ROLES : ADMIN_ROLES;
         if (!allowedRoles.includes(nextUser.role)) {
-          clearDesktopSession();
+          clearMobileSession();
           return;
         }
         user.value = nextUser;
-        window.syncUser(nextUser);
       }
 
       function resetRegistrationForm() {
@@ -1412,8 +1501,7 @@
         // 令牌撤销不阻塞本地退出；即使网络不可用也不能保留本地业务页面访问入口。
         window.fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
         mobileRequest('/logout', { method: 'POST' }).catch(() => {});
-        if (window.apiClient?.logout) window.apiClient.logout();
-        clearDesktopSession();
+        clearMobileSession();
         user.value = null;
         opportunities.value = [];
         registrations.value = [];
@@ -1476,7 +1564,7 @@
           ready.value = true;
           return;
         }
-        restoreLogin();
+        await restoreLogin();
         ready.value = true;
         syncRoute();
         if (page.value === 'registration-new') restoreDraft('registration');
@@ -1503,7 +1591,7 @@
         submitFollowUp, submitQuoteConvertOrder,
         openRegistrationCompanyPicker, hideRegistrationCompanyPicker, selectRegistrationCompany, openPartnerDetail, openBusinessDetail, openAdminPartner,
         openRegistrationReview, openPartnerReview, openAccountReview, closeReview, prepareReject, approveReview,
-        registrationPicker, detailMessage, saveDraft, clearDraft, statusClass, stageText: statusText, recordName, formatDate, formatAmount
+        registrationPicker, detailMessage, saveDraft, clearDraft, statusClass, stageText: statusText, recordName, formatDate, formatDateTime, formatAmount
       };
     }
   }).mount('#mobileApp');

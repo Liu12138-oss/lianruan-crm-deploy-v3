@@ -4,7 +4,6 @@ export type 单点登录入口 = "admin" | "partner";
 
 export interface IamH5单点登录配置 {
   enabled: boolean;
-  pcEnabled: boolean;
   validateUrl: string;
   timeoutMs: number;
   validateIsaidByEntry: Record<单点登录入口, string>;
@@ -43,7 +42,6 @@ export function 读取IamH5单点登录配置(env: NodeJS.ProcessEnv = process.e
     读取环境文本(env, ["V3_IAM_H5_SSO_VALIDATE_ISAID", "IAM_H5_SSO_ISAID"]) || 默认校验标识;
   return {
     enabled: 解析启用开关(env),
-    pcEnabled: 解析Pc启用开关(env),
     validateUrl:
       读取环境文本(env, ["V3_IAM_H5_SSO_VALIDATE_URL", "IAM_H5_SSO_VALIDATE_URL"]) || 默认校验地址,
     timeoutMs: 解析正整数(
@@ -64,11 +62,6 @@ export function 读取IamH5单点登录配置(env: NodeJS.ProcessEnv = process.e
 function 解析启用开关(env: NodeJS.ProcessEnv): boolean {
   const value = 读取环境文本(env, ["V3_IAM_H5_SSO_ENABLED", "IAM_H5_SSO_ENABLED"]);
   return value ? value === "true" : true;
-}
-
-function 解析Pc启用开关(env: NodeJS.ProcessEnv): boolean {
-  const value = 读取环境文本(env, ["V3_IAM_H5_SSO_PC_ENABLED", "IAM_H5_SSO_PC_ENABLED"]);
-  return value ? value === "true" : false;
 }
 
 export async function 校验IamH5单点登录凭证(

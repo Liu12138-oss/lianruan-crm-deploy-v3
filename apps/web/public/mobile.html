@@ -12,7 +12,8 @@
     (function () {
       const scope = new URLSearchParams(window.location.search).get('scope');
       window.APP_PREFIX = scope === 'partner' ? 'partner_' : scope === 'admin' ? 'admin_' : '';
-      window.API_BASE = '/api/v2';
+      // 移动端业务接口由V3业务路由提供，统一使用/api/mobile前缀。
+      window.API_BASE = '/api';
     })();
   </script>
 </head>
@@ -297,7 +298,6 @@
 
   <script src="libs/vue.min.js"></script>
   <script src="emm-h5-sso.js?v=1"></script>
-  <script src="api-client.js"></script>
-  <script src="mobile-app.js?v=15"></script>
+  <script src="mobile-app.js?v=17"></script>
 </body>
 </html>

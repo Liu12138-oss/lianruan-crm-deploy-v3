@@ -6,6 +6,42 @@ import { describe, expect, it } from "vitest";
 import { 创建密码散列 } from "../src/auth-routes.js";
 import { 创建应用 } from "../src/index.js";
 
+function 提取流水号(编号列表: string[]): number[] {
+  return 编号列表.map((编号) => Number(编号.slice(-4))).sort((左, 右) => 左 - 右);
+}
+
+async function 查询当前业务流水(
+  pool: Pool,
+  类型: "quote" | "order" | "opportunity",
+  提报账号: string,
+): Promise<number> {
+  const result = await pool.query<{ current_value: number }>(
+    `
+    SELECT current_value
+    FROM crm.business_number_counters
+    WHERE document_type = $1
+      AND submitter_username = lower($2)
+      AND business_date = (now() AT TIME ZONE 'Asia/Shanghai')::date
+    `,
+    [类型, 提报账号],
+  );
+  return Number(result.rows[0]?.current_value || 0);
+}
+
+async function 生成测试业务编号(
+  pool: Pool,
+  类型: "quote" | "order" | "opportunity",
+  提报账号 = "",
+): Promise<string> {
+  const result = await pool.query<{ 编号: string }>(
+    'SELECT crm.next_business_number($1, $2) AS "编号"',
+    [类型, 提报账号],
+  );
+  const 编号 = result.rows[0]?.编号;
+  if (!编号) throw new Error("生成渠道范围测试业务编号失败。");
+  return 编号;
+}
+
 const 测试环境变量 = 创建测试环境变量();
 if (!测试环境变量.DATABASE_URL) {
   throw new Error("阶段9.13业务测试必须配置 PostgreSQL DATABASE_URL，禁止回退内存模式。");
@@ -79,6 +115,13 @@ describe("阶段9业务兼容接口", () => {
       })
       .expect(200);
     expect(报备.body.data.状态).toBe("pending");
+    expect(报备.body.data.原始数据.creditCode).toBe("91370000V3STAGE900");
+    expect(报备.body.data.编号).toMatch(/^BB-.+-\d{8}-\d{4}$/);
+
+    const V2报备详情 = await request(app)
+      .get(`/api/v2/registrations/${报备.body.data.id}`)
+      .expect(200);
+    expect(V2报备详情.body.data.creditCode).toBe("91370000V3STAGE900");
 
     const 待审核列表 = await request(app)
       .get("/api/stage9/approvals?status=pending&pageSize=20")
@@ -95,11 +138,14 @@ describe("阶段9业务兼容接口", () => {
       .send({ status: "approved", reason: "阶段9自动化审核通过" })
       .expect(200);
     expect(审核.body.data.状态).toBe("approved");
+    expect(审核.body.data.原始数据.protectDays).toBe(180);
+    expect(审核.body.data.原始数据.expireAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
     const 已审核详情 = await request(app)
       .get(`/api/registrations/${报备.body.data.id}`)
       .expect(200);
     expect(已审核详情.body.data.状态).toBe("approved");
+    expect(已审核详情.body.data.原始数据.creditCode).toBe("91370000V3STAGE900");
 
     const 商机 = await request(app)
       .post("/api/opportunities")
@@ -110,6 +156,12 @@ describe("阶段9业务兼容接口", () => {
       })
       .expect(200);
     expect(商机.body.data.客户名称).toBe("阶段9自动化验收客户");
+
+    const 创建商机后的报备 = await request(app)
+      .get(`/api/registrations/${报备.body.data.id}`)
+      .expect(200);
+    expect(创建商机后的报备.body.data.状态).toBe("approved");
+    expect(创建商机后的报备.body.data.原始数据.convertedOpportunityId).toBe(商机.body.data.id);
 
     const 产品列表 = await request(app).get("/api/products?pageSize=3").expect(200);
     const 产品编号 = 产品列表.body.data.数据[0].id;
@@ -131,6 +183,12 @@ describe("阶段9业务兼容接口", () => {
       .expect(200);
     expect(订单.body.data.状态).toBe("primary_confirmed");
 
+    const V2订单列表 = await request(app).get("/api/v2/orders?pageSize=20").expect(200);
+    const V2订单 = V2订单列表.body.data.find(
+      (项: { uuid?: string }) => 项.uuid === 订单.body.data.id,
+    );
+    expect(V2订单?.id).toMatch(/^LS-.+-\d{8}-\d{4}$/);
+
     const 区管确认 = await request(app)
       .put(`/api/orders/${订单.body.data.id}/primary-confirm`)
       .send({ reason: "阶段9自动化区管确认" })
@@ -142,6 +200,174 @@ describe("阶段9业务兼容接口", () => {
       .send({ status: "confirmed", reason: "阶段9自动化超管确认" })
       .expect(200);
     expect(超管确认.body.data.状态).toBe("confirmed");
+  });
+
+  it("既有业务和V2导入数据均统一为当前编号规则，并保留原编号追溯信息", async () => {
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    try {
+      const [商机, 报价, 订单, V2追溯] = await Promise.all([
+        pool.query<{ 不合规数: string }>(
+          "SELECT COUNT(*) FILTER (WHERE opportunity_no !~ '^SJ-[0-9]{8}-[0-9]{4}$') AS \"不合规数\" FROM crm.opportunities",
+        ),
+        pool.query<{ 不合规数: string }>(
+          `
+          SELECT COUNT(*) FILTER (
+            WHERE q.quote_no !~ '^BJ-.+-[0-9]{8}-[0-9]{4}$'
+              OR q.quote_no NOT LIKE 'BJ-' || u.username::text || '-' ||
+                to_char((q.created_at AT TIME ZONE 'Asia/Shanghai')::date, 'YYYYMMDD') || '-%'
+          ) AS "不合规数"
+          FROM crm.quotes q
+          JOIN iam.users u ON u.id = q.owner_user_id
+          `,
+        ),
+        pool.query<{ 不合规数: string }>(
+          `
+          SELECT COUNT(*) FILTER (
+            WHERE o.order_no !~ '^LS-.+-[0-9]{8}-[0-9]{4}$'
+              OR o.order_no NOT LIKE 'LS-' || u.username::text || '-' ||
+                to_char((o.created_at AT TIME ZONE 'Asia/Shanghai')::date, 'YYYYMMDD') || '-%'
+          ) AS "不合规数"
+          FROM crm.orders o
+          JOIN iam.users u ON u.id = o.owner_user_id
+          `,
+        ),
+        pool.query<{ V2总数: string; 已保留原编号数: string }>(
+          `
+          SELECT
+            COUNT(*) FILTER (WHERE v2_source_id IS NOT NULL) AS "V2总数",
+            COUNT(*) FILTER (
+              WHERE v2_source_id IS NOT NULL
+                AND COALESCE(extra_json->>'legacyBusinessNumber', '') = v2_source_id
+            ) AS "已保留原编号数"
+          FROM (
+            SELECT v2_source_id, extra_json FROM crm.opportunities
+            UNION ALL
+            SELECT v2_source_id, extra_json FROM crm.quotes
+            UNION ALL
+            SELECT v2_source_id, extra_json FROM crm.orders
+          ) AS 业务记录
+          `,
+        ),
+      ]);
+
+      expect(Number(商机.rows[0]?.不合规数 || 0)).toBe(0);
+      expect(Number(报价.rows[0]?.不合规数 || 0)).toBe(0);
+      expect(Number(订单.rows[0]?.不合规数 || 0)).toBe(0);
+      expect(Number(V2追溯.rows[0]?.V2总数 || 0)).toBeGreaterThan(0);
+      expect(Number(V2追溯.rows[0]?.已保留原编号数 || 0)).toBe(Number(V2追溯.rows[0]?.V2总数 || 0));
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("报备、商机、报价和订单始终返回同一关联链上的当前业务编号", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 订单列表 = await request(app).get("/api/v2/orders?pageSize=20").expect(200);
+    const 已关联订单 = 订单列表.body.data.find(
+      (item: { quoteNo?: string; opportunityNo?: string; registrationNo?: string }) =>
+        item.quoteNo && item.opportunityNo && item.registrationNo,
+    );
+
+    expect(已关联订单?.quoteNo).toMatch(/^BJ-.+-\d{8}-\d{4}$/);
+    expect(已关联订单?.opportunityNo).toMatch(/^SJ-\d{8}-\d{4}$/);
+    expect(已关联订单?.registrationNo).toBeTruthy();
+  });
+
+  it("报价和订单按提报登录账号及自然日生成独立递增编号", async () => {
+    const app = 创建应用({
+      env: 创建测试环境变量({
+        V3_DELIVERY_AUTH_ENABLED: "true",
+        V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
+        V3_DELIVERY_AUTH_USERS_JSON: "[]",
+      }),
+    });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    try {
+      const 登录用户 = { username: "admin" };
+      const 提报账号 = 登录用户.username;
+      const 客户名称 = `编号规则客户-${Date.now()}`;
+      const agent = request.agent(app);
+      await agent
+        .post("/api/auth/login")
+        .send({ username: 提报账号, password: "LrCRM@2026!" })
+        .expect(200);
+      const [已有报价流水, 已有订单流水] = await Promise.all([
+        查询当前业务流水(pool, "quote", 提报账号),
+        查询当前业务流水(pool, "order", 提报账号),
+      ]);
+      const 商机 = await agent
+        .post("/api/opportunities")
+        .send({ customer: 客户名称, name: `${客户名称}-商机` })
+        .expect(200);
+
+      const 报价响应 = await Promise.all(
+        ["报价一", "报价二"].map((名称) =>
+          agent
+            .post("/api/quotes")
+            .send({ opportunityId: 商机.body.data.id, name: 名称 })
+            .expect(200),
+        ),
+      );
+      const 报价一 = 报价响应[0];
+      const 报价二 = 报价响应[1];
+      if (!报价一 || !报价二) throw new Error("创建编号测试报价失败。");
+      const 订单响应 = await Promise.all(
+        [报价一, 报价二].map((报价) =>
+          agent.post("/api/orders").send({ quoteId: 报价.body.data.id }).expect(200),
+        ),
+      );
+      const 订单一 = 订单响应[0];
+      const 订单二 = 订单响应[1];
+      if (!订单一 || !订单二) throw new Error("创建编号测试订单失败。");
+
+      const 报价编号 = [报价一.body.data.编号, 报价二.body.data.编号].sort();
+      const 订单编号 = [订单一.body.data.编号, 订单二.body.data.编号].sort();
+      const 编号正则 = new RegExp(`^BJ-${提报账号}-\\d{8}-(\\d{4})$`);
+      const 订单编号正则 = new RegExp(`^LS-${提报账号}-\\d{8}-(\\d{4})$`);
+
+      for (const 编号 of 报价编号) expect(编号).toMatch(编号正则);
+      for (const 编号 of 订单编号) expect(编号).toMatch(订单编号正则);
+      expect(提取流水号(报价编号)).toEqual([已有报价流水 + 1, 已有报价流水 + 2]);
+      expect(提取流水号(订单编号)).toEqual([已有订单流水 + 1, 已有订单流水 + 2]);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("商机按自然日全局递增编号且不关联登录账号", async () => {
+    const app = 创建应用({
+      env: 创建测试环境变量({
+        V3_DELIVERY_AUTH_ENABLED: "true",
+        V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
+        V3_DELIVERY_AUTH_USERS_JSON: "[]",
+      }),
+    });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    try {
+      const 登录用户 = { username: "admin" };
+      const agent = request.agent(app);
+      await agent
+        .post("/api/auth/login")
+        .send({ username: 登录用户.username, password: "LrCRM@2026!" })
+        .expect(200);
+      const 已有流水 = await 查询当前业务流水(pool, "opportunity", "global");
+      const 批次 = `商机编号规则-${Date.now()}`;
+
+      const 响应 = await Promise.all(
+        ["一", "二"].map((后缀) =>
+          agent
+            .post("/api/opportunities")
+            .send({ customer: `${批次}-${后缀}`, name: `${批次}-${后缀}-商机` })
+            .expect(200),
+        ),
+      );
+      const 编号列表 = 响应.map((项目) => 项目.body.data.编号).sort();
+      for (const 编号 of 编号列表) expect(编号).toMatch(/^SJ-\d{8}-\d{4}$/);
+      expect(编号列表.some((编号) => 编号.includes(登录用户.username))).toBe(false);
+      expect(提取流水号(编号列表)).toEqual([已有流水 + 1, 已有流水 + 2]);
+    } finally {
+      await pool.end();
+    }
   });
 
   it("二级分销商报价转订单后必须经过一级、区管和超管确认", async () => {
@@ -192,7 +418,7 @@ describe("阶段9业务兼容接口", () => {
       await 绑定渠道范围测试成员(pool, 二级分销商.id, 二级员工.id, "staff");
       const 客户名称 = `${批次}-二级订单审批客户`;
       const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 二级员工.id, 二级分销商.id);
-      const 报价编号 = `${批次}-QUOTE-二级`;
+      const 报价编号 = await 生成测试业务编号(pool, "quote", 二级员工.username);
       const 报价结果 = await pool.query<{ id: string }>(
         `
         INSERT INTO crm.quotes (
@@ -240,7 +466,9 @@ describe("阶段9业务兼容接口", () => {
       expect(订单.body.data.状态).toBe("pending_primary_confirm");
 
       const 一级待办 = await request(app)
-        .get(`/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+        .get(
+          `/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(客户名称)}&pageSize=10`,
+        )
         .expect(200);
       expect(
         一级待办.body.data.数据.some(
@@ -331,6 +559,46 @@ describe("阶段9业务兼容接口", () => {
     const 批次 = `KB003-${Date.now()}`;
     try {
       const 数据 = await 准备渠道范围测试数据(pool, 批次);
+      const 提醒日期 = new Date();
+      提醒日期.setDate(提醒日期.getDate() + 7);
+      const 到期日 = 提醒日期.toISOString().slice(0, 10);
+      await pool.query(
+        `
+        UPDATE crm.registrations
+        SET extra_json = extra_json || $2::jsonb
+        WHERE id = ANY($1::uuid[])
+        `,
+        [
+          [数据.员工本人报备.id, 数据.其他渠道报备.id],
+          JSON.stringify({ expireAt: 到期日, protectDays: 180 }),
+        ],
+      );
+      await pool.query(
+        `
+        UPDATE crm.opportunities
+        SET extra_json = extra_json || $2::jsonb
+        WHERE id = ANY($1::uuid[])
+        `,
+        [[数据.员工本人商机.id, 数据.其他渠道商机.id], JSON.stringify({ expectedClose: 到期日 })],
+      );
+      await pool.query(
+        `
+        INSERT INTO ops.notifications (v2_source_id, recipient_user_id, title, content, status_code, extra_json)
+        VALUES
+          ($1, $2::uuid, $3, '仅本人可见', 'unread', $4::jsonb),
+          ($5, $6::uuid, $7, '其他渠道不可见', 'unread', $8::jsonb)
+        `,
+        [
+          `${批次}-NOTICE-SELF`,
+          数据.员工一.id,
+          `${批次}-本人通知`,
+          JSON.stringify({ title: `${批次}-本人通知`, unread: true }),
+          `${批次}-NOTICE-OTHER`,
+          数据.其他渠道员工.id,
+          `${批次}-其他渠道通知`,
+          JSON.stringify({ title: `${批次}-其他渠道通知`, unread: true }),
+        ],
+      );
       const 员工列表 = await request(app)
         .get(`/api/v2/registrations?keyword=${批次}&pageSize=50`)
         .set("Authorization", 签发测试V2令牌(数据.员工一.username))
@@ -339,6 +607,29 @@ describe("阶段9业务兼容接口", () => {
       expect(员工客户).toContain(`${批次}-员工本人客户`);
       expect(员工客户).not.toContain(`${批次}-同企业其他员工客户`);
       expect(员工客户).not.toContain(`${批次}-其他渠道客户`);
+
+      const 员工登录提醒 = await request(app)
+        .post("/api/v2/auth/login")
+        .send({ username: 数据.员工一.username, password: "LrCRM@2026!" })
+        .expect(200);
+      const 员工提醒名称 = 员工登录提醒.body.dueReminders.map(
+        (item: { targetName: string }) => item.targetName,
+      );
+      expect(员工提醒名称).toContain(`${批次}-员工本人客户`);
+      expect(员工提醒名称).toContain(`${批次}-员工本人商机`);
+      expect(员工提醒名称).not.toContain(`${批次}-其他渠道客户`);
+      expect(员工提醒名称).not.toContain(`${批次}-其他渠道商机`);
+
+      const 员工通知 = await request(app)
+        .get("/api/v2/notifications?pageSize=50")
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .expect(200);
+      const 员工通知标题 = 员工通知.body.data.map((item: { title: string }) => item.title);
+      expect(员工通知标题).toContain(`${批次}-本人通知`);
+      expect(员工通知标题).not.toContain(`${批次}-其他渠道通知`);
+
+      const 未登录通知 = await request(app).get("/api/v2/notifications?pageSize=50").expect(200);
+      expect(未登录通知.body.data).toEqual([]);
 
       const 企业管理员列表 = await request(app)
         .get(`/api/v2/registrations?keyword=${批次}&pageSize=50`)
@@ -483,7 +774,9 @@ describe("阶段9业务兼容接口", () => {
       ).toBe(`${批次}-测试区域`);
 
       const 区管审核列表 = await request(app)
-        .get(`/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(批次)}&pageSize=100`)
+        .get(
+          `/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(批次)}&pageSize=100`,
+        )
         .set("Authorization", 签发测试V2令牌(数据.区域管理员.username))
         .expect(200);
       const 区管审核编号 = 区管审核列表.body.data.数据.map((item: { 编号: string }) => item.编号);
@@ -833,6 +1126,7 @@ async function 准备渠道范围测试数据(pool: Pool, 批次: string) {
     企业管理员,
     企业管理员仅扩展,
     员工一,
+    其他渠道员工,
     其他区域员工,
     员工本人报备,
     其他渠道报备,
@@ -1095,7 +1389,7 @@ async function 创建渠道范围测试商机(
 ): Promise<渠道范围测试业务记录> {
   const 报备 = await 创建渠道范围测试报备(pool, 批次, 客户名称, 渠道, 员工, 区域编号);
   const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
-  const 商机编号 = `${批次}-OPP-${商机名称.replace(批次, "").replace(/[^0-9A-Za-z\u4e00-\u9fa5]/g, "")}`;
+  const 商机编号 = await 生成测试业务编号(pool, "opportunity");
   const result = await pool.query<渠道范围测试业务记录>(
     `
     INSERT INTO crm.opportunities (
@@ -1151,10 +1445,10 @@ async function 创建渠道范围测试报价和订单(
   客户名称: string,
   渠道: 渠道范围测试渠道,
   员工: 渠道范围测试用户,
-  标识 = "员工本人",
+  _区域名称 = "",
 ): Promise<{ 报价: 渠道范围测试业务记录; 订单: 渠道范围测试业务记录 }> {
   const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 员工.id, 渠道.id);
-  const 报价编号 = `${批次}-QUOTE-${标识}`;
+  const 报价编号 = await 生成测试业务编号(pool, "quote", 员工.username);
   const 报价结果 = await pool.query<渠道范围测试业务记录>(
     `
     INSERT INTO crm.quotes (
@@ -1194,7 +1488,7 @@ async function 创建渠道范围测试报价和订单(
   const 报价 = 报价行 ? { ...报价行, 编号: 报价编号 } : undefined;
   if (!报价) throw new Error("创建渠道范围测试报价失败。");
 
-  const 订单编号 = `${批次}-ORDER-${标识}`;
+  const 订单编号 = await 生成测试业务编号(pool, "order", 员工.username);
   const 订单结果 = await pool.query<渠道范围测试业务记录>(
     `
     INSERT INTO crm.orders (

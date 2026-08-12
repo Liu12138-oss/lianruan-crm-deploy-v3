@@ -13,6 +13,7 @@ import {
   解析单点登录入口,
   读取IamH5单点登录配置,
 } from "./iam-sso.js";
+import type { 认证流程日志器 } from "./logger.js";
 import {
   type UniSdp单点登录身份,
   type UniSdp单点登录配置,
@@ -53,8 +54,22 @@ interface 业务页面会话 {
   user: 业务页面用户;
 }
 
+export interface 移动端会话 {
+  token: string;
+  user: 业务页面用户;
+}
+
+interface 移动端会话载荷 {
+  username: string;
+  role: 业务页面角色;
+  issuedAt: number;
+  expiresAt: number;
+  nonce: string;
+}
+
 interface 会话载荷 {
   username: string;
+  role?: 业务页面角色;
   issuedAt: number;
   expiresAt: number;
   nonce: string;
@@ -72,6 +87,7 @@ interface 认证配置 {
   sso: IamH5单点登录配置;
   uniSdpSso: UniSdp单点登录配置;
   logger?: 日志器 | undefined;
+  authFlowLogger?: 认证流程日志器 | undefined;
 }
 
 interface 数据库用户行 {
@@ -99,6 +115,7 @@ interface 认证路由参数 {
   databaseUrl?: string | undefined;
   env?: NodeJS.ProcessEnv;
   logger?: 日志器 | undefined;
+  authFlowLogger?: 认证流程日志器 | undefined;
 }
 
 interface 会话用户名读取参数 {
@@ -145,6 +162,24 @@ export function 读取请求会话用户名(req: Request, 参数: 会话用户�
   }
 }
 
+export function 读取请求会话角色(
+  req: Request,
+  参数: 会话用户名读取参数 | undefined,
+): 业务页面角色 | "" {
+  if (!参数?.sessionSecret) return "";
+  const env = 参数.env ?? process.env;
+  const cookieName = env.V3_DELIVERY_AUTH_COOKIE_NAME || 默认Cookie名称;
+  const token = 读取Cookie(req, cookieName);
+  if (!token) return "";
+  try {
+    const payload = 解析会话令牌(token, 参数.sessionSecret);
+    if (payload.expiresAt <= Math.floor(Date.now() / 1000)) return "";
+    return payload.role || "";
+  } catch {
+    return "";
+  }
+}
+
 function 注册账号密码路由(router: Router, 配置: 认证配置, build: 构建信息): void {
   router.post("/login", async (req, res, next) => {
     const 诊断字段 = 读取账号密码登录诊断(req, 配置);
@@ -161,8 +196,9 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
         throw new 应用错误("V3_AUTH_INVALID_CREDENTIALS", "用户名或密码不正确。", 401);
       }
 
-      const token = 签发会话令牌(用户.username, 配置);
+      const token = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
       const 页面会话 = 创建业务页面会话(用户);
+      const 移动端会话 = 创建移动端会话(用户, 配置);
       写入会话Cookie(res, 配置, token);
       记录认证事件(配置, "info", "账号密码登录成功", {
         event: "auth.password.succeeded",
@@ -186,6 +222,7 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
           data: {
             user: 转换用户响应(用户),
             pageSession: 页面会话,
+            mobileSession: 移动端会话,
             expiresInSeconds: 配置.ttlSeconds,
           },
         }),
@@ -207,7 +244,6 @@ function 注册Iam单点登录路由(router: Router, 配置: 认证配置, build
           build,
           data: {
             enabled: 配置.sso.enabled,
-            pcEnabled: 配置.sso.pcEnabled,
             entries: ["admin", "partner"],
             requestIsaidByEntry: 配置.sso.requestIsaidByEntry,
             timeoutMs: 配置.sso.timeoutMs,
@@ -244,6 +280,7 @@ function 注册会话路由(router: Router, 配置: 认证配置, build: 构建�
       if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
       const 用户 = await 读取当前用户(req, 配置);
       const 页面会话 = 创建业务页面会话(用户);
+      const 移动端会话 = 创建移动端会话(用户, 配置);
       记录认证事件(配置, "info", "当前会话校验成功", {
         event: "auth.session.succeeded",
         ...读取认证请求字段(req),
@@ -263,6 +300,7 @@ function 注册会话路由(router: Router, 配置: 认证配置, build: 构建�
           data: {
             user: 转换用户响应(用户),
             pageSession: 页面会话,
+            mobileSession: 移动端会话,
           },
         }),
       );
@@ -307,6 +345,7 @@ function 读取认证配置(参数: 认证路由参数): 认证配置 {
     sso: 读取IamH5单点登录配置(env),
     uniSdpSso: 读取UniSdp单点登录配置(env),
     logger: 参数.logger,
+    authFlowLogger: 参数.authFlowLogger,
   };
 }
 
@@ -347,9 +386,6 @@ async function 处理Iam单点登录(
   try {
     if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
     const { token, entry, clientType } = 读取单点登录请求(req, 固定入口);
-    if (!配置.sso.pcEnabled && clientType !== "mobile") {
-      throw new 应用错误("V3_AUTH_SSO_PC_DISABLED", "旧版 PC 单点登录已关闭。", 403);
-    }
     校验入口 = 选择单点登录校验入口(entry, 配置.sso);
     失败阶段 = "provider";
     记录认证事件(配置, "info", "IAM单点登录开始调用认证服务", {
@@ -389,8 +425,9 @@ async function 处理Iam单点登录(
       throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通该单点登录入口。", 403);
     }
 
-    const sessionToken = 签发会话令牌(用户.username, 配置);
+    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
     const 页面会话 = 创建业务页面会话(用户);
+    const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
     记录认证事件(配置, "info", "IAM单点登录成功", {
       event: "auth.iam_sso.succeeded",
@@ -417,6 +454,7 @@ async function 处理Iam单点登录(
         data: {
           user: 转换用户响应(用户),
           pageSession: 页面会话,
+          mobileSession: 移动端会话,
           entry: 登录入口,
           clientType,
           expiresInSeconds: 配置.ttlSeconds,
@@ -477,8 +515,9 @@ async function 处理UniSdp单点登录(
     }
     const 用户 = 本地匹配.用户;
     const 登录入口 = 识别用户单点登录入口(用户);
-    const sessionToken = 签发会话令牌(用户.username, 配置);
+    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
     const 页面会话 = 创建业务页面会话(用户);
+    const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
     记录认证事件(配置, "info", "UniSDP单点登录成功", {
       event: "auth.unisdp_sso.succeeded",
@@ -507,6 +546,7 @@ async function 处理UniSdp单点登录(
         data: {
           user: 转换用户响应(用户),
           pageSession: 页面会话,
+          mobileSession: 移动端会话,
           entry: 登录入口,
           clientType: "pc",
           provider: "unisdp",
@@ -567,7 +607,7 @@ async function 处理UniSdp门户单点登录(
     }
     const 用户 = 本地匹配.用户;
 
-    const sessionToken = 签发会话令牌(用户.username, 配置);
+    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
     const 页面会话 = 创建业务页面会话(用户);
     const 目标路径 = 读取门户登录后路径(用户);
     写入会话Cookie(res, 配置, sessionToken);
@@ -705,6 +745,260 @@ function 记录认证事件(
   fields: 日志字段,
 ): void {
   配置.logger?.[level](message, fields);
+  记录认证流程摘要(配置, message, fields);
+}
+
+function 记录认证流程摘要(配置: 认证配置, message: string, fields: 日志字段): void {
+  if (!配置.authFlowLogger) return;
+  const line = 创建认证流程摘要行(message, fields);
+  if (!line) return;
+  try {
+    配置.authFlowLogger.write(line);
+  } catch {
+    // 摘要日志只用于排障，写入失败不能影响认证主流程。
+  }
+}
+
+function 创建认证流程摘要行(message: string, fields: 日志字段): string {
+  const event = 读取日志字段文本(fields, "event");
+  if (!event.startsWith("auth.")) return "";
+  const 时间 = 格式化本地日志时间(new Date());
+  const 流程 = 读取认证流程名称(event);
+  const 端 = 读取认证端名称(event, fields);
+  const 阶段 = 读取认证阶段名称(event, fields);
+  const 摘要 = 创建认证摘要文本(event, message, fields);
+  const 详情 = JSON.stringify(创建认证摘要字段(fields));
+  return `[${时间}] [${流程}] [全流程] [${端}] [${阶段}] ${摘要} ${详情}`;
+}
+
+function 读取认证流程名称(event: string): string {
+  if (event.startsWith("auth.iam_sso.")) return "IAM-SSO";
+  if (event.startsWith("auth.unisdp_portal_sso.")) return "UNISDP-PORTAL-SSO";
+  if (event.startsWith("auth.unisdp_sso.")) return "UNISDP-SSO";
+  if (event.startsWith("auth.password.")) return "PASSWORD";
+  if (event.startsWith("auth.session.")) return "SESSION";
+  if (event.startsWith("auth.logout.")) return "LOGOUT";
+  if (event.startsWith("auth.open_api_token.")) return "OPENAPI-AUTH";
+  if (event.startsWith("auth.open_api_session.")) return "OPENAPI-SESSION";
+  return "AUTH";
+}
+
+function 读取认证端名称(event: string, fields: 日志字段): string {
+  const entry = 读取日志字段文本(fields, "entry");
+  if (entry === "admin") return "管理端";
+  if (entry === "partner") return "渠道端";
+  if (读取日志字段文本(fields, "clientType") === "mobile") return "移动端";
+  const path = 读取日志字段文本(fields, "path");
+  if (path === "/app/sso.htm") return "门户入口";
+  if (path.includes("/sso/")) return "统一登录";
+  const roleName = 读取日志字段文本(fields, "roleName");
+  if (/超管|超级|管理员|区管/.test(roleName)) return "管理端";
+  if (/渠道|销售|伙伴|员工/.test(roleName)) return "渠道端";
+  if (event.startsWith("auth.open_api_")) return "开放接口";
+  return "认证";
+}
+
+function 读取认证阶段名称(event: string, fields: 日志字段): string {
+  if (event.endsWith(".provider_started")) return "调用认证服务";
+  if (event.endsWith(".provider_succeeded")) return "认证服务校验通过";
+  if (event.endsWith(".failed")) return 读取失败阶段名称(读取日志字段文本(fields, "failedStep"));
+  if (event === "auth.session.started") return "会话校验开始";
+  if (event === "auth.session.succeeded") return "会话校验成功";
+  if (event === "auth.password.started") return "账号密码登录开始";
+  if (event === "auth.password.succeeded") return "账号密码登录成功";
+  if (event === "auth.logout.completed") return "退出完成";
+  if (event.endsWith(".started")) return "开始";
+  if (event.endsWith(".succeeded")) return "登录成功";
+  return "过程";
+}
+
+function 读取失败阶段名称(failedStep: string): string {
+  const 映射: Record<string, string> = {
+    request: "请求参数失败",
+    provider: "第三方认证失败",
+    local_user: "本地账号匹配失败",
+    client_lookup: "客户端查询失败",
+    client_status: "客户端状态失败",
+    ip_whitelist: "IP白名单失败",
+    secret_verify: "密钥校验失败",
+    issue_token: "令牌签发失败",
+    session: "会话校验失败",
+  };
+  return 映射[failedStep] || "认证失败";
+}
+
+function 创建认证摘要文本(event: string, message: string, fields: 日志字段): string {
+  if (event.endsWith(".failed")) {
+    return 清理摘要文本(`${message}：${读取日志字段文本(fields, "errorMessage") || "原因未知"}`);
+  }
+  if (event.startsWith("auth.iam_sso.") && event.endsWith(".provider_succeeded")) {
+    const username = 创建账号展示文本(读取日志字段文本(fields, "iamUsername")) || "未知账号";
+    const displayName = 读取日志字段文本(fields, "iamDisplayName");
+    return 清理摘要文本(`IAM返回账号：${username}${displayName ? "，姓名：" + displayName : ""}`);
+  }
+  if (
+    (event.startsWith("auth.unisdp_sso.") || event.startsWith("auth.unisdp_portal_sso.")) &&
+    event.endsWith(".provider_succeeded")
+  ) {
+    const username = 创建账号展示文本(读取日志字段文本(fields, "uniSdpUsername")) || "未知账号";
+    const mobile = 读取日志字段布尔(fields, "uniSdpMobilePresent")
+      ? 读取日志字段文本(fields, "uniSdpMobileMasked") || "已返回"
+      : "未返回";
+    return 清理摘要文本(`UniSDP返回账号：${username}，手机号：${mobile}`);
+  }
+  if (event.endsWith(".succeeded")) {
+    const username = 创建账号展示文本(读取日志字段文本(fields, "username"));
+    const roleName = 读取日志字段文本(fields, "roleName");
+    const entry = 读取日志字段文本(fields, "entry");
+    const matchMode = 读取日志字段文本(fields, "uniSdpLocalUserMatchMode");
+    const parts = [
+      username ? `本地账号：${username}` : "",
+      roleName ? `角色：${roleName}` : "",
+      entry ? `入口：${entry}` : "",
+      matchMode ? `匹配方式：${matchMode}` : "",
+    ].filter(Boolean);
+    return 清理摘要文本(parts.length ? parts.join("，") : message);
+  }
+  if (event.endsWith(".started")) {
+    const hasToken = 读取日志字段布尔(fields, "ssoTokenPresent");
+    const tokenText = "ssoTokenPresent" in fields ? `，凭证：${hasToken ? "已带" : "未带"}` : "";
+    const source = 读取日志字段文本(fields, "inputSource");
+    return 清理摘要文本(`${message}${tokenText}${source ? "，来源：" + source : ""}`);
+  }
+  return 清理摘要文本(message);
+}
+
+function 创建认证摘要字段(fields: 日志字段): 日志字段 {
+  const keys = [
+    "requestId",
+    "event",
+    "method",
+    "path",
+    "route",
+    "queryKeys",
+    "bodyKeys",
+    "entry",
+    "clientType",
+    "provider",
+    "inputSource",
+    "failedStep",
+    "errorCode",
+    "errorMessage",
+    "statusCode",
+    "resultCode",
+    "username",
+    "usernamePresent",
+    "displayName",
+    "roleName",
+    "passwordPresent",
+    "passwordLength",
+    "passwordFingerprint",
+    "iamUsername",
+    "iamRawUsername",
+    "iamDisplayName",
+    "uniSdpUsername",
+    "uniSdpRawUsername",
+    "uniSdpUsernameLooksLikePhone",
+    "uniSdpMobilePresent",
+    "uniSdpMobileLength",
+    "uniSdpMobileMasked",
+    "uniSdpMobileFingerprint",
+    "uniSdpLocalUserMatchMode",
+    "ssoTokenPresent",
+    "ssoTokenLength",
+    "ssoTokenFingerprint",
+    "sessionCookiePresent",
+    "sessionTokenLength",
+    "sessionTokenFingerprint",
+    "sessionCookieWritten",
+    "sessionCookieCleared",
+    "pageSessionTokenFingerprint",
+    "cookieSecure",
+    "ttlSeconds",
+    "defaultPath",
+    "targetPath",
+    "fallbackRedirect",
+    "allowedPathCount",
+    "timeoutMs",
+    "validateUrlConfigured",
+    "validateIsaidFingerprint",
+    "validateIsaidLength",
+    "isaidFingerprint",
+    "isaidLength",
+    "appKey",
+    "appKeyPresent",
+    "appSecretPresent",
+    "appSecretLength",
+    "appSecretFingerprint",
+    "accessTokenLength",
+    "accessTokenFingerprint",
+    "expiresInSeconds",
+    "allowedResourceCount",
+    "durationMs",
+    "ip",
+    "userAgent",
+  ];
+  const 详情: 日志字段 = {};
+  for (const key of keys) {
+    if (!(key in fields)) continue;
+    const value = fields[key];
+    if (typeof value === "string") 详情[key] = 清理摘要字段文本(key, value);
+    else if (typeof value === "number" || typeof value === "boolean") 详情[key] = value;
+    else if (Array.isArray(value)) 详情[key] = value.map((项) => 清理摘要文本(String(项), 120));
+  }
+  return 详情;
+}
+
+function 清理摘要字段文本(key: string, value: string): string {
+  const 文本 = 清理摘要文本(value, 300);
+  return 是账号摘要字段(key) ? 创建账号展示文本(文本) : 文本;
+}
+
+const 账号摘要字段 = new Set([
+  "username",
+  "displayName",
+  "iamUsername",
+  "iamRawUsername",
+  "iamDisplayName",
+  "uniSdpUsername",
+  "uniSdpRawUsername",
+]);
+
+function 是账号摘要字段(key: string): boolean {
+  return 账号摘要字段.has(key);
+}
+
+function 创建账号展示文本(value: string): string {
+  const 手机号 = 规范中国大陆手机号(value);
+  return 手机号 ? 脱敏手机号(手机号) : value;
+}
+
+function 读取日志字段文本(fields: 日志字段, key: string): string {
+  const value = fields[key];
+  return typeof value === "string" ? value : "";
+}
+
+function 读取日志字段布尔(fields: 日志字段, key: string): boolean {
+  return fields[key] === true;
+}
+
+function 清理摘要文本(value: string, maxLength = 500): string {
+  const 文本 = value.replace(/[\r\n\t]+/g, " ").trim();
+  return 文本.length > maxLength ? 文本.slice(0, maxLength) + "..." : 文本;
+}
+
+function 格式化本地日志时间(date: Date): string {
+  const year = date.getFullYear();
+  const month = 补零(date.getMonth() + 1);
+  const day = 补零(date.getDate());
+  const hour = 补零(date.getHours());
+  const minute = 补零(date.getMinutes());
+  const second = 补零(date.getSeconds());
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
+function 补零(value: number): string {
+  return String(value).padStart(2, "0");
 }
 
 function 记录认证失败(
@@ -764,7 +1058,6 @@ function 读取Iam单点登录诊断(req: Request, 配置: 认证配置, 固定�
   return {
     authEnabled: 配置.enabled,
     ssoEnabled: 配置.sso.enabled,
-    ssoPcEnabled: 配置.sso.pcEnabled,
     entry: entry || "",
     fixedEntry: 固定入口 || "",
     clientType,
@@ -896,10 +1189,11 @@ function 解析正整数(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function 签发会话令牌(username: string, 配置: 认证配置): string {
+function 签发会话令牌(username: string, role: 业务页面角色, 配置: 认证配置): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: 会话载荷 = {
     username,
+    role,
     issuedAt: now,
     expiresAt: now + 配置.ttlSeconds,
     nonce: crypto.randomBytes(16).toString("base64url"),
@@ -1191,6 +1485,68 @@ function 创建业务页面会话(用户: 交付用户): 业务页面会话 {
   };
 }
 
+function 创建移动端会话(用户: 交付用户, 配置: 认证配置): 移动端会话 {
+  return {
+    token: 签发移动端会话令牌(用户.pageUser, 配置),
+    user: 用户.pageUser,
+  };
+}
+
+function 签发移动端会话令牌(用户: 业务页面用户, 配置: 认证配置): string {
+  const now = Math.floor(Date.now() / 1000);
+  const payload: 移动端会话载荷 = {
+    username: 用户.username,
+    role: 用户.role,
+    issuedAt: now,
+    expiresAt: now + 配置.ttlSeconds,
+    nonce: crypto.randomBytes(16).toString("base64url"),
+  };
+  const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return ["v3m", body, 签名(`v3m.${body}`, 配置.sessionSecret)].join(".");
+}
+
+export function 读取移动端会话身份(
+  req: Request,
+  参数: 会话用户名读取参数 | undefined,
+): Pick<移动端会话载荷, "username" | "role"> | null {
+  if (!参数?.sessionSecret) return null;
+  const header = req.headers.authorization || "";
+  const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
+  if (!token) return null;
+  try {
+    const payload = 解析移动端会话令牌(token, 参数.sessionSecret);
+    if (payload.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+    return { username: payload.username, role: payload.role };
+  } catch {
+    return null;
+  }
+}
+
+export function 读取移动端会话用户名(req: Request, 参数: 会话用户名读取参数 | undefined): string {
+  return 读取移动端会话身份(req, 参数)?.username || "";
+}
+
+function 解析移动端会话令牌(token: string, secret: string): 移动端会话载荷 {
+  const [version, body, signature] = token.split(".");
+  if (
+    version !== "v3m" ||
+    !body ||
+    !signature ||
+    !安全比较(signature, 签名(`v3m.${body}`, secret))
+  ) {
+    throw new 应用错误("V3_AUTH_REQUIRED", "请先登录。", 401);
+  }
+  const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as 移动端会话载荷;
+  if (
+    !payload.username ||
+    !payload.expiresAt ||
+    !["superadmin", "admin", "partner_admin", "staff"].includes(payload.role)
+  ) {
+    throw new 应用错误("V3_AUTH_REQUIRED", "请先登录。", 401);
+  }
+  return payload;
+}
+
 function 签发业务页面令牌(username: string): string {
   return [
     "v2",
@@ -1265,6 +1621,9 @@ function 解析会话令牌(token: string, secret: string): 会话载荷 {
   }
   const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as 会话载荷;
   if (!payload.username || !payload.expiresAt) {
+    throw new 应用错误("V3_AUTH_REQUIRED", "请先登录。", 401);
+  }
+  if (payload.role && !["superadmin", "admin", "partner_admin", "staff"].includes(payload.role)) {
     throw new 应用错误("V3_AUTH_REQUIRED", "请先登录。", 401);
   }
   return payload;
