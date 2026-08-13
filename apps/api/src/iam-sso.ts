@@ -125,11 +125,15 @@ async function 读取Json响应(response: Response): Promise<unknown> {
 function 解析Iam身份(payload: unknown): IamH5单点登录身份 {
   const status = Number(读取对象值(payload, ["status"]) || 8095);
   if (status !== 2000) {
-    throw new 应用错误(
-      "V3_AUTH_SSO_REJECTED",
-      Iam错误映射[status] || 读取对象文本(payload, ["msg"]) || "IAM 验证失败。",
-      401,
-    );
+    const 已知文案 = Iam错误映射[status];
+    const 原始msg = 读取对象文本(payload, ["msg"]);
+    // 透出 IAM 原始 msg,避免 IAM 报错(如"校验码编号不存在")被错误映射为"凭证过期"。
+    const 文案 = 已知文案
+      ? 原始msg
+        ? `${已知文案}(${原始msg})`
+        : 已知文案
+      : 原始msg || "IAM 验证失败。";
+    throw new 应用错误("V3_AUTH_SSO_REJECTED", 文案, 401);
   }
 
   const username = 标准化用户名(读取Iam用户名(payload));

@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>V3 当前视觉规范 UI 基线</title>
+<link rel="stylesheet" href="../../../apps/web/public/style.css">
+<link rel="stylesheet" href="../../../apps/web/public/libs/element-plus.min.css">
+<style>
+  body { padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .baseline-label { position: fixed; top: 12px; right: 12px; background: rgba(255,59,48,0.95); color: #fff; padding: 6px 14px; border-radius: 9999px; font-size: 12px; font-weight: 700; z-index: 9999; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+<div class="baseline-label">⚓ V3 当前视觉基线 · KB-20260813</div>
+
+<div class="main-layout">
+  <!-- 侧边栏（深色，V3 真实） -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">⚓</div>
+      <div class="logo-text">联软渠道管理平台<small>V3 · 厂商管理后台</small></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-group-title">日常业务</div>
+      <div class="nav-item">📊 业务总览</div>
+      <div class="nav-item">📋 客户报备</div>
+      <div class="nav-item">💼 商机 / 报价 / 订单</div>
+      <div class="nav-group-title">平台管理</div>
+      <div class="nav-item active">🏢 组织架构</div>
+      <div class="nav-item">🔐 账号权限</div>
+      <div class="nav-item">🪪 渠道商运营</div>
+      <div class="nav-item">📨 OpenAPI</div>
+      <div class="nav-item">📜 审计日志</div>
+      <div class="nav-item">⚙ 系统状态</div>
+    </nav>
+  </aside>
+
+  <!-- 内容区 -->
+  <main class="content-area">
+    <header class="top-header">
+      <div class="breadcrumb">
+        <span class="parent">平台管理</span>
+        <span class="sep">/</span>
+        <span class="current">组织架构</span>
+      </div>
+      <div class="header-actions">
+        <button class="header-btn">🔔</button>
+        <button class="header-btn">⚙</button>
+        <div style="display:flex;align-items:center;gap:8px;padding:0 12px;">
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#007AFF,#5856D6);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px;">A</div>
+          <span style="font-size:13px;font-weight:500;">admin_lianruan</span>
+        </div>
+      </div>
+    </header>
+
+    <div style="padding:28px;">
+
+      <!-- 标题区 -->
+      <div style="margin-bottom:20px;">
+        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;letter-spacing:-0.3px;">组织架构</h2>
+        <p style="font-size:13px;color:#888;margin-top:4px">管理总部、区域、部门、岗位与内部任职</p>
+      </div>
+
+      <!-- 统计卡片（V3 真实样式） -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon blue">🏢</div>
+          <div>
+            <div class="stat-value">12</div>
+            <div class="stat-label">组织总数</div>
+            <div class="stat-trend up">↑ 本月新增 2</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon green">👥</div>
+          <div>
+            <div class="stat-value">71</div>
+            <div class="stat-label">在职员工</div>
+            <div class="stat-trend up">↑ 新入职 3</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon orange">📋</div>
+          <div>
+            <div class="stat-value">8</div>
+            <div class="stat-label">业务角色</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon purple">🎓</div>
+          <div>
+            <div class="stat-value">32</div>
+            <div class="stat-label">有效证书</div>
+            <div class="stat-trend down">↓ 4 即将过期</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 操作按钮 -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="btn btn-primary">➕ 新建组织</button>
+        <button class="btn btn-default">📥 导入</button>
+        <button class="btn btn-default">📤 导出</button>
+        <button class="btn btn-text">查看审计日志 →</button>
+      </div>
+
+      <!-- 搜索 + 筛选 -->
+      <div class="card" style="margin-bottom:16px;padding:16px;">
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="text" placeholder="🔍 按名称 / 编码搜索…" style="flex:1;padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fafafa;font-size:14px;">
+          <select style="padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fff;font-size:14px;">
+            <option>所有状态</option><option>启用</option><option>停用</option><option>归档</option>
+          </select>
+          <select style="padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fff;font-size:14px;">
+            <option>所有域</option><option>内部</option><option>渠道</option>
+          </select>
+          <button class="btn btn-default btn-sm">重置</button>
+        </div>
+      </div>
+
+      <!-- 表格卡片（V3 真实样式） -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">组织列表</div>
+          <span style="font-size:13px;color:#888;">共 12 条</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr style="background:#fafafa;">
+                <th style="padding:12px 16px;text-align:left;font-size:13px;font-weight:600;color:#6E6E73;">组织编码</th>
+                <th style="padding:12px 16px;text-align:left;font-size:13px;font-weight:600;color:#6E6E73;">名称</th>
+                <th style="padding:12px 16px;text-align:left;font-size:13px;font-weight:600;color:#6E6E73;">类型</th>
+                <th style="padding:12px 16px;text-align:left;font-size:13px;font-weight:600;color:#6E6E73;">负责人</th>
+                <th style="padding:12px 16px;text-align:left;font-size:13px;font-weight:600;color:#6E6E73;">状态</th>
+                <th style="padding:12px 16px;text-align:right;font-size:13px;font-weight:600;color:#6E6E73;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:14px 16px;font-family:monospace;font-size:13px;">LIANRUAN-HQ</td>
+                <td style="padding:14px 16px;font-weight:600;">联软总部</td>
+                <td style="padding:14px 16px;"><span class="tag tag-gray">headquarters</span></td>
+                <td style="padding:14px 16px;">王志远</td>
+                <td style="padding:14px 16px;"><span class="tag tag-green">● 启用</span></td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <button class="btn btn-text btn-sm">编辑</button>
+                  <button class="btn btn-text btn-sm">停用</button>
+                </td>
+              </tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:14px 16px;font-family:monospace;font-size:13px;">EAST-BIG</td>
+                <td style="padding:14px 16px;font-weight:600;">华东大区</td>
+                <td style="padding:14px 16px;"><span class="tag tag-gray">big_region</span></td>
+                <td style="padding:14px 16px;">陈建华</td>
+                <td style="padding:14px 16px;"><span class="tag tag-green">● 启用</span></td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <button class="btn btn-text btn-sm">编辑</button>
+                  <button class="btn btn-text btn-sm">停用</button>
+                </td>
+              </tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:14px 16px;font-family:monospace;font-size:13px;">SH-AREA</td>
+                <td style="padding:14px 16px;font-weight:600;">上海区域</td>
+                <td style="padding:14px 16px;"><span class="tag tag-gray">region</span></td>
+                <td style="padding:14px 16px;">张敏</td>
+                <td style="padding:14px 16px;"><span class="tag tag-green">● 启用</span></td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <button class="btn btn-text btn-sm">编辑</button>
+                  <button class="btn btn-text btn-sm">停用</button>
+                </td>
+              </tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:14px 16px;font-family:monospace;font-size:13px;">SH-SALES-02</td>
+                <td style="padding:14px 16px;font-weight:600;">上海销售二部</td>
+                <td style="padding:14px 16px;"><span class="tag tag-gray">department</span></td>
+                <td style="padding:14px 16px;">—</td>
+                <td style="padding:14px 16px;"><span class="tag tag-orange">● 待补</span></td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <button class="btn btn-text btn-sm">编辑</button>
+                  <button class="btn btn-text btn-sm">停用</button>
+                </td>
+              </tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);">
+                <td style="padding:14px 16px;font-family:monospace;font-size:13px;">CHANNEL-CO</td>
+                <td style="padding:14px 16px;font-weight:600;">联软渠道（渠道域）</td>
+                <td style="padding:14px 16px;"><span class="tag tag-purple">channel_company</span></td>
+                <td style="padding:14px 16px;">李商务</td>
+                <td style="padding:14px 16px;"><span class="tag tag-green">● 启用</span></td>
+                <td style="padding:14px 16px;text-align:right;">
+                  <button class="btn btn-text btn-sm">编辑</button>
+                  <button class="btn btn-text btn-sm">停用</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 弹窗示例 -->
+      <div style="margin-top:40px;background:#fafafa;border-radius:16px;padding:28px;">
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:16px;color:#1a1a1a;">弹窗样式参考</h3>
+        <div class="modal" style="position:relative;margin:0;">
+          <div class="modal-header">
+            <div class="modal-title">新建组织</div>
+            <div class="modal-close">✕</div>
+          </div>
+          <div class="modal-body">
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:13px;font-weight:600;color:#1D1D1F;margin-bottom:6px;">组织编码 *</label>
+              <input type="text" placeholder="例：EAST-BIG-02" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:13px;font-weight:600;color:#1D1D1F;margin-bottom:6px;">名称 *</label>
+              <input type="text" placeholder="例：华东大区二部" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box;">
+            </div>
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:13px;font-weight:600;color:#1D1D1F;margin-bottom:6px;">所属域</label>
+              <select style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box;">
+                <option>内部域</option><option>渠道域</option>
+              </select>
+            </div>
+            <div style="margin-bottom:14px;">
+              <label style="display:block;font-size:13px;font-weight:600;color:#1D1D1F;margin-bottom:6px;">类型</label>
+              <select style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box;">
+                <option>department 部门</option><option>region 区域</option><option>big_region 大区</option>
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:13px;font-weight:600;color:#1D1D1F;margin-bottom:6px;">父组织</label>
+              <select style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);font-size:14px;box-sizing:border-box;">
+                <option>联软总部</option><option>华东大区</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default">取消</button>
+            <button class="btn btn-primary">确认创建</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 标签 + 状态色板参考 -->
+      <div style="margin-top:28px;">
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;color:#1a1a1a;">标签样式色板（V3 6 套官方色）</h3>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <span class="tag tag-blue">● 信息 / 进行中</span>
+          <span class="tag tag-green">● 成功 / 启用 / 有效</span>
+          <span class="tag tag-orange">● 警告 / 即将过期 / 待补</span>
+          <span class="tag tag-red">● 错误 / 停用 / 已撤销</span>
+          <span class="tag tag-purple">● 特殊 / 渠道 / 离职</span>
+          <span class="tag tag-gray">● 中性 / 归档 / 未分类</span>
+        </div>
+      </div>
+
+      <!-- 关键设计要点 -->
+      <div style="margin-top:28px;background:#fff;border-radius:16px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,0.06),0 0 0 1px rgba(0,0,0,0.04);">
+        <h3 style="font-size:16px;font-weight:700;margin-bottom:14px;color:#1a1a1a;">🎨 V3 视觉关键要点（开发必须遵守）</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;font-size:13px;color:#3a3a3c;line-height:1.8;">
+          <div>
+            <b style="color:#1D1D1F;">主色</b>：<code style="background:#f0f7ff;color:#007AFF;padding:2px 6px;border-radius:4px;">#007AFF</code>（苹果蓝）<br>
+            <b style="color:#1D1D1F;">侧边栏</b>：<code style="background:#1a1a1a;color:#fff;padding:2px 6px;border-radius:4px;">#1D1D1F</code>（深灰近黑）<br>
+            <b style="color:#1D1D1F;">背景</b>：<code style="background:#f5f5f7;color:#1d1d1f;padding:2px 6px;border-radius:4px;">#F5F5F7</code>（极浅灰）<br>
+            <b style="color:#1D1D1F;">卡片</b>：白底 + 圆角 16px + 微阴影
+          </div>
+          <div>
+            <b style="color:#1D1D1F;">侧边栏宽度</b>：240px（固定）<br>
+            <b style="color:#1D1D1F;">顶栏高度</b>：52px（毛玻璃 backdrop-filter）<br>
+            <b style="color:#1D1D1F;">圆角</b>：8 / 12 / 16 / 20 / 9999px（full）<br>
+            <b style="color:#1D1D1F;">字体</b>：SF Pro / PingFang SC / Microsoft YaHei
+          </div>
+          <div>
+            <b style="color:#1D1D1F;">状态标签</b>：6 套官方色（蓝/绿/橙/红/紫/灰）<br>
+            <b style="color:#1D1D1F;">卡片标题</b>：左 4px 蓝色竖条<br>
+            <b style="color:#1D1D1F;">按钮</b>：primary 蓝底 / default 白底 / text 纯文字 / danger 红底<br>
+            <b style="color:#1D1D1F;">阴影</b>：极淡多层（Apple 风），不是传统卡片阴影
+          </div>
+          <div>
+            <b style="color:#1D1D1F;">导航激活</b>：蓝底白字 + 蓝色光晕阴影<br>
+            <b style="color:#1D1D1F;">表格</b>：白底、无外边框、行间淡分割线、hover 浅灰底<br>
+            <b style="color:#1D1D1F;">统计卡</b>：图标底色用 10% 透明度的同色系<br>
+            <b style="color:#1D1D1F;">弹窗</b>：圆角 20px + modalIn 弹性动画
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

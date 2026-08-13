@@ -222,7 +222,7 @@ describe("IAM单点登录成功流程", () => {
     expect(校验地址.searchParams.get("isaid")).toBe("crm-v3-test");
   });
 
-  it("统一单点登录不带入口时按渠道账号自动识别入口", async () => {
+  it("渠道账号用 IAM username(非手机号形态)登录被拒绝", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -245,6 +245,7 @@ describe("IAM单点登录成功流程", () => {
             username: "partner_only",
             displayName: "渠道专用账号",
             roleName: "渠道用户",
+            roleCodes: ["partner_admin"],
             passwordHash: 密码散列,
             defaultPath: "/partner/dashboard",
             allowedPaths: ["/partner", "/mobile"],
@@ -257,13 +258,12 @@ describe("IAM单点登录成功流程", () => {
       }),
     });
 
+    // 严格切分:渠道账号仅通过手机号匹配,username 形态不被视为管理员,登录被拒。
     const 登录 = await request(app)
       .post("/api/auth/sso/iam/login")
       .send({ token: "sso-token-for-test", clientType: "mobile" })
-      .expect(200);
-
-    expect(登录.body.data.entry).toBe("partner");
-    expect(登录.body.data.pageSession.user.role).toBe("staff");
+      .expect(403);
+    expect(登录.body.error.code).toBe("V3_AUTH_SSO_USER_NOT_FOUND");
   });
 });
 
@@ -336,7 +336,7 @@ describe("IAM单点登录失败场景", () => {
     expect(res.body.error.message).toContain("单点凭证无效");
   });
 
-  it("IAM账号未开通目标入口时拒绝登录", async () => {
+  it("管理员账号按形态强制进入 admin 入口,不受 entry 参数影响", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -344,7 +344,7 @@ describe("IAM单点登录失败场景", () => {
           new Response(
             JSON.stringify({
               status: 2000,
-              data: { mailuser: { username: "partner_only" } },
+              data: { mailuser: { username: "delivery_admin" } },
             }),
             { status: 200, headers: { "content-type": "application/json" } },
           ),
@@ -352,18 +352,41 @@ describe("IAM单点登录失败场景", () => {
     );
     const app = 创建应用({
       env: 创建测试环境变量({
-        V3_DELIVERY_AUTH_ENABLED: "true",
-        V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
-        V3_DELIVERY_AUTH_USERS_JSON: JSON.stringify([
-          {
-            username: "partner_only",
-            displayName: "渠道专用账号",
-            roleName: "渠道用户",
-            passwordHash: 密码散列,
-            defaultPath: "/partner/dashboard",
-            allowedPaths: ["/partner", "/mobile"],
-          },
-        ]),
+        ...认证环境,
+        DATABASE_URL: "",
+        V3_IAM_H5_SSO_ENABLED: "true",
+        V3_IAM_H5_SSO_PC_ENABLED: "true",
+        V3_IAM_H5_SSO_VALIDATE_URL: "https://iam.example.test/validate",
+        V3_IAM_H5_SSO_VALIDATE_ISAID: "crm-v3-test",
+      }),
+    });
+
+    // delivery_admin 是管理员(username 形态),即使前端 entry=partner,后端按形态决定入口为 admin。
+    const 登录 = await request(app)
+      .post("/api/auth/sso/iam/login")
+      .send({ token: "sso-token-for-test", entry: "partner" })
+      .expect(200);
+    expect(登录.body.data.entry).toBe("admin");
+    expect(登录.body.data.matchedBy).toBe("username");
+  });
+
+  it("管理员账号未在 CRM 开通时被拒绝并返回 USER_NOT_FOUND", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 2000,
+              data: { mailuser: { username: "ghost_admin" } },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const app = 创建应用({
+      env: 创建测试环境变量({
+        ...认证环境,
         DATABASE_URL: "",
         V3_IAM_H5_SSO_ENABLED: "true",
         V3_IAM_H5_SSO_PC_ENABLED: "true",
@@ -374,9 +397,9 @@ describe("IAM单点登录失败场景", () => {
 
     const res = await request(app)
       .post("/api/auth/sso/iam/login")
-      .send({ token: "sso-token-for-test", entry: "admin" })
+      .send({ token: "ghost-token", entry: "admin" })
       .expect(403);
-    expect(res.body.error.message).toContain("未开通该单点登录入口");
+    expect(res.body.error.code).toBe("V3_AUTH_SSO_USER_NOT_FOUND");
   });
 });
 
@@ -403,7 +426,7 @@ describe("UniSDP门户单点登录流程", () => {
           JSON.stringify({
             status: 2000,
             username: "delivery_admin",
-            mobile: "13800138000",
+            mobile: "",
             isLogin: true,
             errmsg: "ok",
           }),
@@ -447,22 +470,19 @@ describe("UniSDP门户单点登录流程", () => {
       (记录) => 记录.fields.event === "auth.unisdp_sso.succeeded",
     );
     const 日志文本 = JSON.stringify(logger.records);
-    expect(服务校验通过事件?.fields.uniSdpMobilePresent).toBe(true);
-    expect(服务校验通过事件?.fields.uniSdpMobileLength).toBe(11);
-    expect(服务校验通过事件?.fields.uniSdpMobileMasked).toBe("138****8000");
-    expect(服务校验通过事件?.fields.uniSdpMobileFingerprint).toBeTruthy();
-    expect(登录成功事件?.fields.uniSdpMobilePresent).toBe(true);
-    expect(日志文本).not.toContain("13800138000");
+    expect(服务校验通过事件?.fields.uniSdpMobilePresent).toBe(false);
+    expect(登录成功事件?.fields.uniSdpLocalUserMatchMode).toBe("username");
+    expect(日志文本).not.toContain("LrCRM@2026!");
+    expect(日志文本).not.toContain("unisdp-token-for-test");
 
     const 摘要文本 = authFlowLogger.lines.join("\n");
     expect(摘要文本).toContain("[UNISDP-SSO] [全流程]");
     expect(摘要文本).toContain(
-      "[认证服务校验通过] UniSDP返回账号：delivery_admin，手机号：138****8000",
+      "[认证服务校验通过] UniSDP返回账号：delivery_admin，手机号：未返回",
     );
     expect(摘要文本).toContain("[登录成功] 本地账号：delivery_admin");
     expect(摘要文本).toContain('"requestId"');
     expect(摘要文本).not.toContain("unisdp-token-for-test");
-    expect(摘要文本).not.toContain("13800138000");
   });
 
   it("UniSDP返回手机号用户名时优先匹配渠道账号手机号", async () => {
@@ -477,9 +497,11 @@ describe("UniSDP门户单点登录流程", () => {
       role_code: "staff",
       role_name: "销售代表",
       region_name: "",
+      phone: "13536920924",
       extra_json: { phone: "13536920924", role: "staff", name: "渠道销售账号" },
       partner_id: "partner-001",
       partner_name: "测试渠道商",
+      role_codes: ["staff"],
     };
     vi.spyOn(Pool.prototype, "query").mockImplementation(async (...args: unknown[]) => {
       const params = args[1] as unknown[] | undefined;

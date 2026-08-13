@@ -131,9 +131,14 @@ function 执行本地容器迁移() {
     .sort((左, 右) => 左.localeCompare(右, "zh-CN"));
   const 正式落表 = 所有迁移.find((文件名) => 文件名.includes("S8_004"));
   const 前置迁移 = 所有迁移.filter(
-    (文件名) => !文件名.includes("S8_004") && !文件名.includes("S9_"),
+    (文件名) =>
+      !文件名.includes("S8_004") &&
+      !文件名.includes("S9_") &&
+      !文件名.includes("S10_"),
   );
-  const 后置迁移 = 所有迁移.filter((文件名) => 文件名.includes("S9_"));
+  const 后置迁移 = 所有迁移.filter(
+    (文件名) => 文件名.includes("S9_") || 文件名.includes("S10_"),
+  );
 
   for (const 文件名 of 前置迁移) 执行迁移文件(文件名);
   执行阶段8暂存装载();

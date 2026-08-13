@@ -29,6 +29,7 @@ interface 交付用户 {
   defaultPath: string;
   allowedPaths: string[];
   pageUser: 业务页面用户;
+  roleCodes: string[];
 }
 
 type 业务页面角色 = "superadmin" | "admin" | "partner_admin" | "staff";
@@ -102,11 +103,13 @@ interface 数据库用户行 {
   extra_json: Record<string, unknown> | null;
   partner_id: string | null;
   partner_name: string | null;
+  role_codes: string[] | null;
+  phone: string | null;
 }
 
-interface UniSdp本地用户匹配结果 {
+interface 单点登录本地匹配结果 {
   用户: 交付用户;
-  匹配方式: "username" | "partner_phone" | "partner_phone_username";
+  匹配方式: "username" | "partner_phone";
 }
 
 interface 认证路由参数 {
@@ -416,11 +419,27 @@ async function 处理Iam单点登录(
       iamDeptName: iam身份.deptName,
       resultCode: "success",
     });
-    const 用户 = await 查找可登录用户(iam身份.username, 配置);
-    if (!用户) {
-      throw new 应用错误("V3_AUTH_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
+    const 本地匹配 = await 查找并匹配单点登录用户(
+      { username: iam身份.username, rawUsername: iam身份.rawUsername },
+      配置,
+    );
+    if (!本地匹配) {
+      // 区分错误文案:手机号形态走 V3_AUTH_SSO_PARTNER_NOT_FOUND,管理员形态走 V3_AUTH_SSO_USER_NOT_FOUND。
+      const 形态 = 判定单点登录值形态(iam身份.username);
+      throw new 应用错误(
+        形态 === "partner_phone"
+          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
+          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone"
+          ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
+          : "CRM 未开通该单点登录账号。",
+        403,
+      );
     }
-    const 登录入口 = entry || 识别用户单点登录入口(用户);
+    const 用户 = 本地匹配.用户;
+    // 单点登录入口严格按形态决定:手机号→partner,username→admin。请求方传入的 entry 仅作为
+    // 校验 isaid 的提示,不再作为最终入口,避免前端 redirect 把渠道用户带进 admin 入口。
+    const 登录入口 = 本地匹配.匹配方式 === "partner_phone" ? "partner" : "admin";
     if (!允许进入工作区(用户, 登录入口)) {
       throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通该单点登录入口。", 403);
     }
@@ -437,6 +456,7 @@ async function 处理Iam单点登录(
       displayName: 用户.displayName,
       roleName: 用户.roleName,
       entry: 登录入口,
+      localUserMatchMode: 本地匹配.匹配方式,
       clientType,
       defaultPath: 用户.defaultPath,
       allowedPathCount: 用户.allowedPaths.length,
@@ -456,6 +476,7 @@ async function 处理Iam单点登录(
           pageSession: 页面会话,
           mobileSession: 移动端会话,
           entry: 登录入口,
+          matchedBy: 本地匹配.匹配方式,
           clientType,
           expiresInSeconds: 配置.ttlSeconds,
         },
@@ -509,12 +530,26 @@ async function 处理UniSdp单点登录(
       ...读取UniSdp身份日志字段(uniSdp身份, 配置),
       resultCode: "success",
     });
-    const 本地匹配 = await 查找UniSdp单点登录用户(uniSdp身份, 配置);
+    const 本地匹配 = await 查找并匹配单点登录用户(
+      { username: uniSdp身份.username, rawUsername: uniSdp身份.rawUsername, mobile: uniSdp身份.mobile },
+      配置,
+    );
     if (!本地匹配) {
-      throw new 应用错误("V3_AUTH_UNISDP_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
+      // 区分错误文案:手机号形态走 V3_AUTH_SSO_PARTNER_NOT_FOUND,管理员形态走 V3_AUTH_SSO_USER_NOT_FOUND。
+      const 形态 = 判定单点登录值形态(uniSdp身份.mobile || uniSdp身份.username);
+      throw new 应用错误(
+        形态 === "partner_phone"
+          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
+          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone"
+          ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
+          : "CRM 未开通该单点登录账号。",
+        403,
+      );
     }
     const 用户 = 本地匹配.用户;
-    const 登录入口 = 识别用户单点登录入口(用户);
+    // UniSDP 入口同样严格按形态决定。识别用户单点登录入口不再作为唯一决定因素。
+    const 登录入口 = 本地匹配.匹配方式 === "partner_phone" ? "partner" : "admin";
     const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
     const 页面会话 = 创建业务页面会话(用户);
     const 移动端会话 = 创建移动端会话(用户, 配置);
@@ -548,6 +583,7 @@ async function 处理UniSdp单点登录(
           pageSession: 页面会话,
           mobileSession: 移动端会话,
           entry: 登录入口,
+          matchedBy: 本地匹配.匹配方式,
           clientType: "pc",
           provider: "unisdp",
           expiresInSeconds: 配置.ttlSeconds,
@@ -601,15 +637,28 @@ async function 处理UniSdp门户单点登录(
       ...读取UniSdp身份日志字段(uniSdp身份, 配置),
       resultCode: "success",
     });
-    const 本地匹配 = await 查找UniSdp单点登录用户(uniSdp身份, 配置);
+    const 本地匹配 = await 查找并匹配单点登录用户(
+      { username: uniSdp身份.username, rawUsername: uniSdp身份.rawUsername, mobile: uniSdp身份.mobile },
+      配置,
+    );
     if (!本地匹配) {
-      throw new 应用错误("V3_AUTH_UNISDP_SSO_USER_NOT_FOUND", "CRM 未开通该单点登录账号。", 403);
+      const 形态 = 判定单点登录值形态(uniSdp身份.mobile || uniSdp身份.username);
+      throw new 应用错误(
+        形态 === "partner_phone"
+          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
+          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone"
+          ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
+          : "CRM 未开通该单点登录账号。",
+        403,
+      );
     }
     const 用户 = 本地匹配.用户;
 
     const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
     const 页面会话 = 创建业务页面会话(用户);
-    const 目标路径 = 读取门户登录后路径(用户);
+    // 门户落点严格按形态:手机号→partner 入口,username→admin 入口。
+    const 目标路径 = 本地匹配.匹配方式 === "partner_phone" ? "/partner.html" : "/admin.html";
     写入会话Cookie(res, 配置, sessionToken);
     记录认证事件(配置, "info", "UniSDP门户单点登录成功", {
       event: "auth.unisdp_portal_sso.succeeded",
@@ -691,27 +740,9 @@ function 选择单点登录校验入口(entry: 单点登录入口 | null, 配置
   return 管理员标识 ? "admin" : "partner";
 }
 
-function 识别用户单点登录入口(用户: 交付用户): 单点登录入口 {
-  if (是工作区路径(用户.defaultPath, "admin") && 允许进入工作区(用户, "admin")) return "admin";
-  if (是工作区路径(用户.defaultPath, "partner") && 允许进入工作区(用户, "partner"))
-    return "partner";
-  if (允许进入工作区(用户, "admin")) return "admin";
-  if (允许进入工作区(用户, "partner")) return "partner";
-  throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通可用的单点登录入口。", 403);
-}
-
-function 读取门户登录后路径(用户: 交付用户): string {
-  return 识别用户单点登录入口(用户) === "partner" ? "/partner.html" : "/admin.html";
-}
-
 function 允许进入工作区(用户: 交付用户, entry: 单点登录入口): boolean {
   const prefix = entry === "admin" ? "/admin" : "/partner";
   return 用户.allowedPaths.some((path) => path === prefix || path.startsWith(prefix + "/"));
-}
-
-function 是工作区路径(path: string, entry: 单点登录入口): boolean {
-  const prefix = entry === "admin" ? "/admin" : "/partner";
-  return path === prefix || path.startsWith(prefix + "/");
 }
 
 function 读取登录请求(req: Request): { username: string; password: string } {
@@ -1161,7 +1192,7 @@ function 解析交付用户(value: string | undefined): 交付用户[] {
   if (!Array.isArray(parsed))
     throw new 应用错误("V3_AUTH_CONFIG_INVALID", "交付账号配置格式不正确。", 500);
   return parsed.map((item) => {
-    const 用户 = item as Partial<交付用户>;
+    const 用户 = item as Partial<交付用户> & { phone?: string };
     if (
       !用户.username ||
       !用户.displayName ||
@@ -1172,6 +1203,13 @@ function 解析交付用户(value: string | undefined): 交付用户[] {
     ) {
       throw new 应用错误("V3_AUTH_CONFIG_INVALID", "交付账号配置字段不完整。", 500);
     }
+    // 应急账号未声明 roleCodes 时,按 allowedPaths 推断主身份:
+    // 含 /admin 视为管理员,否则视为渠道用户。保留旧调用方不感知。
+    const 显式角色 = Array.isArray(用户.roleCodes) ? 用户.roleCodes.filter(Boolean) : null;
+    const 推断角色 = 用户.allowedPaths.some((p) => p === "/admin" || p.startsWith("/admin/"))
+      ? ["admin"]
+      : ["staff"];
+    const roleCodes = 显式角色 && 显式角色.length > 0 ? 显式角色 : 推断角色;
     const 标准用户 = {
       username: 用户.username,
       displayName: 用户.displayName,
@@ -1179,6 +1217,7 @@ function 解析交付用户(value: string | undefined): 交付用户[] {
       passwordHash: 用户.passwordHash,
       defaultPath: 用户.defaultPath,
       allowedPaths: 用户.allowedPaths,
+      roleCodes,
     };
     return { ...标准用户, pageUser: 创建配置业务页面用户(标准用户) };
   });
@@ -1220,25 +1259,43 @@ async function 查找可登录用户(username: string, 配置: 认证配置): Pr
   return 配置.users.find((项) => 项.username.toLowerCase() === username.toLowerCase()) || null;
 }
 
-async function 查找UniSdp单点登录用户(
-  身份: UniSdp单点登录身份,
-  配置: 认证配置,
-): Promise<UniSdp本地用户匹配结果 | null> {
-  const 单点用户名手机号 = 规范中国大陆手机号(身份.username);
-  if (单点用户名手机号) {
-    const 渠道手机号用户 = await 查询渠道手机号用户(单点用户名手机号, 配置);
-    if (渠道手机号用户) return { 用户: 渠道手机号用户, 匹配方式: "partner_phone" };
+type 单点登录值形态 = "partner_phone" | "admin_username" | "unknown";
 
-    const 渠道用户名用户 = await 查找可登录用户(身份.username, 配置);
-    if (渠道用户名用户 && 是仅渠道账号(渠道用户名用户)) {
-      return { 用户: 渠道用户名用户, 匹配方式: "partner_phone_username" };
-    }
+function 判定单点登录值形态(value: string): 单点登录值形态 {
+  const 数字串 = String(value || "").replace(/\D+/g, "");
+  if (/^1\d{10}$/.test(数字串)) return "partner_phone";
+  if (String(value || "").trim()) return "admin_username";
+  return "unknown";
+}
+
+function 是管理员账号(用户: 交付用户): boolean {
+  const 角色 = Array.isArray(用户.roleCodes) ? 用户.roleCodes : [];
+  return 角色.includes("superadmin") || 角色.includes("admin");
+}
+
+async function 查找并匹配单点登录用户(
+  身份: { username: string; rawUsername?: string; mobile?: string },
+  配置: 认证配置,
+): Promise<单点登录本地匹配结果 | null> {
+  // UniSDP 同时给 mobile 与 username;IAM 只给 username。形态判定统一用 mobile 优先(更精确),
+  // 否则回退到 username。IAM/UniSDP 对渠道用户的 username 即手机号本身,因此形态为 partner_phone。
+  const 候选 = (身份.mobile && String(身份.mobile).trim()) || 身份.username;
+  const 形态 = 判定单点登录值形态(候选);
+  if (形态 === "unknown") return null;
+
+  if (形态 === "partner_phone") {
+    const 渠道手机号用户 = await 查询渠道手机号用户(规范中国大陆手机号(候选) || 候选, 配置);
+    if (渠道手机号用户) return { 用户: 渠道手机号用户, 匹配方式: "partner_phone" };
     return null;
   }
 
+  // admin_username:必须命中且具备管理员角色(超管/admin)。严格切分避免渠道账号 username 撞管理员。
   const 用户名用户 = await 查找可登录用户(身份.username, 配置);
-  return 用户名用户 ? { 用户: 用户名用户, 匹配方式: "username" } : null;
+  if (!用户名用户) return null;
+  if (!是管理员账号(用户名用户)) return null;
+  return { 用户: 用户名用户, 匹配方式: "username" };
 }
+
 
 async function 查找并校验用户(
   username: string,
@@ -1265,27 +1322,28 @@ async function 查询数据库用户(username: string, 配置: 认证配置): Pr
 
 async function 查询渠道手机号用户(mobile: string, 配置: 认证配置): Promise<交付用户 | null> {
   if (!配置.pool) return null;
-  const 手机字段 = `
-    regexp_replace(
-      COALESCE(
-        NULLIF(u.phone, ''),
-        NULLIF(u.extra_json->>'phone', ''),
-        NULLIF(u.extra_json->>'mobile', ''),
-        NULLIF(u.extra_json->>'mobilePhone', ''),
-        NULLIF(u.extra_json->>'phoneNumber', ''),
-        ''
-      ),
-      '\\D+',
-      '',
-      'g'
+  // KB-022:sso-optimize
+  // 优先匹配 iam.users.phone(走 ux_users_phone_normalized_unique 唯一索引,生产期间一致);
+  // 当 phone 为空时,按历史兼容顺序回退到 extra_json.phone / extra_json.mobile /
+  // extra_json.mobilePhone / extra_json.phoneNumber,覆盖迁移期账号。
+  // 注意:extra_json 兜底不享有数据库唯一约束;若命中多条(脏数据),由下方
+  // V3_AUTH_SSO_PARTNER_PHONE_NOT_UNIQUE 抛错兜底,等同于运行时自检。
+  const 手机候选 = `
+    COALESCE(
+      NULLIF(u.phone, ''),
+      NULLIF(u.extra_json->>'phone', ''),
+      NULLIF(u.extra_json->>'mobile', ''),
+      NULLIF(u.extra_json->>'mobilePhone', ''),
+      NULLIF(u.extra_json->>'phoneNumber', ''),
+      ''
     )
   `;
   try {
     const rows = await 查询数据库用户行(
       配置,
       `
-      length(${手机字段}) >= 11
-        AND right(${手机字段}, 11) = $1
+      length(${手机候选}) >= 11
+        AND right(regexp_replace(${手机候选}, '\\D+', '', 'g'), 11) = $1
         AND (
           EXISTS (
             SELECT 1
@@ -1308,7 +1366,7 @@ async function 查询渠道手机号用户(mobile: string, 配置: 认证配置)
     const 可登录用户 = rows.map(从数据库行创建交付用户).filter((用户) => 用户 !== null);
     if (可登录用户.length > 1) {
       throw new 应用错误(
-        "V3_AUTH_UNISDP_SSO_PHONE_NOT_UNIQUE",
+        "V3_AUTH_SSO_PARTNER_PHONE_NOT_UNIQUE",
         "CRM 中存在多个渠道账号使用同一手机号，请先处理账号手机号唯一性。",
         409,
       );
@@ -1319,6 +1377,7 @@ async function 查询渠道手机号用户(mobile: string, 配置: 认证配置)
     return null;
   }
 }
+
 
 async function 查询数据库用户行(
   配置: 认证配置,
@@ -1363,6 +1422,8 @@ async function 查询数据库用户行(
         )[1],
         '渠道用户'
       ) AS role_name,
+      array_agg(DISTINCT r.role_code) FILTER (WHERE r.role_code IS NOT NULL) AS role_codes,
+      u.phone,
       reg.region_name,
       u.extra_json,
       COALESCE(
@@ -1386,7 +1447,7 @@ async function 查询数据库用户行(
     WHERE (${whereSql})
       AND u.status_code = 'active'
     GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash,
-      reg.region_name, u.extra_json
+      reg.region_name, u.extra_json, u.phone
     LIMIT ${limit}
     `,
     params,
@@ -1406,6 +1467,7 @@ function 从数据库行创建交付用户(row: 数据库用户行 | undefined):
     defaultPath: 角色默认路径(roleCode),
     allowedPaths: 角色允许路径(roleCode),
     pageUser,
+    roleCodes: Array.isArray(row.role_codes) ? row.role_codes.filter(Boolean) : [],
   };
 }
 
@@ -1415,9 +1477,6 @@ function 规范中国大陆手机号(value: string): string {
   return /^1\d{10}$/.test(手机号) ? 手机号 : "";
 }
 
-function 是仅渠道账号(用户: 交付用户): boolean {
-  return 允许进入工作区(用户, "partner") && !允许进入工作区(用户, "admin");
-}
 
 function 创建配置业务页面用户(用户: {
   username: string;

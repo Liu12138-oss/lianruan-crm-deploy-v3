@@ -1,6 +1,6 @@
 {
   "name": "lianruan-crm-v3",
-  "version": "3.0.0-stage9.39.20260812-kb021",
+  "version": "3.0.0-stage9.40.20260813-kb022",
   "private": true,
   "description": "联软渠道管理平台V3工程化骨架",
   "type": "module",
