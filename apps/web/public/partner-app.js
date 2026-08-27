@@ -806,9 +806,9 @@ const MainLayout = {
           <span class="current">{{ pageTitle }}</span>
         </div>
         <div class="header-actions">
-          <button class="header-btn" @click="showNotif=!showNotif" title="通知">
+          <button class="header-btn" @click="toggleMessageDrawer" title="通知" aria-label="打开通知中心">
             🔔
-            <span class="notif-dot" v-if="unreadCount"></span>
+            <span class="notif-dot" v-if="messageUnreadCount"></span>
           </button>
           <button class="header-btn" title="帮助">❓</button>
           <div style="font-size:13px;color:#666">{{ store.user.name.slice(0,6) }}{{ store.user.name.length>6?'…':'' }}</div>
@@ -822,14 +822,17 @@ const MainLayout = {
     <!-- 通知面板 -->
     <div class="notif-panel" :class="{open:showNotif}">
       <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
-        <strong style="font-size:15px">通知中心</strong>
-        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="markAllRead">全部已读</span>
+        <strong style="font-size:15px">通知中心<span v-if="messageUnreadCount">（{{ messageUnreadCount }} 条未读）</span></strong>
+        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="openNotificationsPage">查看全部</span>
       </div>
       <div style="flex:1;overflow-y:auto">
-        <div v-for="n in store.notifications" :key="n.id" class="notif-item" :class="{unread:n.unread}" @click="markNotificationRead(n)">
+        <p v-if="messageLoading" style="padding:20px;color:#6e6e73;font-size:13px">正在加载通知…</p>
+        <p v-else-if="messageError" style="padding:20px;color:#d14343;font-size:13px">{{ messageError }}</p>
+        <p v-else-if="!messageItems.length" style="padding:20px;color:#6e6e73;font-size:13px">暂无通知</p>
+        <div v-for="n in messageItems" :key="n.id" class="notif-item" :class="{unread:n.statusCode === 'unread'}" @click="openMessage(n)">
           <div class="ni-title">{{ n.title }}</div>
-          <div class="ni-desc">{{ n.desc }}</div>
-          <div class="ni-time">{{ $formatBusinessDateTime(n.time) }}</div>
+          <div class="ni-desc">{{ n.body }}</div>
+          <div class="ni-time">{{ $formatBusinessDateTime(n.createdAt) }}</div>
         </div>
       </div>
     </div>
@@ -839,6 +842,11 @@ const MainLayout = {
     const router = VueRouter.useRouter();
     const route = VueRouter.useRoute();
     const showNotif = ref(false);
+    const messageItems = ref([]);
+    const messageUnreadCount = ref(0);
+    const messageLoading = ref(false);
+    const messageError = ref('');
+    const messageClient = window.createMessageClient?.({ getToken: getPartnerAuthToken });
     const isAdmin = computed(() => store.user?.role === 'admin' || store.user?.role === 'superadmin');
     const isSuperAdmin = computed(() => store.user?.role === 'superadmin');
     const isPartnerAdmin = computed(() => store.user?.role === 'partner_admin');
@@ -891,6 +899,7 @@ const MainLayout = {
       '/quote/new': '新建报价',
       '/order': '订单管理',
       '/products': '产品目录',
+      '/notifications': '通知中心',
     };
     const pageTitle = computed(() => {
       for (const [k,v] of Object.entries(pageTitles)) {
@@ -899,6 +908,43 @@ const MainLayout = {
       return '工作台';
     });
     function go(p) { router.push(p); }
+    async function loadMessages() {
+      if (!messageClient) return;
+      messageLoading.value = true;
+      messageError.value = '';
+      try {
+        const [list, unread] = await Promise.all([messageClient.list({ limit: 8 }), messageClient.unreadCount()]);
+        messageItems.value = list.items;
+        messageUnreadCount.value = unread;
+      } catch (error) {
+        messageItems.value = [];
+        messageUnreadCount.value = 0;
+        messageError.value = error.message || '消息服务暂时不可用，请稍后重试。';
+      } finally {
+        messageLoading.value = false;
+      }
+    }
+    async function openMessage(notification) {
+      try {
+        if (notification.statusCode === 'unread') await messageClient?.markRead(notification.id);
+        notification.statusCode = 'read';
+        messageUnreadCount.value = Math.max(0, messageUnreadCount.value - 1);
+        const target = window.resolveMessageTarget?.(notification, { scope: 'partner', device: 'desktop' });
+        if (!target) throw new Error('该记录不存在、已失效或当前账号无权访问。');
+        showNotif.value = false;
+        go(target);
+      } catch (error) {
+        messageError.value = error.message || '该记录不存在、已失效或当前账号无权访问。';
+      }
+    }
+    function toggleMessageDrawer() {
+      showNotif.value = !showNotif.value;
+      if (showNotif.value) loadMessages();
+    }
+    function openNotificationsPage() {
+      showNotif.value = false;
+      go('/notifications');
+    }
     function logout() {
       if (confirm('确认退出登录？')) {
         partnerFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -960,8 +1006,59 @@ const MainLayout = {
       passwordLoading.value = false;
     }
     
+    onMounted(loadMessages);
     return { store, showNotif, isAdmin, isSuperAdmin, isPartnerAdmin, unreadCount, pendingCount, hotOppCount, reviewCount, pageTitle, go, logout, markAllRead, markNotificationRead,
+      messageItems, messageUnreadCount, messageLoading, messageError, toggleMessageDrawer, openMessage, openNotificationsPage,
       showChangePassword, passwordForm, passwordError, passwordLoading, openChangePassword, doChangePassword };
+  }
+};
+
+const NotificationsPage = {
+  template: `
+  <section>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div><h2 style="font-size:18px;font-weight:700;color:#1a1a1a">通知中心</h2><p style="font-size:13px;color:#888;margin-top:4px">仅展示当前账号有权查看的站内通知</p></div>
+      <button class="btn btn-default" :disabled="loading" @click="load">刷新</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:14px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
+        <strong>全部通知</strong><button class="btn btn-text btn-sm" :disabled="!unreadCount || loading" @click="markAll">全部已读</button>
+      </div>
+      <p v-if="loading" style="padding:24px;color:#6e6e73">正在加载通知…</p>
+      <div v-else-if="error" style="padding:24px;color:#d14343"><p>{{ error }}</p><button class="btn btn-default btn-sm" style="margin-top:12px" @click="load">重试</button></div>
+      <p v-else-if="!items.length" style="padding:32px;text-align:center;color:#6e6e73">暂无通知</p>
+      <button v-else v-for="item in items" :key="item.id" type="button" class="notif-item" :class="{unread:item.statusCode === 'unread'}" style="display:block;width:100%;text-align:left;background:#fff;border-top:1px solid #f5f5f5" @click="open(item)">
+        <div class="ni-title">{{ item.title }}</div><div class="ni-desc">{{ item.body }}</div><div class="ni-time">{{ formatTime(item.createdAt) }}</div>
+      </button>
+    </div>
+  </section>`,
+  setup() {
+    const router = VueRouter.useRouter();
+    const client = window.createMessageClient?.({ getToken: getPartnerAuthToken });
+    const items = ref([]); const unreadCount = ref(0); const loading = ref(false); const error = ref('');
+    const formatTime = value => formatBusinessDateTime(value);
+    async function load() {
+      if (!client) { error.value = '消息服务暂时不可用，请稍后重试。'; return; }
+      loading.value = true; error.value = '';
+      try { const [list, unread] = await Promise.all([client.list({ limit: 20 }), client.unreadCount()]); items.value = list.items; unreadCount.value = unread; }
+      catch (reason) { items.value = []; error.value = reason.message || '消息服务暂时不可用，请稍后重试。'; }
+      finally { loading.value = false; }
+    }
+    async function markAll() {
+      try { await client.markAllRead(); items.value.forEach(item => { item.statusCode = 'read'; }); unreadCount.value = 0; }
+      catch (reason) { error.value = reason.message || '标记已读失败，请稍后重试。'; }
+    }
+    async function open(item) {
+      try {
+        if (item.statusCode === 'unread') await client.markRead(item.id);
+        item.statusCode = 'read'; unreadCount.value = Math.max(0, unreadCount.value - 1);
+        const target = window.resolveMessageTarget?.(item, { scope: 'partner', device: 'desktop' });
+        if (!target) throw new Error('该记录不存在、已失效或当前账号无权访问。');
+        router.push(target);
+      } catch (reason) { error.value = reason.message || '该记录不存在、已失效或当前账号无权访问。'; }
+    }
+    onMounted(load);
+    return { items, unreadCount, loading, error, load, markAll, open, formatTime };
   }
 };
 
@@ -5097,6 +5194,7 @@ const OrderList = {
     // 判断某订单是否是当前一级渠道商的下属二级渠道商的订单（支持多个上级渠道商）
     function isSecondarySubOrder(order) {
       if (!order || !order.partnerId) return false;
+      if (order.legacyV2Order) return false;
       const myPartnerId = store.user?.partnerId;
       if (!myPartnerId) return false;
       
@@ -5283,7 +5381,7 @@ const OrderList = {
     
     function isPrimaryPendingStatus(status) { return status === 'pending' || status === 'pending_primary_confirm'; }
     function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待一级确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
     
     // 获取发货时间
@@ -9260,6 +9358,7 @@ const router = createRouter({
         { path: 'quote/edit/:id', component: QuoteNew },
         { path: 'order', component: OrderList },
         { path: 'products', component: Products },
+        { path: 'notifications', component: NotificationsPage },
       ]
     }
   ]

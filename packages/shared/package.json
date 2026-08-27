@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/shared",
-  "version": "3.0.0-stage9.40.20260813-kb022",
+  "version": "3.0.0-stage10.03.20260824-kb024",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

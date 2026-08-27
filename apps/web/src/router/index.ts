@@ -24,6 +24,39 @@ interface 业务子路由 {
 }
 
 const 业务页面 = () => import("../pages/BusinessWorkspacePage.vue");
+const 组织架构页面 = () => import("../pages/admin/platform-admin/OrganizationWorkspacePage.vue");
+
+const 组织架构工作区路由: RouteRecordRaw[] = [
+  {
+    path: "/workspace/admin/platform-admin/organization",
+    redirect: "/workspace/admin/platform-admin/organization/units",
+  },
+  ...创建组织工作区页面([
+    ["units", "组织与岗位"],
+    ["staff", "人员与任职"],
+    ["business-roles", "业务角色"],
+    ["certifications", "证书管理"],
+    ["data-scopes", "权限与范围"],
+    ["permission-roles", "权限与范围"],
+    ["offboarding", "离职交接"],
+    ["directory-sync", "企微组织同步"],
+  ]),
+];
+
+function 创建组织工作区页面(栏目列表: Array<[string, string]>): RouteRecordRaw[] {
+  return 栏目列表.map(([栏目, 标题]) => {
+    const 组织栏目 =
+      栏目 === "data-scopes" || 栏目 === "permission-roles"
+        ? "access"
+        : (栏目 as NonNullable<RouteRecordRaw["meta"]>["组织栏目"]);
+    return {
+      path: `/workspace/admin/platform-admin/organization/${栏目}`,
+      name: `组织架构-${标题}`,
+      component: 组织架构页面,
+      meta: { 需要登录: true, 标题, 组织栏目 },
+    } as RouteRecordRaw;
+  });
+}
 
 const 管理端入口: 业务子路由[] = [
   { path: "", name: "管理端首页", 标题: "管理端", 描述: "管理端业务概览。", 页面动作: "overview" },
@@ -474,6 +507,7 @@ export const router = createRouter({
       name: "UniSDP平台单点登录入口",
       component: () => import("../pages/SingleSignOnPage.vue"),
     },
+    ...组织架构工作区路由,
     ...布局路由表,
     ...错误路由表,
   ],

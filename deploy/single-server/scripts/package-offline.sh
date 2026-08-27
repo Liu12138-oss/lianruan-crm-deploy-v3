@@ -127,6 +127,46 @@ cp "${project_root}/docs/deployment/V3版本生产部署文档.md" "${output_dir
 
 find "${output_dir}/scripts" -type f -name "*.sh" -exec chmod 750 {} \;
 
+写入包内版本号() {
+  local target_file="$1"
+  local temp_file="${target_file}.tmp.$$"
+
+  awk -v version_tag="${version_tag}" '
+    /^V3_IMAGE_TAG=/ {
+      print "V3_IMAGE_TAG=" version_tag
+      next
+    }
+    /^V3_BUILD_VERSION=/ {
+      print "V3_BUILD_VERSION=" version_tag
+      next
+    }
+    /^version_tag="\$\{V3_IMAGE_TAG:-/ {
+      print "version_tag=\"${V3_IMAGE_TAG:-" version_tag "}\""
+      next
+    }
+    { print }
+  ' "${target_file}" > "${temp_file}"
+  mv "${temp_file}" "${target_file}"
+}
+
+写入包内版本号 "${output_dir}/config/deploy.env.example"
+写入包内版本号 "${output_dir}/config/v3.env.template"
+写入包内版本号 "${output_dir}/scripts/install.sh"
+
+生成包内校验清单() {
+  mkdir -p "${output_dir}/manifest"
+  (
+    cd "${output_dir}"
+    if command -v sha256sum >/dev/null 2>&1; then
+      find . -type f ! -path './manifest/SHA256SUMS' -print | LC_ALL=C sort | xargs sha256sum
+    else
+      find . -type f ! -path './manifest/SHA256SUMS' -print | LC_ALL=C sort | xargs shasum -a 256
+    fi
+  ) > "${output_dir}/manifest/SHA256SUMS"
+}
+
+生成包内校验清单
+
 cd "${output_root}"
 
 生成校验文件() {

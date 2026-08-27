@@ -263,6 +263,23 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
+  router.put("/orders/:id/price-adjust", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.更新订单状态(
+            读取路由参数(req, "id"),
+            { ...req.body, status: "pending_superadmin_confirm", action: "price_adjust" },
+            读取用户(req),
+          ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
   router.put("/orders/:id/primary-confirm", async (req, res, next) => {
     try {
       res.json(

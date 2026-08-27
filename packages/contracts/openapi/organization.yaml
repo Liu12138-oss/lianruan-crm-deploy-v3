@@ -1,0 +1,1511 @@
+openapi: 3.1.0
+info:
+  title: 联软CRM V3组织架构与企微目录同步接口契约
+  version: 2026-08-26
+  description: |
+    本契约描述当前已挂载的组织架构、角色授权和企业微信目录同步接口。
+    所有接口使用同源签名 Cookie 会话，且当前实现只允许 superadmin 访问；
+    不接受 operatorId、用户名、兼容令牌或其他客户端自报身份作为授权依据。
+    组织功能由 V3_ORGANIZATION_ENABLED 控制，写入还受 V3_ORGANIZATION_WRITE_ENABLED 控制；
+    账号入口整合另由 V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED 控制，且仅影响管理端导航呈现；
+    停用账号旧会话防护受 V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED 独立控制；
+    停用归档交接额外受 V3_ORGANIZATION_OFFBOARDING_ENABLED 控制，且开启前必须先开启账号状态防护；
+    企微目录同步额外受 V3_DIRECTORY_SYNC_ENABLED 控制。以上开关默认均为 false。
+    企微目录同步首期仅创建和读取 integration 域预览数据，绝不改写组织、账号、渠道或 CRM 主体数据。
+servers:
+  - url: /
+    description: V3 同源服务入口
+security:
+  - V3签名会话: []
+tags:
+  - name: 组织架构
+    description: 组织、岗位、任职、负责人、业务角色、证书、数据范围和离职交接。
+  - name: 角色与权限
+    description: 系统角色、角色关联用户与账号授权查询；仅超级管理员可访问。
+  - name: 企微目录同步
+    description: 企业微信目录的只读连接、预览、批次和差异查询。
+  - name: 泛微 OA 身份
+    description: 泛微 OA／eteams 发起人身份的候选核验与正式映射维护；候选不具备流程发起资格。
+paths:
+  /api/org/status:
+    get:
+      tags: [组织架构]
+      operationId: 读取组织功能状态
+      summary: 读取组织架构功能开关状态
+      description: 功能关闭时返回 enabled=false；功能开启后要求 superadmin 会话。
+      responses:
+        "200":
+          description: 当前开关状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/组织状态成功响应"
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+  /api/rbac/accounts:
+    get:
+      tags: [角色与权限]
+      operationId: 检索组织账号
+      summary: 按用户名或姓名检索账号
+      description: 仅超级管理员可调用。返回账号、系统角色以及内部任职和渠道成员关系摘要；不返回密码散列、外部身份主体或扩展原始数据。
+      parameters:
+        - name: keyword
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+  /api/rbac/roles/{id}/users:
+    get:
+      tags: [角色与权限]
+      operationId: 查询角色关联用户
+      summary: 分页查询拥有指定系统角色的用户
+      description: 仅超级管理员可调用。用户详情仅返回用于定位账号和核对组织归属的最小必要字段。
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - name: keyword
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200": { $ref: "#/components/responses/分页成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+  /api/org/units/tree:
+    get:
+      tags: [组织架构]
+      operationId: 查询组织树
+      summary: 查询组织树
+      x-运行条件: V3_ORGANIZATION_ENABLED=true
+      responses:
+        "200": { $ref: "#/components/responses/组织树成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/eteams-identity:
+    get:
+      tags: [泛微 OA 身份]
+      operationId: 查询泛微OA身份
+      summary: 查询账号的泛微 OA 正式身份与全部核验候选
+      description: 仅超级管理员可调用。正式身份来自 iam.external_identities；候选来自独立表且不得用于发起 OA 流程。
+      parameters: [{ $ref: "#/components/parameters/用户编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/eteams-identity-candidates:
+    post:
+      tags: [泛微 OA 身份]
+      operationId: 创建泛微OA身份候选
+      summary: 录入待人工核验的泛微 OA 身份候选
+      description: 写入需同时开启组织功能和组织写入开关。不得按姓名自动创建候选或正式映射；本接口只接受人工明确录入的候选。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/泛微OA身份候选请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/eteams-identity-candidates/{candidateId}:
+    put:
+      tags: [泛微 OA 身份]
+      operationId: 更正泛微OA身份候选
+      summary: 更正仍处于待核验状态的候选
+      description: 已确认、已驳回或已替代的候选只读保留，禁止覆盖。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/候选编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/泛微OA身份候选更新请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/users/{userId}/eteams-identity-candidates/{candidateId}/confirm:
+    post:
+      tags: [泛微 OA 身份]
+      operationId: 确认泛微OA身份候选
+      summary: 原子确认候选并创建泛微 OA 正式身份
+      description: 服务端同时校验用户与外部 userid 的有效映射唯一性；冲突时拒绝覆盖。确认成功后，该身份才可作为后续 OA 发起人。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/候选编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/泛微OA身份确认请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/users/{userId}/eteams-identity-candidates/{candidateId}/reject:
+    post:
+      tags: [泛微 OA 身份]
+      operationId: 驳回泛微OA身份候选
+      summary: 驳回错误或无法确认的候选
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/候选编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/泛微OA身份驳回请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/users/{userId}/eteams-identity/disable:
+    post:
+      tags: [泛微 OA 身份]
+      operationId: 停用泛微OA正式身份
+      summary: 停用错误或过期的泛微 OA 正式映射
+      description: 不物理删除映射；停用后必须重新录入并人工确认候选，才能恢复 OA 发起资格。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/泛微OA正式身份停用请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/channel-members/{id}/profile:
+    get:
+      tags: [组织架构]
+      operationId: 查询统一渠道成员档案
+      summary: 查询组织、渠道商员工和企业管理员入口共用的成员档案
+      description: 仅接受签名 Cookie 超级管理员会话。企业管理员身份独立返回；业务角色固定为销售或技术；证书按用户返回。
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    put:
+      tags: [组织架构]
+      operationId: 保存统一渠道成员档案
+      summary: 原子保存成员基本资料、销售技术角色及显式证书授权变化
+      description: 不允许修改用户名、账号状态、密码、外部身份、企业管理员身份或系统权限角色。业务角色和证书互不自动联动。
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/保存统一渠道成员档案请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/units/{id}:
+    get:
+      tags: [组织架构]
+      operationId: 查询组织详情
+      summary: 查询单个组织
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    put:
+      tags: [组织架构]
+      operationId: 更新组织
+      summary: 更新组织名称、父组织和排序
+      description: 写入要求组织和写入开关开启。更新必须提供 rowVersion；建议发送 Idempotency-Key，当前服务端兼容未发送该头的既有调用。
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/更新组织请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/units/{id}/status:
+    put:
+      tags: [组织架构]
+      operationId: 更新组织状态
+      summary: 启用、停用或归档组织
+      description: 归档守卫由服务端执行；不得由前端推断可执行状态。
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/状态更新请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/units:
+    post:
+      tags: [组织架构]
+      operationId: 创建组织
+      summary: 创建草稿组织
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/创建组织请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/positions:
+    get:
+      tags: [组织架构]
+      operationId: 查询岗位
+      summary: 按可选组织查询岗位
+      parameters:
+        - name: orgUnitId
+          in: query
+          schema: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 创建岗位
+      summary: 创建岗位字典项
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/创建岗位请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/positions/{id}:
+    put:
+      tags: [组织架构]
+      operationId: 更新岗位
+      summary: 更新岗位名称和类别
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/更新岗位请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/positions/{id}/status:
+    put:
+      tags: [组织架构]
+      operationId: 更新岗位状态
+      summary: 启用或停用岗位
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/状态更新请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/staff:
+    get:
+      tags: [组织架构]
+      operationId: 查询任职
+      summary: 查询人员任职
+      parameters:
+        - name: orgUnitId
+          in: query
+          schema: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/staff/{userId}/assignments:
+    post:
+      tags: [组织架构]
+      operationId: 创建任职
+      summary: 为尚无有效任职的用户创建唯一任职
+      description: 当前业务不支持一人多任职或跨部门任职；已有有效任职时返回 409，应改用调整任职接口。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/创建任职请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/assignments/{id}:
+    put:
+      tags: [组织架构]
+      operationId: 更新任职
+      summary: 调整唯一有效任职的部门和可选岗位
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/更新任职请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/assignments/{id}/expire:
+    put:
+      tags: [组织架构]
+      operationId: 结束任职
+      summary: 结束任职并保留历史
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/manager-relations:
+    get:
+      tags: [组织架构]
+      operationId: 查询负责人关系
+      summary: 查询负责人关系
+      parameters:
+        - name: subordinateAssignmentId
+          in: query
+          schema: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 创建负责人关系
+      summary: 创建直属、矩阵或临时负责人关系
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/负责人关系请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/manager-relations/{id}:
+    put:
+      tags: [组织架构]
+      operationId: 更新负责人关系
+      summary: 更新负责人关系有效期或类型
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/负责人关系更新请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/manager-relations/{id}/expire:
+    put:
+      tags: [组织架构]
+      operationId: 结束负责人关系
+      summary: 结束负责人关系
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/business-roles:
+    get:
+      tags: [组织架构]
+      operationId: 查询业务角色
+      summary: 查询业务角色字典
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 创建业务角色
+      summary: 创建业务角色字典项
+      description: 业务角色不等于权限角色，实际授权仍由服务端权限角色和数据范围决定。
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/业务角色请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/business-roles/{id}:
+    put:
+      tags: [组织架构]
+      operationId: 更新业务角色
+      summary: 更新业务角色名称、类别或领域
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/业务角色更新请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/business-roles/{id}/status:
+    put:
+      tags: [组织架构]
+      operationId: 更新业务角色状态
+      summary: 启用或停用业务角色
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/member-business-roles:
+    get:
+      tags: [组织架构]
+      operationId: 查询成员业务角色
+      summary: 查询成员业务角色
+      parameters:
+        - { name: businessRoleId, in: query, schema: { $ref: "#/components/schemas/UUID" } }
+        - { name: staffAssignmentId, in: query, schema: { $ref: "#/components/schemas/UUID" } }
+        - { name: partnerMemberId, in: query, schema: { $ref: "#/components/schemas/UUID" } }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 指派成员业务角色
+      summary: 为内部任职或渠道成员指派业务角色
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/成员业务角色请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/member-business-roles/{id}/expire:
+    put:
+      tags: [组织架构]
+      operationId: 结束成员业务角色
+      summary: 结束成员业务角色并保留历史
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/certification-templates:
+    get:
+      tags: [组织架构]
+      operationId: 查询证书模板
+      summary: 查询证书模板
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 创建证书模板
+      summary: 创建不同类别的证书模板
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/证书模板请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/member-certifications:
+    get:
+      tags: [组织架构]
+      operationId: 查询成员证书
+      summary: 按可选用户查询成员证书
+      parameters:
+        - { name: userId, in: query, schema: { $ref: "#/components/schemas/UUID" } }
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/certifications:
+    post:
+      tags: [组织架构]
+      operationId: 颁发成员证书
+      summary: 为指定用户颁发证书
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/颁发证书请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/users/{userId}:
+    delete:
+      deprecated: true
+      tags: [组织架构]
+      operationId: 拒绝物理删除历史账号
+      summary: 历史账号固定禁止物理删除
+      description: 保留该兼容路径仅用于返回稳定错误；账号退出必须使用“停用归档并交接”，账号、历史任职、证书和业务事实均保留。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      responses:
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织物理删除禁止" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/member-certifications/{id}/extend:
+    put:
+      tags: [组织架构]
+      operationId: 延期成员证书
+      summary: 延期有效证书
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/证书延期请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/member-certifications/{id}/revoke:
+    put:
+      tags: [组织架构]
+      operationId: 撤销成员证书
+      summary: 撤销有效证书
+      description: 证书到期只产生告警；撤销为受控人工动作，不会自动撤销业务角色。
+      parameters:
+        - $ref: "#/components/parameters/组织编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/证书撤销请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/data-scopes/{subjectType}/{subjectId}:
+    get:
+      tags: [组织架构]
+      operationId: 查询数据范围
+      summary: 查询角色或历史用户级数据范围
+      parameters:
+        - $ref: "#/components/parameters/数据范围主体类型"
+        - $ref: "#/components/parameters/数据范围主体编号"
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    put:
+      tags: [组织架构]
+      operationId: 保存数据范围
+      summary: 保存角色级数据范围
+      description: 首期仅支持 subjectType=role；subjectType=user 固定返回 DATA_SCOPE_USER_OVERRIDE_DISABLED，且不参与运行时权限判定。
+      parameters:
+        - $ref: "#/components/parameters/数据范围主体类型"
+        - $ref: "#/components/parameters/数据范围主体编号"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/数据范围保存请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/数据范围用户覆盖关闭" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/data-scopes/bindings/{id}:
+    delete:
+      tags: [组织架构]
+      operationId: 停用数据范围
+      summary: 停用数据范围绑定
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/staff/{userId}/offboarding-preview:
+    get:
+      tags: [组织架构]
+      operationId: 预览离职影响
+      summary: 只读预览离职待交接范围
+      parameters: [{ $ref: "#/components/parameters/用户编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/离职影响预览成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/offboarding:
+    get:
+      tags: [组织架构]
+      operationId: 查询离职交接
+      summary: 查询离职交接单
+      responses:
+        "200": { $ref: "#/components/responses/列表成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+    post:
+      tags: [组织架构]
+      operationId: 发起离职交接
+      summary: 创建离职交接单并投递扫描事件
+      description: 不会由同步自动触发。账号状态、授权版本和后续扫描由服务端受控处理，页面不得自行更改 CRM 归属。
+      parameters: [{ $ref: "#/components/parameters/幂等键" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/发起离职交接请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/离职交接关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/offboarding/{id}:
+    get:
+      tags: [组织架构]
+      operationId: 查询离职交接详情
+      summary: 查询离职交接单和明细
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/offboarding/{id}/retry-items:
+    post:
+      tags: [组织架构]
+      operationId: 重试离职扫描
+      summary: 重试失败或待处理的离职扫描项
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/离职交接关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/offboarding/{id}/close:
+    post:
+      tags: [组织架构]
+      operationId: 关闭离职交接
+      summary: 在扫描和交接项完成后关闭交接单
+      parameters: [{ $ref: "#/components/parameters/组织编号" }]
+      requestBody: { $ref: "#/components/requestBodies/行版本请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/离职交接关闭" }
+        "409": { $ref: "#/components/responses/离职交接不可关闭" }
+  /api/integrations/directory-sync/status:
+    get:
+      tags: [企微目录同步]
+      operationId: 读取企微目录同步状态
+      summary: 读取企微目录同步状态
+      description: 即使同步关闭也要求 superadmin 会话；返回 applyEnabled=false。
+      responses:
+        "200": { $ref: "#/components/responses/企微状态成功" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+  /api/integrations/directory-sync/test-connection:
+    post:
+      tags: [企微目录同步]
+      operationId: 测试企微目录同步连接
+      summary: 只读测试企业微信目录连接
+      description: 仅验证连接和读取范围，不创建组织、账号、岗位、任职、业务角色或证书。
+      x-运行条件: V3_ORGANIZATION_ENABLED=true 且 V3_DIRECTORY_SYNC_ENABLED=true
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/同步连接器请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/preview:
+    post:
+      tags: [企微目录同步]
+      operationId: 创建企微只读预览
+      summary: 创建企微目录差异预览批次
+      description: 只允许写入 integration 同步批次、快照、差异和审计；不提供应用正式主体数据的能力。
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/同步连接器请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/runs:
+    get:
+      tags: [企微目录同步]
+      operationId: 查询企微同步批次
+      summary: 分页查询同步批次
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        "200": { $ref: "#/components/responses/分页成功" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/runs/{id}:
+    get:
+      tags: [企微目录同步]
+      operationId: 查询企微同步批次详情
+      summary: 查询单个同步批次
+      parameters: [{ $ref: "#/components/parameters/同步批次编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/changes:
+    get:
+      tags: [企微目录同步]
+      operationId: 查询企微同步差异
+      summary: 分页查询同步差异
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+        - { name: runId, in: query, schema: { $ref: "#/components/schemas/UUID" } }
+        - { name: riskLevel, in: query, schema: { enum: [low, medium, high] } }
+        - { name: approvalStatus, in: query, schema: { enum: [pending, approved, rejected] } }
+      responses:
+        "200": { $ref: "#/components/responses/分页成功" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/runs/{id}/apply:
+    post:
+      tags: [企微目录同步]
+      operationId: 禁止应用企微同步差异
+      summary: 固定拒绝企微同步应用
+      description: 当前版本没有审批应用能力。无论提交何种已审批差异或行版本，均返回 DIRECTORY_SYNC_APPLY_DISABLED；不得以此接口改写任何业务主体。
+      parameters: [{ $ref: "#/components/parameters/同步批次编号" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/禁止的同步应用请求" }
+      responses:
+        "409": { $ref: "#/components/responses/企微应用已禁止" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+  /api/integrations/directory-sync/runs/{id}/pause:
+    post:
+      tags: [企微目录同步]
+      operationId: 禁止暂停企微同步应用
+      summary: 固定拒绝暂停应用任务
+      description: 当前只有只读预览批次，不存在可暂停的应用任务，固定返回 DIRECTORY_SYNC_APPLY_DISABLED。
+      parameters: [{ $ref: "#/components/parameters/同步批次编号" }]
+      responses:
+        "409": { $ref: "#/components/responses/企微应用已禁止" }
+        "400": { $ref: "#/components/responses/企微请求不合法" }
+        "401": { $ref: "#/components/responses/企微未登录" }
+        "403": { $ref: "#/components/responses/企微无权限" }
+        "503": { $ref: "#/components/responses/企微功能关闭" }
+components:
+  securitySchemes:
+    V3签名会话:
+      type: apiKey
+      in: cookie
+      name: v3_session
+      description: V3 HttpOnly 签名会话 Cookie；具体 Cookie 名称由部署配置维护，客户端不得伪造。
+  parameters:
+    用户编号:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    候选编号:
+      name: candidateId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    组织编号:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    用户编号:
+      name: userId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    同步批次编号:
+      name: id
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    数据范围主体类型:
+      name: subjectType
+      in: path
+      required: true
+      schema: { type: string, enum: [role, user] }
+    数据范围主体编号:
+      name: subjectId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/UUID" }
+    幂等键:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 当前已接入组织写入服务的接口支持该键；长度不得超过 200。相同操作、相同主体和相同请求摘要会返回原结果；同键不同摘要返回 ORG_IDEMPOTENCY_CONFLICT。
+      schema: { type: string, minLength: 1, maxLength: 200 }
+  requestBodies:
+    行版本请求:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [rowVersion]
+            properties:
+              rowVersion: { type: integer, minimum: 1, description: 当前行版本，乐观锁必填。 }
+  responses:
+    通用成功:
+      description: 操作成功，响应 meta 中包含 requestId 和构建信息。
+      content: { application/json: { schema: { $ref: "#/components/schemas/通用成功响应" } } }
+    列表成功:
+      description: 列表读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/列表成功响应" } } }
+    分页成功:
+      description: 分页读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/分页成功响应" } } }
+    组织树成功:
+      description: 组织树读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/组织树成功响应" } } }
+    企微状态成功:
+      description: 企微同步状态读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/企微状态成功响应" } } }
+    离职影响预览成功:
+      description: 离职影响、候选接收人和唯一推荐接收人读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/离职影响预览成功响应" } } }
+    组织未登录:
+      description: ORG_AUTH_REQUIRED、V3_AUTH_ACCOUNT_DISABLED、V3_AUTH_ACCOUNT_UNAVAILABLE 或 V3_AUTH_SESSION_MISMATCH
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织无权限:
+      description: ORG_PERMISSION_DENIED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织写入关闭:
+      description: ORG_WRITE_DISABLED 或 ORG_PERMISSION_DENIED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织功能关闭:
+      description: ORG_FEATURE_DISABLED 或 V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织请求不合法:
+      description: ORG_REQUEST_INVALID 或 ORG_IDEMPOTENCY_KEY_INVALID
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织不存在:
+      description: ORG_NOT_FOUND
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织并发或约束冲突:
+      description: ORG_VERSION_CONFLICT、ORG_CONFLICT、ORG_IDEMPOTENCY_CONFLICT 或 ORG_IDEMPOTENCY_PROCESSING
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    组织物理删除禁止:
+      description: ORG_PHYSICAL_DELETE_DISABLED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    离职交接关闭:
+      description: ORG_OFFBOARDING_DISABLED、ORG_WRITE_DISABLED 或 ORG_PERMISSION_DENIED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    数据范围用户覆盖关闭:
+      description: DATA_SCOPE_USER_OVERRIDE_DISABLED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    离职交接不可关闭:
+      description: ORG_OFFBOARDING_NOT_READY、ORG_OFFBOARDING_ITEMS_PENDING 或 ORG_VERSION_CONFLICT
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企微未登录:
+      description: DIRECTORY_SYNC_AUTH_REQUIRED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企微无权限:
+      description: DIRECTORY_SYNC_PERMISSION_DENIED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企微功能关闭:
+      description: DIRECTORY_SYNC_ORGANIZATION_DISABLED 或 DIRECTORY_SYNC_FEATURE_DISABLED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企微请求不合法:
+      description: DIRECTORY_SYNC_REQUEST_INVALID
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企微应用已禁止:
+      description: DIRECTORY_SYNC_APPLY_DISABLED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+  schemas:
+    UUID: { type: string, format: uuid }
+    通用成功响应:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success: { const: true }
+        data: { type: object, additionalProperties: true }
+        meta:
+          type: object
+          required: [requestId, build]
+          properties:
+            requestId: { type: string }
+            build: { type: object, additionalProperties: true }
+    列表成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items]
+              properties:
+                { items: { type: array, items: { type: object, additionalProperties: true } } }
+    分页成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items, page, pageSize, total]
+              properties:
+                items: { type: array, items: { type: object, additionalProperties: true } }
+                page: { type: integer, minimum: 1 }
+                pageSize: { type: integer, minimum: 1 }
+                total: { type: integer, minimum: 0 }
+    组织状态成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [enabled, writeEnabled, channelPhoneEditEnabled, directorySyncEnabled, accountEntryMerged, accountStatusCheckEnabled, offboardingEnabled]
+              properties:
+                enabled: { type: boolean }
+                writeEnabled: { type: boolean }
+                channelPhoneEditEnabled:
+                  type: boolean
+                  description: 是否允许修改渠道成员手机号；IAM/UniSDP 手机号匹配专项回归前必须关闭。
+                directorySyncEnabled: { type: boolean }
+                accountEntryMerged:
+                  type: boolean
+                  description: 是否启用“组织与账号”导航；不改变登录、会话或接口授权。
+                accountStatusCheckEnabled:
+                  type: boolean
+                  description: 是否持续校验账号状态并拒绝停用账号的旧会话；执行交接前必须开启，回退交接时不得关闭。
+                offboardingEnabled:
+                  type: boolean
+                  description: 是否允许发起、重试和关闭停用归档交接；关闭时仍允许只读影响预览。
+    离职影响预览成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [user, readOnly, totalCount, requiresReplacement, recommendedReplacementUserId, candidates, items]
+              properties:
+                user: { type: object, additionalProperties: true }
+                readOnly: { const: true }
+                totalCount: { type: integer, minimum: 0 }
+                requiresReplacement: { type: boolean }
+                recommendedReplacementUserId:
+                  oneOf: [{ $ref: "#/components/schemas/UUID" }, { type: "null" }]
+                candidates:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, username, displayName, roleCodes]
+                    properties:
+                      id: { $ref: "#/components/schemas/UUID" }
+                      username: { type: string }
+                      displayName: { type: string }
+                      regionId:
+                        oneOf: [{ $ref: "#/components/schemas/UUID" }, { type: "null" }]
+                      regionName:
+                        oneOf: [{ type: string }, { type: "null" }]
+                      roleCodes: { type: array, items: { type: string } }
+                items: { type: array, items: { type: object, additionalProperties: true } }
+    组织树成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [items]
+              properties:
+                items: { type: array, items: { $ref: "#/components/schemas/组织单元" } }
+    企微状态成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [enabled, applyEnabled, mode]
+              properties:
+                enabled: { type: boolean }
+                applyEnabled: { const: false, description: 当前版本固定为 false。 }
+                mode: { type: string, enum: [disabled, readonly_preview] }
+    错误响应:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success: { const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string, description: 中文可读错误消息。 }
+        meta:
+          type: object
+          required: [requestId, build]
+          properties:
+            requestId: { type: string }
+            build: { type: object, additionalProperties: true }
+    组织单元:
+      type: object
+      required: [id, unitCode, unitName, unitType, statusCode, sortOrder, rowVersion]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        unitCode: { type: string }
+        unitName: { type: string }
+        unitType: { type: string }
+        parentUnitId: { oneOf: [{ $ref: "#/components/schemas/UUID" }, { type: "null" }] }
+        statusCode: { type: string, enum: [draft, active, disabled, archived] }
+        sortOrder: { type: integer }
+        rowVersion: { type: integer, minimum: 1 }
+        children: { type: array, items: { $ref: "#/components/schemas/组织单元" } }
+    创建组织请求:
+      type: object
+      required: [unitCode, unitName, unitType]
+      properties:
+        unitCode: { type: string, minLength: 1 }
+        unitName: { type: string, minLength: 1 }
+        unitType:
+          {
+            type: string,
+            enum:
+              [
+                headquarters,
+                division,
+                big_region,
+                region,
+                province,
+                city,
+                department,
+                team,
+                channel_company,
+                channel_department,
+                channel_team,
+              ],
+          }
+        parentUnitId: { $ref: "#/components/schemas/UUID" }
+        sortOrder: { type: integer, default: 0 }
+    更新组织请求:
+      allOf:
+        - $ref: "#/components/schemas/创建组织请求"
+        - type: object
+          required: [rowVersion]
+          properties: { rowVersion: { type: integer, minimum: 1 } }
+    状态更新请求:
+      type: object
+      required: [statusCode, rowVersion]
+      properties:
+        statusCode: { type: string, enum: [draft, active, disabled, archived] }
+        rowVersion: { type: integer, minimum: 1 }
+    创建岗位请求:
+      type: object
+      required: [orgUnitId, positionCode, positionName]
+      properties:
+        orgUnitId: { $ref: "#/components/schemas/UUID" }
+        positionCode: { type: string, minLength: 1 }
+        positionName: { type: string, minLength: 1 }
+        category:
+          { type: string, enum: [management, sales, support, functional, other], default: other }
+    更新岗位请求:
+      type: object
+      required: [positionName, category, rowVersion]
+      properties:
+        positionName: { type: string, minLength: 1 }
+        category: { type: string, enum: [management, sales, support, functional, other] }
+        rowVersion: { type: integer, minimum: 1 }
+    创建任职请求:
+      type: object
+      required: [orgUnitId]
+      properties:
+        orgUnitId: { $ref: "#/components/schemas/UUID" }
+        positionId: { $ref: "#/components/schemas/UUID" }
+        isPrimary:
+          type: boolean
+          enum: [true]
+          default: true
+          description: 兼容字段；当前唯一有效任职始终为主职。
+    更新任职请求:
+      allOf:
+        - $ref: "#/components/schemas/创建任职请求"
+        - type: object
+          required: [rowVersion]
+          properties: { rowVersion: { type: integer, minimum: 1 } }
+    负责人关系请求:
+      type: object
+      required: [subordinateAssignmentId, managerAssignmentId, relationType]
+      properties:
+        subordinateAssignmentId: { $ref: "#/components/schemas/UUID" }
+        managerAssignmentId: { $ref: "#/components/schemas/UUID" }
+        relationType: { type: string, enum: [direct, matrix, temporary] }
+        effectiveAt: { type: string, format: date-time }
+        expiredAt: { type: string, format: date-time }
+    负责人关系更新请求:
+      allOf:
+        - $ref: "#/components/schemas/负责人关系请求"
+        - type: object
+          required: [rowVersion]
+          properties: { rowVersion: { type: integer, minimum: 1 } }
+    业务角色请求:
+      type: object
+      required: [roleCode, roleName, domainCode]
+      properties:
+        roleCode: { type: string, minLength: 1 }
+        roleName: { type: string, minLength: 1 }
+        domainCode: { type: string, enum: [internal, channel] }
+        category:
+          {
+            type: string,
+            enum: [sales, pre_sales, post_sales, tech_engineer, business_assistant, manager, other],
+            default: other,
+          }
+    业务角色更新请求:
+      allOf:
+        - $ref: "#/components/schemas/业务角色请求"
+        - type: object
+          required: [rowVersion]
+          properties: { rowVersion: { type: integer, minimum: 1 } }
+    成员业务角色请求:
+      type: object
+      required: [businessRoleId]
+      properties:
+        businessRoleId: { $ref: "#/components/schemas/UUID" }
+        staffAssignmentId: { $ref: "#/components/schemas/UUID" }
+        partnerMemberId: { $ref: "#/components/schemas/UUID" }
+        isPrimaryDisplay: { type: boolean, default: false }
+        effectiveAt: { type: string, format: date-time }
+        expiredAt: { type: string, format: date-time }
+      oneOf:
+        - required: [staffAssignmentId]
+        - required: [partnerMemberId]
+    泛微OA身份候选请求:
+      type: object
+      required: [externalSubject, externalUsername, sourceCode]
+      properties:
+        externalSubject:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 泛微 OA／eteams 的 userid。
+        externalUsername:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 泛微 OA 中的姓名或登录名，仅用于人工核验。
+        sourceCode:
+          type: string
+          enum: [manual, eteams_directory]
+          description: 候选来源；不支持按 V3 姓名自动匹配。
+    泛微OA身份候选更新请求:
+      allOf:
+        - $ref: "#/components/schemas/泛微OA身份候选请求"
+        - type: object
+          required: [rowVersion]
+          properties:
+            rowVersion: { type: integer, minimum: 1 }
+    泛微OA身份确认请求:
+      type: object
+      required: [rowVersion]
+      properties:
+        rowVersion: { type: integer, minimum: 1 }
+        verificationNote:
+          type: string
+          maxLength: 500
+          description: 人工交叉核验依据的简要说明；不得填写访问令牌或其他凭据。
+    泛微OA身份驳回请求:
+      type: object
+      required: [rowVersion, rejectedReason]
+      properties:
+        rowVersion: { type: integer, minimum: 1 }
+        rejectedReason: { type: string, minLength: 1, maxLength: 200 }
+    泛微OA正式身份停用请求:
+      type: object
+      required: [identityId, rowVersion, reason]
+      properties:
+        identityId: { $ref: "#/components/schemas/UUID" }
+        rowVersion: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+    保存统一渠道成员档案请求:
+      type: object
+      required: [rowVersion, name, businessRoleCode, grantCertificationTemplateIds, revokeCertificationIds]
+      properties:
+        rowVersion: { type: integer, minimum: 1 }
+        name: { type: string, minLength: 1 }
+        phone: { type: string }
+        email: { type: string, format: email }
+        businessRoleCode: { type: string, enum: [channel_sales, channel_technical] }
+        grantCertificationTemplateIds:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/UUID" }
+        revokeCertificationIds:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/UUID" }
+    证书模板请求:
+      type: object
+      required: [templateCode, templateName]
+      properties:
+        templateCode: { type: string, minLength: 1 }
+        templateName: { type: string, minLength: 1 }
+        category: { type: string, default: other }
+        issuerName: { type: string }
+        validityMonths: { type: integer, minimum: 1 }
+    颁发证书请求:
+      type: object
+      required: [certificationTemplateId, issuedOn]
+      properties:
+        certificationTemplateId: { $ref: "#/components/schemas/UUID" }
+        certificateNo: { type: string }
+        issuerName: { type: string }
+        issuedOn: { type: string, format: date }
+        expiresOn: { type: string, format: date }
+    证书延期请求:
+      type: object
+      required: [expiresOn, rowVersion]
+      properties:
+        expiresOn: { type: string, format: date }
+        rowVersion: { type: integer, minimum: 1 }
+    证书撤销请求:
+      type: object
+      required: [reason, rowVersion]
+      properties:
+        reason: { type: string, minLength: 1 }
+        rowVersion: { type: integer, minimum: 1 }
+    数据范围保存请求:
+      type: object
+      required: [resourceCode, scopeType]
+      properties:
+        resourceCode: { type: string, minLength: 1 }
+        scopeType:
+          { type: string, enum: [all, org_tree, region, channel, channel_tree, self, custom] }
+        scopeTargetId: { type: string }
+        effectiveAt: { type: string, format: date-time }
+        expiredAt: { type: string, format: date-time }
+        rowVersion: { type: integer, minimum: 1 }
+    发起离职交接请求:
+      type: object
+      required: [userId, effectiveAt, reason, confirmationUsername]
+      properties:
+        userId: { $ref: "#/components/schemas/UUID" }
+        effectiveAt: { type: string, format: date-time }
+        replacementUserId: { $ref: "#/components/schemas/UUID" }
+        reason: { type: string, minLength: 1 }
+        confirmationUsername:
+          type: string
+          minLength: 1
+          description: 必须再次输入目标账号，服务端按不区分大小写方式精确核对。
+    同步连接器请求:
+      type: object
+      properties:
+        connectorId: { $ref: "#/components/schemas/UUID" }
+    禁止的同步应用请求:
+      type: object
+      description: 保留请求形状以便客户端得到稳定 409；当前服务端不会读取或应用这些差异。
+      properties:
+        rowVersion: { type: integer, minimum: 1 }
+        changes:
+          type: array
+          items:
+            type: object
+            required: [id, rowVersion]
+            properties:
+              id: { $ref: "#/components/schemas/UUID" }
+              rowVersion: { type: integer, minimum: 1 }
+              changeVersion: {}

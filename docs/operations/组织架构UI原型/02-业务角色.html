@@ -3525,10 +3525,11 @@ textarea.form-control { resize: vertical; min-height: 100px; }
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
         <div>
           <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;letter-spacing:-0.3px;">业务角色</h2>
-          <p style="font-size:13px;color:#888;margin-top:4px">定义"销售经理 / 技术工程师 / 商务助理"等业务标签，通过映射自动授予权限角色</p>
+          <p style="font-size:13px;color:#888;margin-top:4px">定义“销售经理 / 技术工程师 / 商务助理”等业务标签，按成员关系指派并保留权限来源</p>
         </div>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-default">📥 导入</button>
+          <button class="btn btn-default">👥 管理持有人</button>
           <button class="btn btn-primary">➕ 新建业务角色</button>
         </div>
       </div>
@@ -3546,6 +3547,10 @@ textarea.form-control { resize: vertical; min-height: 100px; }
         <div style="padding:10px 20px;color:#007AFF;border-bottom:2px solid #007AFF;font-weight:600;cursor:pointer;">业务角色（8）</div>
         <div style="padding:10px 20px;color:#6E6E73;cursor:pointer;">角色-证书要求（12）</div>
         <div style="padding:10px 20px;color:#6E6E73;cursor:pointer;">角色-权限映射（24）</div>
+      </div>
+
+      <div style="margin-bottom:16px;padding:10px 14px;border-radius:10px;background:rgba(0,122,255,0.06);border:1px solid rgba(0,122,255,0.18);font-size:13px;color:#3a3a3c;line-height:1.7;">
+        💡 持有人必须关联当前有效的内部任职或渠道成员关系；内部角色与渠道角色不可跨域指派。同一成员可有多个业务角色，但当前工作上下文至多一个主显示角色。
       </div>
 
       <!-- 搜索筛选 -->
@@ -3567,7 +3572,7 @@ textarea.form-control { resize: vertical; min-height: 100px; }
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">名称</th>
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">域</th>
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">类别</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">覆盖部门</th>
+              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">覆盖组织/渠道</th>
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">持有人</th>
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">证书要求</th>
               <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">状态</th>

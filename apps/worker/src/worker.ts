@@ -3,12 +3,14 @@ import { pathToFileURL } from "node:url";
 import { type 应用配置, 掩码敏感配置, 读取应用配置 } from "@lianruan/config";
 import { 创建结构化日志器, type 日志器 } from "@lianruan/shared";
 
+import { 启动组织离职交接任务服务 } from "./org-offboarding-worker.js";
 import { 创建健康任务工作器, 创建健康任务队列 } from "./queue.js";
 
 export async function 启动任务服务(config: 应用配置 = 读取应用配置()) {
   const logger = 创建任务日志器(config);
   const 队列 = 创建健康任务队列(config);
   const 工作器 = 创建健康任务工作器(config);
+  const 组织交接任务 = await 启动组织离职交接任务服务(config, logger);
 
   工作器.on("completed", (任务) => {
     logger.info("健康任务完成", {
@@ -45,9 +47,10 @@ export async function 启动任务服务(config: 应用配置 = 读取应用配�
   注册优雅停止(async () => {
     await 工作器.close();
     await 队列.close();
+    await 组织交接任务.close();
   }, logger);
 
-  return { 队列, 工作器 };
+  return { 队列, 工作器, 组织交接任务 };
 }
 
 function 注册优雅停止(关闭: () => Promise<void>, logger: 日志器) {

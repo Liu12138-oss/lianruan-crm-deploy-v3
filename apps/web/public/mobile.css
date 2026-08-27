@@ -180,6 +180,21 @@ button:disabled { cursor: not-allowed; opacity: .62; }
 .bottom-nav button { min-width: 0; min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: #77869a; background: transparent; border: 0; font-size: 11px; }
 .bottom-nav button span { font-size: 18px; line-height: 1; }
 .bottom-nav button.active { color: #2462c2; font-weight: 700; }
+.mobile-header__actions { display: flex; align-items: center; gap: 4px; }
+.mobile-message-bell { position: relative; }
+.mobile-message-bell i { position: absolute; top: 8px; right: 7px; width: 7px; height: 7px; border: 1px solid #fff; border-radius: 50%; background: #e5484d; }
+.mobile-message-summary__item { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 2px; color: #253754; background: transparent; border: 0; font-size: 14px; }
+.mobile-message-summary__item b { color: #2462c2; font-size: 14px; }
+.mobile-message-summary__hint { margin: 2px 0 0; color: #8b5a00; font-size: 12px; }
+.mobile-message-state { padding: 20px 12px; color: #6e7d92; text-align: center; }
+.mobile-message-state--error { color: #c74343; }
+.mobile-message-state--error .button { margin-top: 10px; }
+.mobile-message-list { display: grid; gap: 10px; }
+.mobile-message-card { width: 100%; display: grid; gap: 6px; padding: 14px; color: #2c3c55; text-align: left; background: #fff; border: 1px solid #e3eaf5; border-radius: 14px; }
+.mobile-message-card--unread { border-left: 4px solid #2462c2; background: #f7faff; }
+.mobile-message-card strong { font-size: 14px; }
+.mobile-message-card span { color: #5f6f84; font-size: 13px; line-height: 1.5; }
+.mobile-message-card small { color: #8996a8; font-size: 12px; }
 
 .dialog-mask { display: flex; align-items: flex-end; justify-content: center; padding: 16px; background: rgba(15, 28, 50, .48); position: fixed; inset: 0; z-index: 50; }
 .review-dialog { width: min(100%, 520px); max-height: calc(100vh - 32px - env(safe-area-inset-top)); overflow: auto; padding: 17px; padding-bottom: max(17px, env(safe-area-inset-bottom)); background: #fff; border-radius: 20px; box-shadow: 0 -8px 26px rgba(8,26,54,.15); }

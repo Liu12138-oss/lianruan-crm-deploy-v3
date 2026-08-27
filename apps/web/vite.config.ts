@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 const API代理目标 = process.env.VITE_API_PROXY_TARGET || "http://127.0.0.1:3100";
 
-export default defineConfig({
+const 配置 = {
   plugins: [vue()],
   server: {
     port: 5173,
@@ -27,4 +27,6 @@ export default defineConfig({
     environment: "happy-dom",
     globals: false,
   },
-});
+};
+
+export default defineConfig(配置);

@@ -48,7 +48,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:3100/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+          'node -e "fetch(''http://127.0.0.1:3100/health/live'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
@@ -82,7 +82,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"fetch('http://127.0.0.1:3100/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+          'node -e "fetch(''http://127.0.0.1:3100/health/live'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
@@ -107,6 +107,107 @@ services:
         condition: service_healthy
     networks:
       - data_net
+
+  worker-message-critical:
+    profiles: ["message"]
+    image: lianruan-crm-v3-worker:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    container_name: lianruan-crm-v3-worker-message-critical
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/message-worker.js"]
+    env_file:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/v3.env
+    environment:
+      MESSAGE_WORKER_ROLE: critical
+    volumes:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/worker-message-critical:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-state:
+        condition: service_healthy
+    networks:
+      - data_net
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", 'node -e "process.kill(1, 0)"']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker-message-maintenance:
+    profiles: ["message"]
+    image: lianruan-crm-v3-worker:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    container_name: lianruan-crm-v3-worker-message-maintenance
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/message-worker.js"]
+    env_file:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/v3.env
+    environment:
+      MESSAGE_WORKER_ROLE: maintenance
+    volumes:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/worker-message-maintenance:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-state:
+        condition: service_healthy
+    networks:
+      - data_net
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", 'node -e "process.kill(1, 0)"']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker-message-integration:
+    profiles: ["message-external"]
+    image: lianruan-crm-v3-worker:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    container_name: lianruan-crm-v3-worker-message-integration
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/message-worker.js"]
+    env_file:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/v3.env
+    environment:
+      MESSAGE_WORKER_ROLE: integration
+    volumes:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/worker-message-integration:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-state:
+        condition: service_healthy
+    networks:
+      - data_net
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", 'node -e "process.kill(1, 0)"']
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  worker-order-preapproval:
+    profiles: ["order-preapproval"]
+    image: lianruan-crm-v3-worker:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    container_name: lianruan-crm-v3-worker-order-preapproval
+    restart: unless-stopped
+    command: ["node", "apps/worker/dist/order-preapproval-worker.js"]
+    env_file:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/v3.env
+    volumes:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/uploads:/app/uploads
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/worker-order-preapproval:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data_net
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", 'node -e "process.kill(1, 0)"']
+      interval: 15s
+      timeout: 5s
+      retries: 3
 
   postgres:
     image: postgres:16.4-alpine

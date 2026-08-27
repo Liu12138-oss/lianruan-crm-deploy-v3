@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/worker",
-  "version": "3.0.0-stage9.40.20260813-kb022",
+  "version": "3.0.0-stage10.03.20260824-kb024",
   "private": true,
   "type": "module",
   "main": "./dist/worker.js",
@@ -13,10 +13,11 @@
     "start": "node dist/worker.js"
   },
   "dependencies": {
-    "@lianruan/config": "3.0.0-stage9.40.20260813-kb022",
-    "@lianruan/shared": "3.0.0-stage9.40.20260813-kb022",
+    "@lianruan/config": "3.0.0-stage10.03.20260824-kb024",
+    "@lianruan/shared": "3.0.0-stage10.03.20260824-kb024",
     "bullmq": "^5.56.0",
     "ioredis": "^5.6.1",
+    "pg": "^8.13.3",
     "zod": "^3.25.76"
   }
 }

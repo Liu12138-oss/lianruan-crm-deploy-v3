@@ -4,7 +4,14 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { 创建结构化日志器, 创建错误响应, 判断健康状态, 应用错误 } from "../src/index.js";
+import {
+  事件目录,
+  创建结构化日志器,
+  创建错误响应,
+  判断健康状态,
+  到期数据源目录,
+  应用错误,
+} from "../src/index.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -105,5 +112,32 @@ describe("共享响应结构", () => {
     } finally {
       await fs.rm(目录, { recursive: true, force: true });
     }
+  });
+});
+
+describe("统一提醒变量目录", () => {
+  it("全部业务事件与到期提醒均声明渠道商和提报人变量", () => {
+    const 业务事件 = 事件目录.filter((事件) => 事件.code.startsWith("crm."));
+    expect(业务事件.length).toBeGreaterThan(0);
+    for (const 事件 of 业务事件) {
+      expect(事件.variables.map((变量) => 变量.name)).toEqual(
+        expect.arrayContaining(["partner_name", "submitter_name"]),
+      );
+    }
+    for (const 数据源 of 到期数据源目录) {
+      expect(数据源.variables.map((变量) => 变量.name)).toEqual(
+        expect.arrayContaining(["partner_name", "submitter_name"]),
+      );
+    }
+  });
+
+  it("订单确认提醒使用订单名称，并登记两类超管审核待办事件", () => {
+    const 订单确认 = 事件目录.find((事件) => 事件.code === "crm.order.confirmed");
+    expect(订单确认?.variables.map((变量) => 变量.name)).toEqual(
+      expect.arrayContaining(["business_no", "order_name", "partner_name", "submitter_name"]),
+    );
+    expect(事件目录.map((事件) => 事件.code)).toEqual(
+      expect.arrayContaining(["iam.account.approval.pending", "channel.partner.approval.pending"]),
+    );
   });
 });

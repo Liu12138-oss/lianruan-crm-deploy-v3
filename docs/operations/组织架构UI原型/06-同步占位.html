@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>组织同步 - V3 平台管理</title>
+<title>企微组织同步 - V3 平台管理</title>
 <style>
 /* V3 style.css */
 /* ============================================================
@@ -3500,7 +3500,7 @@ textarea.form-control { resize: vertical; min-height: 100px; }
       <div class="breadcrumb">
         <span class="parent">平台管理</span><span class="sep">/</span>
         <span class="parent">组织架构</span><span class="sep">/</span>
-        <span class="current">组织同步</span>
+        <span class="current">企微组织同步</span>
       </div>
       <div class="header-actions">
         <button class="header-btn">🔔</button>
@@ -3513,93 +3513,120 @@ textarea.form-control { resize: vertical; min-height: 100px; }
 
     <div style="padding:28px;">
 
-      <!-- D-07 状态 -->
-      <div style="background:rgba(0,122,255,0.06);border:1px solid rgba(0,122,255,0.2);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;">
-        <div style="font-size:20px;">💡</div>
+      <div style="display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:20px;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">
+            <h2 style="font-size:20px;font-weight:700;color:#1a1a1a;letter-spacing:-0.3px;">企微组织同步</h2>
+            <span class="tag tag-blue">原型示例</span>
+            <span class="tag tag-green">只读连接</span>
+          </div>
+          <p style="font-size:13px;color:#6E6E73;">企业微信 → V3 · 自建应用读取详情 · 回调触发增量 · 每日全量校准</p>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end;">
+          <button class="btn btn-default">测试连接</button>
+          <button class="btn btn-primary">生成预览</button>
+          <button class="btn btn-danger" disabled title="审批完成且应用开关开启后可用">应用已审批差异</button>
+        </div>
+      </div>
+
+      <div style="background:rgba(0,122,255,0.06);border:1px solid rgba(0,122,255,0.22);border-radius:12px;padding:14px 18px;margin-bottom:20px;display:flex;gap:12px;align-items:flex-start;">
+        <div style="font-size:20px;">🛡️</div>
         <div style="flex:1;">
-          <div style="font-weight:700;color:#1a1a1a;margin-bottom:4px;">D-07 · 当前状态：<code style="background:rgba(0,122,255,0.15);padding:2px 8px;border-radius:6px;color:#FF3B30;">enabled=false</code> · 首期未启用</div>
-          <div style="font-size:13px;color:#3a3a3c;line-height:1.7;">所有字段已预留（<code style="background:rgba(0,122,255,0.1);padding:1px 6px;border-radius:4px;">origin_code</code> / <code style="background:rgba(0,122,255,0.1);padding:1px 6px;border-radius:4px;">sync_status_code</code>），将来启用仅需实现 service 层与 worker，<b>不动表结构</b>。</div>
+          <div style="font-weight:700;color:#1a1a1a;margin-bottom:5px;">D-07 / D-19 · 同步安全边界</div>
+          <div style="font-size:13px;color:#3a3a3c;line-height:1.8;">单向读取企微内部组织与人员基础信息；所有差异先预览再审批。<b>不改权限、不发证、不自动停号或离职、不碰渠道组织和业务归属</b>。成员退出、禁用或不可见只生成高风险人工任务。</div>
         </div>
       </div>
 
-      <div style="margin-bottom:20px;">
-        <h2 style="font-size:18px;font-weight:700;color:#1a1a1a;letter-spacing:-0.3px;">组织同步</h2>
-        <p style="font-size:13px;color:#888;margin-top:4px">从 IAM / 企微通讯录同步组织与人员 · 首期未启用，仅占位</p>
-      </div>
-
-      <!-- 空状态 -->
-      <div class="card" style="padding:60px 40px;text-align:center;">
-        <div style="font-size:64px;margin-bottom:16px;opacity:0.4;">🔌</div>
-        <div style="font-size:20px;font-weight:700;color:#1a1a1a;margin-bottom:10px;">组织同步功能首期未启用</div>
-        <div style="font-size:14px;color:#6E6E73;line-height:1.8;max-width:560px;margin:0 auto 32px;">
-          本页面的接口（预览同步 / 执行同步 / 查询批次）已实现为占位接口，调用将返回 <code style="background:rgba(0,0,0,0.05);padding:2px 6px;border-radius:4px;">501 INTEGRATION_NOT_ENABLED</code>。接入 IAM / 企微通讯录时仅需实现 <code style="background:rgba(0,0,0,0.05);padding:2px 6px;border-radius:4px;">directory-sync-service</code> 与 <code style="background:rgba(0,0,0,0.05);padding:2px 6px;border-radius:4px;">directory-sync-runner</code>，<b>无需修改表结构</b>。
-        </div>
-
-        <!-- 时间线 -->
-        <div style="max-width:720px;margin:0 auto;text-align:left;">
-          <div style="font-size:15px;font-weight:700;color:#1a1a1a;margin-bottom:14px;">📅 实施路线图</div>
-
-          <div style="display:flex;gap:14px;padding:14px 0;border-left:2px solid #34C759;padding-left:18px;margin-left:8px;position:relative;">
-            <div style="position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:#34C759;"></div>
-            <div style="flex:1;">
-              <div style="font-size:12px;color:#888;">2026-08-13</div>
-              <div style="font-size:13px;color:#1a1a1a;">字段预留完成：<code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">origin_code</code>、<code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">sync_status_code</code>、<code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">directory_mappings</code> <span class="tag tag-green" style="margin-left:8px;">已完成</span></div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:14px;padding:14px 0;border-left:2px solid #34C759;padding-left:18px;margin-left:8px;position:relative;">
-            <div style="position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:#34C759;"></div>
-            <div style="flex:1;">
-              <div style="font-size:12px;color:#888;">2026-08-13</div>
-              <div style="font-size:13px;color:#1a1a1a;">占位接口实现：<code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">POST /directory-sync/preview</code> 等 4 个接口返回 501 <span class="tag tag-green" style="margin-left:8px;">已完成</span></div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:14px;padding:14px 0;border-left:2px solid #c7c7cc;padding-left:18px;margin-left:8px;position:relative;opacity:0.5;">
-            <div style="position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:#c7c7cc;"></div>
-            <div style="flex:1;">
-              <div style="font-size:12px;color:#888;">待二期评估</div>
-              <div style="font-size:13px;color:#1a1a1a;">接入 IAM 适配器：实现 <code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">IAMDirectoryAdapter</code>、OAuth、增量同步 <span class="tag tag-gray" style="margin-left:8px;">计划中</span></div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:14px;padding:14px 0;border-left:2px solid #c7c7cc;padding-left:18px;margin-left:8px;position:relative;opacity:0.5;">
-            <div style="position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:#c7c7cc;"></div>
-            <div style="flex:1;">
-              <div style="font-size:12px;color:#888;">待二期评估</div>
-              <div style="font-size:13px;color:#1a1a1a;">接入企微通讯录适配器：实现 <code style="background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;font-size:11px;">WecomDirectoryAdapter</code>、事件订阅、差异比对 <span class="tag tag-gray" style="margin-left:8px;">计划中</span></div>
-            </div>
-          </div>
-
-          <div style="display:flex;gap:14px;padding:14px 0;border-left:2px solid #c7c7cc;padding-left:18px;margin-left:8px;position:relative;opacity:0.5;">
-            <div style="position:absolute;left:-7px;top:18px;width:12px;height:12px;border-radius:50%;background:#c7c7cc;"></div>
-            <div style="flex:1;">
-              <div style="font-size:12px;color:#888;">待二期评估</div>
-              <div style="font-size:13px;color:#1a1a1a;">实现冲突策略：手工确认差异、自动应用安全变更、人工审批流 <span class="tag tag-gray" style="margin-left:8px;">计划中</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 手工映射登记 -->
-      <div class="card" style="margin-top:16px;">
+      <div class="card" style="margin-bottom:20px;">
         <div class="card-header">
-          <div class="card-title">📋 外部对象手工映射（首期可登记）</div>
-          <button class="btn btn-text btn-sm" style="color:#007AFF;">➕ 新增映射</button>
+          <div class="card-title">连接与运行状态</div>
+          <div style="display:flex;gap:8px;"><span class="tag tag-blue">总开关：只读</span><span class="tag tag-gray">应用开关：关闭</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:18px;">
+          <div><div style="font-size:12px;color:#888;margin-bottom:6px;">连接器</div><div style="font-size:14px;font-weight:600;">企微组织专用应用</div><div style="font-size:12px;color:#888;margin-top:4px;">企业编号：ww****9a</div></div>
+          <div><div style="font-size:12px;color:#888;margin-bottom:6px;">同步范围</div><div style="font-size:14px;font-weight:600;">内部组织根及 26 个部门</div><div style="font-size:12px;color:#888;margin-top:4px;">渠道域已排除</div></div>
+          <div><div style="font-size:12px;color:#888;margin-bottom:6px;">最近成功全量</div><div style="font-size:14px;font-weight:600;">2026-08-14 02:36</div><div style="font-size:12px;color:#34C759;margin-top:4px;">部门 26 · 成员 318</div></div>
+          <div><div style="font-size:12px;color:#888;margin-bottom:6px;">回调健康</div><div style="font-size:14px;font-weight:600;">最近接收 10:42</div><div style="font-size:12px;color:#34C759;margin-top:4px;">积压 0 · 验签正常</div></div>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:20px;">
+        <div class="stat-card"><div class="stat-icon blue">＋</div><div><div class="stat-value">12</div><div class="stat-label">新增候选</div><div class="stat-trend">等待审批</div></div></div>
+        <div class="stat-card"><div class="stat-icon green">↻</div><div><div class="stat-value">8</div><div class="stat-label">资料更新</div><div class="stat-trend down">低风险 6 项</div></div></div>
+        <div class="stat-card"><div class="stat-icon orange">!</div><div><div class="stat-value">4</div><div class="stat-label">中高风险</div><div class="stat-trend up">必须逐项确认</div></div></div>
+        <div class="stat-card"><div class="stat-icon purple">✓</div><div><div class="stat-value">294</div><div class="stat-label">无差异对象</div><div class="stat-trend down">最近校准一致</div></div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+          <div>
+            <div class="card-title">待处理差异</div>
+            <div style="font-size:12px;color:#888;margin-top:6px;">批次 WECOM-20260814-003 · 高风险优先 · 示例数据</div>
+          </div>
+          <div style="display:flex;gap:8px;"><button class="btn btn-default">全部风险</button><button class="btn btn-default">查看批次</button></div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr style="background:#fafafa;">
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">外部系统</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">外部对象 ID</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">V3 对象</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#6E6E73;">登记时间</th>
-              <th style="padding:12px 16px;text-align:right;font-size:12px;font-weight:600;color:#6E6E73;">操作</th>
-            </tr></thead>
-            <tbody><tr><td colspan="5" style="padding:40px 16px;text-align:center;color:#888;font-size:13px;">暂无映射记录</td></tr></tbody>
+            <thead><tr><th>对象</th><th>变化</th><th>风险</th><th>V3 当前值</th><th>企微候选值</th><th>影响与建议</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><b>华东大区 / 销售二部</b><div style="font-size:12px;color:#888;margin-top:3px;">部门 · 企微编号 214</div></td>
+                <td>移动部门</td><td><span class="tag tag-red">高风险</span></td>
+                <td>华东大区</td><td>行业事业部</td>
+                <td style="max-width:230px;line-height:1.6;">可能影响任职和数据范围，只生成管理员任务</td>
+                <td><span class="tag tag-orange">待审批</span></td><td><button class="btn btn-text">查看差异</button></td>
+              </tr>
+              <tr>
+                <td><b>王晨</b><div style="font-size:12px;color:#888;margin-top:3px;">成员 · userid：wc****28</div></td>
+                <td>外部状态变化</td><td><span class="tag tag-red">高风险</span></td>
+                <td>在职 / 账号启用</td><td>已退出企业</td>
+                <td style="max-width:230px;line-height:1.6;">禁止自动停号或离职，请人工核实并走既有离职流程</td>
+                <td><span class="tag tag-orange">待人工核实</span></td><td><button class="btn btn-text">创建任务</button></td>
+              </tr>
+              <tr>
+                <td><b>技术支持中心</b><div style="font-size:12px;color:#888;margin-top:3px;">部门 · 企微编号 325</div></td>
+                <td>部门改名</td><td><span class="tag tag-blue">低风险</span></td>
+                <td>技术支持部</td><td>技术支持中心</td>
+                <td style="max-width:230px;line-height:1.6;">不改变部门身份和业务字段，可审批后应用</td>
+                <td><span class="tag tag-green">已批准</span></td><td><button class="btn btn-text">撤回批准</button></td>
+              </tr>
+              <tr>
+                <td><b>李晓峰</b><div style="font-size:12px;color:#888;margin-top:3px;">未映射成员 · userid：lx****16</div></td>
+                <td>新增成员</td><td><span class="tag tag-blue">低风险</span></td>
+                <td>—</td><td>产品部 / 产品经理</td>
+                <td style="max-width:230px;line-height:1.6;">只建人员候选，不开通登录、角色、权限或证书</td>
+                <td><span class="tag tag-orange">待审批</span></td><td><button class="btn btn-text">查看候选</button></td>
+              </tr>
+            </tbody>
           </table>
         </div>
-        <div style="margin-top:10px;font-size:12px;color:#888;">说明：首期同步未启用，但允许管理员手工登记外部对象与 V3 对象的映射，供将来启用同步时使用。</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px;">
+        <div class="card">
+          <div class="card-header"><div class="card-title">最近同步批次</div><button class="btn btn-text">查看全部</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>批次</th><th>触发</th><th>状态</th><th>差异</th><th>完成时间</th></tr></thead>
+              <tbody>
+                <tr><td>WECOM-20260814-003</td><td>人工预览</td><td><span class="tag tag-orange">待审批</span></td><td>24</td><td>10:46</td></tr>
+                <tr><td>WECOM-20260814-002</td><td>回调增量</td><td><span class="tag tag-green">预览完成</span></td><td>2</td><td>09:18</td></tr>
+                <tr><td>WECOM-20260814-001</td><td>每日全量</td><td><span class="tag tag-green">校准一致</span></td><td>0</td><td>02:36</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px;">上线门禁</div>
+          <div style="display:flex;flex-direction:column;gap:12px;font-size:13px;">
+            <div style="display:flex;justify-content:space-between;"><span>只读观察满 7 天</span><span class="tag tag-orange">第 3 天</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>连续两轮全量对账</span><span class="tag tag-green">1 / 2</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>高风险规则验收</span><span class="tag tag-green">已通过</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>现有业务主链路回归</span><span class="tag tag-orange">待执行</span></div>
+            <div style="display:flex;justify-content:space-between;"><span>回退与补偿演练</span><span class="tag tag-orange">待执行</span></div>
+          </div>
+          <div style="margin-top:18px;padding:12px;border-radius:10px;background:#fef3c7;color:#92400e;font-size:12px;line-height:1.7;">应用开关保持关闭。全部门禁通过并完成审批签字后，才允许选择测试部门灰度。</div>
+        </div>
       </div>
     </div>
   </main>

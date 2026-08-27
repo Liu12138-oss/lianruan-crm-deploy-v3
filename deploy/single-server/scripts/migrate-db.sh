@@ -44,6 +44,13 @@ docker compose exec -T postgres pg_isready -U lianruan_app -d lianruan_crm_v3 >/
   local exists
   local checksum
 
+  case "$(basename "${sql_file}")" in
+    *.rollback.sql|*.down.sql)
+      echo "拒绝执行回退迁移文件：$(basename "${sql_file}")" >&2
+      return 1
+      ;;
+  esac
+
   version="$(basename "${sql_file}" .sql)"
   checksum="$(sha256sum "${sql_file}" | awk '{print $1}')"
   exists="$(docker compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc \
@@ -102,7 +109,15 @@ docker compose exec -T postgres pg_isready -U lianruan_app -d lianruan_crm_v3 >/
 
 for sql_file in "${migration_dir}"/*.sql; do
   sql_name="$(basename "${sql_file}")"
-  if [[ "${sql_name}" == *"S8_004"* ]] || [[ "${sql_name}" == *"S9_"* ]]; then
+  if [[ "${sql_name}" == *.rollback.sql ]] || [[ "${sql_name}" == *.down.sql ]]; then
+    echo "跳过非正向迁移文件：${sql_name}"
+    continue
+  fi
+  if [[ "${sql_name}" == *"S8_004"* ]] ||
+    [[ "${sql_name}" == *"S9_"* ]] ||
+    [[ "${sql_name}" == *"S10_"* ]] ||
+    [[ "${sql_name}" =~ ^[0-9]{8}_R[0-9]{2}_ ]]; then
+    # R 系列依赖 S10 建表（R02 需要 org.business_roles 等表），必须后置到 S9/S10 之后执行。
     continue
   fi
   执行SQL文件 "${sql_file}"
@@ -114,8 +129,16 @@ if ls "${migration_dir}"/*S8_004*.sql >/dev/null 2>&1; then
   执行SQL文件 "$(ls "${migration_dir}"/*S8_004*.sql | head -n 1)"
 fi
 
-for sql_file in "${migration_dir}"/*S9_*.sql; do
+for sql_file in "${migration_dir}"/*.sql; do
   if [ -f "${sql_file}" ]; then
+    sql_name="$(basename "${sql_file}")"
+    if [[ "${sql_name}" == *.rollback.sql ]] || [[ "${sql_name}" == *.down.sql ]]; then
+      echo "跳过非正向迁移文件：${sql_name}"
+      continue
+    fi
+    if [[ "${sql_name}" != *"S9_"* ]] && [[ "${sql_name}" != *"S10_"* ]] && ! [[ "${sql_name}" =~ ^[0-9]{8}_R[0-9]{2}_ ]]; then
+      continue
+    fi
     执行SQL文件 "${sql_file}"
   fi
 done

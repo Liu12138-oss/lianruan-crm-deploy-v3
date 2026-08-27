@@ -30,6 +30,9 @@ interface 交付用户 {
   allowedPaths: string[];
   pageUser: 业务页面用户;
   roleCodes: string[];
+  roles: string[];
+  permissions: string[];
+  scopes: string[];
 }
 
 type 业务页面角色 = "superadmin" | "admin" | "partner_admin" | "staff";
@@ -48,6 +51,9 @@ interface 业务页面用户 {
   bigRegion: string;
   partnerId: string;
   partnerName: string;
+  roles?: string[];
+  permissions?: string[];
+  scopes?: string[];
 }
 
 interface 业务页面会话 {
@@ -104,6 +110,8 @@ interface 数据库用户行 {
   partner_id: string | null;
   partner_name: string | null;
   role_codes: string[] | null;
+  permission_codes: string[] | null;
+  scope_items: string[] | null;
   phone: string | null;
 }
 
@@ -181,6 +189,29 @@ export function 读取请求会话角色(
   } catch {
     return "";
   }
+}
+
+export function 写入正式页面可信Cookie会话(
+  res: { setHeader(name: string, value: string): void },
+  身份: { username: string; role: string },
+  参数: 会话用户名读取参数,
+): boolean {
+  const env = 参数.env ?? process.env;
+  if (env.V3_DELIVERY_AUTH_ENABLED !== "true") return false;
+  const username = 身份.username.trim();
+  const role = 身份.role;
+  if (!username || !["superadmin", "admin", "partner_admin", "staff"].includes(role)) {
+    throw new 应用错误("V3_AUTH_PAGE_SESSION_INVALID", "正式页面登录身份不完整。", 500);
+  }
+  const 会话配置 = {
+    cookieName: env.V3_DELIVERY_AUTH_COOKIE_NAME || 默认Cookie名称,
+    cookieSecure: env.V3_DELIVERY_AUTH_COOKIE_SECURE === "true",
+    ttlSeconds: 解析正整数(env.V3_DELIVERY_AUTH_TTL_SECONDS, 默认会话秒数),
+    sessionSecret: 参数.sessionSecret,
+  };
+  const token = 签发会话令牌(username, role as 业务页面角色, 会话配置);
+  写入会话Cookie(res, 会话配置, token);
+  return true;
 }
 
 function 注册账号密码路由(router: Router, 配置: 认证配置, build: 构建信息): void {
@@ -427,9 +458,7 @@ async function 处理Iam单点登录(
       // 区分错误文案:手机号形态走 V3_AUTH_SSO_PARTNER_NOT_FOUND,管理员形态走 V3_AUTH_SSO_USER_NOT_FOUND。
       const 形态 = 判定单点登录值形态(iam身份.username);
       throw new 应用错误(
-        形态 === "partner_phone"
-          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
-          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone" ? "V3_AUTH_SSO_PARTNER_NOT_FOUND" : "V3_AUTH_SSO_USER_NOT_FOUND",
         形态 === "partner_phone"
           ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
           : "CRM 未开通该单点登录账号。",
@@ -531,16 +560,18 @@ async function 处理UniSdp单点登录(
       resultCode: "success",
     });
     const 本地匹配 = await 查找并匹配单点登录用户(
-      { username: uniSdp身份.username, rawUsername: uniSdp身份.rawUsername, mobile: uniSdp身份.mobile },
+      {
+        username: uniSdp身份.username,
+        rawUsername: uniSdp身份.rawUsername,
+        mobile: uniSdp身份.mobile,
+      },
       配置,
     );
     if (!本地匹配) {
       // 区分错误文案:手机号形态走 V3_AUTH_SSO_PARTNER_NOT_FOUND,管理员形态走 V3_AUTH_SSO_USER_NOT_FOUND。
       const 形态 = 判定单点登录值形态(uniSdp身份.mobile || uniSdp身份.username);
       throw new 应用错误(
-        形态 === "partner_phone"
-          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
-          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone" ? "V3_AUTH_SSO_PARTNER_NOT_FOUND" : "V3_AUTH_SSO_USER_NOT_FOUND",
         形态 === "partner_phone"
           ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
           : "CRM 未开通该单点登录账号。",
@@ -638,15 +669,17 @@ async function 处理UniSdp门户单点登录(
       resultCode: "success",
     });
     const 本地匹配 = await 查找并匹配单点登录用户(
-      { username: uniSdp身份.username, rawUsername: uniSdp身份.rawUsername, mobile: uniSdp身份.mobile },
+      {
+        username: uniSdp身份.username,
+        rawUsername: uniSdp身份.rawUsername,
+        mobile: uniSdp身份.mobile,
+      },
       配置,
     );
     if (!本地匹配) {
       const 形态 = 判定单点登录值形态(uniSdp身份.mobile || uniSdp身份.username);
       throw new 应用错误(
-        形态 === "partner_phone"
-          ? "V3_AUTH_SSO_PARTNER_NOT_FOUND"
-          : "V3_AUTH_SSO_USER_NOT_FOUND",
+        形态 === "partner_phone" ? "V3_AUTH_SSO_PARTNER_NOT_FOUND" : "V3_AUTH_SSO_USER_NOT_FOUND",
         形态 === "partner_phone"
           ? "CRM 未开通该渠道手机号对应的账号,请联系管理员。"
           : "CRM 未开通该单点登录账号。",
@@ -1210,6 +1243,7 @@ function 解析交付用户(value: string | undefined): 交付用户[] {
       ? ["admin"]
       : ["staff"];
     const roleCodes = 显式角色 && 显式角色.length > 0 ? 显式角色 : 推断角色;
+    const 摘要 = 构建权限摘要(roleCodes, [], []);
     const 标准用户 = {
       username: 用户.username,
       displayName: 用户.displayName,
@@ -1218,6 +1252,9 @@ function 解析交付用户(value: string | undefined): 交付用户[] {
       defaultPath: 用户.defaultPath,
       allowedPaths: 用户.allowedPaths,
       roleCodes,
+      roles: 摘要.roles,
+      permissions: 摘要.permissions,
+      scopes: 摘要.scopes,
     };
     return { ...标准用户, pageUser: 创建配置业务页面用户(标准用户) };
   });
@@ -1228,7 +1265,11 @@ function 解析正整数(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function 签发会话令牌(username: string, role: 业务页面角色, 配置: 认证配置): string {
+function 签发会话令牌(
+  username: string,
+  role: 业务页面角色,
+  配置: Pick<认证配置, "sessionSecret" | "ttlSeconds">,
+): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: 会话载荷 = {
     username,
@@ -1268,9 +1309,9 @@ function 判定单点登录值形态(value: string): 单点登录值形态 {
   return "unknown";
 }
 
-function 是管理员账号(用户: 交付用户): boolean {
+function 是管理端账号(用户: 交付用户): boolean {
   const 角色 = Array.isArray(用户.roleCodes) ? 用户.roleCodes : [];
-  return 角色.includes("superadmin") || 角色.includes("admin");
+  return 角色.includes("superadmin") || 角色.includes("admin") || 角色.includes("region_manager");
 }
 
 async function 查找并匹配单点登录用户(
@@ -1289,13 +1330,12 @@ async function 查找并匹配单点登录用户(
     return null;
   }
 
-  // admin_username:必须命中且具备管理员角色(超管/admin)。严格切分避免渠道账号 username 撞管理员。
+  // 管理端用户名:必须命中且具备管理端角色。严格切分避免渠道账号 username 撞管理端账号。
   const 用户名用户 = await 查找可登录用户(身份.username, 配置);
   if (!用户名用户) return null;
-  if (!是管理员账号(用户名用户)) return null;
+  if (!是管理端账号(用户名用户)) return null;
   return { 用户: 用户名用户, 匹配方式: "username" };
 }
-
 
 async function 查找并校验用户(
   username: string,
@@ -1378,7 +1418,6 @@ async function 查询渠道手机号用户(mobile: string, 配置: 认证配置)
   }
 }
 
-
 async function 查询数据库用户行(
   配置: 认证配置,
   whereSql: string,
@@ -1423,6 +1462,26 @@ async function 查询数据库用户行(
         '渠道用户'
       ) AS role_name,
       array_agg(DISTINCT r.role_code) FILTER (WHERE r.role_code IS NOT NULL) AS role_codes,
+      COALESCE(
+        (
+          SELECT array_agg(DISTINCT p.permission_code ORDER BY p.permission_code)
+          FROM iam.user_roles ur2
+          JOIN iam.role_permissions rp2 ON rp2.role_id = ur2.role_id
+          JOIN iam.permissions p ON p.id = rp2.permission_id
+          JOIN iam.roles rr ON rr.id = rp2.role_id AND rr.status_code = 'active'
+          WHERE ur2.user_id = u.id
+        ),
+        ARRAY[]::text[]
+      ) AS permission_codes,
+      COALESCE(
+        (
+          SELECT array_agg(DISTINCT d.scope_type || ':' || COALESCE(d.scope_ref_id::text, ''))
+          FROM iam.data_scope_bindings d
+          WHERE d.role_id IN (SELECT ur3.role_id FROM iam.user_roles ur3 WHERE ur3.user_id = u.id)
+            AND d.status_code = 'active'
+        ),
+        ARRAY[]::text[]
+      ) AS scope_items,
       u.phone,
       reg.region_name,
       u.extra_json,
@@ -1458,7 +1517,12 @@ async function 查询数据库用户行(
 function 从数据库行创建交付用户(row: 数据库用户行 | undefined): 交付用户 | null {
   if (!row?.password_hash) return null;
   const roleCode = row.role_code || "staff";
+  const roleCodes = Array.isArray(row.role_codes) ? row.role_codes.filter(Boolean) : [];
+  const 摘要 = 构建权限摘要(roleCodes, row.permission_codes, row.scope_items);
   const pageUser = 创建数据库业务页面用户(row, roleCode);
+  pageUser.roles = 摘要.roles;
+  pageUser.permissions = 摘要.permissions;
+  pageUser.scopes = 摘要.scopes;
   return {
     username: row.username,
     displayName: row.display_name || row.username,
@@ -1467,7 +1531,24 @@ function 从数据库行创建交付用户(row: 数据库用户行 | undefined):
     defaultPath: 角色默认路径(roleCode),
     allowedPaths: 角色允许路径(roleCode),
     pageUser,
-    roleCodes: Array.isArray(row.role_codes) ? row.role_codes.filter(Boolean) : [],
+    roleCodes,
+    roles: 摘要.roles,
+    permissions: 摘要.permissions,
+    scopes: 摘要.scopes,
+  };
+}
+
+function 构建权限摘要(
+  角色列表: string[],
+  permissionCodes: string[] | null | undefined,
+  scopeItems: string[] | null | undefined,
+): { roles: string[]; permissions: string[]; scopes: string[] } {
+  if (角色列表.includes("superadmin"))
+    return { roles: 角色列表, permissions: ["*"], scopes: ["all"] };
+  return {
+    roles: 角色列表,
+    permissions: Array.isArray(permissionCodes) ? permissionCodes : [],
+    scopes: Array.isArray(scopeItems) ? scopeItems : [],
   };
 }
 
@@ -1477,15 +1558,16 @@ function 规范中国大陆手机号(value: string): string {
   return /^1\d{10}$/.test(手机号) ? 手机号 : "";
 }
 
-
 function 创建配置业务页面用户(用户: {
   username: string;
   displayName: string;
   roleName: string;
   defaultPath: string;
   allowedPaths: string[];
+  roleCodes: string[];
 }): 业务页面用户 {
   const role = 识别配置业务页面角色(用户);
+  const 摘要 = 构建权限摘要(用户.roleCodes || [], [], []);
   return {
     id: 用户.username,
     userId: 用户.username,
@@ -1499,6 +1581,9 @@ function 创建配置业务页面用户(用户: {
     bigRegion: "",
     partnerId: "",
     partnerName: "",
+    roles: 摘要.roles,
+    permissions: 摘要.permissions,
+    scopes: 摘要.scopes,
   };
 }
 
@@ -1750,12 +1835,15 @@ function 转换用户响应(用户: 交付用户) {
     roleName: 用户.roleName,
     defaultPath: 用户.defaultPath,
     allowedPaths: 用户.allowedPaths,
+    roles: 用户.roles || [],
+    permissions: 用户.permissions || [],
+    scopes: 用户.scopes || [],
   };
 }
 
 function 写入会话Cookie(
   res: { setHeader(name: string, value: string): void },
-  配置: 认证配置,
+  配置: Pick<认证配置, "cookieName" | "cookieSecure" | "ttlSeconds">,
   token: string,
 ): void {
   const parts = [

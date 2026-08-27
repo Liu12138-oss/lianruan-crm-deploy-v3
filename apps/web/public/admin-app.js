@@ -813,7 +813,7 @@ const MainLayout = {
           <div class="nav-item" :class="{active:$route.path==='/partners'}" @click="go('/partners')">
             <span class="nav-icon">🤝</span> 渠道商管理
           </div>
-          <div class="nav-item" :class="{active:$route.path==='/partner-admin'}" @click="go('/partner-admin')">
+          <div class="nav-item" v-if="!isSuperAdmin || !账号入口已合并" :class="{active:$route.path==='/partner-admin'}" @click="go('/partner-admin')">
             <span class="nav-icon">🏢</span> 企业管理员
             <span class="nav-badge" v-if="pendingPartnerAdminCount">{{ pendingPartnerAdminCount }}</span>
           </div>
@@ -821,7 +821,7 @@ const MainLayout = {
             <span class="nav-icon">✅</span> 审核中心
             <span class="nav-badge" v-if="reviewCount">{{ reviewCount }}</span>
           </div>
-          <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/account-manage'}" @click="go('/account-manage')">
+          <div class="nav-item" v-if="isSuperAdmin && !账号入口已合并" :class="{active:$route.path==='/account-manage'}" @click="go('/account-manage')">
             <span class="nav-icon">👤</span> 账号管理
           </div>
           <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/audit-logs'}" @click="go('/audit-logs')">
@@ -829,6 +829,16 @@ const MainLayout = {
           </div>
           <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/openapi-integration'}" @click="go('/openapi-integration')">
             <span class="nav-icon">🔌</span> OpenAPI 对接
+          </div>
+          <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/message-platform'}" @click="go('/message-platform')">
+            <span class="nav-icon">📨</span> 消息渠道配置
+          </div>
+          <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/message-rules'}" @click="go('/message-rules')">
+            <span class="nav-icon">🔔</span> 提醒规则管理
+          </div>
+          <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path.startsWith('/organization'), 'nav-item-disabled': !组织功能已启用, 'nav-item-readonly': 组织功能已启用 && !组织写入已启用}" :title="组织入口提示" @click="打开组织架构">
+            <span class="nav-icon">🏛️</span> {{ 组织入口名称 }}
+            <span class="nav-status">{{ 组织入口状态文案 }}</span>
           </div>
 
         </template>
@@ -879,6 +889,35 @@ const MainLayout = {
       </div>
     </div>
 
+    <div class="modal-overlay" v-if="组织身份确认打开" @click.self="关闭组织身份确认">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+          <div class="modal-title">进入组织架构前确认身份</div>
+          <span class="modal-close" @click="关闭组织身份确认">✕</span>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0 0 14px;color:#606266;font-size:13px;line-height:1.7">
+            当前是升级前建立的页面会话。为保护组织和账号数据，请输入当前账号密码完成一次身份确认；不会影响您已打开的其他业务页面。
+          </p>
+          <div class="form-item">
+            <label class="form-label">当前账号</label>
+            <input class="form-control" :value="store.user?.username || ''" disabled/>
+          </div>
+          <div class="form-item">
+            <label class="form-label">密码</label>
+            <input class="form-control" type="password" v-model="组织身份确认密码" placeholder="请输入当前账号密码" @keyup.enter="确认组织身份"/>
+          </div>
+          <div v-if="组织身份确认错误" style="color:#ff4d4f;font-size:13px;margin-top:8px">{{ 组织身份确认错误 }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="关闭组织身份确认">取消</button>
+          <button class="btn btn-primary" @click="确认组织身份" :disabled="组织身份确认中">
+            {{ 组织身份确认中 ? '确认中...' : '确认并进入' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 主内容 -->
     <div class="content-area">
       <header class="top-header">
@@ -888,9 +927,9 @@ const MainLayout = {
           <span class="current">{{ pageTitle }}</span>
         </div>
         <div class="header-actions">
-          <button class="header-btn" @click="showNotif=!showNotif" title="通知">
+          <button class="header-btn" @click="toggleMessageDrawer" title="通知" aria-label="打开通知中心">
             🔔
-            <span class="notif-dot" v-if="unreadCount"></span>
+            <span class="notif-dot" v-if="messageUnreadCount"></span>
           </button>
           <button class="header-btn" title="帮助">❓</button>
           <div style="font-size:13px;color:#666">{{ store.user.name.slice(0,6) }}{{ store.user.name.length>6?'…':'' }}</div>
@@ -904,14 +943,17 @@ const MainLayout = {
     <!-- 通知面板 -->
     <div class="notif-panel" :class="{open:showNotif}">
       <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
-        <strong style="font-size:15px">通知中心</strong>
-        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="markAllRead">全部已读</span>
+        <strong style="font-size:15px">通知中心<span v-if="messageUnreadCount">（{{ messageUnreadCount }} 条未读）</span></strong>
+        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="openNotificationsPage">查看全部</span>
       </div>
       <div style="flex:1;overflow-y:auto">
-        <div v-for="n in store.notifications" :key="n.id" class="notif-item" :class="{unread:n.unread}" @click="markNotificationRead(n)">
+        <p v-if="messageLoading" style="padding:20px;color:#6e6e73;font-size:13px">正在加载通知…</p>
+        <p v-else-if="messageError" style="padding:20px;color:#d14343;font-size:13px">{{ messageError }}</p>
+        <p v-else-if="!messageItems.length" style="padding:20px;color:#6e6e73;font-size:13px">暂无通知</p>
+        <div v-for="n in messageItems" :key="n.id" class="notif-item" :class="{unread:n.statusCode === 'unread'}" @click="openMessage(n)">
           <div class="ni-title">{{ n.title }}</div>
-          <div class="ni-desc">{{ n.desc }}</div>
-          <div class="ni-time">{{ $formatBusinessDateTime(n.time) }}</div>
+          <div class="ni-desc">{{ n.body }}</div>
+          <div class="ni-time">{{ $formatBusinessDateTime(n.createdAt) }}</div>
         </div>
       </div>
     </div>
@@ -921,8 +963,24 @@ const MainLayout = {
     const router = VueRouter.useRouter();
     const route = VueRouter.useRoute();
     const showNotif = ref(false);
+    const messageItems = ref([]);
+    const messageUnreadCount = ref(0);
+    const messageLoading = ref(false);
+    const messageError = ref('');
+    const messageClient = window.createMessageClient?.({ getToken: getAdminAuthToken });
     const isAdmin = computed(() => store.user?.role === 'admin' || store.user?.role === 'superadmin');
     const isSuperAdmin = computed(() => store.user?.role === 'superadmin');
+    const 组织功能状态 = ref({ enabled: false, writeEnabled: false, accountEntryMerged: false });
+    const 组织功能已启用 = computed(() => 组织功能状态.value.enabled === true);
+    const 组织写入已启用 = computed(() => 组织功能已启用.value && 组织功能状态.value.writeEnabled === true);
+    const 账号入口已合并 = computed(() => 组织功能已启用.value && 组织功能状态.value.accountEntryMerged === true);
+    const 组织入口名称 = computed(() => 账号入口已合并.value ? '组织与账号' : '组织架构');
+    const 组织入口状态文案 = computed(() => 组织功能已启用.value ? (组织写入已启用.value ? '已启用' : '只读观察') : '未启用');
+    const 组织入口提示 = computed(() => 组织功能已启用.value ? (组织写入已启用.value ? '组织架构已启用。' : '组织架构当前为只读观察模式。') : '组织架构当前未启用；可进入查看启用门禁和只读状态。');
+    const 组织身份确认打开 = ref(false);
+    const 组织身份确认密码 = ref('');
+    const 组织身份确认错误 = ref('');
+    const 组织身份确认中 = ref(false);
     const unreadCount = computed(() => store.notifications.filter(n=>n.unread).length);
     
     // 区域管理员隔离
@@ -992,6 +1050,7 @@ const MainLayout = {
       '/quote/new': '新建报价',
       '/order': '订单管理',
       '/products': '产品目录',
+      '/notifications': '通知中心',
       '/partner-report': '经营报表',
       '/partners': '渠道商管理',
       '/partners/import': '渠道商导入',
@@ -1000,6 +1059,8 @@ const MainLayout = {
       '/account-manage': '账号管理',
       '/audit-logs': '操作日志',
       '/openapi-integration': 'OpenAPI 对接',
+      '/message-platform': '消息渠道配置',
+      '/message-rules': '提醒规则管理',
       '/account-manage/staff-import': '员工导入',
     };
     const pageTitle = computed(() => {
@@ -1009,6 +1070,126 @@ const MainLayout = {
       return '工作台';
     });
     function go(p) { router.push(p); }
+    async function 打开组织架构() {
+      try {
+        const 响应 = await fetch('/api/auth/me', { credentials: 'include' });
+        const 内容 = await 响应.json().catch(() => null);
+        if (响应.ok) {
+          const Cookie用户名 = String(内容?.data?.user?.username || '').trim().toLowerCase();
+          const 页面用户名 = String(store.user?.username || '').trim().toLowerCase();
+          if (!Cookie用户名 || Cookie用户名 !== 页面用户名) {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+            clearAdminLoginState();
+            window.location.href = '/login?reason=session_mismatch';
+            return;
+          }
+          router.push('/organization/units');
+          return;
+        }
+        if (响应.status !== 401) {
+          throw new Error(内容?.error?.message || 内容?.message || '身份服务暂时不可用。');
+        }
+        组织身份确认密码.value = '';
+        组织身份确认错误.value = '';
+        组织身份确认打开.value = true;
+      } catch (error) {
+        alert(error.message || '组织架构身份校验失败，请稍后重试。');
+      }
+    }
+    function 关闭组织身份确认() {
+      if (组织身份确认中.value) return;
+      组织身份确认打开.value = false;
+      组织身份确认密码.value = '';
+      组织身份确认错误.value = '';
+    }
+    async function 确认组织身份() {
+      const username = String(store.user?.username || '').trim();
+      if (!username || !组织身份确认密码.value) {
+        组织身份确认错误.value = '请输入当前账号密码。';
+        return;
+      }
+      组织身份确认中.value = true;
+      组织身份确认错误.value = '';
+      try {
+        const 响应 = await fetch('/api/v2/auth/login', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password: 组织身份确认密码.value })
+        });
+        const 内容 = await 响应.json().catch(() => null);
+        if (!响应.ok || !内容?.success) {
+          throw new Error(内容?.error || '账号或密码不正确。');
+        }
+        if (String(内容.user?.username || '').trim().toLowerCase() !== username.toLowerCase() || 内容.user?.role !== 'superadmin') {
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
+          throw new Error('当前账号不是可管理组织架构的超级管理员。');
+        }
+        persistAdminLogin(内容.user, 内容.token);
+        组织身份确认打开.value = false;
+        组织身份确认密码.value = '';
+        router.push('/organization/units');
+      } catch (error) {
+        组织身份确认错误.value = error.message || '身份确认失败，请稍后重试。';
+      } finally {
+        组织身份确认中.value = false;
+      }
+    }
+    async function 读取组织入口状态() {
+      if (!isSuperAdmin.value) return;
+      try {
+        const 响应 = await fetch('/api/org/status', { credentials: 'include' });
+        const 内容 = await 响应.json();
+        if (响应.ok && 内容?.success && 内容.data) {
+          组织功能状态.value = 内容.data;
+          if (账号入口已合并.value && route.path === '/account-manage') {
+            router.replace('/organization/units');
+          }
+          if (账号入口已合并.value && route.path === '/account-manage/staff-import') {
+            router.replace('/organization/units');
+          }
+        }
+      } catch (_) {
+        // 状态读取失败时保持未启用呈现；进入工作区后仍由服务端给出准确门禁提示。
+      }
+    }
+    async function loadMessages() {
+      if (!messageClient) return;
+      messageLoading.value = true;
+      messageError.value = '';
+      try {
+        const [list, unread] = await Promise.all([messageClient.list({ limit: 8 }), messageClient.unreadCount()]);
+        messageItems.value = list.items;
+        messageUnreadCount.value = unread;
+      } catch (error) {
+        messageItems.value = [];
+        messageUnreadCount.value = 0;
+        messageError.value = error.message || '消息服务暂时不可用，请稍后重试。';
+      } finally {
+        messageLoading.value = false;
+      }
+    }
+    async function openMessage(notification) {
+      try {
+        if (notification.statusCode === 'unread') await messageClient?.markRead(notification.id);
+        notification.statusCode = 'read';
+        messageUnreadCount.value = Math.max(0, messageUnreadCount.value - 1);
+        const target = window.resolveMessageTarget?.(notification, { scope: 'admin', device: 'desktop' });
+        if (!target) throw new Error('该记录不存在、已失效或当前账号无权访问。');
+        showNotif.value = false;
+        go(target);
+      } catch (error) {
+        messageError.value = error.message || '该记录不存在、已失效或当前账号无权访问。';
+      }
+    }
+    function toggleMessageDrawer() {
+      showNotif.value = !showNotif.value;
+      if (showNotif.value) loadMessages();
+    }
+    function openNotificationsPage() {
+      showNotif.value = false;
+      go('/notifications');
+    }
     function logout() {
       if (confirm('确认退出登录？')) {
         adminFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -1067,8 +1248,59 @@ const MainLayout = {
       passwordLoading.value = false;
     }
     
-    return { store, showNotif, isAdmin, isSuperAdmin, unreadCount, pendingCount, hotOppCount, reviewCount, pendingPartnerAdminCount, pageTitle, go, logout, markAllRead, markNotificationRead, loadPendingApprovals, 
+    onMounted(() => { loadMessages(); 读取组织入口状态(); });
+    return { store, showNotif, isAdmin, isSuperAdmin, 组织功能已启用, 组织写入已启用, 账号入口已合并, 组织入口名称, 组织入口状态文案, 组织入口提示, 组织身份确认打开, 组织身份确认密码, 组织身份确认错误, 组织身份确认中, unreadCount, pendingCount, hotOppCount, reviewCount, pendingPartnerAdminCount, pageTitle, go, 打开组织架构, 关闭组织身份确认, 确认组织身份, logout, markAllRead, markNotificationRead, loadPendingApprovals,
+      messageItems, messageUnreadCount, messageLoading, messageError, toggleMessageDrawer, openMessage, openNotificationsPage,
       showChangePassword, passwordForm, passwordError, passwordLoading, openChangePassword, doChangePassword };
+  }
+};
+
+const NotificationsPage = {
+  template: `
+  <section>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div><h2 style="font-size:18px;font-weight:700;color:#1a1a1a">通知中心</h2><p style="font-size:13px;color:#888;margin-top:4px">仅展示当前账号有权查看的站内通知</p></div>
+      <button class="btn btn-default" :disabled="loading" @click="load">刷新</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:14px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
+        <strong>全部通知</strong><button class="btn btn-text btn-sm" :disabled="!unreadCount || loading" @click="markAll">全部已读</button>
+      </div>
+      <p v-if="loading" style="padding:24px;color:#6e6e73">正在加载通知…</p>
+      <div v-else-if="error" style="padding:24px;color:#d14343"><p>{{ error }}</p><button class="btn btn-default btn-sm" style="margin-top:12px" @click="load">重试</button></div>
+      <p v-else-if="!items.length" style="padding:32px;text-align:center;color:#6e6e73">暂无通知</p>
+      <button v-else v-for="item in items" :key="item.id" type="button" class="notif-item" :class="{unread:item.statusCode === 'unread'}" style="display:block;width:100%;text-align:left;background:#fff;border-top:1px solid #f5f5f5" @click="open(item)">
+        <div class="ni-title">{{ item.title }}</div><div class="ni-desc">{{ item.body }}</div><div class="ni-time">{{ formatTime(item.createdAt) }}</div>
+      </button>
+    </div>
+  </section>`,
+  setup() {
+    const router = VueRouter.useRouter();
+    const client = window.createMessageClient?.({ getToken: getAdminAuthToken });
+    const items = ref([]); const unreadCount = ref(0); const loading = ref(false); const error = ref('');
+    const formatTime = value => formatBusinessDateTime(value);
+    async function load() {
+      if (!client) { error.value = '消息服务暂时不可用，请稍后重试。'; return; }
+      loading.value = true; error.value = '';
+      try { const [list, unread] = await Promise.all([client.list({ limit: 20 }), client.unreadCount()]); items.value = list.items; unreadCount.value = unread; }
+      catch (reason) { items.value = []; error.value = reason.message || '消息服务暂时不可用，请稍后重试。'; }
+      finally { loading.value = false; }
+    }
+    async function markAll() {
+      try { await client.markAllRead(); items.value.forEach(item => { item.statusCode = 'read'; }); unreadCount.value = 0; }
+      catch (reason) { error.value = reason.message || '标记已读失败，请稍后重试。'; }
+    }
+    async function open(item) {
+      try {
+        if (item.statusCode === 'unread') await client.markRead(item.id);
+        item.statusCode = 'read'; unreadCount.value = Math.max(0, unreadCount.value - 1);
+        const target = window.resolveMessageTarget?.(item, { scope: 'admin', device: 'desktop' });
+        if (!target) throw new Error('该记录不存在、已失效或当前账号无权访问。');
+        router.push(target);
+      } catch (reason) { error.value = reason.message || '该记录不存在、已失效或当前账号无权访问。'; }
+    }
+    onMounted(load);
+    return { items, unreadCount, loading, error, load, markAll, open, formatTime };
   }
 };
 
@@ -5320,6 +5552,7 @@ const OrderList = {
       </div>
       <select class="form-control" v-model="filterStatus" style="width:150px">
         <option value="">全部状态</option>
+        <option value="pending">待确认</option>
         <option value="pending_primary_confirm">待一级确认</option>
         <option value="primary_confirmed">一级已确认</option>
         <option value="pending_superadmin_confirm">待超管确认</option>
@@ -5358,7 +5591,8 @@ const OrderList = {
               <td @click.stop>
                 <!-- 管理员/超级管理员可以操作订单状态 -->
                 <template v-if="canManageOrder(o)">
-                  <span v-if="o.status==='pending_primary_confirm'" class="tag tag-orange">待一级确认</span>
+                  <button v-if="o.legacyV2Order && o.status==='pending'" class="btn btn-primary btn-sm" @click="confirmOrder(o)">确认订单</button>
+                  <span v-else-if="o.status==='pending_primary_confirm'" class="tag tag-orange">待一级确认</span>
                   <button v-else-if="o.status==='primary_confirmed'" class="btn btn-primary btn-sm" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(o)">区管确认</button>
                   <button v-else-if="o.status==='pending_superadmin_confirm' && isSuperAdmin" class="btn btn-primary btn-sm" @click="confirmOrder(o)">超管确认</button>
                   <span v-else-if="o.status==='pending_superadmin_confirm'" class="tag tag-blue">待超管确认</span>
@@ -5405,7 +5639,32 @@ const OrderList = {
             <div class="form-item full"><label class="form-label">收货地址</label><div style="padding:8px 0">{{ detail.deliveryAddr }}</div></div>
             <div class="form-item full"><label class="form-label">联系人</label><div style="padding:8px 0">{{ detail.contacts }}</div></div>
           </div>
-          <div style="margin-top:20px">
+          <div style="margin-top:20px" v-if="detail.legacyV2Order">
+            <div style="font-size:13px;font-weight:700;margin-bottom:14px">订单进度</div>
+            <div class="timeline">
+              <div class="timeline-item">
+                <div class="timeline-dot-wrap"><div class="timeline-dot active"></div><div class="timeline-line"></div></div>
+                <div class="timeline-content"><div class="tl-title">订单已创建</div><div class="tl-time">{{ $formatBusinessDateTime(detail.createdAt) }}</div></div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active: detail.status !== 'pending'}"></div><div class="timeline-line"></div></div>
+                <div class="timeline-content"><div class="tl-title">订单确认</div><div class="tl-desc" v-if="detail.status==='pending'">等待确认...</div></div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active: ['processing','shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
+                <div class="timeline-content"><div class="tl-title">订单处理中</div><div class="tl-desc" v-if="detail.status==='processing'">等待发货...</div></div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active: ['shipped','completed'].includes(detail.status)}"></div><div class="timeline-line"></div></div>
+                <div class="timeline-content"><div class="tl-title">已发货 / License 已下发</div></div>
+              </div>
+              <div class="timeline-item">
+                <div class="timeline-dot-wrap"><div class="timeline-dot" :class="{active: detail.status==='completed'}"></div></div>
+                <div class="timeline-content"><div class="tl-title" :style="{color: detail.status==='completed' ? 'var(--success)' : '#bbb'}">订单完成</div></div>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:20px" v-else>
             <div style="font-size:13px;font-weight:700;margin-bottom:14px">订单进度</div>
             <div class="timeline">
               <div class="timeline-item">
@@ -5479,11 +5738,12 @@ const OrderList = {
           <div v-if="canManageOrder(detail) && detail.status !== 'completed' && detail.status !== 'cancelled'" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
             <div style="font-size:13px;font-weight:700;margin-bottom:14px">订单操作</div>
             <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <span v-if="detail.status==='pending_primary_confirm'" class="tag tag-orange">待一级分销商确认</span>
-              <button v-if="detail.status==='primary_confirmed'" class="btn btn-primary" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(detail);detail=null">区管确认（一级已确认）</button>
-              <button v-if="detail.status==='pending_superadmin_confirm' && isSuperAdmin" class="btn btn-primary" @click="confirmOrder(detail);detail=null">超管确认</button>
-              <button v-if="detail.status==='processing'" class="btn btn-primary" @click="shipOrder(detail);detail=null">确认发货</button>
-              <button v-if="detail.status==='shipped'" class="btn btn-success" @click="completeOrder(detail);detail=null">完成订单</button>
+              <button v-if="detail.legacyV2Order && detail.status==='pending'" class="btn btn-primary" @click="confirmOrder(detail);detail=null">确认订单</button>
+              <span v-else-if="detail.status==='pending_primary_confirm'" class="tag tag-orange">待一级分销商确认</span>
+              <button v-else-if="detail.status==='primary_confirmed'" class="btn btn-primary" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(detail);detail=null">区管确认（一级已确认）</button>
+              <button v-else-if="detail.status==='pending_superadmin_confirm' && isSuperAdmin" class="btn btn-primary" @click="confirmOrder(detail);detail=null">超管确认</button>
+              <button v-else-if="detail.status==='processing'" class="btn btn-primary" @click="shipOrder(detail);detail=null">确认发货</button>
+              <button v-else-if="detail.status==='shipped'" class="btn btn-success" @click="completeOrder(detail);detail=null">完成订单</button>
               <button v-if="detail.status!=='cancelled'" class="btn btn-danger" @click="cancelOrder(detail);detail=null">取消订单</button>
             </div>
           </div>
@@ -5658,7 +5918,7 @@ const OrderList = {
     });
     
     function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-green', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待一级确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
     
     // 获取发货时间
@@ -5675,13 +5935,14 @@ const OrderList = {
     
     // 确认订单审批链路
     async function confirmOrder(order) {
+      const isLegacyV2Order = Boolean(order.legacyV2Order && order.status === 'pending');
       const isRegionConfirm = order.status === 'primary_confirmed';
       const isSuperConfirm = order.status === 'pending_superadmin_confirm';
-      const label = isSuperConfirm ? '确认超管审批通过' : (isRegionConfirm ? '确认区管审批通过并提交超管确认' : '确认订单');
+      const label = isLegacyV2Order ? '确认订单并进入处理中' : (isSuperConfirm ? '确认超管审批通过' : (isRegionConfirm ? '确认区管审批通过并提交超管确认' : '确认订单'));
       if (!confirm(`${label}\n订单：${order.id}\n客户：${order.customer}\n金额：${fmt(order.total)}`)) return;
       try {
-        const targetStatus = isSuperConfirm ? 'confirmed' : (isRegionConfirm ? 'pending_superadmin_confirm' : 'confirmed');
-        const remark = isSuperConfirm ? '超管确认通过' : (isRegionConfirm ? '区管确认通过，提交超管确认' : '订单确认');
+        const targetStatus = isLegacyV2Order ? 'processing' : (isSuperConfirm ? 'confirmed' : (isRegionConfirm ? 'pending_superadmin_confirm' : 'confirmed'));
+        const remark = isLegacyV2Order ? 'V2历史订单确认，进入处理中' : (isSuperConfirm ? '超管确认通过' : (isRegionConfirm ? '区管确认通过，提交超管确认' : '订单确认'));
         const result = await apiClient.updateOrderStatus(order.id, targetStatus, remark);
         if (result.success) {
           // 更新本地数据
@@ -5689,7 +5950,8 @@ const OrderList = {
           if (idx !== -1) {
             store.orders[idx] = result.data;
           }
-          alert(isSuperConfirm ? '订单已由超管确认' : '订单已提交超管确认');
+          const 编号提示 = result.data?.原始数据?.numberNotice ? `\n${result.data.原始数据.numberNotice}` : '';
+          alert((isLegacyV2Order ? '订单已确认，进入处理中' : (isSuperConfirm ? '订单已由超管确认' : '订单已提交超管确认')) + 编号提示);
         } else {
           alert('操作失败：' + (result.error || '未知错误'));
         }
@@ -5784,7 +6046,8 @@ const OrderList = {
         });
         
         if (res && res.success) {
-          alert(`价格已从 ¥${(order.amount || order.total).toLocaleString()} 调整为 ¥${newAmount.toLocaleString()}，已提交超管确认`);
+          const 编号提示 = res.data?.原始数据?.numberNotice ? `\n${res.data.原始数据.numberNotice}` : '';
+          alert(`价格已从 ¥${(order.amount || order.total).toLocaleString()} 调整为 ¥${newAmount.toLocaleString()}，已提交超管确认${编号提示}`);
           // 更新本地订单数据
           const idx = store.orders.findIndex(o => o.id === order.id);
           if (idx !== -1) {
@@ -7786,9 +8049,137 @@ const ProductCatalog = {
 // 兼容旧名称
 const Products = ProductCatalog;
 
+// 渠道成员统一资料弹窗：组织架构、渠道商员工、企业管理员、经营报表四个入口共用同一数据事实。
+const ChannelMemberProfileDialog = {
+  props: {
+    member: { type: Object, required: true }
+  },
+  emits: ['close', 'saved'],
+  template: `
+    <div class="modal-overlay" style="z-index:2200" @click.self="$emit('close')">
+      <div class="modal" style="width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 40px);display:flex;flex-direction:column">
+        <div class="modal-header">
+          <div>
+            <div class="modal-title">统一成员资料</div>
+            <div style="font-size:12px;color:#888;margin-top:4px">组织架构、渠道商员工、企业管理员、经营报表四处实时共用</div>
+          </div>
+          <span class="modal-close" @click="$emit('close')">×</span>
+        </div>
+        <div class="modal-body" style="overflow:auto">
+          <div v-if="loading" style="padding:36px;text-align:center;color:#888">正在加载成员资料...</div>
+          <div v-else-if="error" style="padding:14px 16px;background:#fff2f0;border:1px solid #ffccc7;border-radius:8px;color:#cf1322">{{ error }}</div>
+          <template v-else-if="profile">
+            <div style="padding:12px 14px;background:#f5f8ff;border:1px solid #d6e4ff;border-radius:10px;margin-bottom:16px;font-size:13px;line-height:1.8">
+              <b>{{ profile.name }}（{{ profile.username }}）</b><br>
+              所属渠道：{{ profile.partnerName }}　
+              账号身份：{{ profile.memberRoleCode === 'partner_admin' ? '企业管理员' : '普通员工' }}
+              <div style="color:#667085">企业管理员身份和审批状态独立保存，不会被“销售/技术”业务角色覆盖。</div>
+            </div>
+            <div class="form-grid">
+              <div class="form-item"><label class="form-label required">姓名</label><input class="form-control" v-model="form.name" /></div>
+              <div class="form-item"><label class="form-label">登录账号</label><input class="form-control" :value="profile.username" disabled /></div>
+              <div class="form-item"><label class="form-label">联系电话</label><input class="form-control" v-model="form.phone" :disabled="!phoneEditEnabled" /><div v-if="!phoneEditEnabled" class="form-hint">手机号可能参与 IAM/UniSDP 身份匹配，专项回归通过前仅展示、不修改。</div></div>
+              <div class="form-item"><label class="form-label">邮箱</label><input class="form-control" v-model="form.email" /></div>
+              <div class="form-item full">
+                <label class="form-label required">业务角色</label>
+                <select class="form-control" v-model="form.businessRoleCode">
+                  <option value="channel_sales">销售</option>
+                  <option value="channel_technical">技术</option>
+                </select>
+                <div class="form-hint">业务角色二选一，只表示人员职责，不自动授予系统权限。</div>
+              </div>
+              <div class="form-item full">
+                <label class="form-label">证书授权（可多选）</label>
+                <div v-if="profile.certificationTemplates.length" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+                  <label v-for="template in profile.certificationTemplates" :key="template.id" style="display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;cursor:pointer">
+                    <input type="checkbox" :value="template.id" v-model="form.certificationTemplateIds" style="margin-top:3px" />
+                    <span><b style="font-size:13px">{{ template.templateName }}</b><small style="display:block;color:#888;margin-top:2px">{{ template.category || '其他' }}</small></span>
+                  </label>
+                </div>
+                <div v-else style="color:#999;padding:12px 0">暂无可授权证书，请先在组织架构的证书管理中创建证书。</div>
+                <div class="form-hint">新增勾选将颁发证书；取消勾选将撤销当前有效证书。证书变化不会自动改变业务角色或系统权限。</div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="$emit('close')">取消</button>
+          <button class="btn btn-primary" :disabled="loading || saving || !profile || !form.name || !form.businessRoleCode" @click="save">
+            {{ saving ? '保存中...' : '保存并同步三处' }}
+          </button>
+        </div>
+      </div>
+    </div>`,
+  setup(props, { emit }) {
+    const loading = ref(true);
+    const saving = ref(false);
+    const error = ref('');
+    const profile = ref(null);
+    const phoneEditEnabled = ref(false);
+    const form = reactive({ name: '', phone: '', email: '', businessRoleCode: 'channel_sales', certificationTemplateIds: [] });
+
+    async function load() {
+      loading.value = true;
+      error.value = '';
+      try {
+        const memberId = props.member.partnerMemberId || props.member.memberId || '';
+        if (!memberId) throw new Error('缺少渠道成员编号，请刷新页面后重试。');
+        const [result, status] = await Promise.all([
+          组织读取渠道成员档案(memberId),
+          组织读取('/api/org/status'),
+        ]);
+        phoneEditEnabled.value = Boolean(status?.channelPhoneEditEnabled);
+        profile.value = result;
+        form.name = result.name || '';
+        form.phone = result.phone || '';
+        form.email = result.email || '';
+        form.businessRoleCode = result.businessRoleCode || 'channel_sales';
+        form.certificationTemplateIds = (result.certifications || [])
+          .filter(item => item.statusCode === 'active')
+          .map(item => item.certificationTemplateId);
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : '成员资料加载失败。';
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    async function save() {
+      if (!profile.value || saving.value) return;
+      saving.value = true;
+      error.value = '';
+      try {
+        const active = (profile.value.certifications || []).filter(item => item.statusCode === 'active');
+        const selected = new Set(form.certificationTemplateIds);
+        const activeTemplateIds = new Set(active.map(item => item.certificationTemplateId));
+        const result = await 组织保存渠道成员档案(profile.value.id, {
+          rowVersion: profile.value.rowVersion,
+          name: form.name,
+          ...(phoneEditEnabled.value ? { phone: form.phone } : {}),
+          email: form.email,
+          businessRoleCode: form.businessRoleCode,
+          grantCertificationTemplateIds: form.certificationTemplateIds.filter(id => !activeTemplateIds.has(id)),
+          revokeCertificationIds: active.filter(item => !selected.has(item.certificationTemplateId)).map(item => item.id),
+        }, { 幂等键: 'channel-member-profile-' + profile.value.id + '-' + Date.now() });
+        profile.value = result;
+        emit('saved', result);
+        emit('close');
+      } catch (err) {
+        error.value = err instanceof Error ? err.message : '成员资料保存失败。';
+      } finally {
+        saving.value = false;
+      }
+    }
+
+    onMounted(load);
+    return { loading, saving, error, profile, phoneEditEnabled, form, save };
+  }
+};
+
 
 // ── 渠道商管理（管理员）────────────────────────────────────
 const Partners = {
+  components: { ChannelMemberProfileDialog },
   template: `
   <div>
     <!-- 搜索栏 -->
@@ -7963,6 +8354,8 @@ const Partners = {
             </div>
             <div class="form-item"><label class="form-label required">联系人</label><input class="form-control" v-model="form.contact" placeholder="负责人姓名"/></div>
             <div class="form-item"><label class="form-label required">联系电话</label><input class="form-control" v-model="form.phone" placeholder="138-0000-0000"/></div>
+            <div class="form-item"><label class="form-label">协议编号</label><input class="form-control" v-model.trim="form.agreementNo" placeholder="渠道合作协议编号"/></div>
+            <div class="form-item"><label class="form-label">国家电话区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="3" placeholder="例如：86"/></div>
             <div class="form-item full"><label class="form-label">企业邮箱</label><input class="form-control" v-model="form.email" placeholder="contact@company.com"/></div>
             <div class="form-item"><label class="form-label">合作状态</label>
               <select class="form-control" v-model="form.status">
@@ -8032,6 +8425,8 @@ const Partners = {
                     </div>
                     <div class="form-item"><label class="form-label required">联系人</label><input class="form-control" v-model="form.contact" placeholder="负责人姓名"/></div>
                     <div class="form-item"><label class="form-label required">联系电话</label><input class="form-control" v-model="form.phone" placeholder="138-0000-0000"/></div>
+                    <div class="form-item"><label class="form-label">协议编号</label><input class="form-control" v-model.trim="form.agreementNo" placeholder="渠道合作协议编号"/></div>
+                    <div class="form-item"><label class="form-label">国家电话区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="3" placeholder="例如：86"/></div>
                     <div class="form-item full"><label class="form-label">企业邮箱</label><input class="form-control" v-model="form.email" placeholder="contact@company.com"/></div>
                   </div>
                 </section>
@@ -8166,7 +8561,7 @@ const Partners = {
             <span class="partner-profile-pill pill-amber">{{ profileCompletionBadge() }}</span>
 	            <div class="partner-profile-tab-switch">
               <button :class="{active: detailTab==='profile'}" @click="detailTab='profile'">信息简介</button>
-              <button :class="{active: detailTab==='team'}" @click="detailTab='team'">销售团队 {{ (detail.staff||[]).length }}</button>
+              <button :class="{active: detailTab==='team'}" @click="detailTab='team'">员工团队 {{ (detail.staff||[]).length }}</button>
             </div>
             <span class="modal-close" @click="detail=null">✕</span>
           </div>
@@ -8187,6 +8582,15 @@ const Partners = {
 	                <span>地址</span>
 	                <strong>{{ profileTextValue('address') }}</strong>
 	                <small>工商地址与渠道填报地址一致</small>
+              </div>
+
+              <div class="partner-profile-side-section">
+                <dl>
+                  <dt>协议编号</dt>
+                  <dd>{{ displayValue(detail.agreementNo) }}</dd>
+                  <dt>国家电话区号</dt>
+                  <dd>{{ detail.countryCallingCode ? '+' + String(detail.countryCallingCode).padStart(3, '0') : '待补充' }}</dd>
+                </dl>
               </div>
 
               <div class="partner-profile-side-section">
@@ -8278,6 +8682,10 @@ const Partners = {
                           <div class="partner-profile-fact-item wide">
                             <span>经营范围</span>
                             <strong>{{ profileTextValue('businessScope', profileTextValue('mainBusiness', '网络安全集成、云桌面交付、运维服务')) }}</strong>
+                          </div>
+                          <div class="partner-profile-fact-item wide">
+                            <span>合作背景</span>
+                            <strong>{{ profileTextValue('cooperationBackground', '—') }}</strong>
                           </div>
                         </div>
                       </section>
@@ -8409,7 +8817,7 @@ const Partners = {
               <div v-else class="partner-team-content">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                   <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px">
-                    销售团队
+                    员工团队
                     <span style="font-size:12px;font-weight:400;color:#888">共 {{ (detail.staff||[]).length }} 人</span>
                   </div>
                   <div style="display:flex;gap:8px">
@@ -8429,6 +8837,9 @@ const Partners = {
                           <span v-else style="width:8px;height:8px;background:#d9d9d9;border-radius:50%"></span>
                         </div>
                         <div style="font-size:12px;color:#888;margin-top:2px">{{ s.role }}</div>
+                        <div v-if="(s.certifications||[]).filter(c=>c.statusCode==='active').length" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+                          <span v-for="cert in (s.certifications||[]).filter(c=>c.statusCode==='active')" :key="cert.id" class="tag tag-blue" style="font-size:10px">{{ cert.templateName }}</span>
+                        </div>
                         <div style="margin-top:4px">
                           <span v-if="s.status==='pending'" class="tag tag-orange" style="font-size:10px">待审批</span>
                           <span v-else-if="s.status==='rejected'" class="tag tag-red" style="font-size:10px">已拒绝</span>
@@ -8439,7 +8850,7 @@ const Partners = {
                     <div style="font-size:12px;color:#666;margin-bottom:6px">{{ s.phone }}</div>
                     <div v-if="s.email" style="font-size:12px;color:#888;margin-bottom:12px">{{ s.email }}</div>
                     <div style="display:flex;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f0">
-                      <button class="btn btn-text btn-sm" @click="editStaff(s)" style="flex:1">编辑</button>
+                      <button class="btn btn-text btn-sm" @click="editStaff(s)" style="flex:1">编辑资料</button>
                       <button class="btn btn-text btn-sm" @click="toggleStaffStatus(s)" style="flex:1;color:#1677ff">
                         {{ s.status==='active'?'禁用':'启用' }}
                       </button>
@@ -8450,7 +8861,7 @@ const Partners = {
                 </div>
 
                 <div v-else class="partner-profile-empty">
-                  <div>暂无销售员工</div>
+                  <div>暂无员工</div>
                   <button class="btn btn-primary btn-sm" @click="openStaffForm()">添加第一位员工</button>
                 </div>
               </div>
@@ -8549,10 +8960,14 @@ const Partners = {
 	                  <span>地址</span>
 	                  <input class="form-control" v-model="profileForm.address" :disabled="!canEditCurrentProfile()" placeholder="渠道商实际办公或工商地址" />
 	                </label>
-	                <label class="wide">
-	                  <span>经营范围</span>
-	                  <textarea class="form-control compact" v-model="profileForm.businessScope" :disabled="!canEditCurrentProfile()" placeholder="工商经营范围或可展示的业务范围"></textarea>
-	                </label>
+                <label class="wide">
+                  <span>经营范围</span>
+                  <textarea class="form-control compact" v-model="profileForm.businessScope" :disabled="!canEditCurrentProfile()" placeholder="工商经营范围或可展示的业务范围"></textarea>
+                </label>
+                <label class="wide">
+                  <span>合作背景</span>
+                  <textarea class="form-control compact" v-model="profileForm.cooperationBackground" :disabled="!canEditCurrentProfile()" placeholder="与本公司的合作背景：如何结识、合作历史、重点项目、战略合作关系等（仅超级管理员与区域管理员可维护）"></textarea>
+                </label>
 	                <label class="wide">
 		                  <span>主要行业</span>
 	                  <textarea class="form-control compact" v-model="profileForm.customerIndustriesText" :disabled="!canEditCurrentProfile()" placeholder="教育、医疗、制造、园区"></textarea>
@@ -8698,13 +9113,12 @@ const Partners = {
           <div class="form-grid">
             <div class="form-item"><label class="form-label required">登录账号</label><input class="form-control" v-model="staffForm.username" placeholder="如：liujg" :disabled="staffForm.editing"/></div>
             <div class="form-item"><label class="form-label required">姓名</label><input class="form-control" v-model="staffForm.name" placeholder="员工姓名"/></div>
-            <div class="form-item"><label class="form-label required">角色</label>
+            <div class="form-item"><label class="form-label required">业务角色</label>
               <select class="form-control" v-model="staffForm.role">
-                <option>销售总监</option>
-                <option>销售经理</option>
-                <option>销售代表</option>
-                <option>技术支持</option>
+                <option value="销售">销售</option>
+                <option value="技术">技术</option>
               </select>
+              <div class="form-hint">业务角色只分销售、技术两类，不影响企业管理员身份和系统权限。</div>
             </div>
             <div class="form-item"><label class="form-label required">联系电话</label><input class="form-control" v-model="staffForm.phone" placeholder="138-0000-0000"/></div>
             <div class="form-item"><label class="form-label">邮箱</label><input class="form-control" v-model="staffForm.email" placeholder="email@company.com"/></div>
@@ -8725,6 +9139,13 @@ const Partners = {
         </div>
       </div>
     </div>
+
+    <ChannelMemberProfileDialog
+      v-if="unifiedMember"
+      :member="unifiedMember"
+      @close="unifiedMember = null"
+      @saved="handleUnifiedMemberSaved"
+    />
 
     <!-- 渠道分销层级管理弹窗 -->
     <div class="modal-overlay" v-if="levelForm.show" @click.self="closeLevelManage">
@@ -8815,6 +9236,7 @@ const Partners = {
       unifiedSocialCreditCode: '',
       legalRepresentative: '',
       businessScope: '',
+      cooperationBackground: '',
       channelPositioning: '',
       officialWebsite: '',
       dataSource: '',
@@ -8875,6 +9297,8 @@ const Partners = {
       contact: '',
       phone: '',
       email: '',
+      agreementNo: '',
+      countryCallingCode: '86',
       status: 'active',
       techServiceType: '',
       address: '',
@@ -9292,7 +9716,10 @@ const Partners = {
     }
 
     function canEditCurrentProfile() {
-      return !!partnerProfile.value?.permissions?.canEditProfile;
+      // 合作背景等简介字段仅超级管理员与区域管理员可填写和编辑
+      const role = store.user?.role;
+      const isProfileManager = role === 'superadmin' || role === 'admin';
+      return isProfileManager && !!partnerProfile.value?.permissions?.canEditProfile;
     }
 
     function canManageProfileProducts() {
@@ -9557,6 +9984,7 @@ const Partners = {
       profileForm.unifiedSocialCreditCode = profile.unifiedSocialCreditCode || profile.extended?.unifiedSocialCreditCode || '';
       profileForm.legalRepresentative = profile.legalRepresentative || profile.extended?.legalRepresentative || profile.bossName || '';
       profileForm.businessScope = profile.businessScope || profile.extended?.businessScope || '';
+      profileForm.cooperationBackground = profile.cooperationBackground || profile.extended?.cooperationBackground || '';
       profileForm.channelPositioning = profile.channelPositioning || profile.extended?.channelPositioning || '';
       profileForm.officialWebsite = profile.officialWebsite || profile.extended?.officialWebsite || '';
       profileForm.dataSource = profile.dataSource || profile.extended?.dataSource || '';
@@ -9766,6 +10194,7 @@ const Partners = {
           unifiedSocialCreditCode: profileForm.unifiedSocialCreditCode,
           legalRepresentative: profileForm.legalRepresentative,
           businessScope: profileForm.businessScope,
+          cooperationBackground: profileForm.cooperationBackground,
           channelPositioning: profileForm.channelPositioning,
           officialWebsite: profileForm.officialWebsite,
           dataSource: profileForm.dataSource,
@@ -9982,7 +10411,7 @@ const Partners = {
     function openNew() {
       editing.value = false;
       form.id = ''; form.name = ''; form.level = 'gold'; form.region = adminRegion.value || '安徽区';
-      form.city = ''; form.contact = ''; form.phone = ''; form.email = ''; form.status = 'active'; form.techServiceType = '';
+      form.city = ''; form.contact = ''; form.phone = ''; form.email = ''; form.agreementNo = ''; form.countryCallingCode = '86'; form.status = 'active'; form.techServiceType = '';
       resetCreateProfileFields();
       showForm.value = true;
     }
@@ -9990,6 +10419,8 @@ const Partners = {
       editing.value = true;
       Object.assign(form, p);
       form.city = p.city || '';
+      form.agreementNo = p.agreementNo || '';
+      form.countryCallingCode = p.countryCallingCode || '86';
       form.techServiceType = p.techServiceType && p.techServiceType !== 'none' ? p.techServiceType : '';
       resetCreateProfileFields();
       showForm.value = true;
@@ -10018,6 +10449,8 @@ const Partners = {
             contact: form.contact,
             phone: form.phone,
             email: form.email,
+            agreementNo: form.agreementNo,
+            countryCallingCode: form.countryCallingCode,
             status: form.status,
             techServiceType: form.techServiceType
           });
@@ -10049,6 +10482,8 @@ const Partners = {
             contact: form.contact,
             phone: form.phone,
             email: form.email,
+            agreementNo: form.agreementNo,
+            countryCallingCode: form.countryCallingCode,
             techServiceType: form.techServiceType,
             createdBy: userId.value,
             createdByRole: userRole.value,
@@ -10104,16 +10539,22 @@ const Partners = {
     }
     
     // 员工管理
-    const staffForm = reactive({ show:false, editing:false, id:'', username:'', name:'', role:'销售代表', phone:'', email:'', status:'active' });
+    const staffForm = reactive({ show:false, editing:false, id:'', username:'', name:'', role:'销售', phone:'', email:'', status:'active' });
+    const unifiedMember = ref(null);
     const canSaveStaff = computed(() => staffForm.username && staffForm.name && staffForm.phone);
     function openStaffForm(s) {
       staffForm.show = true;
       if (s) {
         staffForm.editing = true;
         Object.assign(staffForm, s);
+        staffForm.role = s.businessRoleCode === 'channel_technical'
+          || s.businessRoleType === 'technical'
+          || String(s.role || '').includes('技术')
+          ? '技术'
+          : '销售';
       } else {
         staffForm.editing = false;
-        staffForm.id = ''; staffForm.username = ''; staffForm.name = ''; staffForm.role = '销售代表'; 
+        staffForm.id = ''; staffForm.username = ''; staffForm.name = ''; staffForm.role = '销售'; 
         staffForm.phone = ''; staffForm.email = ''; staffForm.status = 'active';
       }
     }
@@ -10133,7 +10574,8 @@ const Partners = {
             phone: staffForm.phone,
             email: staffForm.email,
             status: staffForm.status,
-            staffRole: staffForm.role
+            staffRole: staffForm.role,
+            businessRoleCode: staffForm.role === '技术' ? 'channel_technical' : 'channel_sales'
           });
           if (res.success) {
             // 更新本地数据（用 staff.id 在 staff 数组中查找）
@@ -10174,6 +10616,7 @@ const Partners = {
             region: detail.value.region,
             status: newStatus,
             staffRole: staffForm.role,
+            businessRoleCode: staffForm.role === '技术' ? 'channel_technical' : 'channel_sales',
             phone: staffForm.phone,
             email: staffForm.email
           });
@@ -10201,21 +10644,35 @@ const Partners = {
           console.error('重新加载渠道商详情失败:', err);
         }
         
-        // 非超级管理员提交后提示等待审核
+        // 非超级管理员提交后刷新侧边栏待审批badge
         if (!isSuperAdmin.value) {
-          store.notifications.unshift({
-            id: Date.now(),
-            title: '员工提交成功',
-            desc: `「${staffForm.name}」已提交审核，等待超级管理员审批`,
-            time: '刚刚',
-            unread: true
-          });
+          window.__refreshPendingApprovals?.();
         }
         alert(newStatus === 'active' ? '员工账号创建成功，初始密码：123456' : '员工账号已提交审核');
       }
       closeStaffForm();
     }
-    function editStaff(s) { openStaffForm(s); }
+    function editStaff(s) {
+      if (isSuperAdmin.value) {
+        openUnifiedMemberProfile(s);
+        return;
+      }
+      openStaffForm(s);
+    }
+    function openUnifiedMemberProfile(s) {
+      unifiedMember.value = { ...s, partnerId: detail.value?.id || '', partnerName: detail.value?.name || '' };
+    }
+    async function handleUnifiedMemberSaved() {
+      if (!detail.value?.id) return;
+      try {
+        const response = await apiRequest('GET', `/partners/${encodeApiPathValue(detail.value.id)}`);
+        if (response.success && response.data) {
+          detail.value = { ...detail.value, ...response.data, staff: response.data.staff || [] };
+        }
+      } catch (error) {
+        console.warn('统一成员资料已保存，但渠道商详情刷新失败：', error);
+      }
+    }
     async function toggleStaffStatus(s) {
       const newStatus = s.status === 'active' ? 'inactive' : 'active';
       
@@ -10392,6 +10849,7 @@ const Partners = {
     return { store, kw, levelFilter, regionFilter, regions, cityOptions, cityOptionsOpen, filteredCityOptions, isPartnerCityValid, filtered, paginatedData, showForm, editing, form, canSave, detail, staffForm, canSaveStaff,
 	      detailTab, partnerProfile, profileLoading, profileSaving, profileError, profileEditVisible, profileEditMode, profileEditTitle, profileEditSubtitle, profileEditSaveText, profileForm, productPanelOpen, productConfigLoading, profileProducts, profileModules, productForm, matrixLevelOptions, canSaveProduct,
       adminRegion, isAdmin, isSuperAdmin, partners, loading, openNew, openEdit, closeForm, save, openDetail, openStaffForm, closeStaffForm, saveStaff, editStaff, toggleStaffStatus, resetStaffPassword, deleteStaff, deletePartner,
+      unifiedMember, openUnifiedMemberProfile, handleUnifiedMemberSaved,
       levelClass, levelLabel, getPartnerLevelBadge, statusClass, statusLabel, fmt, loadPartners, resubmitPartner, exportPartners,
 	      listToText, displayValue, createPreviewList, profileTextValue, profileListLines, formatProfileRate, rateWidth, matrixLevelLabel, matrixLevelClass, profileSummaryValue, sideSummaryValue, profileStaffFallbackText, profileBusinessStatusText, profileScoreItems, detailInitial, partnerLevelText, profileListValue, profileChipClass, maskedProfilePhone, profileCompletionBadge, profileUpdatedText, canEditCurrentProfile, canManageProfileProducts, profileCompletionText, profileConclusion, loadPartnerProfile, openProfileEdit, closeProfileEdit, savePartnerProfile,
       toggleProductPanel, resetProductForm, startProductCreate, startProductEdit, saveProfileProduct, deleteProfileProduct,
@@ -10403,7 +10861,8 @@ const Partners = {
 // ── 企业管理员管理（渠道企业管理员账号）────────────────────────
 const PartnerAdminManage = {
   components: {
-    PartnerSearchSelect
+    PartnerSearchSelect,
+    ChannelMemberProfileDialog
   },
   template: `
   <div>
@@ -10441,6 +10900,13 @@ const PartnerAdminManage = {
             <label class="form-label">邮箱</label>
             <input class="form-control" v-model="form.email" placeholder="email@company.com" />
           </div>
+          <div class="form-item">
+            <label class="form-label required">业务角色</label>
+            <select class="form-control" v-model="form.businessRoleCode">
+              <option value="channel_sales">销售</option>
+              <option value="channel_technical">技术</option>
+            </select>
+          </div>
           <div class="form-item full">
             <label class="form-label required">所属渠道企业</label>
             <PartnerSearchSelect
@@ -10477,6 +10943,7 @@ const PartnerAdminManage = {
             <div style="flex:1;min-width:0">
               <div style="font-size:14px;font-weight:700;color:#1a1a1a">{{ u.name }}</div>
               <div style="font-size:12px;color:#888;margin-top:2px">{{ u.partnerName || '—' }} · {{ u.username }}</div>
+              <div style="font-size:12px;color:#722ed1;margin-top:3px">业务角色：{{ u.businessRoleType === 'technical' ? '技术' : '销售' }} · 有效证书 {{ (u.certifications||[]).filter(c=>c.statusCode==='active').length }} 份</div>
             </div>
             <span :class="'tag ' + (u.status==='active'?'tag-green':(u.status==='inactive'?'tag-red':'tag-orange'))" style="font-size:11px">
               {{ u.status==='active'?'已启用':(u.status==='inactive'?'已禁用':'待审批') }}
@@ -10564,6 +11031,13 @@ const PartnerAdminManage = {
       </div>
     </div>
 
+    <ChannelMemberProfileDialog
+      v-if="unifiedMember"
+      :member="unifiedMember"
+      @close="unifiedMember = null"
+      @saved="handleUnifiedMemberSaved"
+    />
+
     <!-- 提示信息 -->
     <div class="card" style="margin-top:20px">
       <div class="card-title">📖 使用说明</div>
@@ -10635,7 +11109,7 @@ const PartnerAdminManage = {
     });
 
     const form = reactive({
-      username: '', name: '', phone: '', email: '', partnerId: ''
+      username: '', name: '', phone: '', email: '', partnerId: '', businessRoleCode: 'channel_sales'
     });
     const canCreate = computed(() => form.username && form.name && form.phone && form.partnerId);
 
@@ -10650,7 +11124,8 @@ const PartnerAdminManage = {
         partnerId: form.partnerId,
         partnerName: partner?.name || '',
         region: partner?.region || '',
-        bigRegion: partner?.bigRegion || ''
+        bigRegion: partner?.bigRegion || '',
+        businessRoleCode: form.businessRoleCode
       };
 
       let userRes;
@@ -10662,6 +11137,7 @@ const PartnerAdminManage = {
           role: 'partner_admin',
           accountRole: 'partner_admin',
           staffRole: '企业管理员',
+          businessRoleCode: draft.businessRoleCode,
           partnerName: draft.partnerName,
           region: draft.region,
           bigRegion: draft.bigRegion,
@@ -10684,21 +11160,8 @@ const PartnerAdminManage = {
       await loadPartners();
 
       if (!isSuperAdmin.value) {
-        const apr = {
-          id: 'APR-' + Date.now(),
-          type: 'partner_admin',
-          targetId: userRes.data?.id,
-          targetName: draft.name,
-          targetPartnerId: draft.partnerId,
-          targetPartnerName: draft.partnerName,
-          createdBy: store.user?.name,
-          createdByRole: store.user?.role,
-          region: draft.region,
-          bigRegion: draft.bigRegion,
-          status: 'pending',
-          createdAt: new Date().toISOString()
-        };
-        store.pendingApprovals.unshift(apr);
+        // 后端已生成审批待办，重新拉取待审批列表
+        await loadPending();
         alert('已提交审批，等待超级管理员审核');
       } else {
         alert('企业管理员创建成功！初始密码：123456');
@@ -10707,7 +11170,7 @@ const PartnerAdminManage = {
       }
 
       // 清空表单
-      form.username = ''; form.name = ''; form.phone = ''; form.email = ''; form.partnerId = '';
+      form.username = ''; form.name = ''; form.phone = ''; form.email = ''; form.partnerId = ''; form.businessRoleCode = 'channel_sales';
     }
 
     async function loadPending() {
@@ -10741,8 +11204,21 @@ const PartnerAdminManage = {
     // 编辑企业管理员
     const showEditModal = ref(false);
     const editForm = reactive({ id: '', userId: '', username: '', name: '', phone: '', email: '', partnerId: '', partnerName: '' });
+    const unifiedMember = ref(null);
+
+    function openUnifiedMemberProfile(admin) {
+      unifiedMember.value = { ...admin, partnerMemberId: admin.partnerMemberId || admin.memberId || '' };
+    }
+
+    async function handleUnifiedMemberSaved() {
+      await loadPartners();
+    }
 
     function openEditAdmin(admin) {
+      if (isSuperAdmin.value) {
+        openUnifiedMemberProfile(admin);
+        return;
+      }
       editForm.id = admin.id;
       editForm.userId = admin.userId || '';
       editForm.username = admin.username;
@@ -10835,7 +11311,7 @@ const PartnerAdminManage = {
 
     // 删除企业管理员
     async function deleteAdmin(admin) {
-      if (!confirm(`确认删除企业管理员「${admin.name}」吗？\n\n删除后将无法恢复，且该账号将无法登录。`)) return;
+      if (!confirm(`确认从当前渠道移除并归档企业管理员「${admin.name}」吗？\n\n成员、角色、证书和业务历史会保留；若该账号仍属于其他有效渠道，则仍可从其他渠道身份登录。`)) return;
       try {
         const staffPath = getPartnerStaffApiPath(admin.partnerId, admin);
         if (!staffPath) {
@@ -10846,7 +11322,7 @@ const PartnerAdminManage = {
         if (res.success) {
           // 重新加载渠道商数据确保同步
           await loadPartners();
-          alert(res.message || '删除成功');
+          alert(res.message || '已从当前渠道移除并归档');
         } else {
           alert('删除失败：' + (res.error || '未知错误'));
         }
@@ -10856,12 +11332,14 @@ const PartnerAdminManage = {
     }
 
     return { store, isSuperAdmin, adminRegion, myPartners, partnersLoading, partnerAdmins, pendingAdmins, form, canCreate, createPartnerAdmin, approveAdmin, rejectAdmin, loadPartners,
-      showEditModal, editForm, openEditAdmin, closeEditModal, saveEditAdmin, toggleAdminStatus, resetAdminPassword, deleteAdmin };
+      showEditModal, editForm, openEditAdmin, closeEditModal, saveEditAdmin, toggleAdminStatus, resetAdminPassword, deleteAdmin,
+      unifiedMember, openUnifiedMemberProfile, handleUnifiedMemberSaved };
   }
 };
 
 // ── 合作伙伴经营报表（管理员）────────────────────────────────
 const PartnerReport = {
+  components: { ChannelMemberProfileDialog },
   template: `
   <div>
     <!-- 页面标题 -->
@@ -11144,7 +11622,7 @@ const PartnerReport = {
           <!-- 员工列表 -->
           <div style="margin-bottom:20px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <h4 style="font-size:14px;font-weight:600;margin:0">👥 销售团队（{{ (detailPartner.staff||[]).length }} 人）</h4>
+              <h4 style="font-size:14px;font-weight:600;margin:0">👥 员工团队（{{ (detailPartner.staff||[]).length }} 人）</h4>
               <button class="btn btn-primary btn-sm" @click="openStaffForm()">➕ 添加员工</button>
             </div>
             <div v-if="(detailPartner.staff||[]).length" style="display:flex;flex-direction:column;gap:8px">
@@ -11163,14 +11641,14 @@ const PartnerReport = {
                   </div>
                 </div>
                 <div style="display:flex;gap:6px">
-                  <button class="btn btn-text btn-sm" @click="openStaffForm(s)">编辑</button>
+                  <button class="btn btn-text btn-sm" @click="editStaff(s)">编辑</button>
                   <button class="btn btn-text btn-sm" :style="{color:s.status==='active'?'#FF9500':'#34C759'}" @click="toggleStaffStatus(s)">{{ s.status==='active'?'停用':'启用' }}</button>
                   <button class="btn btn-text btn-sm" @click="resetStaffPassword(s)" title="重置密码">🔑</button>
                   <button class="btn btn-text btn-sm" style="color:#FF3B30" @click="deleteStaff(s)">删除</button>
                 </div>
               </div>
             </div>
-            <div v-else style="color:#888;font-size:13px;padding:16px;background:#f8f9fa;border-radius:8px;text-align:center">暂无销售员工，点击上方按钮添加</div>
+            <div v-else style="color:#888;font-size:13px;padding:16px;background:#f8f9fa;border-radius:8px;text-align:center">暂无员工，点击上方按钮添加</div>
           </div>
 
           <!-- 区域与加入时间 -->
@@ -11218,15 +11696,13 @@ const PartnerReport = {
               <input class="form-control" v-model="staffForm.name" placeholder="如：刘建国"/>
             </div>
             <div class="form-item">
-              <label class="form-label required">职位/角色</label>
+              <label class="form-label required">业务角色</label>
               <select class="form-control" v-model="staffForm.role">
                 <option value="">请选择</option>
-                <option value="销售总监">销售总监</option>
-                <option value="销售经理">销售经理</option>
-                <option value="销售代表">销售代表</option>
-                <option value="技术工程师">技术工程师</option>
-                <option value="售前顾问">售前顾问</option>
+                <option value="销售">销售</option>
+                <option value="技术">技术</option>
               </select>
+              <div class="form-hint">业务角色只分销售、技术两类，不改变企业管理员身份或系统权限。</div>
             </div>
             <div class="form-item">
               <label class="form-label required">联系电话</label>
@@ -11256,17 +11732,47 @@ const PartnerReport = {
         </div>
       </div>
     </div>
+
+    <ChannelMemberProfileDialog
+      v-if="unifiedMember"
+      :member="unifiedMember"
+      @close="unifiedMember = null"
+      @saved="handleUnifiedMemberSaved"
+    />
   </div>`,
   setup() {
     const sortBy = ref('totalAmt');
     const searchKw = ref('');
     const detailPartner = ref(null);
+
+    function normalizedMetric(value) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : 0;
+    }
+
+    const normalizedPartners = computed(() => store.partners.map(partner => ({
+      ...partner,
+      quoteCount: normalizedMetric(partner.quoteCount),
+      orderCount: normalizedMetric(partner.orderCount),
+      totalAmt: normalizedMetric(partner.totalAmt)
+    })));
     
     // 区域管理员隔离：只看本区域渠道商
     const adminRegion = computed(() => store.user?.role === 'admin' ? store.user.region : '');
     const myPartners = computed(() => adminRegion.value
-      ? store.partners.filter(p => p.region === adminRegion.value)
-      : store.partners);
+      ? normalizedPartners.value.filter(p => p.region === adminRegion.value)
+      : normalizedPartners.value);
+
+    async function loadPartners() {
+      const params = new URLSearchParams();
+      if (adminRegion.value) params.set('region', adminRegion.value);
+      try {
+        const response = await apiRequest('GET', `/partners?${params.toString()}`);
+        if (response.success) store.partners = response.data || [];
+      } catch (error) {
+        console.warn('经营报表渠道商数据加载失败：', error);
+      }
+    }
     
     // 核心指标计算
     const totalQuotes = computed(() => myPartners.value.reduce((s,p)=>s+p.quoteCount,0));
@@ -11361,6 +11867,7 @@ const PartnerReport = {
     // ========== 员工账号管理 ==========
     const showStaffForm = ref(false);
     const editingStaff = ref(false);
+    const unifiedMember = ref(null);
     const staffForm = reactive({ id:'', username:'', name:'', role:'', phone:'', email:'', status:'active' });
     const canSaveStaff = computed(() => staffForm.username && staffForm.name && staffForm.role && staffForm.phone);
     
@@ -11368,12 +11875,41 @@ const PartnerReport = {
       if (staff) {
         editingStaff.value = true;
         Object.assign(staffForm, { ...staff });
+        staffForm.role = String(staff.businessRoleCode || staff.businessRoleType || staff.role || '').includes('技术')
+          || ['channel_technical', 'technical'].includes(staff.businessRoleCode || staff.businessRoleType)
+          ? '技术'
+          : '销售';
       } else {
         editingStaff.value = false;
-        staffForm.id = ''; staffForm.username = ''; staffForm.name = ''; staffForm.role = '';
+        staffForm.id = ''; staffForm.username = ''; staffForm.name = ''; staffForm.role = '销售';
         staffForm.phone = ''; staffForm.email = ''; staffForm.status = 'active';
       }
       showStaffForm.value = true;
+    }
+
+    function editStaff(staff) {
+      if (store.user?.role === 'superadmin') {
+        unifiedMember.value = {
+          ...staff,
+          partnerId: detailPartner.value?.id || '',
+          partnerName: detailPartner.value?.name || '',
+        };
+        return;
+      }
+      openStaffForm(staff);
+    }
+
+    async function handleUnifiedMemberSaved() {
+      if (!detailPartner.value?.id) return;
+      try {
+        const response = await apiRequest('GET', `/partners/${encodeApiPathValue(detailPartner.value.id)}`);
+        if (!response.success || !response.data) return;
+        const index = store.partners.findIndex(item => item.id === detailPartner.value.id);
+        if (index > -1) store.partners[index] = response.data;
+        detailPartner.value = response.data;
+      } catch (error) {
+        console.warn('统一成员资料已保存，但经营报表渠道商详情刷新失败：', error);
+      }
     }
     
     async function saveStaff() {
@@ -11396,7 +11932,8 @@ const PartnerReport = {
             phone: staffForm.phone,
             email: staffForm.email,
             status: staffForm.status,
-            staffRole: staffForm.role
+            staffRole: staffForm.role,
+            businessRoleCode: staffForm.role === '技术' ? 'channel_technical' : 'channel_sales'
           });
           if (!res.success) {
             alert('更新失败：' + (res.error || '未知错误'));
@@ -11429,6 +11966,7 @@ const PartnerReport = {
             region: partner.region || '',
             status: staffForm.status,
             staffRole: staffForm.role,
+            businessRoleCode: staffForm.role === '技术' ? 'channel_technical' : 'channel_sales',
             phone: staffForm.phone,
             email: staffForm.email,
             createdBy: store.user?.id || '',
@@ -11580,13 +12118,15 @@ const PartnerReport = {
       };
       return map[region] || '📍';
     }
+
+    onMounted(loadPartners);
     
     return { store, adminRegion, myPartners, sortBy, searchKw, detailPartner, totalQuotes, totalRevenue, totalStaff, avgRevenue, revenuePerStaff, conversionRate, newPartnersThisMonth,
       topPartners, sortedPartners, filteredPartners, levelDistribution, regionDistribution, techServiceCount, developingTechServiceCount, nonTechServiceCount, techServicePercent,
       developingTechServicePercent, techServiceAvgRevenue, developingTechServiceAvgRevenue, nonTechServiceAvgRevenue, partnerMonthlyTrend, partnerRegistrations, partnerOpportunities, stageStats,
       levelClass, levelLabel, levelColor, regionIcon, fmt, openDetail,
       // 员工管理
-      showStaffForm, editingStaff, staffForm, canSaveStaff, openStaffForm, saveStaff, toggleStaffStatus, resetStaffPassword, deleteStaff };
+      showStaffForm, editingStaff, unifiedMember, staffForm, canSaveStaff, openStaffForm, editStaff, handleUnifiedMemberSaved, saveStaff, toggleStaffStatus, resetStaffPassword, deleteStaff };
   }
 };
 
@@ -11637,7 +12177,7 @@ const AccountManage = {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>账号</th><th>姓名</th><th>角色</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr>
+            <tr><th>账号</th><th>姓名</th><th>角色</th><th>手机号</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="a in superAdminAccounts" :key="a.id">
@@ -11649,6 +12189,8 @@ const AccountManage = {
                 </div>
               </td>
               <td><span class="tag tag-purple">超级管理员</span></td>
+              <td style="font-size:12px;color:#888">{{ a.phone || '-' }}</td>
+              <td style="font-size:12px;color:#888">{{ a.email || '-' }}</td>
               <td>
                 <span class="tag" :class="a.status==='active'?'tag-green':'tag-gray'">
                   {{ a.status==='active' ? '启用' : '停用' }}
@@ -11658,11 +12200,11 @@ const AccountManage = {
               <td style="font-size:12px;color:#888">{{ a.remark || '-' }}</td>
               <td @click.stop>
                 <button class="btn btn-text btn-sm" @click="openEdit(a)">编辑</button>
-                <button v-if="canDeleteSuperAdmin(a)" class="btn btn-text btn-sm" style="color:#FF3B30" @click="deleteAccount(a)">删除</button>
+                <button v-if="a.username !== 'admin' && String(a.username || '').toLowerCase() !== currentUsername && a.status === 'active'" class="btn btn-text btn-sm" style="color:#FF3B30" @click="openOffboarding(a)">删除（停用并交接）</button>
               </td>
             </tr>
             <tr v-if="!superAdminAccounts.length">
-              <td colspan="7"><div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:36px">超</div><p>暂无超管账号</p></div></td>
+              <td colspan="9"><div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:36px">超</div><p>暂无超管账号</p></div></td>
             </tr>
           </tbody>
         </table>
@@ -11677,7 +12219,7 @@ const AccountManage = {
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>账号</th><th>姓名</th><th>所属区域</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr>
+            <tr><th>账号</th><th>姓名</th><th>所属区域</th><th>手机号</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>备注</th><th>操作</th></tr>
           </thead>
           <tbody>
             <tr v-for="a in regionAdminAccounts.filter(x=>x.bigRegion===group.label)" :key="a.id">
@@ -11689,6 +12231,8 @@ const AccountManage = {
                 </div>
               </td>
               <td><span class="tag tag-blue">{{ a.region }}</span></td>
+              <td style="font-size:12px;color:#888">{{ a.phone || '-' }}</td>
+              <td style="font-size:12px;color:#888">{{ a.email || '-' }}</td>
               <td>
                 <span class="tag" :class="a.status==='active'?'tag-green':'tag-gray'">
                   {{ a.status==='active' ? '启用' : '停用' }}
@@ -11699,14 +12243,11 @@ const AccountManage = {
               <td @click.stop>
                 <button class="btn btn-text btn-sm" @click="openEdit(a)">编辑</button>
                 <button class="btn btn-text btn-sm" @click="resetPassword(a)" title="重置密码">重置密码</button>
-                <button class="btn btn-text btn-sm" @click="toggleStatus(a)" :style="{color:a.status==='active'?'#FF9500':'#34C759'}">
-                  {{ a.status==='active' ? '停用' : '启用' }}
-                </button>
-                <button class="btn btn-text btn-sm" style="color:#FF3B30" @click="deleteAccount(a)">删除</button>
+                <button v-if="a.status === 'active'" class="btn btn-text btn-sm" style="color:#FF3B30" @click="openOffboarding(a)">删除（停用并交接）</button>
               </td>
             </tr>
             <tr v-if="!regionAdminAccounts.filter(x=>x.bigRegion===group.label).length">
-              <td colspan="7"><div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:36px">区</div><p>该大区暂无管理员账号</p></div></td>
+              <td colspan="9"><div class="empty-state" style="padding:24px"><div class="empty-icon" style="font-size:36px">区</div><p>该大区暂无管理员账号</p></div></td>
             </tr>
           </tbody>
         </table>
@@ -11752,15 +12293,27 @@ const AccountManage = {
               <input class="form-control" v-model="form.name" placeholder="请输入管理员姓名"/>
             </div>
             <div class="form-item">
+              <label class="form-label">手机号</label>
+              <input class="form-control" v-model="form.phone" placeholder="138-0000-0000"/>
+              <div class="form-hint">用于统一消息提醒（短信、账号匹配）</div>
+            </div>
+            <div class="form-item">
+              <label class="form-label">邮箱</label>
+              <input class="form-control" v-model="form.email" placeholder="name@company.com"/>
+              <div class="form-hint">用于统一消息提醒（邮件、账号匹配）</div>
+            </div>
+            <div class="form-item">
               <label class="form-label">头像字</label>
               <input class="form-control" v-model="form.avatar" placeholder="1-2个字" maxlength="2"/>
             </div>
             <div class="form-item">
               <label class="form-label">账号状态</label>
-              <select class="form-control" v-model="form.status">
+              <input v-if="editing" class="form-control" :value="form.status === 'active' ? '启用' : '停用'" disabled />
+              <select v-else class="form-control" v-model="form.status">
                 <option value="active">启用</option>
-                <option value="disabled" :disabled="form.role === 'superadmin'">停用</option>
+                <option value="disabled">停用</option>
               </select>
+              <div v-if="editing && form.status === 'active'" class="form-hint">内部超管、区管停用必须执行影响预览、接收人选择和二次确认。</div>
             </div>
             <div class="form-item full">
               <label class="form-label">备注</label>
@@ -11782,14 +12335,16 @@ const AccountManage = {
     </div>
   </div>`,
   setup() {
+    const router = VueRouter.useRouter();
     const loading = ref(true);
     const saving = ref(false);
     const adminAccounts = ref([]);
     const superAdminAccounts = computed(() => adminAccounts.value.filter(a => a.role === 'superadmin'));
     const regionAdminAccounts = computed(() => adminAccounts.value.filter(a => a.role === 'admin'));
+    const currentUsername = computed(() => String(store.user?.username || '').toLowerCase());
     const showForm = ref(false);
     const editing = ref(false);
-    const form = reactive({ id:'', username:'', name:'', avatar:'', role:'admin', bigRegion:'', region:'', status:'active', remark:'' });
+    const form = reactive({ id:'', username:'', name:'', avatar:'', role:'admin', bigRegion:'', region:'', status:'active', remark:'', phone:'', email:'' });
     const canSave = computed(() => {
       if (!form.username || !form.name) return false;
       if (form.role === 'superadmin') return true;
@@ -11854,6 +12409,8 @@ const AccountManage = {
       form.region = '';
       form.status = 'active';
       form.remark = '';
+      form.phone = '';
+      form.email = '';
       showForm.value = true;
     }
 
@@ -11868,7 +12425,9 @@ const AccountManage = {
         bigRegion: a.bigRegion || '',
         region: a.region || '',
         status: a.role === 'superadmin' ? 'active' : a.status,
-        remark: a.remark || ''
+        remark: a.remark || '',
+        phone: a.phone || '',
+        email: a.email || ''
       });
       showForm.value = true;
     }
@@ -11884,12 +12443,15 @@ const AccountManage = {
       try {
         if (editing.value) {
           const res = await apiRequest('PUT', '/users/' + encodeApiPathValue(form.id), {
+            username: form.username,
             name: form.name,
+            role: form.role,
             avatar: form.avatar || form.name.slice(0, 1),
             bigRegion: form.role === 'superadmin' ? '' : form.bigRegion,
             region: form.role === 'superadmin' ? '' : form.region,
-            status: form.role === 'superadmin' ? 'active' : form.status,
-            remark: form.remark
+            remark: form.remark,
+            phone: form.phone,
+            email: form.email
           });
           if (res.success) {
             alert('保存成功');
@@ -11912,6 +12474,8 @@ const AccountManage = {
             bigRegion: form.role === 'superadmin' ? '' : form.bigRegion,
             status: form.role === 'superadmin' ? 'active' : form.status,
             remark: form.remark,
+            phone: form.phone,
+            email: form.email,
             createdBy: store.user?.id || '',
             createdByRole: store.user?.role || ''
           });
@@ -11930,51 +12494,13 @@ const AccountManage = {
       }
     }
 
-    async function toggleStatus(a) {
-      if (a.role === 'superadmin') {
-        alert('超管账号不支持停用');
+    function openOffboarding(a) {
+      if (!a || a.status !== 'active') return;
+      if (String(a.username || '').toLowerCase() === currentUsername.value) {
+        alert('不能停用并归档当前登录账号。');
         return;
       }
-      const newStatus = a.status === 'active' ? 'disabled' : 'active';
-      try {
-        const res = await apiRequest('PUT', '/users/' + encodeApiPathValue(a.id), { status: newStatus });
-        if (res.success) {
-          a.status = newStatus;
-        } else {
-          alert('状态更新失败');
-        }
-      } catch (e) {
-        alert('状态更新失败：' + e.message);
-      }
-    }
-
-    async function deleteAccount(a) {
-      if (a.role === 'superadmin') {
-        if (a.username === 'admin') {
-          alert('内置 admin 超管账号不能删除');
-          return;
-        }
-        if (store.user?.username !== 'admin') {
-          alert('仅 admin 账号可删除其他超管账号');
-          return;
-        }
-      }
-      if (confirm('确认删除账号“' + a.name + '”（' + a.username + '）吗？')) {
-        try {
-          const res = await apiRequest('DELETE', '/users/' + encodeApiPathValue(a.id));
-          if (res.success) {
-            loadAdminAccounts();
-          } else {
-            alert('删除失败：' + (res.error || '未知错误'));
-          }
-        } catch (e) {
-          alert('删除失败：' + e.message);
-        }
-      }
-    }
-
-    function canDeleteSuperAdmin(a) {
-      return a?.role === 'superadmin' && a.username !== 'admin' && store.user?.username === 'admin';
+      router.push({ path: '/organization/units', query: { account: a.username || a.id, action: 'offboarding' } });
     }
 
     async function exportStaff() {
@@ -11989,7 +12515,7 @@ const AccountManage = {
       }
     }
 
-    return { adminAccounts, superAdminAccounts, regionAdminAccounts, loading, saving, BIG_REGIONS, showForm, editing, form, canSave, openNew, openEdit, save, toggleStatus, deleteAccount, canDeleteSuperAdmin, resetPassword, exportStaff };
+    return { adminAccounts, superAdminAccounts, regionAdminAccounts, currentUsername, loading, saving, BIG_REGIONS, showForm, editing, form, canSave, openNew, openEdit, save, openOffboarding, resetPassword, exportStaff };
   }
 };
 
@@ -12020,11 +12546,13 @@ const AdminReview = {
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>报备编号</th><th>客户名称</th><th>所属区域</th><th>行业</th><th>联系人</th><th>状态</th><th>提交日期</th><th>操作</th></tr></thead>
+          <thead><tr><th>报备编号</th><th>客户名称</th><th>合作伙伴</th><th>提报人</th><th>所属区域</th><th>行业</th><th>联系人</th><th>状态</th><th>提交日期</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="r in paginatedRegs" :key="r.id">
               <td style="font-family:monospace;font-size:12px;color:#888">{{ r.id }}</td>
               <td style="font-weight:600">{{ r.customer }}</td>
+              <td><span class="tag tag-blue" style="font-size:11px">{{ r.partnerName || '—' }}</span></td>
+              <td>{{ r.assignedStaffName || r.ownerName || '—' }}</td>
               <td><span class="tag tag-purple" style="font-size:11px">{{ r.region || '未分配' }}</span></td>
               <td>{{ r.industry }}</td>
               <td>{{ r.contact }}</td>
@@ -12038,7 +12566,7 @@ const AdminReview = {
               </td>
             </tr>
             <tr v-if="!paginatedRegs.length">
-              <td colspan="8">
+              <td colspan="10">
                 <div class="empty-state"><div class="empty-icon">✅</div><p>暂无报备记录</p></div>
               </td>
             </tr>
@@ -12325,10 +12853,10 @@ const AdminReview = {
           }
         }
         // 角色标签：企业管理员 or 员工职位
-        const roleLabel = a.type === 'partner_admin' ? '企业管理员' : (staffInfo?.role || user?.staffRole || '销售代表');
+        const roleLabel = a.type === 'partner_admin' ? '企业管理员' : (staffInfo?.businessRoleCode === 'channel_technical' || staffInfo?.businessRoleType === 'technical' || String(staffInfo?.role || user?.staffRole || '').includes('技术') ? '技术' : '销售');
         return {
           id: a.targetId,
-          aprId: a.id,  // pendingApprovals 记录 id（用于审批接口）
+          aprId: a.approvalId || a.id,
           name: a.targetName,
           partnerName: a.targetPartnerName || user?.partnerName || '-',
           partnerId: a.targetPartnerId || user?.partnerId,
@@ -12447,27 +12975,17 @@ const AdminReview = {
     // 员工审核
     async function approveStaff(s) {
       try {
-        // 区分处理：partner_admin 使用 pending-approvals 接口，staff 使用 users 接口
-        let res;
-        if (s.type === 'partner_admin') {
-          // 企业管理员审批
-          res = await apiRequest('PUT', `/pending-approvals/${s.aprId}`, { 
-            action: 'approve',
-            approvedBy: store.user?.name
-          });
-        } else {
-          // 普通员工审批
-          res = await apiRequest('PUT', `/users/${encodeApiPathValue(s.id)}/status`, { 
-            status: 'active',
-            approvedBy: store.user?.id
-          });
-        }
+        const res = await apiRequest('PUT', `/pending-approvals/${encodeApiPathValue(s.aprId)}`, {
+          action: 'approve',
+          approvedBy: store.user?.name
+        });
         
         if (res.success) {
           s.status = 'active';
           store.notifications.unshift({ id:Date.now(), title:'员工审批通过', desc:`${s.name} 已审批通过`, time:'刚刚', unread:true });
-          // 刷新待审批列表
+          // 刷新待审批列表与侧边栏badge
           loadPendingApprovals();
+          window.__refreshPendingApprovals?.();
         } else {
           alert('审批失败：' + (res.error || res.message || '未知错误'));
         }
@@ -12477,26 +12995,16 @@ const AdminReview = {
     }
     async function rejectStaff(s) { 
       try {
-        // 区分处理：partner_admin 使用 pending-approvals 接口，staff 使用 users 接口
-        let res;
-        if (s.type === 'partner_admin') {
-          // 企业管理员驳回
-          res = await apiRequest('PUT', `/pending-approvals/${s.aprId}`, { 
-            action: 'reject',
-            approvedBy: store.user?.name
-          });
-        } else {
-          // 普通员工驳回
-          res = await apiRequest('PUT', `/users/${encodeApiPathValue(s.id)}/status`, { 
-            status: 'rejected',
-            approvedBy: store.user?.id
-          });
-        }
+        const res = await apiRequest('PUT', `/pending-approvals/${encodeApiPathValue(s.aprId)}`, {
+          action: 'reject',
+          approvedBy: store.user?.name
+        });
         
         if (res.success) {
           s.status = 'rejected';
-          // 刷新待审批列表
+          // 刷新待审批列表与侧边栏badge
           loadPendingApprovals();
+          window.__refreshPendingApprovals?.();
         } else {
           alert('拒绝失败：' + (res.error || res.message || '未知错误'));
         }
@@ -12506,8 +13014,9 @@ const AdminReview = {
     }
     async function resubmitStaff(s) {
       try {
-        const res = await apiRequest('PUT', `/users/${encodeApiPathValue(s.id)}/status`, { 
-          status: 'pending'
+        const res = await apiRequest('PUT', `/pending-approvals/${encodeApiPathValue(s.aprId)}`, {
+          action: 'resubmit',
+          approvedBy: store.user?.name
         });
         if (res.success) {
           s.status = 'pending';
@@ -14077,8 +14586,8 @@ const OpportunityList = {
     const oppPartners = computed(() => {
       const partnerMap = new Map();
       myOpportunities.value.forEach(o => {
-        const id = o.assignedPartnerId || o.partnerId;
-        const name = o.assignedPartnerName || o.partnerName;
+        const id = o.partnerId || o.assignedPartnerId;
+        const name = o.partnerName || o.assignedPartnerName;
         if (id) {
           partnerMap.set(id, { id, name: name || id });
         }
@@ -14092,7 +14601,7 @@ const OpportunityList = {
         const mK = !kw.value || o.name.includes(kw.value) || o.customer.includes(kw.value);
         const mS = !stageFilter.value || o.stage === stageFilter.value;
         const mC = !customerFilter.value || o.regId === customerFilter.value;
-        const mP = !partnerFilter.value || o.assignedPartnerId === partnerFilter.value || o.partnerId === partnerFilter.value;
+        const mP = !partnerFilter.value || o.partnerId === partnerFilter.value;
         return mK && mS && mC && mP;
       });
     });
@@ -16625,6 +17134,1107 @@ const OpenApiIntegration = {
   }
 };
 
+const MessagePlatform = {
+  template: `<div>
+    <div v-if="!isSuperAdmin" class="card"><div style="color:#cf1322">仅超级管理员可管理消息渠道配置。</div></div>
+    <template v-else>
+      <div class="card" style="margin-bottom:16px;background:#fffbe6">
+        <div class="card-title">安全说明</div>
+        <div style="font-size:13px;line-height:1.8;color:#614700">企业微信群机器人只发送脱敏团队汇总；企微自建应用用于向具体成员发送提醒。所有凭据加密保存且永不回显。保存配置不会启用正式投递；先完成网络试发，再二次确认启用。</div>
+      </div>
+      <div v-if="readiness" class="card" style="margin-bottom:16px">
+        <div class="card-header"><div class="card-title">运行前置检查</div><button class="btn btn-default btn-sm" :disabled="loading" @click="load">刷新</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:13px"><span class="tag" :class="readiness.encryptionKeyConfigured?'tag-green':'tag-red'">{{ readiness.encryptionKeyConfigured?'加密密钥已配置':'未配置通道加密密钥' }}</span><span class="tag" :class="readiness.messageWorkerEnabled?'tag-green':'tag-orange'">{{ readiness.messageWorkerEnabled?'消息投递进程已启用':'消息投递进程未启用' }}</span><span class="tag" :class="readiness.cutoverAtConfigured?'tag-green':'tag-orange'">{{ readiness.cutoverAtConfigured?'启用时间已配置':'未配置启用时间' }}</span></div>
+        <p style="margin:12px 0 0;color:#6e6e73;font-size:12px">试发由独立投递进程执行：失败结果会记录为网络、凭据、成员可见范围或 SMTP 拒绝摘要，不展示密钥、Webhook、邮箱或正文。</p>
+      </div>
+      <div v-if="error" class="card" style="color:#cf1322">{{ error }}</div>
+      <div v-for="channel in channels" :key="channel.code" class="card" style="margin-bottom:16px">
+        <div class="card-header"><div><div class="card-title">{{ channel.name }}</div><div style="font-size:12px;color:#888;margin-top:4px">{{ statusText(channel) }}<span v-if="channel.lastTestStatus"> · 最近测试：{{ channel.lastTestStatus }}</span></div></div><span class="tag" :class="channel.enabled?'tag-green':'tag-gray'">{{ channel.enabled?'已启用':'未启用' }}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:12px">
+          <div v-for="field in channel.fields" :key="field.key" class="form-item" style="margin:0"><label class="form-label">{{ field.label }}</label><input class="form-control" :type="field.secret?'password':'text'" v-model="forms[channel.code][field.key]" :placeholder="field.placeholder" autocomplete="off" /></div>
+        </div>
+        <div v-if="channel.code==='email' || channel.code==='wecom_app'" class="form-item" style="margin:12px 0 0;max-width:520px"><label class="form-label">{{ channel.code==='email'?'本次测试收件邮箱':'本次测试成员 UserId' }}</label><input class="form-control" v-model="forms[channel.code][channel.code==='email'?'testEmail':'testWecomUserId']" :placeholder="channel.code==='email'?'仅用于本次脱敏测试，不作为正式接收人':'仅用于本次脱敏测试，不保存为成员绑定'" autocomplete="off" /></div>
+        <div v-if="channel.detail && Object.keys(channel.detail).length" style="font-size:12px;color:#888;margin-top:10px">已保存：{{ detailText(channel.detail) }}</div>
+        <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn btn-primary" :disabled="saving===channel.code" @click="save(channel)">{{ saving===channel.code?'保存中...':'保存配置' }}</button><button class="btn btn-default" :disabled="testing===channel.code || !channel.configured || !canTest" @click="test(channel)">{{ testing===channel.code?'查询测试中...':'发送测试消息' }}</button><button class="btn" :class="channel.enabled?'btn-default':'btn-primary'" :disabled="saving===channel.code || !channel.configured" @click="toggle(channel)">{{ channel.enabled?'停用正式投递':'启用正式投递' }}</button></div>
+      </div>
+      <div class="card"><div class="card-header"><div><div class="card-title">最近外部投递状态</div><div style="font-size:12px;color:#888;margin-top:4px">仅展示通道、状态、次数和脱敏失败摘要，不展示接收人或消息正文。</div></div><button class="btn btn-default btn-sm" :disabled="loading" @click="loadDeliveries">刷新状态</button></div><div v-if="!deliveries.length" style="padding:20px;color:#888;text-align:center">暂无外部投递记录</div><div v-else class="table-wrap"><table class="table"><thead><tr><th>时间</th><th>通道</th><th>类型</th><th>状态</th><th>尝试次数</th><th>脱敏摘要</th></tr></thead><tbody><tr v-for="delivery in deliveries" :key="delivery.id"><td>{{ formatTime(delivery.createdAt) }}</td><td>{{ channelName(delivery.channelCode) }}</td><td>{{ delivery.isTest?'测试':'正式' }}</td><td><span class="tag" :class="deliveryStatusClass(delivery.statusCode)">{{ delivery.statusCode }}</span></td><td>{{ delivery.attemptCount }}</td><td>{{ delivery.summary || '—' }}</td></tr></tbody></table></div></div>
+    </template>
+  </div>`,
+  setup() {
+    const isSuperAdmin = computed(() => store.user?.role === 'superadmin');
+    const loading = ref(false); const saving = ref(''); const testing = ref(''); const error = ref(''); const readiness = ref(null); const deliveries = ref([]);
+    const forms = reactive({ wecom:{webhook:''}, wecom_app:{corpId:'',agentId:'',secret:'',testWecomUserId:''}, sms:{endpoint:'',apiKey:'',apiSecret:'',templateId:'',sender:''}, email:{smtpHost:'',smtpPort:'587',security:'starttls',username:'',password:'',from:'',testEmail:''} });
+    const meta = { wecom:{name:'企业微信群机器人',fields:[{key:'webhook',label:'Webhook 地址',secret:true,placeholder:'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…'}]}, wecom_app:{name:'企微自建应用',fields:[{key:'corpId',label:'企业 ID',placeholder:'ww…'},{key:'agentId',label:'应用 AgentId',placeholder:'例如 1000002'},{key:'secret',label:'应用 Secret',secret:true,placeholder:'仅提交，不回显'}]}, sms:{name:'短信',fields:[{key:'endpoint',label:'供应商 HTTPS 地址',placeholder:'https://…'},{key:'templateId',label:'模板编号',placeholder:'必填'},{key:'apiKey',label:'AppKey',secret:true,placeholder:'仅提交，不回显'},{key:'apiSecret',label:'AppSecret',secret:true,placeholder:'仅提交，不回显'},{key:'sender',label:'签名',placeholder:'可选'}]}, email:{name:'SMTP 邮箱',fields:[{key:'smtpHost',label:'SMTP 主机',placeholder:'smtp.example.com'},{key:'smtpPort',label:'端口',placeholder:'587'},{key:'security',label:'安全方式',placeholder:'465 请填 tls；587 请填 starttls'},{key:'username',label:'账号',placeholder:'仅提交，不回显'},{key:'password',label:'密码',secret:true,placeholder:'仅提交，不回显'},{key:'from',label:'发件人邮箱',placeholder:'noreply@example.com'}]} };
+    const channels = ref([]);
+    const canTest = computed(() => readiness.value?.encryptionKeyConfigured && readiness.value?.messageWorkerEnabled && readiness.value?.cutoverAtConfigured);
+    function endpoint(path) { return '/api/messages/platform' + path; }
+    async function request(method, path, body) { const response = await adminFetch(endpoint(path), { method, headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : undefined }); const json = await response.json(); if (!response.ok || !json.success) { const detail=json.error; throw new Error((typeof detail==='object' && detail?.message) || detail || json.message || '操作失败'); } return json.data; }
+    async function loadDeliveries() { try { deliveries.value=await request('GET','/deliveries?limit=30'); } catch(e) { error.value=e.message||'加载投递状态失败'; } }
+    async function load() { if (!isSuperAdmin.value) return; loading.value=true; error.value=''; try { const [data, runtime] = await Promise.all([request('GET','/channels'), request('GET','/channels/readiness')]); channels.value=(data||[]).map(item=>({...meta[item.channelCode],...item,code:item.channelCode})).filter(item=>item.name); readiness.value=runtime; await loadDeliveries(); } catch(e) { error.value=e.message||'加载失败'; } finally { loading.value=false; } }
+    async function save(channel) { saving.value=channel.code; error.value=''; try { const data=await request('PUT','/channels/'+channel.code,forms[channel.code]); Object.assign(channel,data); ['webhook','corpId','secret','apiKey','apiSecret','password'].forEach(key=>{ if (key in forms[channel.code]) forms[channel.code][key]=''; }); alert('配置已加密保存，正式投递仍保持未启用。'); } catch(e) { error.value=e.message||'保存失败'; } finally { saving.value=''; } }
+    async function test(channel) { const testData={confirm:'确认'}; if(channel.code==='email') testData.testEmail=forms.email.testEmail.trim(); if(channel.code==='wecom_app') testData.testWecomUserId=forms.wecom_app.testWecomUserId.trim(); if (!confirm('将执行网络连通性与脱敏测试投递。测试接收人仅以临时密文保存，投递完成后立即清除。确认继续吗？')) return; testing.value=channel.code; error.value=''; try { const created=await request('POST','/channels/'+channel.code+'/test',testData); if(channel.code==='email') forms.email.testEmail=''; if(channel.code==='wecom_app') forms.wecom_app.testWecomUserId=''; let result={statusCode:'pending'}; for(let i=0;i<45&&['pending','sending','retry_wait'].includes(result.statusCode);i+=1){ await new Promise(resolve=>setTimeout(resolve,2000)); result=await request('GET','/tests/'+encodeURIComponent(created.deliveryId)); } channel.lastTestStatus=result.statusCode; await loadDeliveries(); if(result.statusCode==='success') alert('测试发送成功。'); else if(['pending','sending','retry_wait'].includes(result.statusCode)) alert('测试投递已创建，正在等待投递进程处理。请稍后在投递状态列表查看结果。'); else alert('测试投递状态：'+result.statusCode+'。'+(result.summary||'请检查网络、通道参数和投递进程。')); } catch(e) { error.value=e.message||'测试失败'; } finally { testing.value=''; } }
+    async function toggle(channel) { const action=channel.enabled?'disable':'enable'; if(!confirm(channel.enabled?'确认停用正式投递吗？':'确认启用正式投递吗？测试成功后才允许启用。')) return; saving.value=channel.code; try { const data=await request('POST','/channels/'+channel.code+'/'+action,{confirm:'确认'}); Object.assign(channel,data); } catch(e) { error.value=e.message||'操作失败'; } finally { saving.value=''; } }
+    function statusText(channel) { return channel.configured?'已保存加密配置':'尚未配置'; }
+    function detailText(detail) { return Object.entries(detail).map(([key,value])=>key+'：'+value).join('；'); }
+    function channelName(code) { return meta[code]?.name || code; }
+    function formatTime(value) { return formatBusinessDateTime(value); }
+    function deliveryStatusClass(status) { return status==='success'?'tag-green':status==='failed'?'tag-red':status==='retry_wait'?'tag-orange':'tag-gray'; }
+    onMounted(load); return { isSuperAdmin, loading, saving, testing, error, readiness, deliveries, canTest, forms, channels, save, test, toggle, statusText, detailText, load, loadDeliveries, channelName, formatTime, deliveryStatusClass };
+  }
+};
+
+/*
+ * 提醒规则管理只展示和提交服务端登记的规则。事件、接收人和渠道均由服务端白名单
+ * 约束，前端不允许拼装任意接收人或外部渠道，避免把客户、商机等业务信息错误扩散。
+ */
+const MESSAGE_RULES_RECIPIENT_EDITOR = `
+      <div class="reminder-rule-section-title">接收人 <span class="tag tag-purple">可配置</span></div>
+      <p class="reminder-rule-muted" style="margin:-8px 0 14px">可固定为角色、指定用户、组织、区域或渠道商；「业务动态接收人」由服务端按业务归属自动解析。</p>
+      <div class="form-item full"><label class="form-label required">接收人类型</label>
+        <select class="form-control" v-model="activeDraft.recipientType">
+          <option v-for="r in recipientTypeOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
+        </select>
+      </div>
+      <div class="form-item full" v-if="activeDraft.recipientType==='dynamic'">
+        <label class="form-label required">动态接收人规则</label>
+        <select class="form-control" v-model="activeDraft.dynamicRecipient">
+          <option v-for="r in dynamicRecipientOptions" :key="r.value" :value="r.value">{{ r.label }}</option>
+        </select>
+        <p class="reminder-rule-muted" style="margin-top:6px">动态接收人按业务归属解析，例如订单待审批提醒当前审批人、客户报备提醒创建人与归属销售。</p>
+      </div>
+      <div class="form-item full" v-else-if="activeDraft.recipientType==='roles'">
+        <label class="form-label required">按角色</label>
+        <div class="reminder-rule-days">
+          <label v-for="role in roleOptions" :key="role.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+            <input type="checkbox" :value="role.value" v-model="activeDraft.roleCodes" /> {{ role.label }}
+          </label>
+        </div>
+      </div>
+      <div class="form-item full" v-else-if="activeDraft.recipientType==='users'">
+        <label class="form-label required">指定用户</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select class="form-control" v-model="activeDraft.addUserId" style="width:280px">
+            <option value="">选择用户（可多次添加）</option>
+            <option v-for="u in staffUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）</option>
+          </select>
+          <button class="btn btn-default btn-sm" :disabled="!activeDraft.addUserId" @click="addDraftUser">添加</button>
+        </div>
+        <div v-if="activeDraft.userIds.length" class="reminder-rule-days" style="margin-top:10px">
+          <span v-for="uid in activeDraft.userIds" :key="uid" class="tag tag-blue" style="margin:2px 6px 2px 0">
+            {{ userLabel(uid) }}<a href="javascript:void(0)" @click="removeDraftUser(uid)" style="margin-left:4px;color:#ff4d4f">×</a>
+          </span>
+        </div>
+      </div>
+      <div class="form-item full" v-else-if="activeDraft.recipientType==='org'">
+        <label class="form-label required">按组织（部门）</label>
+        <select class="form-control" multiple size="7" v-model="activeDraft.orgCodes" style="height:auto">
+          <option v-for="o in orgOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
+        </select>
+        <p class="reminder-rule-muted" style="margin-top:6px">按住 Ctrl（Mac 为 Command）可多选组织。</p>
+      </div>
+      <div class="form-item full" v-else-if="activeDraft.recipientType==='region'">
+        <label class="form-label required">按区域</label>
+        <select class="form-control" multiple size="7" v-model="activeDraft.regionCodes" style="height:auto">
+          <option v-for="r in regionOptions" :key="r.id" :value="r.id">{{ r.name }}</option>
+        </select>
+        <p class="reminder-rule-muted" style="margin-top:6px">按住 Ctrl（Mac 为 Command）可多选区域。</p>
+      </div>
+      <div class="form-item full" v-else-if="activeDraft.recipientType==='partners'">
+        <label class="form-label required">按渠道商</label>
+        <select class="form-control" multiple size="7" v-model="activeDraft.partnerIds" style="height:auto">
+          <option v-for="p in partnerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
+        <p class="reminder-rule-muted" style="margin-top:6px">按住 Ctrl（Mac 为 Command）可多选渠道商。</p>
+      </div>
+`;
+
+const MESSAGE_RULES_VARIABLE_TAGS = `
+      <div class="reminder-rule-section-title">可用变量</div>
+      <div style="margin-bottom:12px">
+        <span v-for="v in activeVariables" :key="v.name" class="tag tag-blue" style="margin:2px 6px 2px 0;cursor:pointer" @click="insertDraftVariable(v.name)">{{ v.name }}（{{ v.label }}）</span>
+        <span class="tag tag-purple" style="margin:2px 6px 2px 0;cursor:pointer" @click="insertDraftVariable('days_left(due_date)')">days_left(due_date)</span>
+        <span class="tag tag-purple" style="margin:2px 6px 2px 0;cursor:pointer" @click="insertDraftVariable('format_date(due_date, \\'YYYY-MM-DD\\')')">format_date(...)</span>
+      </div>
+`;
+
+const MESSAGE_RULES_EXPIRY_FIELDS = `
+      <div class="reminder-rule-detail-grid" v-if="activeDraft.reminderType==='expiry'">
+        <div><label class="form-label required">提前提醒天数</label><div class="reminder-rule-days"><label v-for="day in availableAdvanceDays" :key="day" style="margin-right:10px"><input type="checkbox" :value="day" v-model="activeDraft.advanceDays" /> 提前 {{ day }} 天</label></div></div>
+        <div><label class="form-label required">执行时间</label><input type="time" class="form-control" v-model="activeDraft.dispatchTime" /></div>
+        <div><label class="form-label">仅工作日</label><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-top:8px"><input type="checkbox" v-model="activeDraft.workdayOnly" /> 仅工作日执行</label></div>
+        <div><label class="form-label">合并窗口</label><select class="form-control" v-model.number="activeDraft.digestWindowMinutes"><option :value="0">即时发送</option><option :value="15">15 分钟汇总</option><option :value="60">1 小时汇总</option></select></div>
+      </div>
+`;
+
+const MessageRules = {
+  template: `
+  <div>
+    <div v-if="!isSuperAdmin" class="card"><div style="color:#cf1322">仅超级管理员可管理提醒规则。</div></div>
+    <template v-else>
+      <section class="reminder-rule-hero">
+        <div>
+          <div class="reminder-rule-eyebrow">统一提醒平台 · 规则治理</div>
+          <h2>提醒规则与任务管理</h2>
+          <p>先建立「提醒任务模板」确定提醒内容与默认接收人，再从模板创建具体提醒任务；系统模板支持复制与基于模板新建，全部模板开放超管自定义。</p>
+        </div>
+        <div class="reminder-rule-hero-actions">
+          <span class="tag tag-blue">仅超管可维护</span>
+          <button class="btn btn-primary" @click="openTaskTemplateModal()">新建任务模板</button>
+          <button class="btn btn-default" :disabled="loading" @click="load">{{ loading ? '刷新中...' : '刷新' }}</button>
+        </div>
+      </section>
+
+      <div v-if="error" class="card" style="margin-bottom:16px;color:#cf1322">{{ error }}</div>
+
+      <section class="reminder-rule-summary">
+        <article><span>已启用规则</span><strong>{{ activeCount }}</strong><small>后续事件将按规则生成提醒</small></article>
+        <article><span>强制提醒</span><strong>{{ mandatoryCount }}</strong><small>至少保留站内提醒，不能停用</small></article>
+        <article><span>任务模板</span><strong>{{ taskTemplates.length }}</strong><small>可复制、可基于模板新建任务</small></article>
+        <article><span>消息模板</span><strong>{{ templates.length }}</strong><small>全部模板支持超管自定义</small></article>
+      </section>
+
+      <section class="card" style="margin-bottom:16px">
+        <div class="reminder-rule-tabs" role="tablist" aria-label="提醒规则类型">
+          <button type="button" :class="{active:activeTab==='business'}" @click="activeTab='business'">业务事件 <span>{{ businessRules.length }}</span></button>
+          <button type="button" :class="{active:activeTab==='expiry'}" @click="activeTab='expiry'">到期提醒 <span>{{ expiryRules.length }}</span></button>
+          <button type="button" :class="{active:activeTab==='taskTemplates'}" @click="activeTab='taskTemplates'">提醒任务模板 <span>{{ taskTemplates.length }}</span></button>
+          <button type="button" :class="{active:activeTab==='templates'}" @click="activeTab='templates'">消息模板 <span>{{ templates.length }}</span></button>
+        </div>
+        <div class="reminder-rule-tip" :class="activeTab==='expiry'?'is-planned':''">
+          <template v-if="activeTab==='business'">事件触发后按当前规则即时生成提醒。系统规则支持渠道与范围编辑；自建任务可完整编辑接收人、渠道与提醒内容。</template>
+          <template v-else-if="activeTab==='expiry'">到期规则按提前天数扫描生成提醒，支持提前 90/60/30/14/7/3/1 天、执行时间、仅工作日与合并窗口。</template>
+          <template v-else-if="activeTab==='taskTemplates'">提醒任务模板是「提醒内容 + 默认接收人 + 默认渠道」的目录：系统模板只能复制或基于模板新建任务，自建模板可编辑，全部模板支持复制与新建。</template>
+          <template v-else>渠道消息模板支持超管自定义标题与正文，使用变量（如 {{ 变量示例 }}）和函数（如 days_left(due_date)）填充具体业务值。</template>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">{{ activeTab==='business' ? '业务事件规则' : activeTab==='expiry' ? '到期提醒规则' : activeTab==='taskTemplates' ? '提醒任务模板' : '消息模板' }}</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span class="tag tag-gray">{{ activeTab==='taskTemplates' ? '支持复制与新建' : activeTab==='templates' ? '全部可编辑' : '规则与自建任务' }}</span>
+            <button v-if="activeTab==='business'||activeTab==='expiry'" class="btn btn-primary btn-sm" @click="openTaskCreateModal()">新建提醒任务</button>
+          </div>
+        </div>
+        <div v-if="loading" class="reminder-rule-empty">正在加载...</div>
+        <div v-else-if="activeTab==='templates' && !templates.length" class="reminder-rule-empty">暂无消息模板。</div>
+        <div v-else-if="activeTab==='taskTemplates' && !taskTemplates.length" class="reminder-rule-empty">暂无提醒任务模板，点击右上角「新建任务模板」创建。</div>
+        <div v-else-if="activeTab!=='templates' && activeTab!=='taskTemplates' && !visibleRules.length" class="reminder-rule-empty">暂无{{ activeTab==='business' ? '业务事件' : '到期' }}规则。</div>
+        <div v-else-if="activeTab==='templates'" class="table-wrap">
+          <table class="reminder-rule-table">
+            <thead><tr><th>事件</th><th>渠道</th><th>标题</th><th>正文</th><th>可用变量</th><th>版本</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="tpl in templates" :key="tpl.templateCode">
+                <td><div class="reminder-rule-name">{{ eventLabel(tpl.eventCode) }}</div><div class="reminder-rule-code">{{ tpl.templateCode }}</div></td>
+                <td><span class="tag tag-blue">{{ channelLabel(tpl.channelCode) }}</span></td>
+                <td style="max-width:220px">{{ tpl.titleTemplate }}</td>
+                <td style="max-width:320px;word-break:break-all">{{ tpl.bodyTemplate }}</td>
+                <td style="max-width:200px"><span v-for="v in tpl.variables" :key="v.name" class="tag tag-gray" style="margin:2px">{{ v.name }}</span></td>
+                <td>v{{ tpl.version || 1 }}</td>
+                <td><button class="btn btn-text btn-sm" @click="openTemplate(tpl)">编辑</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else-if="activeTab==='taskTemplates'" class="table-wrap">
+          <table class="reminder-rule-table">
+            <thead><tr><th>模板</th><th>类型</th><th>数据源 / 事件</th><th>默认接收人</th><th>默认渠道</th><th>提前天数</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="tpl in taskTemplates" :key="tpl.templateCode">
+                <td>
+                  <div class="reminder-rule-name">{{ tpl.templateName }}</div>
+                  <div class="reminder-rule-code">{{ tpl.templateCode }}<span v-if="tpl.isSystem" class="tag tag-gray" style="margin-left:6px">系统模板</span></div>
+                </td>
+                <td><span class="tag" :class="tpl.reminderType==='expiry'?'tag-orange':'tag-blue'">{{ tpl.reminderType==='expiry' ? '到期提醒' : '事件提醒' }}</span></td>
+                <td>{{ dataSourceLabel(tpl) }}</td>
+                <td>{{ recipientLabel(tpl) }}</td>
+                <td>{{ channelText(tpl) }}</td>
+                <td>{{ advanceDaysText(tpl) }}</td>
+                <td>
+                  <button class="btn btn-text btn-sm" @click="openTaskCreateModal(tpl)">基于模板新建任务</button>
+                  <button class="btn btn-text btn-sm" @click="openCopyModal(tpl)">复制为新模板</button>
+                  <button v-if="!tpl.isSystem" class="btn btn-text btn-sm" @click="editTaskTemplate(tpl)">编辑</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="table-wrap">
+          <table class="reminder-rule-table">
+            <thead><tr><th>提醒事项</th><th>接收人</th><th>渠道</th><th>提醒策略</th><th>状态</th><th>版本与审计</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="rule in visibleRules" :key="rule.subscriptionCode">
+                <td>
+                  <div class="reminder-rule-name">{{ rule.ruleName || eventLabel(rule.eventCode) }}</div>
+                  <div class="reminder-rule-code">{{ rule.eventCode || rule.ruleCode }}<span v-if="!rule.isSystem" class="tag tag-purple" style="margin-left:6px">自建任务</span></div>
+                </td>
+                <td>{{ recipientLabel(rule) }}</td>
+                <td>{{ channelText(rule) }}</td>
+                <td>{{ reminderStrategy(rule) }}</td>
+                <td><span class="tag" :class="statusClass(rule)">{{ statusLabel(rule) }}</span></td>
+                <td>{{ auditLabel(rule) }}</td>
+                <td><button class="btn btn-text btn-sm" @click="openDetail(rule)">查看与编辑</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div v-if="showDetail && selectedRule" class="modal-overlay" @click.self="closeDetail">
+        <div class="modal reminder-rule-modal" style="width:840px">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">{{ selectedRule.ruleName || eventLabel(selectedRule.eventCode) }}</div>
+              <div class="reminder-rule-code" style="margin-top:4px">{{ selectedRule.eventCode || selectedRule.ruleCode }}<span class="tag" :class="selectedRule.isSystem?'tag-gray':'tag-purple'" style="margin-left:6px">{{ selectedRule.isSystem ? '系统规则' : '自建任务' }}</span><span style="margin-left:8px">来源模板：{{ selectedRule.templateCode }}</span></div>
+            </div>
+            <span class="modal-close" @click="closeDetail">×</span>
+          </div>
+          <div class="modal-body">
+            <div class="reminder-rule-protection" :class="selectedRule.protectionLevel==='mandatory'?'mandatory':'configurable'">
+              <strong>{{ selectedRule.protectionLevel==='mandatory' ? '强制提醒' : '可配置提醒' }}</strong>
+              <span>{{ selectedRule.protectionLevel==='mandatory' ? '该规则至少保留站内提醒，任何个人偏好或渠道异常均不会取消站内通知。' : '关闭后仅影响后续事件；已经生成的通知不会撤回。' }}</span>
+            </div>
+            <div class="reminder-rule-detail-grid">
+              <div><label class="form-label">接收人</label><input class="form-control" :value="recipientLabel(selectedRule)" disabled /></div>
+              <div><label class="form-label">规则版本</label><input class="form-control" :value="'v' + (selectedRule.version || 1)" disabled /></div>
+              <div><label class="form-label">最后更新</label><input class="form-control" :value="auditLabel(selectedRule)" disabled /></div>
+            </div>
+
+            <template v-if="selectedRule.isSystem">
+              <div class="reminder-rule-section-title">投递渠道</div>
+              <div class="reminder-rule-days">
+                <label v-for="ch in channelOptions" :key="ch.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                  <input type="checkbox" :value="ch.value" v-model="ruleDraft.channelCodes" :disabled="ch.value==='in_app' && selectedRule.protectionLevel==='mandatory'" />
+                  {{ ch.label }}
+                </label>
+              </div>
+
+              <template v-if="selectedRule.recipientRule?.type === 'registration_pending_approver' || selectedRule.recipientRule?.type === 'users'">
+                <div class="reminder-rule-section-title">提醒范围 <span class="tag tag-purple">可配置</span></div>
+                <p class="reminder-rule-muted" style="margin:-8px 0 14px">{{ selectedRule.recipientRule?.type === 'users' ? '指定接收审核待办的用户；其他人员不提醒。' : '选择要接收“客户报备待审批”提醒的角色或用户；其他人员不提醒。' }}</p>
+                <template v-if="selectedRule.recipientRule?.type === 'registration_pending_approver'">
+                  <div class="reminder-rule-section-title" style="font-size:13px">按角色</div>
+                  <div class="reminder-rule-days">
+                  <label v-for="role in roleOptions" :key="role.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                    <input type="checkbox" :value="role.value" v-model="ruleDraft.roleCodes" />
+                    {{ role.label }}
+                  </label>
+                  </div>
+                </template>
+                <div class="reminder-rule-section-title" style="font-size:13px;margin-top:12px">指定用户</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                  <select class="form-control" v-model="ruleDraft.addUserId" style="width:260px">
+                    <option value="">选择用户（可选）</option>
+                    <option v-for="u in staffUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）</option>
+                  </select>
+                  <button class="btn btn-default btn-sm" :disabled="!ruleDraft.addUserId" @click="addDraftUser">添加</button>
+                </div>
+                <div v-if="ruleDraft.userIds.length" class="reminder-rule-days" style="margin-top:10px">
+                  <span v-for="uid in ruleDraft.userIds" :key="uid" class="tag tag-blue" style="margin:2px 6px 2px 0">
+                    {{ userLabel(uid) }}
+                    <a href="javascript:void(0)" @click="removeDraftUser(uid)" style="margin-left:4px;color:#ff4d4f">×</a>
+                  </span>
+                </div>
+              </template>
+
+              <template v-if="isExpiry(selectedRule)">
+                <div class="reminder-rule-section-title">到期策略</div>
+                <p class="reminder-rule-muted" style="margin:-8px 0 14px">服务端会再次校验数据范围、规则版本和状态。</p>
+                <div class="reminder-rule-detail-grid">
+                  <div><label class="form-label">提前提醒天数</label><div class="reminder-rule-days"><label v-for="day in availableAdvanceDays" :key="day"><input type="checkbox" :value="day" v-model="reminderDraft.advanceDays" /> 提前 {{ day }} 天</label></div></div>
+                  <div><label class="form-label">执行时间</label><input type="time" class="form-control" v-model="reminderDraft.dispatchTime" /></div>
+                  <div><label class="form-label">仅工作日</label><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;margin-top:8px"><input type="checkbox" v-model="reminderDraft.workdayOnly" /> 仅工作日执行</label></div>
+                  <div><label class="form-label">合并窗口</label><select class="form-control" v-model.number="reminderDraft.digestWindowMinutes"><option :value="0">即时发送</option><option :value="15">15 分钟汇总</option><option :value="60">1 小时汇总</option></select></div>
+                </div>
+              </template>
+            </template>
+
+            <template v-else>
+              <div class="form-item full"><label class="form-label required">任务名称</label><input class="form-control" v-model="ruleDraft.taskName" /></div>
+${MESSAGE_RULES_RECIPIENT_EDITOR}
+              <div class="reminder-rule-section-title">投递渠道</div>
+              <div class="reminder-rule-days">
+                <label v-for="ch in channelOptions" :key="ch.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                  <input type="checkbox" :value="ch.value" v-model="ruleDraft.channelCodes" />
+                  {{ ch.label }}
+                </label>
+              </div>
+${MESSAGE_RULES_EXPIRY_FIELDS}
+              <div v-if="isExpiry(selectedRule)" class="reminder-rule-detail-grid">
+                <div><label class="form-label">提醒状态</label><select class="form-control" v-model="ruleDraft.statusCode"><option value="active">启用</option><option value="disabled">停用</option></select></div>
+              </div>
+              <div class="reminder-rule-section-title">提醒内容</div>
+${MESSAGE_RULES_VARIABLE_TAGS}
+              <div class="form-item full"><label class="form-label required">标题</label><input class="form-control" v-model="ruleDraft.titleTemplate" /></div>
+              <div class="form-item full"><label class="form-label required">正文</label><textarea class="form-control" rows="4" v-model="ruleDraft.bodyTemplate"></textarea></div>
+            </template>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="closeDetail">关闭</button>
+            <button v-if="!selectedRule.isSystem" class="btn btn-primary" :disabled="saving===selectedRule.subscriptionCode" @click="saveTaskInstance(selectedRule)">{{ saving===selectedRule.subscriptionCode ? '提交中...' : '保存任务' }}</button>
+            <button v-else-if="isExpiry(selectedRule)" class="btn btn-primary" :disabled="saving===selectedRule.subscriptionCode" @click="saveReminder(selectedRule)">{{ saving===selectedRule.subscriptionCode ? '提交中...' : '保存到期策略' }}</button>
+            <button v-else-if="selectedRule.statusCode==='active'" class="btn btn-primary" :disabled="saving===selectedRule.subscriptionCode" @click="saveEventRule(selectedRule)">{{ saving===selectedRule.subscriptionCode ? '提交中...' : '保存规则' }}</button>
+            <button v-else class="btn" :class="selectedRule.statusCode==='active'?'btn-danger':'btn-primary'" :disabled="saving===selectedRule.subscriptionCode" @click="toggle(selectedRule)">{{ saving===selectedRule.subscriptionCode ? '提交中...' : (selectedRule.statusCode==='active' ? '停用该规则' : '启用该规则') }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showTaskTemplateModal" class="modal-overlay" @click.self="closeTaskTemplateModal">
+        <div class="modal reminder-rule-modal" style="width:860px">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">{{ editingTaskTemplateCode ? '编辑任务模板' : '新建任务模板' }}</div>
+              <div class="reminder-rule-code" style="margin-top:4px">{{ editingTaskTemplateCode || '自定义模板' }}</div>
+            </div>
+            <span class="modal-close" @click="closeTaskTemplateModal">×</span>
+          </div>
+          <div class="modal-body">
+            <div class="reminder-rule-detail-grid">
+              <div><label class="form-label required">模板类型</label>
+                <select class="form-control" v-model="taskTemplateDraft.reminderType" :disabled="!!editingTaskTemplateCode" @change="refreshTemplateVariables">
+                  <option value="expiry">到期提醒</option>
+                  <option value="event">事件提醒</option>
+                </select>
+              </div>
+              <div v-if="taskTemplateDraft.reminderType==='expiry'"><label class="form-label required">到期数据源</label>
+                <select class="form-control" v-model="taskTemplateDraft.dataSourceCode" @change="refreshTemplateVariables">
+                  <option v-for="d in dataSourceOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+                </select>
+              </div>
+              <div v-else><label class="form-label required">业务事件</label>
+                <select class="form-control" v-model="taskTemplateDraft.eventCode" @change="refreshTemplateVariables">
+                  <option v-for="e in eventOptions" :key="e.value" :value="e.value">{{ e.label }}</option>
+                </select>
+              </div>
+              <div><label class="form-label required">模板名称</label><input class="form-control" v-model="taskTemplateDraft.templateName" placeholder="例如：重点商机到期提醒" /></div>
+              <div><label class="form-label required">类别</label>
+                <select class="form-control" v-model="taskTemplateDraft.categoryCode"><option v-for="c in categoryOptions" :key="c.code" :value="c.code">{{ c.label }}</option></select>
+              </div>
+              <div><label class="form-label required">优先级</label>
+                <select class="form-control" v-model="taskTemplateDraft.priorityCode"><option v-for="p in priorityOptions" :key="p.code" :value="p.code">{{ p.label }}</option></select>
+              </div>
+              <div class="full"><label class="form-label">模板说明</label><input class="form-control" v-model="taskTemplateDraft.description" placeholder="用于说明该模板适用场景（可选）" /></div>
+            </div>
+${MESSAGE_RULES_RECIPIENT_EDITOR}
+            <div class="reminder-rule-section-title">默认渠道</div>
+            <div class="reminder-rule-days">
+              <label v-for="ch in channelOptions" :key="ch.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                <input type="checkbox" :value="ch.value" v-model="taskTemplateDraft.channelCodes" />
+                {{ ch.label }}
+              </label>
+            </div>
+${MESSAGE_RULES_EXPIRY_FIELDS}
+            <div class="reminder-rule-section-title">默认提醒内容</div>
+${MESSAGE_RULES_VARIABLE_TAGS}
+            <div class="form-item full"><label class="form-label required">标题</label><input class="form-control" v-model="taskTemplateDraft.titleTemplate" /></div>
+            <div class="form-item full"><label class="form-label required">正文</label><textarea class="form-control" rows="4" v-model="taskTemplateDraft.bodyTemplate"></textarea></div>
+            <div class="reminder-rule-section-title">预览</div>
+            <div style="background:#f7f8fa;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">
+              <div><strong>标题：</strong>{{ taskTemplateDraft.titleTemplate }}</div>
+              <div><strong>正文：</strong>{{ taskTemplateDraft.bodyTemplate }}</div>
+              <div class="reminder-rule-muted" style="margin-top:6px">发送时由系统填充客户名称、编号、到期日、剩余天数等业务值。</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="closeTaskTemplateModal">取消</button>
+            <button class="btn btn-primary" :disabled="saving==='task-template'" @click="saveTaskTemplate">{{ saving==='task-template' ? '提交中...' : (editingTaskTemplateCode ? '保存模板' : '创建模板') }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showCopyModal && copySourceTemplate" class="modal-overlay" @click.self="showCopyModal=false">
+        <div class="modal reminder-rule-modal" style="width:860px">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">复制为新模板</div>
+              <div class="reminder-rule-code" style="margin-top:4px">来源：{{ copySourceTemplate.templateName }}（{{ copySourceTemplate.templateCode }}）</div>
+            </div>
+            <span class="modal-close" @click="showCopyModal=false">×</span>
+          </div>
+          <div class="modal-body">
+            <div class="form-item full"><label class="form-label required">新模板名称</label><input class="form-control" v-model="copyDraft.templateName" /></div>
+${MESSAGE_RULES_RECIPIENT_EDITOR}
+            <div class="reminder-rule-section-title">默认渠道</div>
+            <div class="reminder-rule-days">
+              <label v-for="ch in channelOptions" :key="ch.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                <input type="checkbox" :value="ch.value" v-model="copyDraft.channelCodes" />
+                {{ ch.label }}
+              </label>
+            </div>
+${MESSAGE_RULES_EXPIRY_FIELDS}
+            <div class="reminder-rule-section-title">默认提醒内容</div>
+${MESSAGE_RULES_VARIABLE_TAGS}
+            <div class="form-item full"><label class="form-label required">标题</label><input class="form-control" v-model="copyDraft.titleTemplate" /></div>
+            <div class="form-item full"><label class="form-label required">正文</label><textarea class="form-control" rows="4" v-model="copyDraft.bodyTemplate"></textarea></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="showCopyModal=false">取消</button>
+            <button class="btn btn-primary" :disabled="saving==='copy'" @click="saveCopy">{{ saving==='copy' ? '提交中...' : '复制为新模板' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showTaskCreateModal" class="modal-overlay" @click.self="showTaskCreateModal=false">
+        <div class="modal reminder-rule-modal" style="width:860px">
+          <div class="modal-header">
+            <div>
+              <div class="modal-title">基于模板新建提醒任务</div>
+              <div class="reminder-rule-code" style="margin-top:4px">选择任务模板后自动带入默认配置，可覆盖后创建</div>
+            </div>
+            <span class="modal-close" @click="showTaskCreateModal=false">×</span>
+          </div>
+          <div class="modal-body">
+            <div class="form-item full"><label class="form-label required">任务模板</label>
+              <select class="form-control" v-model="taskCreateDraft.templateCode" @change="selectTaskTemplate">
+                <option v-for="t in taskTemplates" :key="t.templateCode" :value="t.templateCode">{{ t.templateName }}（{{ t.reminderType==='expiry' ? '到期' : '事件' }}）</option>
+              </select>
+            </div>
+            <div class="reminder-rule-detail-grid">
+              <div><label class="form-label required">任务名称</label><input class="form-control" v-model="taskCreateDraft.taskName" /></div>
+              <div><label class="form-label">提醒状态</label><select class="form-control" v-model="taskCreateDraft.statusCode"><option value="active">启用</option><option value="disabled">停用</option></select></div>
+            </div>
+${MESSAGE_RULES_RECIPIENT_EDITOR}
+            <div class="reminder-rule-section-title">投递渠道</div>
+            <div class="reminder-rule-days">
+              <label v-for="ch in channelOptions" :key="ch.value" style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;cursor:pointer">
+                <input type="checkbox" :value="ch.value" v-model="taskCreateDraft.channelCodes" />
+                {{ ch.label }}
+              </label>
+            </div>
+${MESSAGE_RULES_EXPIRY_FIELDS}
+            <div class="reminder-rule-section-title">提醒内容</div>
+${MESSAGE_RULES_VARIABLE_TAGS}
+            <div class="form-item full"><label class="form-label required">标题</label><input class="form-control" v-model="taskCreateDraft.titleTemplate" /></div>
+            <div class="form-item full"><label class="form-label required">正文</label><textarea class="form-control" rows="4" v-model="taskCreateDraft.bodyTemplate"></textarea></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="showTaskCreateModal=false">取消</button>
+            <button class="btn btn-primary" :disabled="saving==='task-create'" @click="saveTaskCreate">{{ saving==='task-create' ? '提交中...' : '创建提醒任务' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showTemplate && selectedTemplate" class="modal-overlay" @click.self="showTemplate=false">
+        <div class="modal reminder-rule-modal" style="width:720px">
+          <div class="modal-header"><div><div class="modal-title">编辑消息模板</div><div class="reminder-rule-code" style="margin-top:4px">{{ selectedTemplate.templateCode }} · {{ channelLabel(selectedTemplate.channelCode) }} · {{ eventLabel(selectedTemplate.eventCode) }}</div></div><span class="modal-close" @click="showTemplate=false">×</span></div>
+          <div class="modal-body">
+            <div class="reminder-rule-section-title">可用变量</div>
+            <div style="margin-bottom:12px">
+              <span v-for="v in selectedTemplate.variables" :key="v.name" class="tag tag-blue" style="margin:2px 6px 2px 0" @click="insertTemplateVariable(v.name)">{{ v.name }}（{{ v.label }}）</span>
+              <span class="tag tag-purple" style="margin:2px 6px 2px 0" @click="insertTemplateVariable('days_left(due_date)')">days_left(due_date)</span>
+            </div>
+            <div class="form-item full"><label class="form-label required">标题</label><input class="form-control" v-model="templateDraft.titleTemplate" /></div>
+            <div class="form-item full"><label class="form-label required">正文</label><textarea class="form-control" rows="4" v-model="templateDraft.bodyTemplate"></textarea></div>
+            <div class="reminder-rule-section-title">预览</div>
+            <div style="background:#f7f8fa;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">
+              <div><strong>标题：</strong>{{ templateDraft.titleTemplate }}</div>
+              <div><strong>正文：</strong>{{ templateDraft.bodyTemplate }}</div>
+              <div class="reminder-rule-muted" style="margin-top:6px">保存后由系统在发送时填充客户名称、编号、到期日、剩余天数等业务值。</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-default" @click="showTemplate=false">取消</button>
+            <button class="btn btn-primary" :disabled="saving===selectedTemplate.templateCode" @click="saveTemplate">{{ saving===selectedTemplate.templateCode ? '提交中...' : '保存模板' }}</button>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>`,
+  setup() {
+    const isSuperAdmin = computed(() => store.user?.role === 'superadmin');
+    const rules = ref([]);
+    const templates = ref([]);
+    const taskTemplates = ref([]);
+    const catalog = ref(null);
+    const staffUsers = ref([]);
+    const orgOptions = ref([]);
+    const regionOptions = ref([]);
+    const partnerOptions = ref([]);
+    const loading = ref(false);
+    const saving = ref('');
+    const error = ref('');
+    const activeTab = ref('business');
+    const selectedRule = ref(null);
+    const showDetail = ref(false);
+    const selectedTemplate = ref(null);
+    const showTemplate = ref(false);
+    const templateDraft = reactive({ titleTemplate: '', bodyTemplate: '', version: 1 });
+    const showTaskTemplateModal = ref(false);
+    const editingTaskTemplateCode = ref('');
+    const showCopyModal = ref(false);
+    const copySourceTemplate = ref(null);
+    const showTaskCreateModal = ref(false);
+    const availableAdvanceDays = [90, 60, 30, 14, 7, 3, 1];
+    const reminderDraft = reactive({ advanceDays: [30, 7, 1], dispatchTime: '09:00', workdayOnly: true, digestWindowMinutes: 0, statusCode: 'active' });
+    const 变量示例 = '{{customer_name}}';
+    const channelOptions = [
+      { value: 'in_app', label: '站内提醒' },
+      { value: 'wecom_app', label: '企微应用' },
+      { value: 'wecom', label: '企微群机器人' },
+      { value: 'email', label: '邮件' },
+      { value: 'sms', label: '短信' }
+    ];
+    const roleOptions = [
+      { value: 'superadmin', label: '超级管理员' },
+      { value: 'region_manager', label: '区域管理员' },
+      { value: 'admin', label: '管理员' }
+    ];
+    const dynamicRecipientOptions = [
+      { value: 'business_owner', label: '当前业务负责人' },
+      { value: 'order_current_approver', label: '当前订单审批人' },
+      { value: 'registration_creator_and_owner', label: '报备创建人与当前负责人' },
+      { value: 'registration_pending_approver', label: '报备待审批人' },
+      { value: 'platform_administrator', label: '全部平台管理员' }
+    ];
+    function 新草稿() {
+      return {
+        templateCode: '', taskName: '', templateName: '', reminderType: 'expiry',
+        dataSourceCode: 'registration_expiring', eventCode: 'crm.order.approval.pending',
+        categoryCode: 'business', priorityCode: 'normal',
+        recipientType: 'dynamic', dynamicRecipient: 'business_owner',
+        roleCodes: [], userIds: [], orgCodes: [], regionCodes: [], partnerIds: [], addUserId: '',
+        channelCodes: ['in_app'], advanceDays: [30, 7, 1], dispatchTime: '09:00',
+        workdayOnly: true, digestWindowMinutes: 0,
+        titleTemplate: '', bodyTemplate: '', description: '', statusCode: 'active',
+        variables: []
+      };
+    }
+    const taskTemplateDraft = reactive(新草稿());
+    const copyDraft = reactive(新草稿());
+    const taskCreateDraft = reactive(新草稿());
+    const ruleDraft = reactive(新草稿());
+    const eventLabels = {
+      'crm.order.approval.pending': '订单待审批', 'crm.order.status.changed': '订单状态变化',
+      'crm.order.confirmed': '订单确认完成', 'crm.registration.approved': '客户报备通过',
+      'crm.registration.rejected': '客户报备驳回', 'crm.registration.approval.pending': '客户报备待审批',
+      'crm.registration.expiring': '客户报备保护期将到期', 'crm.opportunity.expected_close': '商机预计成交日将到期',
+      'iam.account.approval.pending': '员工账号待审核', 'channel.partner.approval.pending': '渠道商待审核',
+      'task.failed.excessive': '消息任务连续失败'
+    };
+    const recipientLabels = {
+      order_current_approver: '当前审批人', business_owner: '当前业务负责人',
+      registration_creator_and_owner: '报备创建人、当前负责人', registration_pending_approver: '报备待审批人（可配置范围）',
+      platform_administrator: '全部平台管理员', registration_owner: '当前负责人', opportunity_owner: '当前负责人'
+    };
+    const dataSourceOptions = computed(() => (catalog.value?.dataSources || []).map(d => ({ value: d.code, label: d.label })));
+    const eventOptions = computed(() => (catalog.value?.events || []).map(e => ({ value: e.code, label: e.label })));
+    const categoryOptions = computed(() => (catalog.value?.categories || []));
+    const priorityOptions = computed(() => (catalog.value?.priorities || []));
+    const recipientTypeOptions = computed(() => (catalog.value?.recipientTypes || []).map(r => ({ value: r.code, label: r.label })));
+    const businessRules = computed(() => rules.value.filter(rule => !isExpiry(rule)));
+    const expiryRules = computed(() => rules.value.filter(rule => isExpiry(rule)));
+    const visibleRules = computed(() => activeTab.value === 'business' ? businessRules.value : expiryRules.value);
+    const activeCount = computed(() => rules.value.filter(rule => rule.statusCode === 'active').length);
+    const mandatoryCount = computed(() => rules.value.filter(rule => rule.protectionLevel === 'mandatory').length);
+    const activeDraft = computed(() => {
+      if (showTaskTemplateModal.value) return taskTemplateDraft;
+      if (showCopyModal.value) return copyDraft;
+      if (showTaskCreateModal.value) return taskCreateDraft;
+      if (showDetail.value) return ruleDraft;
+      return null;
+    });
+    const activeVariables = computed(() => activeDraft.value?.variables || []);
+    function endpoint(path) { return '/api/messages/platform/rules' + path; }
+    async function request(method, path, body) {
+      const response = await adminFetch(endpoint(path), { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json.success) { const detail = json.error; throw new Error((typeof detail === 'object' && detail?.message) || detail || json.message || '操作失败'); }
+      return json.data;
+    }
+    async function load() {
+      if (!isSuperAdmin.value) return; loading.value = true; error.value = '';
+      try {
+        const data = await request('GET', '');
+        const eventItems = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : []);
+        const reminderItems = Array.isArray(data?.reminderItems) ? data.reminderItems : [];
+        rules.value = [
+          ...eventItems.map(item => ({ ...item, ruleKind: 'event' })),
+          ...reminderItems.map(item => ({ ...item, ruleKind: 'reminder', eventCode: item.ruleCode, subscriptionCode: item.ruleCode, protectionLevel: item.protectionLevel || 'configurable' }))
+        ];
+        try {
+          const tpl = await request('GET', '/task-templates');
+          taskTemplates.value = Array.isArray(tpl) ? tpl : [];
+        } catch (e) { taskTemplates.value = []; }
+        try {
+          const cat = await request('GET', '/catalog');
+          catalog.value = cat;
+        } catch (e) { catalog.value = null; }
+        try {
+          const tpl = await request('GET', '/templates');
+          templates.value = Array.isArray(tpl) ? tpl : [];
+        } catch (e) { templates.value = []; }
+        try {
+          const staff = await adminFetch('/api/org/staff', { headers: { 'content-type': 'application/json' } });
+          const staffJson = await staff.json().catch(() => ({}));
+          const staffData = staffJson?.data?.items ?? staffJson?.data ?? staffJson?.items ?? [];
+          staffUsers.value = Array.isArray(staffData) ? staffData : [];
+        } catch (e) { staffUsers.value = []; }
+        try {
+          const [orgRes, channelRes] = await Promise.all([
+            adminFetch('/api/org/units/tree', { headers: { 'content-type': 'application/json' } }),
+            adminFetch('/api/org/channel-tree', { headers: { 'content-type': 'application/json' } })
+          ]);
+          const orgJson = await orgRes.json().catch(() => ({}));
+          const channelJson = await channelRes.json().catch(() => ({}));
+          orgOptions.value = 展平组织(orgJson?.data?.items || []);
+          const 渠道树 = channelJson?.data?.items || [];
+          regionOptions.value = 展平区域(渠道树);
+          partnerOptions.value = 展平渠道商(渠道树);
+        } catch (e) { /* 组织接口不可用时接收人范围退化为角色与用户 */ }
+      }
+      catch (e) { error.value = e.message || '加载提醒规则失败'; }
+      finally { loading.value = false; }
+    }
+    function 展平组织(nodes, out = []) {
+      for (const n of nodes || []) {
+        out.push({ id: n.id, name: n.unitName || n.name, code: n.unitCode });
+        if (Array.isArray(n.children)) 展平组织(n.children, out);
+      }
+      return out;
+    }
+    function 展平区域(nodes, out = []) {
+      for (const n of nodes || []) {
+        if (n.type === 'big_region' || n.type === 'region') out.push({ id: n.id, name: n.name });
+        if (Array.isArray(n.children)) 展平区域(n.children, out);
+      }
+      return out;
+    }
+    function 展平渠道商(nodes, out = []) {
+      for (const n of nodes || []) {
+        if (n.partnerCode || n.partnerName) out.push({ id: n.id, name: n.partnerName || n.name, code: n.partnerCode });
+        if (Array.isArray(n.children)) 展平渠道商(n.children, out);
+      }
+      return out;
+    }
+    function isExpiry(rule) { return rule?.ruleKind === 'reminder' || /expiring|expected_close|due/i.test(String(rule?.eventCode || '')); }
+    function eventLabel(code) { return eventLabels[code] || code || '未命名规则'; }
+    function 取接收人规则(x) { return x?.defaultRecipientRule || x?.recipientRule || {}; }
+    function 取范围(x) {
+      const scope = x?.recipientScope;
+      if (scope && Object.keys(scope).length) return scope;
+      return x?.defaultRecipientRule?.scope || {};
+    }
+    function recipientLabel(x) {
+      const 规则 = 取接收人规则(x);
+      const t = 规则?.type;
+      if (!t) return '服务端固定范围';
+      const 动态 = dynamicRecipientOptions.find(r => r.value === t);
+      if (动态) return 动态.label;
+      const 范围 = recipientTypeOptions.value.find(r => r.value === t);
+      if (范围) {
+        const scope = 取范围(x);
+        if (t === 'roles') {
+          const 角色 = (Array.isArray(scope.codes) ? scope.codes : []).map(c => roleOptions.find(r => r.value === c)?.label || c);
+          return '按角色：' + (角色.join('、') || '未设置');
+        }
+        if (t === 'users') return '指定用户：' + (Array.isArray(scope.userIds) ? scope.userIds.length : 0) + ' 人';
+        if (t === 'org') return '按组织：' + (Array.isArray(scope.codes) ? scope.codes.length : 0) + ' 个';
+        if (t === 'region') return '按区域：' + (Array.isArray(scope.codes) ? scope.codes.length : 0) + ' 个';
+        if (t === 'partners') return '按渠道商：' + (Array.isArray(scope.partnerIds) ? scope.partnerIds.length : 0) + ' 个';
+        return 范围.label;
+      }
+      return t;
+    }
+    function channelLabel(code) { return ({ in_app: '站内提醒', wecom_app: '企微应用', wecom: '企业微信', sms: '短信', email: '邮件' })[code] || code; }
+    function channelText(x) {
+      const codes = x?.defaultChannelCodes || x?.channelCodes || [];
+      return (Array.isArray(codes) ? codes : []).map(channelLabel).join('、') || '未配置';
+    }
+    function statusLabel(rule) { return rule?.protectionLevel === 'mandatory' ? '强制启用' : (rule?.statusCode === 'active' ? '已启用' : '已停用'); }
+    function statusClass(rule) { return rule?.protectionLevel === 'mandatory' || rule?.statusCode === 'active' ? 'tag-green' : 'tag-gray'; }
+    function auditLabel(rule) { const time = rule?.updatedAt ? formatBusinessDateTime(rule.updatedAt, '') : ''; const by = rule?.updatedBy || ''; return [time, by].filter(Boolean).join(' · ') || '暂无变更记录'; }
+    function reminderStrategy(rule) {
+      if (!isExpiry(rule)) return '事件触发即时生成';
+      const days = Array.isArray(rule?.advanceDays) && rule.advanceDays.length ? rule.advanceDays.join(' / ') + ' 天前' : '未设置提前天数';
+      const time = rule?.dispatchTime ? `${rule.workdayOnly === false ? '每日' : '工作日'} ${rule.dispatchTime}` : '执行时间待设置';
+      return `${days} · ${time} · ${digestLabel(rule?.digestWindowMinutes)}`;
+    }
+    function digestLabel(minutes) { return Number(minutes) === 15 ? '15 分钟汇总' : Number(minutes) === 60 ? '1 小时汇总' : '即时发送'; }
+    function dataSourceLabel(tpl) {
+      if (tpl.reminderType === 'expiry') {
+        const d = dataSourceOptions.value.find(x => x.value === tpl.dataSourceCode);
+        return d ? d.label : (tpl.dataSourceCode || '未设置');
+      }
+      const e = eventOptions.value.find(x => x.value === tpl.eventCode);
+      return e ? e.label : (tpl.eventCode || '未设置');
+    }
+    function advanceDaysText(tpl) {
+      if (tpl.reminderType !== 'expiry') return '—';
+      const days = Array.isArray(tpl.defaultAdvanceDays) && tpl.defaultAdvanceDays.length ? tpl.defaultAdvanceDays.join(' / ') + ' 天' : '未设置';
+      return days;
+    }
+    function userLabel(userId) {
+      const found = staffUsers.value.find(u => u.userId === userId);
+      return found ? `${found.displayName}（${found.username}）` : userId;
+    }
+    function addDraftUser() {
+      const d = activeDraft.value;
+      if (!d || !d.addUserId) return;
+      if (!d.userIds.includes(d.addUserId)) d.userIds.push(d.addUserId);
+      d.addUserId = '';
+    }
+    function removeDraftUser(userId) {
+      const d = activeDraft.value;
+      if (!d) return;
+      d.userIds = d.userIds.filter(id => id !== userId);
+    }
+    function 从接收人规则填充(d, 规则) {
+      const t = 规则?.type;
+      const scope = 规则?.scope || {};
+      if (t === 'roles' || t === 'users' || t === 'org' || t === 'region' || t === 'partners') {
+        d.recipientType = t;
+        d.roleCodes = Array.isArray(scope.codes) ? [...scope.codes] : [];
+        d.orgCodes = Array.isArray(scope.codes) ? [...scope.codes] : [];
+        d.regionCodes = Array.isArray(scope.codes) ? [...scope.codes] : [];
+        d.userIds = Array.isArray(scope.userIds) ? [...scope.userIds] : [];
+        d.partnerIds = Array.isArray(scope.partnerIds) ? [...scope.partnerIds] : [];
+      } else {
+        d.recipientType = 'dynamic';
+        d.dynamicRecipient = t || 'business_owner';
+        d.roleCodes = []; d.orgCodes = []; d.regionCodes = []; d.userIds = []; d.partnerIds = [];
+      }
+      d.addUserId = '';
+    }
+    function buildRecipientRule(d) {
+      if (d.recipientType === 'roles') return { type: 'roles', codes: d.roleCodes };
+      if (d.recipientType === 'users') return { type: 'users', userIds: d.userIds };
+      if (d.recipientType === 'org') return { type: 'org', codes: d.orgCodes };
+      if (d.recipientType === 'region') return { type: 'region', codes: d.regionCodes };
+      if (d.recipientType === 'partners') return { type: 'partners', partnerIds: d.partnerIds };
+      return { type: d.dynamicRecipient || 'business_owner' };
+    }
+    function 查找目录模板(rule) {
+      const code = rule?.templateCode || rule?.subscriptionCode || rule?.ruleCode;
+      return taskTemplates.value.find(t => t.templateCode === code);
+    }
+    function 查找变量(rule) {
+      const tpl = 查找目录模板(rule);
+      if (tpl) return (tpl.variableDefs || []).map(v => ({ ...v }));
+      if (isExpiry(rule)) {
+        const ds = (catalog.value?.dataSources || []).find(x => x.code === rule.dataSourceCode);
+        return ds ? ds.variables.map(v => ({ ...v })) : [];
+      }
+      const ev = (catalog.value?.events || []).find(x => x.code === rule.eventCode);
+      return ev ? ev.variables.map(v => ({ ...v })) : [];
+    }
+    function openDetail(rule) {
+      selectedRule.value = rule;
+      Object.assign(ruleDraft, 新草稿());
+      ruleDraft.channelCodes = Array.isArray(rule.channelCodes) && rule.channelCodes.length ? [...rule.channelCodes] : ['in_app'];
+      ruleDraft.taskName = rule.ruleName || '';
+      ruleDraft.statusCode = rule.statusCode || 'active';
+      ruleDraft.variables = 查找变量(rule);
+      从接收人规则填充(ruleDraft, { type: rule.recipientRule?.type, scope: rule.recipientScope || {} });
+      if (rule.recipientRule?.type === 'registration_pending_approver') {
+        const scope = rule.recipientScope || {};
+        ruleDraft.roleCodes = Array.isArray(scope.codes) && scope.codes.length ? [...scope.codes] : ['region_manager', 'superadmin'];
+        ruleDraft.userIds = Array.isArray(scope.userIds) ? [...scope.userIds] : [];
+      }
+      const tpl = 查找目录模板(rule);
+      ruleDraft.titleTemplate = tpl?.titleTemplate || '';
+      ruleDraft.bodyTemplate = tpl?.bodyTemplate || '';
+      if (isExpiry(rule)) {
+        ruleDraft.advanceDays = Array.isArray(rule.advanceDays) && rule.advanceDays.length ? [...rule.advanceDays] : [30, 7, 1];
+        ruleDraft.dispatchTime = rule.dispatchTime || '09:00';
+        ruleDraft.workdayOnly = rule.workdayOnly !== false;
+        ruleDraft.digestWindowMinutes = Number(rule.digestWindowMinutes) || 0;
+        reminderDraft.advanceDays = [...ruleDraft.advanceDays];
+        reminderDraft.dispatchTime = ruleDraft.dispatchTime;
+        reminderDraft.workdayOnly = ruleDraft.workdayOnly;
+        reminderDraft.digestWindowMinutes = ruleDraft.digestWindowMinutes;
+        reminderDraft.statusCode = rule.statusCode || 'active';
+      }
+      showDetail.value = true;
+    }
+    function closeDetail() { showDetail.value = false; selectedRule.value = null; }
+    function openTemplate(tpl) {
+      selectedTemplate.value = tpl;
+      templateDraft.titleTemplate = tpl.titleTemplate;
+      templateDraft.bodyTemplate = tpl.bodyTemplate;
+      templateDraft.version = tpl.version || 1;
+      showTemplate.value = true;
+    }
+    function insertTemplateVariable(name) {
+      const target = templateDraft.bodyTemplate;
+      templateDraft.bodyTemplate = target + (target && !target.endsWith(' ') ? ' ' : '') + '{{' + name + '}}';
+    }
+    function insertDraftVariable(name) {
+      const d = activeDraft.value;
+      if (!d) return;
+      const target = d.bodyTemplate;
+      d.bodyTemplate = target + (target && !target.endsWith(' ') ? ' ' : '') + '{{' + name + '}}';
+    }
+    function refreshTemplateVariables() {
+      const d = taskTemplateDraft;
+      if (d.reminderType === 'expiry') {
+        const ds = (catalog.value?.dataSources || []).find(x => x.code === d.dataSourceCode);
+        d.variables = ds ? ds.variables.map(v => ({ ...v })) : [];
+      } else {
+        const ev = (catalog.value?.events || []).find(x => x.code === d.eventCode);
+        d.variables = ev ? ev.variables.map(v => ({ ...v })) : [];
+      }
+    }
+    function openTaskTemplateModal() {
+      editingTaskTemplateCode.value = '';
+      Object.assign(taskTemplateDraft, 新草稿());
+      taskTemplateDraft.reminderType = 'expiry';
+      taskTemplateDraft.dataSourceCode = dataSourceOptions.value[0]?.value || 'registration_expiring';
+      refreshTemplateVariables();
+      showTaskTemplateModal.value = true;
+    }
+    function editTaskTemplate(tpl) {
+      editingTaskTemplateCode.value = tpl.templateCode;
+      Object.assign(taskTemplateDraft, 新草稿());
+      taskTemplateDraft.templateName = tpl.templateName;
+      taskTemplateDraft.reminderType = tpl.reminderType;
+      taskTemplateDraft.dataSourceCode = tpl.dataSourceCode || '';
+      taskTemplateDraft.eventCode = tpl.eventCode || '';
+      taskTemplateDraft.categoryCode = tpl.categoryCode;
+      taskTemplateDraft.priorityCode = tpl.priorityCode;
+      taskTemplateDraft.description = tpl.description || '';
+      从接收人规则填充(taskTemplateDraft, tpl.defaultRecipientRule);
+      taskTemplateDraft.channelCodes = Array.isArray(tpl.defaultChannelCodes) && tpl.defaultChannelCodes.length ? [...tpl.defaultChannelCodes] : ['in_app'];
+      taskTemplateDraft.advanceDays = Array.isArray(tpl.defaultAdvanceDays) && tpl.defaultAdvanceDays.length ? [...tpl.defaultAdvanceDays] : [30, 7, 1];
+      taskTemplateDraft.dispatchTime = tpl.defaultDispatchTime || '09:00';
+      taskTemplateDraft.workdayOnly = tpl.defaultWorkdayOnly !== false;
+      taskTemplateDraft.digestWindowMinutes = Number(tpl.defaultDigestWindowMinutes) || 0;
+      taskTemplateDraft.titleTemplate = tpl.titleTemplate || '';
+      taskTemplateDraft.bodyTemplate = tpl.bodyTemplate || '';
+      taskTemplateDraft.variables = (tpl.variableDefs || []).map(v => ({ ...v }));
+      showTaskTemplateModal.value = true;
+    }
+    function closeTaskTemplateModal() { showTaskTemplateModal.value = false; editingTaskTemplateCode.value = ''; }
+    async function saveTaskTemplate() {
+      const d = taskTemplateDraft;
+      if (!d.templateName.trim()) { error.value = '模板名称不能为空。'; return; }
+      if (d.reminderType === 'expiry' && !d.dataSourceCode) { error.value = '请选择到期数据源。'; return; }
+      if (d.reminderType === 'event' && !d.eventCode) { error.value = '请选择业务事件。'; return; }
+      if (!d.channelCodes.length) { error.value = '请至少选择一个默认渠道。'; return; }
+      if (d.reminderType === 'expiry' && !d.advanceDays.length) { error.value = '请至少选择一个提前提醒天数。'; return; }
+      if (!d.titleTemplate.trim() || !d.bodyTemplate.trim()) { error.value = '模板标题与正文不能为空。'; return; }
+      if (!confirm(editingTaskTemplateCode.value ? '确认保存该任务模板吗？保存后基于该模板新建的任务将使用新默认值。' : '确认创建该任务模板吗？可随后基于模板新建提醒任务。')) return;
+      saving.value = 'task-template'; error.value = '';
+      try {
+        if (editingTaskTemplateCode.value) {
+          const body = {
+            templateName: d.templateName.trim(), recipientRule: buildRecipientRule(d),
+            channelCodes: d.channelCodes, dispatchTime: d.dispatchTime, workdayOnly: d.workdayOnly,
+            digestWindowMinutes: Number(d.digestWindowMinutes) || 0,
+            titleTemplate: d.titleTemplate.trim(), bodyTemplate: d.bodyTemplate.trim(),
+            description: d.description.trim(), confirm: '确认'
+          };
+          if (d.reminderType === 'expiry') body.advanceDays = d.advanceDays;
+          await request('PUT', '/task-templates/' + encodeURIComponent(editingTaskTemplateCode.value), body);
+        } else {
+          const body = {
+            templateName: d.templateName.trim(), reminderType: d.reminderType,
+            categoryCode: d.categoryCode, priorityCode: d.priorityCode,
+            recipientRule: buildRecipientRule(d), channelCodes: d.channelCodes,
+            dispatchTime: d.dispatchTime, workdayOnly: d.workdayOnly,
+            digestWindowMinutes: Number(d.digestWindowMinutes) || 0,
+            titleTemplate: d.titleTemplate.trim(), bodyTemplate: d.bodyTemplate.trim(),
+            description: d.description.trim(), confirm: '确认'
+          };
+          if (d.reminderType === 'expiry') { body.dataSourceCode = d.dataSourceCode; body.advanceDays = d.advanceDays; }
+          else body.eventCode = d.eventCode;
+          await request('POST', '/task-templates', body);
+        }
+        await load(); closeTaskTemplateModal(); alert(editingTaskTemplateCode.value ? '任务模板已保存。' : '任务模板已创建。');
+      } catch (e) { error.value = e.message || '保存任务模板失败'; }
+      finally { saving.value = ''; }
+    }
+    function openCopyModal(tpl) {
+      copySourceTemplate.value = tpl;
+      Object.assign(copyDraft, 新草稿());
+      copyDraft.templateName = tpl.templateName + '（副本）';
+      copyDraft.reminderType = tpl.reminderType;
+      copyDraft.dataSourceCode = tpl.dataSourceCode || '';
+      copyDraft.eventCode = tpl.eventCode || '';
+      copyDraft.categoryCode = tpl.categoryCode;
+      copyDraft.priorityCode = tpl.priorityCode;
+      copyDraft.description = tpl.description || '';
+      从接收人规则填充(copyDraft, tpl.defaultRecipientRule);
+      copyDraft.channelCodes = Array.isArray(tpl.defaultChannelCodes) && tpl.defaultChannelCodes.length ? [...tpl.defaultChannelCodes] : ['in_app'];
+      copyDraft.advanceDays = Array.isArray(tpl.defaultAdvanceDays) && tpl.defaultAdvanceDays.length ? [...tpl.defaultAdvanceDays] : [30, 7, 1];
+      copyDraft.dispatchTime = tpl.defaultDispatchTime || '09:00';
+      copyDraft.workdayOnly = tpl.defaultWorkdayOnly !== false;
+      copyDraft.digestWindowMinutes = Number(tpl.defaultDigestWindowMinutes) || 0;
+      copyDraft.titleTemplate = tpl.titleTemplate || '';
+      copyDraft.bodyTemplate = tpl.bodyTemplate || '';
+      copyDraft.variables = (tpl.variableDefs || []).map(v => ({ ...v }));
+      showCopyModal.value = true;
+    }
+    async function saveCopy() {
+      const d = copyDraft;
+      const tpl = copySourceTemplate.value;
+      if (!tpl) return;
+      if (!d.templateName.trim()) { error.value = '新模板名称不能为空。'; return; }
+      if (!d.channelCodes.length) { error.value = '请至少选择一个默认渠道。'; return; }
+      if (!d.titleTemplate.trim() || !d.bodyTemplate.trim()) { error.value = '模板标题与正文不能为空。'; return; }
+      if (!confirm('确认复制该模板为新模板吗？复制后可在任务模板列表中编辑。')) return;
+      saving.value = 'copy'; error.value = '';
+      const body = {
+        templateName: d.templateName.trim(), recipientRule: buildRecipientRule(d),
+        channelCodes: d.channelCodes, dispatchTime: d.dispatchTime, workdayOnly: d.workdayOnly,
+        digestWindowMinutes: Number(d.digestWindowMinutes) || 0,
+        titleTemplate: d.titleTemplate.trim(), bodyTemplate: d.bodyTemplate.trim(),
+        description: d.description.trim(), confirm: '确认'
+      };
+      if (d.reminderType === 'expiry') body.advanceDays = d.advanceDays;
+      try {
+        await request('POST', '/task-templates/' + encodeURIComponent(tpl.templateCode) + '/copy', body);
+        await load(); showCopyModal.value = false; alert('已复制为新模板。');
+      } catch (e) { error.value = e.message || '复制模板失败'; }
+      finally { saving.value = ''; }
+    }
+    function 从模板填充任务(d, tpl) {
+      d.templateCode = tpl.templateCode;
+      d.taskName = tpl.templateName;
+      d.reminderType = tpl.reminderType;
+      d.dataSourceCode = tpl.dataSourceCode || '';
+      d.eventCode = tpl.eventCode || '';
+      d.categoryCode = tpl.categoryCode;
+      d.priorityCode = tpl.priorityCode;
+      d.description = tpl.description || '';
+      从接收人规则填充(d, tpl.defaultRecipientRule);
+      d.channelCodes = Array.isArray(tpl.defaultChannelCodes) && tpl.defaultChannelCodes.length ? [...tpl.defaultChannelCodes] : ['in_app'];
+      d.advanceDays = Array.isArray(tpl.defaultAdvanceDays) && tpl.defaultAdvanceDays.length ? [...tpl.defaultAdvanceDays] : [30, 7, 1];
+      d.dispatchTime = tpl.defaultDispatchTime || '09:00';
+      d.workdayOnly = tpl.defaultWorkdayOnly !== false;
+      d.digestWindowMinutes = Number(tpl.defaultDigestWindowMinutes) || 0;
+      d.titleTemplate = tpl.titleTemplate || '';
+      d.bodyTemplate = tpl.bodyTemplate || '';
+      d.statusCode = 'active';
+      d.variables = (tpl.variableDefs || []).map(v => ({ ...v }));
+    }
+    function selectTaskTemplate() {
+      const tpl = taskTemplates.value.find(t => t.templateCode === taskCreateDraft.templateCode);
+      if (tpl) 从模板填充任务(taskCreateDraft, tpl);
+    }
+    function openTaskCreateModal(tpl) {
+      Object.assign(taskCreateDraft, 新草稿());
+      const 来源 = tpl || taskTemplates.value[0];
+      if (来源) 从模板填充任务(taskCreateDraft, 来源);
+      showTaskCreateModal.value = true;
+    }
+    async function saveTaskCreate() {
+      const d = taskCreateDraft;
+      if (!d.templateCode) { error.value = '请选择任务模板。'; return; }
+      if (!d.taskName.trim()) { error.value = '任务名称不能为空。'; return; }
+      if (!d.channelCodes.length) { error.value = '请至少选择一个投递渠道。'; return; }
+      if (d.reminderType === 'expiry' && !d.advanceDays.length) { error.value = '请至少选择一个提前提醒天数。'; return; }
+      if (!d.titleTemplate.trim() || !d.bodyTemplate.trim()) { error.value = '提醒标题与正文不能为空。'; return; }
+      if (!confirm('确认基于该模板创建提醒任务吗？创建后可在规则列表中编辑。')) return;
+      saving.value = 'task-create'; error.value = '';
+      const body = {
+        templateCode: d.templateCode, taskName: d.taskName.trim(),
+        recipientRule: buildRecipientRule(d), channelCodes: d.channelCodes,
+        titleTemplate: d.titleTemplate.trim(), bodyTemplate: d.bodyTemplate.trim(),
+        statusCode: d.statusCode, confirm: '确认'
+      };
+      if (d.reminderType === 'expiry') {
+        body.advanceDays = d.advanceDays; body.dispatchTime = d.dispatchTime;
+        body.workdayOnly = d.workdayOnly; body.digestWindowMinutes = Number(d.digestWindowMinutes) || 0;
+      }
+      try {
+        await request('POST', '/tasks', body);
+        await load(); showTaskCreateModal.value = false;
+        activeTab.value = d.reminderType === 'expiry' ? 'expiry' : 'business';
+        alert('提醒任务已创建。');
+      } catch (e) { error.value = e.message || '创建提醒任务失败'; }
+      finally { saving.value = ''; }
+    }
+    async function toggle(rule) {
+      const target = rule.statusCode === 'active' ? 'disabled' : 'active';
+      const action = target === 'active' ? '启用' : '停用';
+      if (!confirm(`确认${action}“${rule.ruleName || eventLabel(rule.eventCode)}”吗？本次变更仅影响后续事件。`)) return;
+      saving.value = rule.subscriptionCode; error.value = '';
+      try { await request('PUT', '/' + encodeURIComponent(rule.subscriptionCode), { statusCode: target, version: rule.version, confirm: '确认' }); await load(); closeDetail(); alert(`规则已${action}。`); }
+      catch (e) { error.value = e.message || '保存规则失败'; }
+      finally { saving.value = ''; }
+    }
+    async function saveEventRule(rule) {
+      const channels = ruleDraft.channelCodes;
+      if (!channels.includes('in_app')) { error.value = '业务事件规则必须保留站内提醒。'; return; }
+      const body = { statusCode: 'active', version: rule.version, channelCodes: channels, confirm: '确认' };
+      if (rule.recipientRule?.type === 'registration_pending_approver') {
+        const scope = { type: 'roles', codes: ruleDraft.roleCodes };
+        if (ruleDraft.userIds.length) scope.userIds = ruleDraft.userIds;
+        body.recipientScope = scope;
+      } else if (rule.recipientRule?.type === 'users') {
+        if (!ruleDraft.userIds.length) { error.value = '请至少指定一名接收人。'; return; }
+        body.recipientScope = { type: 'users', userIds: ruleDraft.userIds };
+      }
+      if (!confirm('确认保存该规则的渠道与提醒范围吗？本次变更仅影响后续事件。')) return;
+      saving.value = rule.subscriptionCode; error.value = '';
+      try { await request('PUT', '/' + encodeURIComponent(rule.subscriptionCode), body); await load(); closeDetail(); alert('规则已保存。'); }
+      catch (e) { error.value = e.message || '保存规则失败'; }
+      finally { saving.value = ''; }
+    }
+    async function saveReminder(rule) {
+      const advanceDays = availableAdvanceDays.filter(day => reminderDraft.advanceDays.includes(day));
+      if (!advanceDays.length) { error.value = '请至少选择一个提前提醒天数。'; return; }
+      const channels = ruleDraft.channelCodes;
+      if (!channels.length) { error.value = '请至少选择一个投递渠道。'; return; }
+      if (!confirm(`确认保存“${rule.ruleName || eventLabel(rule.eventCode)}”的到期策略吗？本次变更仅影响后续扫描生成的提醒。`)) return;
+      saving.value = rule.subscriptionCode; error.value = '';
+      try {
+        await request('PUT', '/reminders/' + encodeURIComponent(rule.subscriptionCode), {
+          statusCode: reminderDraft.statusCode, advanceDays, dispatchTime: reminderDraft.dispatchTime,
+          workdayOnly: reminderDraft.workdayOnly, recipientRule: rule.recipientRule?.type || 'business_owner',
+          channelCodes: channels,
+          digestWindowMinutes: reminderDraft.digestWindowMinutes, version: rule.version, confirm: '确认'
+        });
+        await load(); closeDetail(); alert('到期策略已保存。');
+      } catch (e) { error.value = e.message || '保存到期策略失败'; }
+      finally { saving.value = ''; }
+    }
+    async function saveTaskInstance(rule) {
+      const d = ruleDraft;
+      if (!d.taskName.trim()) { error.value = '任务名称不能为空。'; return; }
+      if (!d.channelCodes.length) { error.value = '请至少选择一个投递渠道。'; return; }
+      if (isExpiry(rule) && !d.advanceDays.length) { error.value = '请至少选择一个提前提醒天数。'; return; }
+      if (!d.titleTemplate.trim() || !d.bodyTemplate.trim()) { error.value = '提醒标题与正文不能为空。'; return; }
+      if (!confirm('确认保存该提醒任务吗？保存后后续提醒将使用新配置。')) return;
+      const code = rule.ruleCode || rule.subscriptionCode;
+      saving.value = code; error.value = '';
+      const body = {
+        taskName: d.taskName.trim(), statusCode: d.statusCode,
+        recipientRule: buildRecipientRule(d), channelCodes: d.channelCodes,
+        titleTemplate: d.titleTemplate.trim(), bodyTemplate: d.bodyTemplate.trim(),
+        version: rule.version, confirm: '确认'
+      };
+      if (isExpiry(rule)) {
+        body.advanceDays = d.advanceDays; body.dispatchTime = d.dispatchTime;
+        body.workdayOnly = d.workdayOnly; body.digestWindowMinutes = Number(d.digestWindowMinutes) || 0;
+      }
+      try {
+        await request('PUT', '/tasks/' + encodeURIComponent(code), body);
+        await load(); closeDetail(); alert('提醒任务已保存。');
+      } catch (e) { error.value = e.message || '保存提醒任务失败'; }
+      finally { saving.value = ''; }
+    }
+    async function saveTemplate() {
+      if (!selectedTemplate.value) return;
+      if (!templateDraft.titleTemplate.trim() || !templateDraft.bodyTemplate.trim()) { error.value = '模板标题与正文不能为空。'; return; }
+      if (!confirm('确认保存该消息模板吗？保存后发送的提醒将使用新模板，已发送的不受影响。')) return;
+      saving.value = selectedTemplate.value.templateCode; error.value = '';
+      try {
+        await request('PUT', '/templates/' + encodeURIComponent(selectedTemplate.value.templateCode), {
+          titleTemplate: templateDraft.titleTemplate.trim(), bodyTemplate: templateDraft.bodyTemplate.trim(),
+          version: templateDraft.version, confirm: '确认'
+        });
+        await load(); showTemplate.value = false; alert('模板已保存。');
+      } catch (e) { error.value = e.message || '保存模板失败'; }
+      finally { saving.value = ''; }
+    }
+    onMounted(load);
+    return { isSuperAdmin, rules, templates, taskTemplates, catalog, loading, saving, error, activeTab, selectedRule, showDetail, selectedTemplate, showTemplate, templateDraft, taskTemplateDraft, showTaskTemplateModal, editingTaskTemplateCode, copyDraft, showCopyModal, copySourceTemplate, taskCreateDraft, showTaskCreateModal, ruleDraft, reminderDraft, availableAdvanceDays, channelOptions, roleOptions, dynamicRecipientOptions, dataSourceOptions, eventOptions, categoryOptions, priorityOptions, recipientTypeOptions, staffUsers, orgOptions, regionOptions, partnerOptions, businessRules, expiryRules, visibleRules, activeCount, mandatoryCount, activeDraft, activeVariables, 变量示例, load, isExpiry, eventLabel, dataSourceLabel, advanceDaysText, recipientLabel, channelLabel, channelText, statusLabel, statusClass, auditLabel, reminderStrategy, digestLabel, userLabel, addDraftUser, removeDraftUser, openDetail, closeDetail, openTemplate, insertTemplateVariable, insertDraftVariable, refreshTemplateVariables, openTaskTemplateModal, editTaskTemplate, closeTaskTemplateModal, saveTaskTemplate, openCopyModal, saveCopy, openTaskCreateModal, selectTaskTemplate, saveTaskCreate, toggle, saveEventRule, saveReminder, saveTaskInstance, saveTemplate };
+  }
+};
+
+
+
 const WorkloadConfig = {
   template: `
   <div>
@@ -17108,6 +18718,2774 @@ const WorkloadConfigV2 = {
   }
 };
 
+// ── 组织架构接口客户端（只走签名 Cookie 会话，不经 /api/v2）──────────────
+class 组织接口错误 extends Error {
+  constructor(错误码, 消息, 状态码, 请求编号) {
+    super(消息);
+    this.name = '组织接口错误';
+    this.状态码 = 状态码;
+    this.错误码 = 错误码;
+    this.请求编号 = 请求编号;
+  }
+}
+
+function 生成组织幂等键() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return 'org-' + crypto.randomUUID();
+  }
+  return 'org-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+}
+
+function 组织构建写入内容(内容, 选项 = {}) {
+  return { ...内容, ...(选项.rowVersion !== undefined ? { rowVersion: 选项.rowVersion } : {}) };
+}
+
+function 组织构建查询参数(参数 = {}) {
+  const 键值 = Object.entries(参数).filter(([, 值]) => 值 !== undefined && 值 !== '');
+  if (!键值.length) return '';
+  return '?' + 键值.map(([键, 值]) => encodeURIComponent(键) + '=' + encodeURIComponent(String(值))).join('&');
+}
+
+function 组织编码路径参数(值) {
+  return encodeURIComponent(String(值));
+}
+
+async function 组织请求(路径, 初始化 = {}, 选项 = {}) {
+  const headers = { ...(初始化.headers || {}) };
+  if (初始化.body && !headers['content-type']) headers['content-type'] = 'application/json';
+  if (选项.幂等键) headers['Idempotency-Key'] = 选项.幂等键;
+
+  let 响应;
+  try {
+    响应 = await fetch(路径, { ...初始化, credentials: 'include', headers });
+  } catch (_) {
+    throw new 组织接口错误('ORG_NETWORK_ERROR', '网络连接失败，请检查网络后重试。', 0, '');
+  }
+
+  let 内容;
+  try {
+    内容 = await 响应.json();
+  } catch (_) {
+    throw new 组织接口错误('ORG_RESPONSE_INVALID', '组织架构服务返回内容异常，请稍后重试。', 响应.status, '');
+  }
+
+  if (!响应.ok || !内容?.success || 内容.data === undefined) {
+    throw new 组织接口错误(
+      内容?.error?.code || 'ORG_REQUEST_FAILED',
+      内容?.error?.message || '组织架构接口请求失败（HTTP ' + 响应.status + '）。',
+      响应.status,
+      内容?.meta?.requestId || ''
+    );
+  }
+  return 内容.data;
+}
+
+function 组织读取(路径) {
+  return 组织请求(路径);
+}
+
+function 组织写入(路径, 方法, 内容, 选项 = {}) {
+  return 组织请求(路径, { method: 方法, body: JSON.stringify(组织构建写入内容(内容, 选项)) }, 选项);
+}
+
+function 组织读取状态() { return 组织读取('/api/org/status'); }
+function 组织读取组织树() { return 组织读取('/api/org/units/tree'); }
+function 组织读取渠道组织树() { return 组织读取('/api/org/channel-tree'); }
+function 组织读取渠道成员档案(id) { return 组织读取('/api/org/channel-members/' + 组织编码路径参数(id) + '/profile'); }
+function 组织保存渠道成员档案(id, 内容, 选项 = {}) { return 组织写入('/api/org/channel-members/' + 组织编码路径参数(id) + '/profile', 'PUT', 内容, 选项); }
+function 组织读取泛微OA身份(userId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity'); }
+function 组织创建泛微OA身份候选(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates', 'POST', 内容, 选项); }
+function 组织更新泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId), 'PUT', 内容, 选项); }
+function 组织确认泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/confirm', 'POST', 内容, 选项); }
+function 组织驳回泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/reject', 'POST', 内容, 选项); }
+function 组织停用泛微OA身份(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity/disable', 'POST', 内容, 选项); }
+function 组织导出部门() { return 组织读取('/api/org/units/export'); }
+function 组织导出成员() { return 组织读取('/api/org/staff/export'); }
+function 组织导入部门(rows, 选项 = {}) { return 组织写入('/api/org/units/import', 'POST', { rows }, 选项); }
+function 组织导入成员(rows, 选项 = {}) { return 组织写入('/api/org/staff/import', 'POST', { rows }, 选项); }
+function 组织读取组织详情(id) { return 组织读取('/api/org/units/' + 组织编码路径参数(id)); }
+function 组织创建组织(内容, 选项 = {}) { return 组织写入('/api/org/units', 'POST', 内容, 选项); }
+function 组织更新组织(id, 内容, 选项 = {}) { return 组织写入('/api/org/units/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织读取区域列表() { return 组织读取('/api/org/regions'); }
+function 组织更新区域(id, 内容, 选项 = {}) { return 组织写入('/api/org/regions/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织更新组织状态(id, 内容, 选项 = {}) { return 组织写入('/api/org/units/' + 组织编码路径参数(id) + '/status', 'PUT', 内容, 选项); }
+function 组织查询岗位(orgUnitId) { return 组织读取('/api/org/positions' + 组织构建查询参数({ orgUnitId })); }
+function 组织创建岗位(内容, 选项 = {}) { return 组织写入('/api/org/positions', 'POST', 内容, 选项); }
+function 组织更新岗位(id, 内容, 选项 = {}) { return 组织写入('/api/org/positions/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织更新岗位状态(id, 内容, 选项 = {}) { return 组织写入('/api/org/positions/' + 组织编码路径参数(id) + '/status', 'PUT', 内容, 选项); }
+function 组织查询任职(orgUnitId) { return 组织读取('/api/org/staff' + 组织构建查询参数({ orgUnitId })); }
+function 组织创建任职(userId, 内容, 选项 = {}) { return 组织写入('/api/org/staff/' + 组织编码路径参数(userId) + '/assignments', 'POST', 内容, 选项); }
+function 组织更新任职(id, 内容, 选项 = {}) { return 组织写入('/api/org/assignments/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织结束任职(id, 内容, 选项 = {}) { return 组织写入('/api/org/assignments/' + 组织编码路径参数(id) + '/expire', 'PUT', 内容, 选项); }
+function 组织查询负责人关系(参数 = {}) { return 组织读取('/api/org/manager-relations' + 组织构建查询参数(参数)); }
+function 组织创建负责人关系(内容, 选项 = {}) { return 组织写入('/api/org/manager-relations', 'POST', 内容, 选项); }
+function 组织更新负责人关系(id, 内容, 选项 = {}) { return 组织写入('/api/org/manager-relations/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织结束负责人关系(id, 内容, 选项 = {}) { return 组织写入('/api/org/manager-relations/' + 组织编码路径参数(id) + '/expire', 'PUT', 内容, 选项); }
+function 组织查询业务角色() { return 组织读取('/api/org/business-roles'); }
+function 组织创建业务角色(内容, 选项 = {}) { return 组织写入('/api/org/business-roles', 'POST', 内容, 选项); }
+function 组织更新业务角色(id, 内容, 选项 = {}) { return 组织写入('/api/org/business-roles/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织更新业务角色状态(id, 内容, 选项 = {}) { return 组织写入('/api/org/business-roles/' + 组织编码路径参数(id) + '/status', 'PUT', 内容, 选项); }
+function 组织查询成员业务角色(参数 = {}) { return 组织读取('/api/org/member-business-roles' + 组织构建查询参数(参数)); }
+function 组织指派成员业务角色(内容, 选项 = {}) { return 组织写入('/api/org/member-business-roles', 'POST', 内容, 选项); }
+function 组织结束成员业务角色(id, 内容, 选项 = {}) { return 组织写入('/api/org/member-business-roles/' + 组织编码路径参数(id) + '/expire', 'PUT', 内容, 选项); }
+function 组织查询证书模板() { return 组织读取('/api/org/certification-templates'); }
+function 组织创建证书模板(内容, 选项 = {}) { return 组织写入('/api/org/certification-templates', 'POST', 内容, 选项); }
+function 组织查询成员证书(参数 = {}) { return 组织读取('/api/org/member-certifications' + 组织构建查询参数(参数)); }
+function 组织颁发证书(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/certifications', 'POST', 内容, 选项); }
+function 组织延期证书(id, 内容, 选项 = {}) { return 组织写入('/api/org/member-certifications/' + 组织编码路径参数(id) + '/extend', 'PUT', 内容, 选项); }
+function 组织撤销证书(id, 内容, 选项 = {}) { return 组织写入('/api/org/member-certifications/' + 组织编码路径参数(id) + '/revoke', 'PUT', 内容, 选项); }
+function 组织预览渠道商同步() { return 组织读取('/api/org/channel-sync/preview'); }
+function 组织执行渠道商同步(选项 = {}) { return 组织写入('/api/org/channel-sync/execute', 'POST', {}, 选项); }
+function 组织统计未归集管理账号() { return 组织读取('/api/org/admin-accounts/unassigned'); }
+function 组织查询离职交接() { return 组织读取('/api/org/offboarding'); }
+function 组织预览离职影响(userId) { return 组织读取('/api/org/staff/' + 组织编码路径参数(userId) + '/offboarding-preview'); }
+function 组织发起离职交接(内容, 选项 = {}) { return 组织写入('/api/org/offboarding', 'POST', 内容, 选项); }
+function 组织读取企微同步状态() { return 组织读取('/api/integrations/directory-sync/status'); }
+function 组织测试企微同步连接(内容 = {}, 选项 = {}) { return 组织写入('/api/integrations/directory-sync/test-connection', 'POST', 内容, 选项); }
+function 组织生成企微同步预览(内容 = {}, 选项 = {}) { return 组织写入('/api/integrations/directory-sync/preview', 'POST', 内容, 选项); }
+function 组织创建企微同步批次(内容, 选项 = {}) { return 组织写入('/api/integrations/directory-sync/runs', 'POST', 内容, 选项); }
+function 组织查询企微同步批次(参数 = {}) { return 组织读取('/api/integrations/directory-sync/runs' + 组织构建查询参数({ page: 参数.page, pageSize: 参数.pageSize })); }
+function 组织读取企微同步批次(id) { return 组织读取('/api/integrations/directory-sync/runs/' + 组织编码路径参数(id)); }
+function 组织查询企微同步差异(参数 = {}) { return 组织读取('/api/integrations/directory-sync/changes' + 组织构建查询参数(参数)); }
+function 组织应用已审批企微同步差异(runId, 差异, 选项 = {}) {
+  return 组织写入(
+    '/api/integrations/directory-sync/runs/' + 组织编码路径参数(runId) + '/apply',
+    'POST',
+    { changes: (差异 || []).map((项) => ({
+        id: 项.id,
+        rowVersion: 项.rowVersion,
+        ...(项.changeVersion === undefined ? {} : { changeVersion: 项.changeVersion })
+      })) },
+    选项
+  );
+}
+function 组织暂停企微同步批次(runId, 内容 = {}, 选项 = {}) {
+  return 组织写入(
+    '/api/integrations/directory-sync/runs/' + 组织编码路径参数(runId) + '/pause',
+    'POST',
+    内容,
+    选项
+  );
+}
+function 组织读取角色列表() { return 组织读取('/api/rbac/roles'); }
+function 组织新建角色(内容, 选项 = {}) { return 组织写入('/api/rbac/roles', 'POST', 内容, 选项); }
+function 组织更新角色(id, 内容, 选项 = {}) { return 组织写入('/api/rbac/roles/' + 组织编码路径参数(id), 'PUT', 内容, 选项); }
+function 组织更新角色状态(id, 内容, 选项 = {}) { return 组织写入('/api/rbac/roles/' + 组织编码路径参数(id) + '/status', 'POST', 内容, 选项); }
+function 组织读取权限字典() { return 组织读取('/api/rbac/permissions'); }
+function 组织读取用户角色(userId) { return 组织读取('/api/rbac/users/' + 组织编码路径参数(userId) + '/roles'); }
+function 组织覆盖用户角色(userId, 内容, 选项 = {}) { return 组织写入('/api/rbac/users/' + 组织编码路径参数(userId) + '/roles', 'PUT', 内容, 选项); }
+function 组织查询账号(参数 = {}) { return 组织读取('/api/rbac/accounts' + 组织构建查询参数(参数)); }
+function 组织查询角色用户(roleId, 参数 = {}) { return 组织读取('/api/rbac/roles/' + 组织编码路径参数(roleId) + '/users' + 组织构建查询参数(参数)); }
+
+
+// ── 组织架构工作区（内嵌管理员页面，转写自 OrganizationWorkspacePage.vue）──
+const OrganizationWorkspace = {
+  components: { ChannelMemberProfileDialog },
+  template: `
+  <div class="组织内嵌">
+    <div class="组织内嵌标题">
+      <div>
+        <h2>{{ 当前导航.名称 }}</h2>
+        <p>平台管理 / 组织架构</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <span class="tag" :class="可写 ? 'tag-green' : 'tag-gray'">{{ 可写 ? '写入已受控开启' : '只读观察模式' }}</span>
+        <span class="tag" :class="组织功能状态?.accountStatusCheckEnabled ? 'tag-green' : 'tag-gray'">{{ 组织功能状态?.accountStatusCheckEnabled ? '账号停权防护已开启' : '账号停权防护未开启' }}</span>
+      </div>
+    </div>
+
+    <div class="组织页签" role="tablist">
+      <button
+        v-for="item in 导航项列表"
+        :key="item.栏目"
+        type="button"
+        class="组织页签项"
+        :class="{ '组织页签激活': 当前栏目 === item.栏目 }"
+        @click="切换栏目(item.栏目)"
+      >{{ item.名称 }}</button>
+    </div>
+
+    <el-alert
+      v-if="!加载中 && !已启用"
+      title="组织架构功能尚未启用"
+      type="info"
+      :closable="false"
+      show-icon
+      description="当前环境保持默认关闭，不读取或修改组织数据；请完成灰度审批和主业务回归后，再由运维受控启用。"
+    />
+    <el-alert
+      v-else-if="!加载中 && !可写"
+      title="当前为只读观察模式"
+      type="warning"
+      :closable="false"
+      show-icon
+      description="可以核对组织、岗位、任职、角色、证书、离职交接和企微预览状态；所有写入按钮均保持关闭。"
+    />
+    <el-alert v-if="错误提示" :title="错误提示" type="error" :closable="false" show-icon />
+
+    <section v-if="加载中" class="组织加载中">
+      <el-skeleton :rows="8" animated />
+    </section>
+
+    <template v-else-if="已启用 && !错误提示">
+      <section v-if="当前栏目 === 'units'" class="组织双栏">
+        <article class="组织卡片" style="grid-column:1/-1">
+          <el-alert
+            v-if="未归集管理账号数 > 0"
+            :title="'有 ' + 未归集管理账号数 + ' 个超管/区管/管理员账号尚未归集到组织架构，请通过账号检索逐一核对后，为确认属于内部人员的账号添加任职。'"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom:10px"
+          />
+          <div class="组织卡片标题">
+            <div>
+              <h2>组织与账号</h2>
+              <p>左侧选择部门，右侧查看该部门成员；历史账号须人工核对后再建立任职。</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <el-input v-model="账号检索词" placeholder="检索账号（用户名/姓名）" clearable size="small" style="width:240px" @keyup.enter="检索账号" @input="延迟检索账号" />
+              <el-button size="small" :loading="账号检索中" @click="检索账号">检索</el-button>
+              <el-button v-if="可写" @click="触发文件选择('部门')">导入部门</el-button>
+              <el-button @click="导出部门Excel">导出部门</el-button>
+              <el-button v-if="可写" @click="触发文件选择('成员')">导入成员</el-button>
+              <el-button @click="导出成员Excel">导出成员</el-button>
+              <el-button v-if="可写" type="primary" @click="打开新建弹窗('unit')">新建组织</el-button>
+              <el-button v-if="可写" type="primary" plain @click="打开新建用户弹窗">新建用户</el-button>
+            </div>
+            <div v-if="账号检索已执行" class="组织账号检索结果">
+              <span v-for="账号 in 账号检索结果" :key="账号.id" class="组织账号检索项" @click="打开账号编辑(账号, 账号.partnerMembershipSummary ? 'channel' : 'internal')">{{ 账号.name }}（{{ 账号.username }}）· {{ 账号角色摘要(账号) }}</span>
+              <span v-if="账号检索中" class="组织账号检索提示">检索中...</span>
+              <span v-else-if="账号检索错误" class="组织账号检索提示">{{ 账号检索错误 }}</span>
+              <span v-else-if="!账号检索结果.length" class="组织账号检索提示">未找到匹配账号。</span>
+            </div>
+          </div>
+          <input ref="部门文件输入" type="file" accept=".xlsx,.xls" style="display:none" @change="处理部门导入文件" />
+          <input ref="成员文件输入" type="file" accept=".xlsx,.xls" style="display:none" @change="处理成员导入文件" />
+          <div class="组织左右布局">
+            <aside class="组织部门树">
+              <el-select v-model="选中部门Id" filterable clearable placeholder="快捷选择部门（含全部层级）" size="small" class="组织搜索框" @change="定位部门">
+                <el-option v-for="节点 in 平铺树数据" :key="节点.id" :label="'　'.repeat(节点.层级) + 节点.label" :value="节点.id" />
+              </el-select>
+              <el-input v-model="部门搜索词" placeholder="搜索部门" clearable size="small" class="组织搜索框" />
+              <el-tree
+                ref="部门树引用"
+                :data="树数据"
+                node-key="id"
+                :props="树节点属性"
+                :filter-node-method="过滤部门节点"
+                :expand-on-click-node="false"
+                highlight-current
+                default-expand-all
+                @node-click="选择部门"
+              >
+                <template #default="{ data }">
+                  <span class="组织树节点">
+                    <span>{{ data.label }}</span>
+                    <el-tag size="small" type="info" class="组织树计数">{{ 节点成员数(data) }}</el-tag>
+                    <el-button v-if="可写" size="small" text type="primary" @click.stop="打开组织编辑(data)">编辑</el-button>
+                  </span>
+                </template>
+              </el-tree>
+            </aside>
+            <section class="组织成员面板">
+              <div class="组织成员面板标题">
+                <h3>{{ 当前部门名称 }}</h3>
+                <el-tag size="small" :type="当前部门成员.length ? 'success' : 'info'">共 {{ 当前部门成员.length }} 名成员</el-tag>
+                <el-input v-model="成员搜索词" placeholder="搜索成员姓名/用户名" clearable size="small" class="组织搜索框" />
+              </div>
+              <div v-if="过滤后成员.length" class="组织成员网格">
+                <article v-for="成员 in 过滤后成员" :key="成员.assignmentId" class="组织成员卡片" :class="{ '组织成员卡片-可点击': 可写 }" :title="可写 ? '点击编辑该成员' : ''" @click="可写 && 打开成员编辑(成员)">
+                  <div class="组织成员头部">
+                    <span class="组织成员头像">{{ 成员.displayName.slice(0, 1) }}</span>
+                    <div class="组织成员身份">
+                      <div class="组织成员姓名">{{ 成员.displayName }}</div>
+                      <div class="组织成员账号">{{ 成员.username }}</div>
+                    </div>
+                    <el-tag size="small" type="success">当前任职</el-tag>
+                    <el-button v-if="可写" size="small" text type="primary" @click.stop="打开成员编辑(成员)">编辑</el-button>
+                  </div>
+                  <dl class="组织成员概要">
+                    <div><dt>岗位</dt><dd>{{ 成员.positionName || '—' }}</dd></div>
+                    <div><dt>直属负责人</dt><dd>{{ 成员.直属负责人 || '—' }}</dd></div>
+                    <div><dt>生效时间</dt><dd>{{ 格式化时间(成员.effectiveAt) }}</dd></div>
+                    <div><dt>证书</dt><dd>{{ 成员.证书.length }} 份</dd></div>
+                  </dl>
+                  <div v-if="成员.证书.length" class="组织成员证书">
+                    <el-tag
+                      v-for="证 in 成员.证书"
+                      :key="证.id"
+                      size="small"
+                      :type="证书状态类型(证)"
+                      :title="证书详情(证)"
+                    >{{ 证.templateName }}</el-tag>
+                  </div>
+                  <p v-else class="组织无证书">暂无证书</p>
+                </article>
+              </div>
+              <el-empty v-else description="该部门暂无成员" />
+            </section>
+          </div>
+        </article>
+        <article class="组织卡片" style="grid-column:1/-1">
+          <div class="组织卡片标题">
+            <div>
+              <h2>渠道组织树</h2>
+              <p>左侧按大区、区域、渠道商层级查看，右侧显示对应层级的成员；企业管理员会单独标识。</p>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <el-tag v-if="渠道同步预览摘要" size="small" :type="渠道同步预览摘要.missingRegionPartners ? 'warning' : 'success'">
+                {{ 渠道同步预览摘要.summary }}
+              </el-tag>
+              <el-button v-if="可写" size="small" :loading="渠道同步中" @click="打开渠道同步预览">渠道商同步</el-button>
+            </div>
+          </div>
+          <div class="组织左右布局">
+            <aside class="组织部门树">
+              <el-input v-model="渠道搜索词" placeholder="搜索大区/区域/渠道商" clearable size="small" class="组织搜索框" />
+              <el-tree
+                ref="渠道树引用"
+                :data="渠道树数据"
+                node-key="id"
+                :props="树节点属性"
+                :filter-node-method="过滤渠道节点"
+                :expand-on-click-node="false"
+                highlight-current
+                default-expand-all
+                @node-click="选择渠道"
+              >
+                <template #default="{ data }">
+                  <span class="组织树节点">
+                    <span>{{ data.label }}</span>
+                    <el-tag size="small" type="info" class="组织树计数">{{ 渠道节点成员数(data) }}</el-tag>
+                    <el-button v-if="可写 && data.type !== 'partner' && data.type !== 'unassigned'" size="small" text type="primary" @click.stop="打开区域编辑(data)">编辑</el-button>
+                  </span>
+                </template>
+              </el-tree>
+            </aside>
+            <section class="组织成员面板">
+              <div class="组织成员面板标题">
+                <h3>{{ 当前渠道名称 }}</h3>
+                <el-tag v-if="当前渠道类型" size="small" type="info" effect="plain">{{ 当前渠道类型 }}</el-tag>
+                <el-tag size="small" :type="当前渠道成员.length ? 'success' : 'info'">共 {{ 当前渠道成员.length }} 名成员</el-tag>
+                <el-input v-model="渠道成员搜索词" placeholder="搜索成员姓名/用户名" clearable size="small" class="组织搜索框" />
+              </div>
+              <div v-if="过滤后渠道成员.length" class="组织成员网格">
+                <article v-for="成员 in 过滤后渠道成员" :key="成员.id" class="组织成员卡片" title="姓名、电话、邮箱、销售/技术角色和证书四处共用；企业管理员身份、审批、账号状态与系统权限独立。">
+                  <div class="组织成员头部">
+                    <span class="组织成员头像" :class="{ '组织成员头像-管理员': 成员.isAdmin }">{{ 成员.displayName.slice(0, 1) }}</span>
+                    <div class="组织成员身份">
+                      <div class="组织成员姓名">{{ 成员.displayName }}</div>
+                      <div class="组织成员账号">{{ 成员.username }}</div>
+                    </div>
+                    <el-tag v-if="成员.isAdmin" size="small" type="danger" effect="dark">企业管理员</el-tag>
+                    <el-tag v-else-if="渠道成员业务角色映射.get(成员.id)?.length" size="small" type="success">{{ 渠道成员业务角色映射.get(成员.id).map(r => r.roleName).join('、') }}</el-tag>
+                    <el-tag v-else size="small" type="info">成员</el-tag>
+                  </div>
+                  <dl class="组织成员概要">
+                    <div><dt>用户名</dt><dd>{{ 成员.username }}</dd></div>
+                    <div><dt>角色</dt><dd>{{ 成员.isAdmin ? '企业管理员' : '普通成员' }}</dd></div>
+                    <div><dt>所属渠道商</dt><dd>{{ 成员.partnerName || '—' }}</dd></div>
+                  </dl>
+                  <el-button size="small" text type="primary" @click="打开统一渠道成员资料(成员)">编辑资料、角色与证书</el-button>
+                </article>
+              </div>
+              <el-empty v-else description="该渠道商暂无成员" />
+            </section>
+          </div>
+        </article>
+      </section>
+
+      <!-- 业务角色栏目暂不展示：业务角色与权限角色解耦后由“权限与范围”统一管理；接口与后端保留以便后续启用 -->
+      <article v-else-if="false && 当前栏目 === 'business-roles'" hidden></article>
+
+      <article v-else-if="当前栏目 === 'certifications'" class="组织卡片">
+        <el-alert
+          title="证书到期仅告警，不自动撤销业务角色"
+          type="info"
+          :closable="false"
+          show-icon
+          description="管理员需要结合实际业务情况，手工处理业务角色和权限差异。"
+        />
+        <div class="证书统计">
+          <span>7天内到期：<b>{{ 近期到期数 }}</b> 条</span>
+          <span>已过期：<b>{{ 已过期数 }}</b> 条</span>
+          <span>有效记录：<b>{{ 成员证书列表.length - 已过期数 }}</b> 条</span>
+        </div>
+        <div class="组织卡片标题">
+          <div>
+            <h2>证书名称</h2>
+            <p>支持不同产品类别的证书；证书与人员持证记录分别管理。</p>
+          </div>
+          <el-button v-if="可写" type="primary" @click="打开新建弹窗('certificationTemplate')">新建证书</el-button>
+        </div>
+        <div class="组织卡片标题" style="margin-top:12px">
+          <div>
+            <h3>证书名称（证书模板）</h3>
+            <p>模板可关联一个业务角色，仅用于资格提示和审核参考，不会自动授予或撤销业务角色。</p>
+          </div>
+        </div>
+        <el-table :data="证书模板列表" empty-text="暂无证书数据">
+          <el-table-column prop="templateName" label="证书名称" min-width="180" />
+          <el-table-column label="类别" min-width="140"><template #default="{ row }">{{ 证书类别中文(row.category) }}</template></el-table-column>
+          <el-table-column label="状态" width="110"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
+        </el-table>
+        <div class="组织卡片标题" style="margin-top:16px">
+          <div>
+            <h3>持证记录</h3>
+            <p>左侧按组织架构筛选（默认收起，仅展示一级），可展开到具体部门、大区、区域或渠道商；支持按证书名称检索。</p>
+          </div>
+        </div>
+        <div class="组织左右布局">
+          <aside class="组织部门树">
+            <el-tree
+              ref="证书筛选树引用"
+              :data="证书筛选树数据"
+              node-key="id"
+              :props="树节点属性"
+              :default-expanded-keys="['internal-root', 'channel-root']"
+              :expand-on-click-node="false"
+              highlight-current
+              @node-click="选择证书筛选节点"
+            >
+              <template #default="{ data }">
+                <span class="组织树节点">
+                  <span>{{ data.label }}</span>
+                  <el-tag v-if="data.type === 'org-root' || data.type === 'channel-root'" size="small" type="info" class="组织树计数">全部</el-tag>
+                </span>
+              </template>
+            </el-tree>
+          </aside>
+          <section class="组织成员面板">
+            <div class="组织成员面板标题">
+              <h3>{{ 证书筛选节点名称 }}</h3>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <el-input v-model="证书名称检索词" placeholder="按证书名称检索" clearable size="small" style="width:200px" @keyup.enter="加载证书筛选结果" />
+                <el-select v-model="证书筛选类别" clearable placeholder="按证书类别筛选" size="small" style="width:160px">
+                  <el-option v-for="类别 in 证书类别列表" :key="类别" :label="证书类别中文(类别)" :value="类别" />
+                </el-select>
+                <el-button size="small" type="primary" plain @click="加载证书筛选结果">查询</el-button>
+                <el-button size="small" @click="重置证书筛选">重置</el-button>
+              </div>
+            </div>
+            <el-table :data="成员证书列表" empty-text="暂无持证记录数据" style="width:100%">
+              <el-table-column prop="displayName" label="持有人" min-width="120" />
+              <el-table-column prop="templateName" label="证书名称" min-width="160" />
+              <el-table-column label="归属" min-width="150"><template #default="{ row }">{{ row.orgUnitName || row.partnerName || '—' }}</template></el-table-column>
+              <el-table-column label="类别" min-width="100"><template #default="{ row }">{{ 证书类别中文(row.category) }}</template></el-table-column>
+              <el-table-column label="颁发日" min-width="110"><template #default="{ row }">{{ 格式化时间(row.issuedOn) }}</template></el-table-column>
+              <el-table-column label="到期日" min-width="110"><template #default="{ row }">{{ 格式化时间(row.expiresOn, '长期有效') }}</template></el-table-column>
+              <el-table-column label="状态" width="90"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
+            </el-table>
+          </section>
+        </div>
+      </article>
+
+      <article v-else-if="当前栏目 === 'rbac'" class="组织卡片">
+        <div class="组织卡片标题">
+          <div>
+            <h2>管理员角色</h2>
+            <p>配置管理员角色的业务权限、用户权限与组织范围；角色可分配给任意账号，账号可同时拥有多个角色。</p>
+          </div>
+          <el-button v-if="可写" type="primary" @click="打开角色编辑()">新建角色</el-button>
+        </div>
+        <el-alert v-if="角色管理错误" :title="角色管理错误" type="error" :closable="false" show-icon />
+        <el-table :data="角色管理列表" empty-text="暂无角色数据">
+          <el-table-column prop="roleName" label="角色名称" min-width="140" />
+          <el-table-column prop="description" label="描述" min-width="180"><template #default="{ row }">{{ row.description || '—' }}</template></el-table-column>
+          <el-table-column label="权限点" width="90"><template #default="{ row }">{{ (row.permissionCodes || []).length }} 项</template></el-table-column>
+          <el-table-column label="组织范围" width="130"><template #default="{ row }">{{ 角色范围摘要(row) }}</template></el-table-column>
+          <el-table-column label="使用人数" width="100"><template #default="{ row }"><el-button v-if="row.userCount" size="small" text type="primary" @click="打开角色用户(row)">{{ row.userCount }} 人</el-button><span v-else>0 人</span></template></el-table-column>
+          <el-table-column label="状态" width="90"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
+          <el-table-column label="类型" width="100"><template #default="{ row }">{{ row.isSystem ? '系统内置' : '自定义' }}</template></el-table-column>
+          <el-table-column label="操作" width="160" fixed="right">
+            <template #default="{ row }">
+              <template v-if="row.isSystem">
+                <span class="组织抽屉空">系统保护</span>
+              </template>
+              <template v-else-if="可写">
+                <el-button size="small" text type="primary" @click="打开角色编辑(row)">编辑</el-button>
+                <el-button size="small" text :type="row.statusCode === 'disabled' ? 'success' : 'danger'" @click="切换角色状态(row)">{{ row.statusCode === 'disabled' ? '启用' : '停用' }}</el-button>
+              </template>
+            </template>
+          </el-table-column>
+        </el-table>
+      </article>
+
+      <article v-else-if="当前栏目 === 'access'" class="组织卡片">
+        <el-alert
+          title="首期仅支持角色级数据范围"
+          type="warning"
+          :closable="false"
+          show-icon
+          description="用户级覆盖默认关闭；业务角色、权限角色和数据范围不能相互替代。"
+        />
+        <h2>权限角色与数据范围</h2>
+        <p class="组织说明">服务端的角色级数据范围和权限差异任务接口尚在收口，本页面不提供本地推断、写入或越权编辑，避免影响现有客户、商机、报价和订单范围。</p>
+      </article>
+
+      <article v-else-if="当前栏目 === 'offboarding'" class="组织卡片">
+        <el-alert
+          v-if="!组织功能状态?.accountStatusCheckEnabled"
+          title="账号停权防护尚未启用"
+          type="error"
+          :closable="false"
+          show-icon
+          description="当前只能预览影响；启用停用归档前必须先开启账号状态防护，回退交接执行时也必须保持该防护开启。"
+        />
+        <el-alert
+          title="停用归档由服务端立即停权并异步交接"
+          type="warning"
+          :closable="false"
+          show-icon
+          description="账号、历史申请人和审批事实保留；客户、报备、商机、报价和订单负责人分批转移。现有审批待办仍按有效角色与区域实时校验，不改写历史申请人或审批事实。"
+        />
+        <div class="组织卡片标题">
+          <div>
+            <h2>离职交接单</h2>
+            <p>展示已创建交接单及其状态，不删除历史记录。</p>
+          </div>
+        </div>
+        <el-table :data="离职交接列表" empty-text="暂无离职交接单">
+          <el-table-column prop="displayName" label="人员" min-width="160" />
+          <el-table-column label="状态" min-width="140"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
+          <el-table-column label="生效时间" min-width="180"><template #default="{ row }">{{ 格式化时间(row.effectiveAt) }}</template></el-table-column>
+        </el-table>
+      </article>
+
+      <article v-else class="组织卡片">
+        <el-alert
+          title="企微组织同步仅支持只读预览"
+          type="warning"
+          :closable="false"
+          show-icon
+          description="不会自动创建账号、停用账号、离职、授予权限、发放证书、修改渠道归属或改写 CRM 负责人。"
+        />
+        <div v-if="!组织功能状态?.directorySyncEnabled" class="组织空状态">企微同步开关尚未启用，当前没有发起连接、预览或应用的入口。</div>
+        <template v-else>
+          <p v-if="同步错误提示" class="组织错误">{{ 同步错误提示 }}</p>
+          <div class="同步状态">
+            <span>模式：<b>{{ 企微同步状态?.mode || 'readonly_preview' }}</b></span>
+            <span>应用能力：<b>关闭</b></span>
+            <span>差异数：<b>{{ 同步差异列表.length }}</b></span>
+          </div>
+          <h2>最近同步批次</h2>
+          <el-table :data="同步批次列表" empty-text="暂无同步批次">
+          <el-table-column label="状态" min-width="120"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
+          <el-table-column label="类型" min-width="120"><template #default="{ row }">{{ 同步运行类型中文(row.runType) }}</template></el-table-column>
+          <el-table-column label="创建时间" min-width="180"><template #default="{ row }">{{ 格式化时间(row.createdAt) }}</template></el-table-column>
+          <el-table-column label="完成时间" min-width="180"><template #default="{ row }">{{ 格式化时间(row.completedAt, '处理中') }}</template></el-table-column>
+        </el-table>
+          <h3>待核对差异</h3>
+          <el-table :data="同步差异列表" empty-text="暂无同步差异">
+          <el-table-column label="对象" min-width="120"><template #default="{ row }">{{ 同步对象中文(row.objectType) }}</template></el-table-column>
+          <el-table-column label="变更类型" min-width="130"><template #default="{ row }">{{ 同步变更类型中文(row.changeType) }}</template></el-table-column>
+          <el-table-column label="风险级别" min-width="120"><template #default="{ row }">{{ 风险级别中文(row.riskLevel) }}</template></el-table-column>
+          <el-table-column label="审批状态" min-width="130"><template #default="{ row }">{{ 审批状态中文(row.approvalStatus) }}</template></el-table-column>
+          <el-table-column label="应用状态" min-width="130"><template #default="{ row }">{{ 应用状态中文(row.applyStatus) }}</template></el-table-column>
+        </el-table>
+        </template>
+      </article>
+    </template>
+
+    <el-dialog
+      v-model="新建弹窗打开"
+      :title="当前新建类型 === 'unit' ? '新建组织' : 当前新建类型 === 'businessRole' ? '新建业务角色' : '新建证书'"
+      width="min(560px, 92vw)"
+      :close-on-click-modal="false"
+    >
+      <el-form label-position="top" @submit.prevent="提交新建">
+        <template v-if="当前新建类型 === 'unit'">
+          <el-form-item label="部门名称" required><el-input v-model="新建表单.unitName" autocomplete="off" /></el-form-item>
+          <el-form-item label="上级部门"><el-select v-model="新建表单.parentUnitId" clearable class="组织全宽"><el-option v-for="组织 in 平铺组织列表" :key="组织.id" :label="组织.unitName" :value="组织.id" /></el-select></el-form-item>
+          <el-form-item label="排序"><el-input-number v-model="新建表单.sortOrder" :min="0" /></el-form-item>
+        </template>
+        <template v-else-if="当前新建类型 === 'businessRole'">
+          <el-form-item label="角色编码" required><el-input v-model="新建表单.roleCode" autocomplete="off" /></el-form-item>
+          <el-form-item label="角色名称" required><el-input v-model="新建表单.roleName" autocomplete="off" /></el-form-item>
+          <el-form-item label="领域" required><el-select v-model="新建表单.domainCode" class="组织全宽"><el-option label="内部" value="internal" /><el-option label="渠道" value="channel" /></el-select></el-form-item>
+          <el-form-item label="类别" required><el-select v-model="新建表单.roleCategory" class="组织全宽"><el-option v-for="类型 in ['sales', 'pre_sales', 'post_sales', 'tech_engineer', 'business_assistant', 'manager', 'other']" :key="类型" :label="业务角色类别中文(类型)" :value="类型" /></el-select></el-form-item>
+          <el-form-item label="关联证书（仅用于资格提示和审核参考）"><el-select v-model="新建表单.linkedCertificationTemplateId" clearable filterable class="组织全宽" placeholder="选择证书名称，可不关联"><el-option v-for="模板 in 证书模板列表.filter(t => t.statusCode === 'active')" :key="模板.id" :label="模板.templateName" :value="模板.id" /></el-select></el-form-item>
+        </template>
+        <template v-else>
+          <el-form-item label="证书编码" required><el-input v-model="新建表单.templateCode" autocomplete="off" /></el-form-item>
+          <el-form-item label="证书名称" required><el-input v-model="新建表单.templateName" autocomplete="off" /></el-form-item>
+          <el-form-item label="类别"><el-input v-model="新建表单.templateCategory" autocomplete="off" /></el-form-item>
+          <el-form-item label="颁发方"><el-input v-model="新建表单.issuerName" autocomplete="off" /></el-form-item>
+          <el-form-item label="默认有效月数"><el-input-number v-model="新建表单.validityMonths" :min="1" /></el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="新建弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交新建">确认提交</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="角色编辑弹窗打开"
+      :title="角色表单.id ? '编辑角色' : '新建角色'"
+      width="min(760px, 94vw)"
+      :z-index="4200"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-form label-position="top" @submit.prevent="提交角色保存">
+        <el-form-item label="角色名称" required><el-input v-model="角色表单.roleName" autocomplete="off" placeholder="如：大区运营管理员" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="角色表单.description" type="textarea" :rows="2" autocomplete="off" placeholder="角色用途说明（可选）" /></el-form-item>
+        <el-form-item label="业务权限">
+          <div class="角色权限分组">
+            <div v-for="资源 in 业务权限分组" :key="资源.resourceCode" class="角色权限组">
+              <div class="角色权限组标题">{{ 资源.resourceName }}</div>
+              <el-checkbox-group v-model="角色表单.permissionCodes" size="small">
+                <el-checkbox v-for="权限 in 资源.permissions" :key="权限.permissionCode" :label="权限.permissionCode">{{ 权限.actionName }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="用户权限">
+          <div class="角色权限分组">
+            <div v-for="资源 in 用户权限分组" :key="资源.resourceCode" class="角色权限组">
+              <div class="角色权限组标题">{{ 资源.resourceName }}</div>
+              <el-checkbox-group v-model="角色表单.permissionCodes" size="small">
+                <el-checkbox v-for="权限 in 资源.permissions" :key="权限.permissionCode" :label="权限.permissionCode">{{ 权限.actionName }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="组织范围">
+          <div class="角色范围配置">
+            <div class="角色范围区">
+              <el-checkbox v-model="角色表单.范围.全局">全局范围（全部数据）</el-checkbox>
+              <el-checkbox v-model="角色表单.范围.仅本人">仅本人数据</el-checkbox>
+            </div>
+            <div class="角色范围区">
+              <div class="角色权限组标题">内部部门（可多选，含全部子部门）</div>
+              <el-select v-model="角色表单.范围.部门Ids" multiple filterable collapse-tags collapse-tags-tooltip :teleported="true" popper-class="组织账号顶层下拉" placeholder="选择部门" style="width:100%">
+                <el-option v-for="组织 in 平铺组织列表" :key="组织.id" :label="'　'.repeat(组织.层级 || 0) + 组织.unitName" :value="组织.id" />
+              </el-select>
+            </div>
+            <div class="角色范围区">
+              <div class="角色权限组标题">渠道组织（大区/区域/渠道商，可多选）</div>
+              <el-tree-select
+                v-model="角色表单.范围.渠道Ids"
+                :data="渠道树数据"
+                multiple
+                show-checkbox
+                check-strictly
+                node-key="id"
+                :props="树节点属性"
+                placeholder="选择渠道组织（默认展示一级，点击展开二级、三级）"
+                collapse-tags
+                collapse-tags-tooltip
+                clearable
+                :teleported="true"
+                popper-class="组织账号顶层下拉"
+                style="width:100%"
+              />
+              <p class="角色范围提示">大区/区域节点保存为 <code>region</code>，渠道商节点保存为 <code>partner</code>。</p>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="角色编辑弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交角色保存">保存角色</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="角色用户弹窗打开" :title="(当前角色用户角色?.roleName || '角色') + '的用户'" width="min(760px, 94vw)" :z-index="4200" append-to-body>
+      <el-alert type="info" :closable="false" show-icon description="点击用户可进入账号与授权详情；渠道成员职责仍须在渠道商管理中维护。" style="margin-bottom:12px" />
+      <el-table v-loading="角色用户加载中" :data="角色用户数据.items" empty-text="该角色暂无用户">
+        <el-table-column prop="displayName" label="姓名" min-width="130" />
+        <el-table-column prop="username" label="登录账号" min-width="150" />
+        <el-table-column label="内部任职" min-width="180"><template #default="{ row }">{{ row.internalAssignmentSummary || '—' }}</template></el-table-column>
+        <el-table-column label="渠道成员关系" min-width="200"><template #default="{ row }">{{ row.partnerMembershipSummary || '—' }}</template></el-table-column>
+        <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button size="small" text type="primary" @click="打开角色用户账号(row)">查看授权</el-button></template></el-table-column>
+      </el-table>
+      <el-pagination v-if="角色用户数据.total > 20" style="margin-top:14px;justify-content:flex-end" layout="prev, pager, next" :current-page="角色用户数据.page" :page-size="角色用户数据.pageSize" :total="角色用户数据.total" @current-change="加载角色用户" />
+    </el-dialog>
+
+    <ChannelMemberProfileDialog
+      v-if="统一渠道成员"
+      :member="统一渠道成员"
+      @close="统一渠道成员 = null"
+      @saved="处理统一渠道成员已保存"
+    />
+
+    <el-dialog v-model="组织编辑弹窗打开" title="编辑组织部门" width="min(520px, 94vw)" :close-on-click-modal="false">
+      <el-form label-position="top" @submit.prevent="提交组织编辑">
+        <el-form-item label="部门名称" required><el-input v-model="组织编辑表单.unitName" autocomplete="off" /></el-form-item>
+        <el-form-item label="上级部门"><el-select v-model="组织编辑表单.parentUnitId" clearable filterable class="组织全宽">
+          <el-option v-for="组织 in 平铺组织列表.filter(o => o.id !== 组织编辑表单.id)" :key="组织.id" :label="'　'.repeat(组织.层级 || 0) + 组织.unitName" :value="组织.id" />
+        </el-select></el-form-item>
+        <el-form-item label="排序"><el-input-number v-model="组织编辑表单.sortOrder" :min="0" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="组织编辑弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交组织编辑">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="区域编辑弹窗打开" title="编辑渠道组织（大区/区域）" width="min(520px, 94vw)" :close-on-click-modal="false">
+      <el-form label-position="top" @submit.prevent="提交区域编辑">
+        <el-form-item label="组织名称" required><el-input v-model="区域编辑表单.regionName" autocomplete="off" /></el-form-item>
+        <el-form-item label="上级组织"><el-select v-model="区域编辑表单.parentRegionId" clearable filterable class="组织全宽">
+          <el-option v-for="区域 in 平铺区域选项.filter(o => o.id !== 区域编辑表单.id)" :key="区域.id" :label="'　'.repeat(区域.层级 || 0) + 区域.regionName" :value="区域.id" />
+        </el-select></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="区域编辑弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交区域编辑">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="渠道同步弹窗打开" title="渠道商与组织架构同步" width="min(640px, 94vw)" :close-on-click-modal="false">
+      <el-alert type="info" :closable="false" show-icon>
+        <template #title>
+          同步方向：channel.partners → org.regions（单向，DEC-0011）。组织架构编辑渠道组织暂不回写 channel.partners，避免双向写入冲突。
+        </template>
+      </el-alert>
+      <div v-if="渠道同步预览摘要" class="渠道同步摘要">
+        <p><b>组织架构渠道区域：</b>{{ 渠道同步预览摘要.orgRegionCount }} 个</p>
+        <p><b>渠道商：</b>{{ 渠道同步预览摘要.channelPartnerCount }} 个</p>
+        <p><b>未关联区域：</b>{{ 渠道同步预览摘要.missingRegionPartners?.length || 0 }} 个</p>
+      </div>
+      <el-table v-if="渠道同步预览摘要?.missingRegionPartners?.length" :data="渠道同步预览摘要.missingRegionPartners" max-height="280" size="small">
+        <el-table-column prop="partnerCode" label="渠道商编码" min-width="140" />
+        <el-table-column prop="partnerName" label="渠道商名称" min-width="200" />
+      </el-table>
+      <p v-else class="渠道同步空">所有渠道商均已关联组织架构区域。</p>
+      <template #footer>
+        <el-button @click="渠道同步弹窗打开 = false">关闭</el-button>
+        <el-button type="primary" :loading="渠道同步中" @click="执行渠道商同步">一键同步</el-button>
+      </template>
+    </el-dialog>
+
+    <div v-if="新建用户弹窗打开" class="modal-overlay" @click.self="新建用户弹窗打开 = false">
+      <div class="modal" style="max-width:680px">
+        <div class="modal-header">
+          <div class="modal-title">新建用户</div>
+          <span class="modal-close" @click="新建用户弹窗打开 = false">×</span>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid" style="grid-template-columns:1fr 1fr">
+            <div class="form-item"><label class="form-label required">登录账号</label><input class="form-control" v-model="新建用户表单.username" placeholder="如：zhangsan" /></div>
+            <div class="form-item"><label class="form-label required">姓名</label><input class="form-control" v-model="新建用户表单.name" placeholder="请输入姓名" /></div>
+            <div class="form-item"><label class="form-label">手机号</label><input class="form-control" v-model="新建用户表单.phone" placeholder="138-0000-0000" /></div>
+            <div class="form-item"><label class="form-label">邮箱</label><input class="form-control" v-model="新建用户表单.email" placeholder="name@company.com" /></div>
+            <div class="form-item"><label class="form-label">初始密码</label><input class="form-control" v-model="新建用户表单.password" placeholder="默认 123456" /></div>
+            <div class="form-item">
+              <label class="form-label">账号状态</label>
+              <select class="form-control" v-model="新建用户表单.status"><option value="active">启用</option><option value="disabled">停用</option></select>
+            </div>
+            <div class="form-item">
+              <label class="form-label">登录角色</label>
+              <select class="form-control" v-model="新建用户表单.role">
+                <option value="staff">员工</option>
+                <option value="admin">区域管理员</option>
+                <option value="superadmin">超级管理员</option>
+              </select>
+            </div>
+            <div class="form-item"><label class="form-label required">所属部门</label><select class="form-control" v-model="新建用户表单.orgUnitId"><option v-for="组织 in 平铺组织列表" :key="组织.id" :value="组织.id">{{ '　'.repeat(组织.层级 || 0) }}{{ 组织.unitName }}</option></select></div>
+            <div class="form-item"><label class="form-label">岗位（可选）</label><select class="form-control" v-model="新建用户表单.positionId"><option value="">不设置</option><option v-for="岗位 in 编辑部门岗位列表" :key="岗位.id" :value="岗位.id">{{ 岗位.positionName }}</option></select></div>
+            <div class="form-item">
+              <label class="form-label">任职类型</label>
+              <input class="form-control" value="单一任职" disabled />
+            </div>
+            <div class="form-item">
+              <label class="form-label">业务角色（销售/技术二选一）</label>
+              <select class="form-control" v-model="新建用户表单.businessRoleId"><option value="">暂不设置</option><option v-for="角色 in 业务角色列表.filter(r => ['internal_sales', 'internal_technical'].includes(r.roleCode) && r.statusCode === 'active')" :key="角色.id" :value="角色.id">{{ 角色.roleName }}</option></select>
+            </div>
+            <div class="form-item">
+              <label class="form-label">管理员角色（可选，多选）</label>
+              <select class="form-control" multiple v-model="新建用户管理员角色Ids"><option v-for="角色 in 可分配角色列表" :key="角色.id" :value="角色.id">{{ 角色.roleName }}{{ 角色.isSystem ? '（系统内置）' : '' }}</option></select>
+            </div>
+            <div class="form-item">
+              <label class="form-label">入职证书名称（可选）</label>
+              <select class="form-control" v-model="新建用户表单.certificationTemplateId"><option value="">不颁发</option><option v-for="模板 in 证书模板列表.filter(t => t.statusCode === 'active')" :key="模板.id" :value="模板.id">{{ 模板.templateName }}</option></select>
+            </div>
+            <div class="form-item"><label class="form-label">证书到期日（可选）</label><input class="form-control" type="date" v-model="新建用户表单.certificateExpiresOn" /></div>
+            <template v-if="新建用户表单.role === 'admin'">
+              <div class="form-item"><label class="form-label">所属大区</label><select class="form-control" v-model="新建用户表单.bigRegion"><option value="">请选择</option><option v-for="组 in BIG_REGIONS" :key="组.label" :value="组.label">{{ 组.label }}</option></select></div>
+              <div class="form-item"><label class="form-label">负责区域</label><select class="form-control" v-model="新建用户表单.region"><option value="">请选择</option><option v-for="区域 in (BIG_REGIONS.find(g => g.label === 新建用户表单.bigRegion) || { regions: [] }).regions" :key="区域" :value="区域">{{ 区域 }}</option></select></div>
+            </template>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="新建用户弹窗打开 = false">取消</button>
+          <button class="btn btn-primary" @click="提交新建用户" :disabled="提交中">{{ 提交中 ? '提交中...' : '创建用户' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="编辑抽屉打开" class="组织抽屉遮罩" @click.self="关闭编辑抽屉">
+      <aside class="组织抽屉">
+        <div class="组织抽屉头部">
+          <div>
+            <h3>{{ 编辑用户.name }}（{{ 编辑用户.username }}）</h3>
+            <p>{{ 角色中文(编辑用户.role) }} · {{ 状态中文(编辑用户.status) }} · 创建于 {{ 格式化时间(编辑用户.createdAt) }}</p>
+          </div>
+          <span class="modal-close" @click="关闭编辑抽屉">×</span>
+        </div>
+        <div class="组织抽屉主体">
+          <section class="组织抽屉区块">
+            <h4>基本信息</h4>
+            <div class="form-grid" style="grid-template-columns:1fr 1fr">
+              <div class="form-item"><label class="form-label">姓名</label><input class="form-control" v-model="基本信息表单.name" :disabled="编辑模式 === 'channel'" /></div>
+              <div class="form-item"><label class="form-label">手机号</label><input class="form-control" v-model="基本信息表单.phone" :disabled="编辑模式 === 'channel'" /></div>
+              <div class="form-item"><label class="form-label">邮箱</label><input class="form-control" v-model="基本信息表单.email" :disabled="编辑模式 === 'channel'" /></div>
+              <div class="form-item">
+                <label class="form-label">账号状态</label>
+                <input class="form-control" :value="基本信息表单.status === 'active' ? '启用' : '停用'" disabled />
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <template v-if="编辑模式 === 'internal'">
+                <el-button size="small" type="primary" :loading="提交中" @click="保存基本信息">保存基本信息</el-button>
+                <el-button size="small" @click="重置密码">重置密码（123456）</el-button>
+                <el-button v-if="编辑用户.username !== 'admin' && String(编辑用户.username || '').toLowerCase() !== 当前用户名 && 编辑用户.status === 'active'" size="small" type="danger" plain :loading="提交中" @click="打开停用归档">删除（停用并交接）</el-button>
+              </template>
+              <span v-else class="组织抽屉空">渠道账号的基本信息、状态和成员职责请在渠道商管理维护。</span>
+            </div>
+          </section>
+          <section class="组织抽屉区块">
+            <h4>泛微 OA 身份</h4>
+            <p class="组织抽屉空" style="margin:0 0 10px">仅已确认的泛微 userid 可作为订单预审的 OA 发起人；候选身份不会自动绑定，也不能用于流程发起。</p>
+            <div v-if="泛微OA身份?.formalIdentity" class="组织抽屉小卡">
+              <div class="组织抽屉小卡主">
+                <b>{{ 泛微OA身份.formalIdentity.externalUsername }}</b>
+                <span>userid：{{ 泛微OA身份.formalIdentity.externalSubject }}</span>
+                <el-tag size="small" type="success">已确认</el-tag>
+              </div>
+              <div class="组织抽屉小卡次">
+                <span>最近更新：{{ 格式化时间(泛微OA身份.formalIdentity.updatedAt) }}</span>
+                <el-button v-if="可写" size="small" text type="danger" :loading="提交中" @click="停用当前泛微正式身份">停用映射</el-button>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">未记录已确认的泛微 OA 身份。</div>
+            <div v-if="泛微OA身份?.candidates.length" style="margin-top:10px">
+              <div v-for="候选 in 泛微OA身份.candidates" :key="候选.id" class="组织抽屉小卡">
+                <div class="组织抽屉小卡主">
+                  <b>{{ 候选.externalUsername }}</b>
+                  <span>userid：{{ 候选.externalSubject }}</span>
+                  <el-tag size="small" :type="候选.statusCode === 'pending' ? 'warning' : 'info'">{{ 泛微候选状态中文(候选.statusCode) }}</el-tag>
+                </div>
+                <div class="组织抽屉小卡次">
+                  <span>来源：{{ 泛微候选来源中文(候选.sourceCode) }}｜核验：{{ 候选.verifiedByName || 候选.verifiedByUsername || '未核验' }}</span>
+                  <span v-if="候选.rejectedReason">驳回原因：{{ 候选.rejectedReason }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="!泛微OA身份?.formalIdentity" class="组织抽屉新增行" style="margin-top:10px">
+              <input v-model="泛微候选表单.externalSubject" class="form-control" placeholder="泛微 OA userid" />
+              <input v-model="泛微候选表单.externalUsername" class="form-control" placeholder="泛微姓名或登录名" />
+              <el-select v-model="泛微候选表单.sourceCode" size="small" style="width:150px">
+                <el-option label="人工录入" value="manual" />
+                <el-option label="泛微用户目录" value="eteams_directory" />
+              </el-select>
+              <el-button v-if="可写" size="small" type="primary" plain :loading="提交中" @click="保存泛微候选">{{ 待核验泛微候选 ? '更正候选' : '保存候选' }}</el-button>
+              <el-button v-if="可写 && 待核验泛微候选" size="small" type="success" plain :loading="提交中" @click="确认当前泛微候选">确认正式映射</el-button>
+              <el-button v-if="可写 && 待核验泛微候选" size="small" type="danger" text :loading="提交中" @click="驳回当前泛微候选">驳回</el-button>
+            </div>
+            <p v-if="!可写" class="组织抽屉空" style="margin-top:10px">当前为只读观察模式，不能维护候选或确认映射。</p>
+          </section>
+          <section v-if="编辑模式 === 'internal'" class="组织抽屉区块">
+            <h4>任职信息</h4>
+            <div v-if="编辑用户任职.length">
+              <div v-for="任职 in 编辑用户任职" :key="任职.id" class="组织抽屉小卡">
+                <div class="组织抽屉小卡主">
+                  <b>{{ 任职部门名(任职) }}</b>
+                  <span>{{ 任职.positionName || '未设置岗位' }}</span>
+                  <el-tag size="small" type="success">当前任职</el-tag>
+                </div>
+                <div class="组织抽屉小卡次">
+                  <span>生效：{{ 格式化时间(任职.effectiveAt) }}</span>
+                  <el-button v-if="可写" size="small" text type="primary" @click="开始调整任职(任职)">调整</el-button>
+                  <el-button v-if="可写" size="small" text type="danger" @click="结束任职(任职)">结束</el-button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">暂无任职，请为账号添加任职。</div>
+            <div v-if="!编辑用户任职.length || 编辑任职Id" class="组织抽屉新增行">
+              <el-select v-model="新任职表单.orgUnitId" size="small" placeholder="选择部门" filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:200px" @change="新任职表单.positionId = ''">
+                <el-option v-for="组织 in 平铺组织列表" :key="组织.id" :label="'　'.repeat(组织.层级 || 0) + 组织.unitName" :value="组织.id" />
+              </el-select>
+              <el-select v-model="新任职表单.positionId" size="small" placeholder="岗位（可选）" clearable :teleported="true" popper-class="组织账号顶层下拉" style="width:160px">
+                <el-option v-for="岗位 in 当前部门岗位列表" :key="岗位.id" :label="岗位.positionName" :value="岗位.id" />
+              </el-select>
+              <el-button size="small" type="primary" plain :loading="提交中" @click="保存任职">{{ 编辑任职Id ? '保存调整' : '添加任职' }}</el-button>
+              <el-button v-if="编辑任职Id" size="small" @click="取消调整任职">取消调整</el-button>
+            </div>
+            <div v-else class="组织抽屉空">当前业务不支持一人多任职；如需调岗，请点击现有任职的“调整”。</div>
+          </section>
+          <section v-if="编辑模式 === 'internal'" class="组织抽屉区块">
+            <h4>业务角色</h4>
+            <div v-if="编辑用户业务角色.length">
+              <div v-for="角色 in 编辑用户业务角色" :key="角色.id" class="组织抽屉小卡">
+                <div class="组织抽屉小卡主">
+                  <b>{{ 角色.roleName }}</b>
+                  <span>{{ 领域中文(角色.domainCode) }}</span>
+                  <el-tag size="small" type="success">有效</el-tag>
+                </div>
+                <div class="组织抽屉小卡次">
+                  <span>生效：{{ 格式化时间(角色.effectiveAt) }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">暂无业务角色。</div>
+            <div class="组织抽屉新增行">
+              <el-select v-model="新业务角色表单.businessRoleId" size="small" placeholder="选择销售或技术" style="width:240px">
+                <el-option v-for="角色 in 业务角色列表.filter(r => ['internal_sales', 'internal_technical'].includes(r.roleCode) && r.statusCode === 'active')" :key="角色.id" :label="角色.roleName" :value="角色.id" />
+              </el-select>
+              <el-button v-if="可写" size="small" type="primary" plain :loading="提交中" @click="指派业务角色">保存业务角色</el-button>
+            </div>
+            <div class="组织抽屉空">销售/技术二选一；业务角色不自动授予系统权限，证书可在下方独立多份授权。</div>
+          </section>
+          <section class="组织抽屉区块">
+            <h4>证书</h4>
+            <div v-if="编辑用户证书.length">
+              <div v-for="证 in 编辑用户证书" :key="证.id" class="组织抽屉小卡">
+                <div class="组织抽屉小卡主">
+                  <b>{{ 证.templateName }}</b>
+                  <el-tag size="small" :type="证书状态类型(证)">{{ 状态中文(证.statusCode) }}</el-tag>
+                </div>
+                <div class="组织抽屉小卡次">
+                  <span>颁发：{{ 格式化时间(证.issuedOn) }}｜到期：{{ 格式化时间(证.expiresOn, '长期有效') }}</span>
+                  <el-button v-if="可写 && 证.statusCode === 'active'" size="small" text type="danger" @click="撤销证书(证)">撤销</el-button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">暂无证书。</div>
+            <div class="组织抽屉新增行">
+              <el-select v-model="新证书表单.certificationTemplateId" size="small" placeholder="选择证书名称" filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:240px">
+                <el-option v-for="模板 in 证书模板列表.filter(t => t.statusCode === 'active')" :key="模板.id" :label="模板.templateName + (模板.category && 模板.category !== 'other' ? '（' + 证书类别中文(模板.category) + '）' : '')" :value="模板.id" />
+              </el-select>
+              <input class="form-control" v-model="新证书表单.certificateNo" style="width:180px" placeholder="证书编号（可选）" />
+              <input class="form-control" type="date" v-model="新证书表单.expiresOn" style="width:150px" placeholder="到期日（可选）" />
+              <el-button size="small" type="primary" plain :loading="提交中" @click="颁发证书">颁发</el-button>
+            </div>
+          </section>
+          <section class="组织抽屉区块">
+            <h4>系统角色与有效权限</h4>
+            <el-alert v-if="编辑模式 === 'channel'" type="info" :closable="false" show-icon description="此处只维护系统角色与角色继承的权限；企业管理员、普通成员等渠道成员职责不在此修改。" style="margin-bottom:10px" />
+            <div class="组织抽屉新增行" style="flex-wrap:wrap">
+              <el-select v-model="编辑用户管理员角色Ids" multiple filterable collapse-tags collapse-tags-tooltip :teleported="true" popper-class="组织账号顶层下拉" placeholder="选择管理员角色（可多选，不选则为普通账号）" style="flex:1;min-width:240px">
+                <el-option v-for="角色 in 可分配角色列表" :key="角色.id" :label="角色.roleName + (角色.isSystem ? '（系统内置）' : '')" :value="角色.id" />
+              </el-select>
+              <el-button size="small" type="primary" plain :loading="提交中" @click="保存用户管理员角色">保存角色</el-button>
+            </div>
+            <div v-if="编辑用户已选角色.length" class="组织抽屉空" style="margin-top:8px">当前角色：{{ 编辑用户已选角色.map(角色 => 角色.roleName).join('、') }}；有效权限 {{ 编辑用户有效权限数 }} 项。</div>
+            <div v-else class="组织抽屉空" style="margin-top:8px">未分配系统角色，账号不会通过此处获得额外业务权限。</div>
+            <div class="组织抽屉空" style="margin-top:4px">多角色权限取并集；超级管理员角色受系统保护。角色调整不修改 IAM、UniSDP 的外部身份映射或单点登录会话。</div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <el-dialog
+      v-model="离职交接弹窗打开"
+      :title="'删除（停用并交接）' + (编辑用户 ? '：' + 编辑用户.name : '')"
+      width="min(680px, 94vw)"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        v-if="!组织功能状态?.offboardingEnabled"
+        title="当前环境只允许预览，尚未开放执行"
+        type="warning"
+        :closable="false"
+        show-icon
+        description="必须先完成后台交接任务、登录回归和回退演练，再由运维开启独立交接开关。"
+        style="margin-bottom:12px"
+      />
+      <template v-if="离职影响预览">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="账号">{{ 离职影响预览.user?.username }}</el-descriptions-item>
+          <el-descriptions-item label="姓名">{{ 离职影响预览.user?.displayName }}</el-descriptions-item>
+          <el-descriptions-item label="角色">{{ (离职影响预览.user?.roleCodes || []).map(角色中文).join('、') || '普通账号' }}</el-descriptions-item>
+          <el-descriptions-item label="区域">{{ 离职影响预览.user?.regionName || '未设置' }}</el-descriptions-item>
+        </el-descriptions>
+        <h4 style="margin:16px 0 8px">待处理影响（共 {{ 离职影响预览.totalCount || 0 }} 条）</h4>
+        <el-table :data="离职影响预览.items || []" size="small" empty-text="没有待转移业务">
+          <el-table-column label="范围" min-width="160"><template #default="{ row }">{{ row.domainName || 离职交接领域中文(row.domainCode) }}</template></el-table-column>
+          <el-table-column prop="affectedCount" label="数量" width="100" />
+          <el-table-column label="处理方式" min-width="220"><template #default="{ row }">{{ row.domainCode === 'approval' ? '不改申请人和审批事实；接收人按角色与区域动态接手待办' : '后台任务分批转移给接收人' }}</template></el-table-column>
+        </el-table>
+        <el-form label-position="top" style="margin-top:14px">
+          <el-form-item v-if="离职影响预览.requiresReplacement" label="业务接收人" required>
+            <el-select v-model="离职确认表单.replacementUserId" filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:100%" placeholder="请选择同区域有效区管或其他有效超级管理员">
+              <el-option v-for="候选 in 离职影响预览.candidates || []" :key="候选.id" :value="候选.id" :label="候选.displayName + '（' + 候选.username + '）' + (候选.regionName ? ' · ' + 候选.regionName : '')" />
+            </el-select>
+            <p v-if="!(离职影响预览.candidates || []).length" class="角色范围提示">没有合格接收人，请先补充同区域区管或其他有效超级管理员。</p>
+          </el-form-item>
+          <el-form-item label="停用归档原因" required><el-input v-model="离职确认表单.reason" type="textarea" :rows="2" maxlength="200" show-word-limit /></el-form-item>
+          <el-form-item :label="'二次确认：请输入账号 ' + (离职影响预览.user?.username || '')" required>
+            <el-input v-model="离职确认表单.confirmationUsername" autocomplete="off" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="离职交接弹窗打开 = false">取消</el-button>
+        <el-button
+          type="danger"
+          :loading="提交中"
+          :disabled="!可提交离职交接"
+          @click="确认停用归档"
+        >确认停用并开始交接</el-button>
+      </template>
+    </el-dialog>
+  </div>`,
+
+  setup() {
+    const 路由器 = VueRouter.useRouter();
+    const 路由 = VueRouter.useRoute();
+    const 加载中 = ref(true);
+    const 提交中 = ref(false);
+    const 已启动数据加载 = ref(false);
+    const 错误提示 = ref('');
+    const 同步错误提示 = ref('');
+    const 组织功能状态 = ref(null);
+    const 组织树 = ref([]);
+    const 渠道组织树 = ref([]);
+    const 岗位列表 = ref([]);
+    const 任职列表 = ref([]);
+    const 业务角色列表 = ref([]);
+    const 负责人关系列表 = ref([]);
+    const 成员业务角色列表 = ref([]);
+    const 未归集管理账号数 = ref(0);
+    const 证书模板列表 = ref([]);
+    const 成员证书列表 = ref([]);
+    const 证书筛选类别 = ref('');
+    const 证书名称检索词 = ref('');
+    const 证书筛选节点 = ref(null);
+    const 证书筛选树引用 = ref(null);
+    const 离职交接列表 = ref([]);
+    const 离职交接弹窗打开 = ref(false);
+    const 离职影响预览 = ref(null);
+    const 离职确认表单 = reactive({ replacementUserId: '', reason: '', confirmationUsername: '' });
+    const 企微同步状态 = ref(null);
+    const 同步批次列表 = ref([]);
+    const 同步差异列表 = ref([]);
+    const 渠道同步预览摘要 = ref(null);
+    const 渠道同步中 = ref(false);
+    const 渠道同步弹窗打开 = ref(false);
+    const 部门文件输入 = ref(null);
+    const 成员文件输入 = ref(null);
+    const 部门树引用 = ref(null);
+    const 部门搜索词 = ref('');
+    const 成员搜索词 = ref('');
+    const 选中部门Id = ref(null);
+    const 渠道树引用 = ref(null);
+    const 渠道搜索词 = ref('');
+    const 渠道成员搜索词 = ref('');
+    const 选中渠道Id = ref(null);
+    const 新建弹窗打开 = ref(false);
+    const 当前新建类型 = ref('unit');
+
+    const 账号检索词 = ref('');
+    const 账号检索结果 = ref([]);
+    const 账号检索中 = ref(false);
+    const 账号检索已执行 = ref(false);
+    const 账号检索错误 = ref('');
+    const 账号深链已处理 = ref(false);
+    let 账号检索定时器 = null;
+    const 新建用户弹窗打开 = ref(false);
+    const 角色管理列表 = ref([]);
+    const 权限字典 = ref({ resources: [] });
+    const 角色管理错误 = ref('');
+    const 角色用户弹窗打开 = ref(false);
+    const 当前角色用户角色 = ref(null);
+    const 角色用户加载中 = ref(false);
+    const 角色用户数据 = ref({ items: [], page: 1, pageSize: 20, total: 0 });
+    const 角色编辑弹窗打开 = ref(false);
+    const 角色表单 = reactive({ id: '', roleName: '', description: '', permissionCodes: [], 范围: { 全局: false, 仅本人: false, 部门Ids: [], 渠道Ids: [] } });
+    const 组织编辑弹窗打开 = ref(false);
+    const 组织编辑表单 = reactive({ id: '', unitName: '', parentUnitId: '', sortOrder: 0, rowVersion: 1 });
+    const 区域编辑弹窗打开 = ref(false);
+    const 区域编辑表单 = reactive({ id: '', regionName: '', parentRegionId: '', rowVersion: 1 });
+    const 编辑用户管理员角色Ids = ref([]);
+    const 新建用户管理员角色Ids = ref([]);
+    const 统一渠道成员 = ref(null);
+    const 编辑抽屉打开 = ref(false);
+    const 编辑用户 = ref(null);
+    const 编辑模式 = ref('internal');
+    const 编辑渠道成员 = ref({ partnerId: '', partnerName: '' });
+    const 渠道角色表单 = reactive({ role: 'staff' });
+    const 编辑用户任职 = ref([]);
+    const 编辑用户业务角色 = ref([]);
+    const 编辑用户证书 = ref([]);
+    const 泛微OA身份 = ref(null);
+    const 基本信息表单 = reactive({ name: '', phone: '', email: '', status: 'active' });
+    const 泛微候选表单 = reactive({ externalSubject: '', externalUsername: '', sourceCode: 'manual' });
+    const 编辑任职Id = ref('');
+    const 新任职表单 = reactive({ orgUnitId: '', positionId: '', isPrimary: false, rowVersion: 1 });
+    const 新业务角色表单 = reactive({ businessRoleId: '' });
+    const 新证书表单 = reactive({ certificationTemplateId: '', certificateNo: '', expiresOn: '' });
+    const 新建用户表单 = reactive({
+      username: '', name: '', phone: '', email: '', password: '123456', status: 'active',
+      role: 'staff', bigRegion: '', region: '', orgUnitId: '', positionId: '',
+      businessRoleId: '', certificationTemplateId: '', certificateExpiresOn: '',
+    });
+
+    const 可提交离职交接 = computed(() => {
+      const 预览 = 离职影响预览.value;
+      if (!预览 || !可写.value || !组织功能状态.value?.offboardingEnabled) return false;
+      if (预览.requiresReplacement && !离职确认表单.replacementUserId) return false;
+      return Boolean(
+        离职确认表单.reason.trim() &&
+        离职确认表单.confirmationUsername.trim().toLowerCase() === String(预览.user?.username || '').toLowerCase()
+      );
+    });
+
+    const 导航项列表 = [
+      { 栏目: 'units', 名称: '组织与成员', 路径: '/organization/units' },
+      { 栏目: 'certifications', 名称: '证书管理', 路径: '/organization/certifications' },
+      { 栏目: 'rbac', 名称: '角色管理', 路径: '/organization/rbac' },
+      { 栏目: 'access', 名称: '权限与范围', 路径: '/organization/data-scopes' },
+      { 栏目: 'offboarding', 名称: '离职交接', 路径: '/organization/offboarding' },
+      { 栏目: 'directory-sync', 名称: '企微同步', 路径: '/organization/directory-sync' },
+    ];
+
+    const 新建表单 = reactive({
+      unitCode: '',
+      unitName: '',
+      unitType: 'department',
+      parentUnitId: '',
+      sortOrder: 0,
+      orgUnitId: '',
+      positionCode: '',
+      positionName: '',
+      positionCategory: 'other',
+      roleCode: '',
+      roleName: '',
+      domainCode: 'internal',
+      roleCategory: 'other',
+      linkedCertificationTemplateId: '',
+      templateCode: '',
+      templateName: '',
+      templateCategory: 'other',
+      issuerName: '',
+      validityMonths: undefined,
+    });
+
+    const 当前栏目 = computed(() => {
+      const 路径 = 路由.path;
+      if (路径.endsWith('/business-roles')) return 'business-roles';
+      if (路径.endsWith('/certifications')) return 'certifications';
+      if (路径.endsWith('/rbac')) return 'rbac';
+      if (路径.endsWith('/data-scopes')) return 'access';
+      if (路径.endsWith('/offboarding')) return 'offboarding';
+      if (路径.endsWith('/directory-sync')) return 'directory-sync';
+      return 'units';
+    });
+    const 当前导航 = computed(() => 导航项列表.find((item) => item.栏目 === 当前栏目.value) || 导航项列表[0]);
+    const 已启用 = computed(() => 组织功能状态.value && 组织功能状态.value.enabled === true);
+    const 可写 = computed(() => 已启用.value && 组织功能状态.value && 组织功能状态.value.writeEnabled === true);
+    const 当前用户名 = computed(() => String((store?.user && store.user.username) || '').toLowerCase());
+    const 平铺组织列表 = computed(() => 展开组织树(组织树.value));
+    const 平铺渠道组织列表 = computed(() => 展开渠道树(渠道组织树.value));
+    const 树节点属性 = { label: 'label', children: 'children' };
+    const 树数据 = computed(() => 组织树.value.map(构建树节点));
+    const 平铺树数据 = computed(() => 展开树数据(树数据.value));
+    const 渠道树数据 = computed(() => 渠道组织树.value.map(构建渠道树节点));
+    const 平铺渠道树数据 = computed(() => 展开树数据(渠道树数据.value));
+    const 平铺区域选项 = computed(() => 展开树数据(渠道树数据.value).filter((节点) => 节点.type !== 'partner' && 节点.type !== 'unassigned').map((节点) => ({ id: 节点.id, regionName: 节点.label, 层级: 节点.层级 })));
+    const 业务权限分组 = computed(() => (权限字典.value.resources || []).filter((资源) => !['organization', 'account'].includes(资源.resourceCode)));
+    const 用户权限分组 = computed(() => (权限字典.value.resources || []).filter((资源) => ['organization', 'account'].includes(资源.resourceCode)));
+    const 可分配角色列表 = computed(() => 角色管理列表.value.filter((角色) => 角色.statusCode === 'active'));
+    const 编辑用户已选角色 = computed(() => {
+      const 已选 = new Set(编辑用户管理员角色Ids.value);
+      return 角色管理列表.value.filter((角色) => 已选.has(角色.id));
+    });
+    const 编辑用户有效权限数 = computed(() => new Set(
+      编辑用户已选角色.value.flatMap((角色) => 角色.permissionCodes || [])
+    ).size);
+    const 待核验泛微候选 = computed(() =>
+      (泛微OA身份.value?.candidates || []).find((候选) => 候选.statusCode === 'pending') || null
+    );
+    const 证书按用户 = computed(() => {
+      const 分组 = new Map();
+      for (const 证 of 成员证书列表.value) {
+        if (!分组.has(证.userId)) 分组.set(证.userId, []);
+        分组.get(证.userId).push(证);
+      }
+      return 分组;
+    });
+    const 当前部门名称 = computed(() => {
+      const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
+      return 节点 ? 节点.label : '组织架构';
+    });
+    const 当前部门成员 = computed(() => {
+      if (!选中部门Id.value) return [];
+      const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
+      if (!节点) return [];
+      return (节点.members || []).map(组装成员概要);
+    });
+    const 过滤后成员 = computed(() => {
+      const 词 = 成员搜索词.value.trim().toLowerCase();
+      if (!词) return 当前部门成员.value;
+      return 当前部门成员.value.filter(
+        (成员) => 成员.displayName.toLowerCase().includes(词) || 成员.username.toLowerCase().includes(词)
+      );
+    });
+    const 当前渠道名称 = computed(() => {
+      const 节点 = 查找树节点(渠道树数据.value, 选中渠道Id.value);
+      return 节点 ? 节点.label : '渠道组织';
+    });
+    const 当前渠道类型 = computed(() => {
+      const 节点 = 查找树节点(渠道树数据.value, 选中渠道Id.value);
+      if (!节点) return '';
+      if (节点.type === 'big_region') return '大区';
+      if (节点.type === 'region') return '区域';
+      if (节点.type === 'unassigned') return '未分配区域';
+      return '渠道商';
+    });
+    const 当前渠道成员 = computed(() => {
+      if (!选中渠道Id.value) return [];
+      const 节点 = 查找树节点(渠道树数据.value, 选中渠道Id.value);
+      if (!节点) return [];
+      return (节点.members || []).map((成员) => 组装渠道成员概要(成员, 节点.id, 节点.label));
+    });
+    const 过滤后渠道成员 = computed(() => {
+      const 词 = 渠道成员搜索词.value.trim().toLowerCase();
+      if (!词) return 当前渠道成员.value;
+      return 当前渠道成员.value.filter(
+        (成员) => 成员.displayName.toLowerCase().includes(词) || 成员.username.toLowerCase().includes(词)
+      );
+    });
+    const 直属负责人映射 = computed(
+      () => new Map(
+        负责人关系列表.value
+          .filter((关系) => 关系.relationType === 'direct' && !关系.expiredAt)
+          .map((关系) => [关系.subordinateAssignmentId, 关系.managerDisplayName || '—'])
+      )
+    );
+    const 渠道成员业务角色映射 = computed(() => {
+      const 结果 = new Map();
+      for (const 项 of 成员业务角色列表.value) {
+        if (!项.partnerMemberId || 项.expiredAt) continue;
+        if (!结果.has(项.partnerMemberId)) 结果.set(项.partnerMemberId, []);
+        结果.get(项.partnerMemberId).push(项);
+      }
+      return 结果;
+    });
+    const 业务角色持有人数量 = computed(() => {
+      const 结果 = new Map();
+      for (const 成员角色 of 成员业务角色列表.value) {
+        if (!成员角色.expiredAt) {
+          结果.set(成员角色.businessRoleId, (结果.get(成员角色.businessRoleId) || 0) + 1);
+        }
+      }
+      return 结果;
+    });
+    const 近期到期数 = computed(
+      () => 成员证书列表.value.filter((item) => {
+        if (!item.expiresOn || item.statusCode !== 'active') return false;
+        const 剩余毫秒 = new Date(item.expiresOn).getTime() - Date.now();
+        return 剩余毫秒 >= 0 && 剩余毫秒 <= 7 * 24 * 60 * 60 * 1000;
+      }).length
+    );
+    const 已过期数 = computed(
+      () => 成员证书列表.value.filter(
+        (item) => item.expiresOn && new Date(item.expiresOn).getTime() < Date.now()
+      ).length
+    );
+    const 证书类别列表 = computed(() =>
+      [...new Set(证书模板列表.value.map((模板) => 模板.category || 'other'))]
+    );
+
+    function 展开组织树(节点, 层级 = 0) {
+      return 节点.flatMap((节点项) => [
+        { ...节点项, 层级 },
+        ...展开组织树(节点项.children || [], 层级 + 1),
+      ]);
+    }
+
+    function 展开渠道树(节点, 层级 = 0) {
+      return 节点.flatMap((节点项) => [
+        {
+          ...节点项,
+          层级,
+          渠道名称: String(节点项.partnerName || ''),
+          渠道级别: String(节点项.partnerLevelCode || ''),
+        },
+        ...展开渠道树(节点项.children || [], 层级 + 1),
+      ]);
+    }
+
+    function 展开树数据(节点们, 层级 = 0) {
+      return 节点们.flatMap((节点) => [
+        { ...节点, 层级 },
+        ...展开树数据(节点.children || [], 层级 + 1),
+      ]);
+    }
+
+    function 聚合渠道成员(单元, 所属渠道商Id = '', 所属渠道商名称 = '') {
+      const 是渠道商 = Boolean(单元.partnerName || 单元.partnerCode);
+      const 渠道商Id = 是渠道商 ? 单元.id : 所属渠道商Id;
+      const 渠道商名称 = 是渠道商 ? (单元.partnerName || 单元.partnerCode || '') : 所属渠道商名称;
+      const 直属 = (单元.members || []).map((成员) => ({
+        ...成员,
+        partnerId: 成员.partnerId || 渠道商Id,
+        partnerName: 成员.partnerName || 渠道商名称,
+      }));
+      for (const 子 of (单元.children || [])) 直属.push(...聚合渠道成员(子, 渠道商Id, 渠道商名称));
+      return 直属;
+    }
+
+    function 构建渠道树节点(单元) {
+      const 是渠道商 = Boolean(单元.partnerName || 单元.partnerCode);
+      return {
+        id: 单元.id,
+        label: 是渠道商 ? (单元.partnerName || 单元.partnerCode || '渠道商') : (单元.name || '区域'),
+        type: 是渠道商 ? 'partner' : (单元.type || 'region'),
+        status: 单元.statusCode,
+        members: 聚合渠道成员(单元),
+        children: (单元.children || []).map(构建渠道树节点),
+      };
+    }
+
+    function 定位部门(id) {
+      if (!id) return;
+      选中部门Id.value = id;
+      const 节点 = 查找树节点(树数据.value, id);
+      if (节点 && 部门树引用.value && 部门树引用.value.setCurrentKey) {
+        部门树引用.value.setCurrentKey(id);
+        部门树引用.value.expandNode && 部门树引用.value.expandNode(节点);
+      }
+    }
+
+    function 渠道节点成员数(节点) {
+      return (节点.members || []).length;
+    }
+
+    function 过滤渠道节点(值, 数据) {
+      return !值 || String(数据.label).includes(值);
+    }
+
+    function 选择渠道(节点) {
+      选中渠道Id.value = 节点.id;
+    }
+
+    function 打开组织编辑(节点) {
+      if (!可写.value) return;
+      const 原 = 组织树.value.flatMap((根) => 展开组织树([根])).find((项) => 项.id === 节点.id) || {};
+      组织编辑表单.id = 节点.id;
+      组织编辑表单.unitName = 节点.label || '';
+      组织编辑表单.parentUnitId = 原.parentUnitId || '';
+      组织编辑表单.sortOrder = 原.sortOrder || 0;
+      组织编辑表单.rowVersion = 原.rowVersion || 1;
+      组织编辑弹窗打开.value = true;
+    }
+    async function 提交组织编辑() {
+      if (!可写.value || !组织编辑表单.unitName.trim()) { ElementPlus.ElMessage.warning('请填写部门名称。'); return; }
+      提交中.value = true;
+      try {
+        await 组织更新组织(组织编辑表单.id, {
+          unitName: 组织编辑表单.unitName.trim(),
+          ...(组织编辑表单.parentUnitId ? { parentUnitId: 组织编辑表单.parentUnitId } : { parentUnitId: null }),
+          sortOrder: Number(组织编辑表单.sortOrder),
+          rowVersion: Number(组织编辑表单.rowVersion),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('组织部门已更新。');
+        组织编辑弹窗打开.value = false;
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    function 打开区域编辑(节点) {
+      if (!可写.value) return;
+      区域编辑表单.id = 节点.id;
+      区域编辑表单.regionName = 节点.label || '';
+      区域编辑表单.parentRegionId = 节点.parentRegionId || '';
+      区域编辑表单.rowVersion = 节点.rowVersion || 1;
+      区域编辑弹窗打开.value = true;
+    }
+    async function 提交区域编辑() {
+      if (!可写.value || !区域编辑表单.regionName.trim()) { ElementPlus.ElMessage.warning('请填写组织名称。'); return; }
+      提交中.value = true;
+      try {
+        await 组织更新区域(区域编辑表单.id, {
+          regionName: 区域编辑表单.regionName.trim(),
+          ...(区域编辑表单.parentRegionId ? { parentRegionId: 区域编辑表单.parentRegionId } : { parentRegionId: null }),
+          rowVersion: Number(区域编辑表单.rowVersion),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('渠道组织已更新。');
+        区域编辑弹窗打开.value = false;
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+
+    function 组装渠道成员概要(成员, partnerId = '', partnerName = '') {
+      const isAdmin = String(成员.memberRoleCode || '') === 'partner_admin';
+      return {
+        ...成员,
+        id: 成员.id || 成员.username,
+        userId: 成员.userId || '',
+        partnerId: 成员.partnerId || partnerId,
+        partnerName: 成员.partnerName || partnerName,
+        partnerCode: 成员.partnerCode || '',
+        displayName: String(成员.displayName || ''),
+        username: String(成员.username || ''),
+        phone: 成员.phone || '',
+        email: 成员.email || '',
+        statusCode: 成员.statusCode || 'active',
+        isAdmin,
+      };
+    }
+
+    function 构建树节点(单元) {
+      const 子节点 = (单元.children || []).map(构建树节点);
+      const 聚合 = (单元.members || []).slice();
+      for (const 子 of 子节点) 聚合.push(...(子.members || []));
+      return {
+        id: 单元.id,
+        label: 单元.unitName,
+        type: 'org_unit',
+        status: 单元.statusCode,
+        members: 聚合,
+        children: 子节点,
+      };
+    }
+
+    function 查找树节点(节点们, id) {
+      if (!id) return null;
+      for (const 节点 of 节点们) {
+        if (节点.id === id) return 节点;
+        const 子节点 = 查找树节点(节点.children || [], id);
+        if (子节点) return 子节点;
+      }
+      return null;
+    }
+
+    function 节点成员数(节点) {
+      // members 已由 构建树节点() 聚合全部子孙成员，此处直接取数即可，避免父级节点重复累加。
+      return (节点.members || []).length;
+    }
+
+    function 选择部门(节点) {
+      选中部门Id.value = 节点.id;
+    }
+
+    function 组装成员概要(成员) {
+      const 任职 = 任职列表.value.find((项) => 项.id === 成员.assignmentId);
+      return {
+        ...成员,
+        isPrimary: 任职 ? 任职.isPrimary : false,
+        positionName: 任职 ? 任职.positionName || '' : '',
+        effectiveAt: 任职 ? 任职.effectiveAt || '' : '',
+        expiredAt: 任职 ? 任职.expiredAt || null : null,
+        直属负责人: 直属负责人映射.value.get(成员.assignmentId) || '',
+        证书: 证书按用户.value.get(成员.userId) || [],
+      };
+    }
+
+    function 过滤部门节点(值, 数据) {
+      return !值 || String(数据.label).includes(值);
+    }
+
+    function 证书状态类型(证) {
+      if (证.statusCode !== 'active') return 'info';
+      if (!证.expiresOn) return 'success';
+      const 剩余毫秒 = new Date(证.expiresOn).getTime() - Date.now();
+      if (剩余毫秒 < 0) return 'danger';
+      if (剩余毫秒 <= 7 * 24 * 60 * 60 * 1000) return 'warning';
+      return 'success';
+    }
+
+    function 证书详情(证) {
+      return `${证.templateName}｜颁发：${格式化时间(证.issuedOn)}｜到期：${格式化时间(证.expiresOn, '长期有效')}｜${证.statusCode === 'active' ? '有效' : '已撤销'}`;
+    }
+
+    function 读取错误信息(error, 默认信息) {
+      return error instanceof Error ? error.message : 默认信息;
+    }
+
+    async function 加载页面() {
+      加载中.value = true;
+      错误提示.value = '';
+      同步错误提示.value = '';
+      try {
+        const 状态 = await 组织读取状态();
+        组织功能状态.value = 状态;
+        if (!状态.enabled) return;
+
+        const [组织, 渠道, 岗位, 任职, 负责人关系, 角色, 成员角色, 模板, 证书, 离职] = await Promise.all([
+          组织读取组织树(),
+          组织读取渠道组织树(),
+          组织查询岗位(),
+          组织查询任职(),
+          组织查询负责人关系(),
+          组织查询业务角色(),
+          组织查询成员业务角色(),
+          组织查询证书模板(),
+          组织查询成员证书(),
+          组织查询离职交接(),
+        ]);
+        组织树.value = 组织.items;
+        渠道组织树.value = 渠道.items;
+        岗位列表.value = 岗位.items;
+        任职列表.value = 任职.items;
+        负责人关系列表.value = 负责人关系.items;
+        业务角色列表.value = 角色.items;
+        成员业务角色列表.value = 成员角色.items;
+        证书模板列表.value = 模板.items;
+        成员证书列表.value = 证书.items;
+        离职交接列表.value = 离职.items;
+        await 加载角色管理数据();
+        组织统计未归集管理账号().then((结果) => { 未归集管理账号数.value = 结果?.unassigned || 0; }).catch(() => { 未归集管理账号数.value = 0; });
+
+        if (状态.directorySyncEnabled) {
+          try {
+            const [同步状态, 批次, 差异] = await Promise.all([
+              组织读取企微同步状态(),
+              组织查询企微同步批次({ pageSize: 10 }),
+              组织查询企微同步差异(),
+            ]);
+            企微同步状态.value = 同步状态;
+            同步批次列表.value = 批次.items;
+            同步差异列表.value = 差异.items;
+          } catch (error) {
+            同步错误提示.value = 读取错误信息(error, '企微同步状态读取失败，请稍后重试。');
+          }
+        }
+      } catch (error) {
+        if (error instanceof 组织接口错误 && error.错误码 === 'ORG_PERMISSION_DENIED') {
+          错误提示.value = '当前账号无权访问组织架构数据。';
+          return;
+        }
+        错误提示.value = 读取错误信息(error, '组织架构数据读取失败，请稍后重试。');
+      } finally {
+        加载中.value = false;
+        if (已启用.value) 加载证书筛选结果();
+      }
+    }
+
+    function 切换栏目(栏目) {
+      const 目标 = 导航项列表.find((item) => item.栏目 === 栏目);
+      if (目标) 路由器.replace(目标.路径);
+    }
+
+    function 触发文件选择(类型) {
+      const 输入 = 类型 === '部门' ? 部门文件输入.value : 成员文件输入.value;
+      if (输入) 输入.click();
+    }
+
+    function 解析Excel工作簿(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const workbook = XLSX.read(new Uint8Array(event.target.result), { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            resolve(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+          } catch (error) {
+            reject(new Error('Excel 解析失败：' + (error instanceof Error ? error.message : String(error))));
+          }
+        };
+        reader.onerror = () => reject(new Error('文件读取失败。'));
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function 导出工作簿(表头, 行数据, 文件名, 工作表名) {
+      const worksheet = XLSX.utils.aoa_to_sheet([表头, ...行数据]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 工作表名 || '组织架构');
+      XLSX.writeFile(workbook, 文件名);
+    }
+
+    async function 导出部门Excel() {
+      try {
+        const 结果 = await 组织导出部门();
+        导出工作簿(
+          ['部门名称', '上级部门', '排序', '状态'],
+          (结果.items || []).map((item) => [item.name, item.parentName || '', item.sortOrder ?? 0, item.statusCode]),
+          '组织架构-部门导出.xlsx',
+          '部门',
+        );
+      } catch (error) {
+        ElementPlus.ElMessage.error(读取错误信息(error, '部门导出失败。'));
+      }
+    }
+
+    async function 导出成员Excel() {
+      try {
+        const 结果 = await 组织导出成员();
+        导出工作簿(
+          ['用户名', '姓名', '部门名称', '生效时间'],
+          (结果.items || []).map((item) => [item.username, item.displayName, item.departmentName, item.effectiveAt || '']),
+          '组织架构-成员导出.xlsx',
+          '成员',
+        );
+      } catch (error) {
+        ElementPlus.ElMessage.error(读取错误信息(error, '成员导出失败。'));
+      }
+    }
+
+    async function 处理部门导入文件(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file || !可写.value) return;
+      try {
+        const 原始行 = await 解析Excel工作簿(file);
+        const 行数据 = 原始行
+          .map((row) => ({
+            name: String(row['部门名称'] ?? '').trim(),
+            parentName: String(row['上级部门'] ?? '').trim() || undefined,
+            sortOrder: Number(row['排序'] ?? 0) || 0,
+            statusCode: ['active', 'draft', 'disabled'].includes(String(row['状态'] ?? '').trim())
+              ? String(row['状态']).trim()
+              : 'active',
+          }))
+          .filter((row) => row.name);
+        if (!行数据.length) {
+          ElementPlus.ElMessage.warning('未识别到有效部门数据，请按「部门名称/上级部门/排序/状态」表头填写。');
+          return;
+        }
+        const 结果 = await 组织导入部门(行数据);
+        ElementPlus.ElMessage.success('部门导入完成，共 ' + 结果.imported + ' 条。');
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error(读取错误信息(error, '部门导入失败。'));
+      }
+    }
+
+    async function 处理成员导入文件(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file || !可写.value) return;
+      try {
+        const 原始行 = await 解析Excel工作簿(file);
+        const 行数据 = 原始行
+          .map((row) => ({
+            username: String(row['用户名'] ?? '').trim(),
+            departmentName: String(row['部门名称'] ?? '').trim(),
+          }))
+          .filter((row) => row.username && row.departmentName);
+        if (!行数据.length) {
+          ElementPlus.ElMessage.warning('未识别到有效成员数据，请按「用户名/部门名称」表头填写。');
+          return;
+        }
+        const 结果 = await 组织导入成员(行数据);
+        ElementPlus.ElMessage.success('成员导入完成，共 ' + 结果.imported + ' 条。');
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error(读取错误信息(error, '成员导入失败。'));
+      }
+    }
+
+    function 打开新建弹窗(类型) {
+      当前新建类型.value = 类型;
+      新建弹窗打开.value = true;
+    }
+
+    function 重置新建表单() {
+      Object.assign(新建表单, {
+        unitCode: '',
+        unitName: '',
+        unitType: 'department',
+        parentUnitId: '',
+        sortOrder: 0,
+        orgUnitId: '',
+        positionCode: '',
+        positionName: '',
+        positionCategory: 'other',
+        roleCode: '',
+        roleName: '',
+        domainCode: 'internal',
+        roleCategory: 'other',
+        linkedCertificationTemplateId: '',
+        templateCode: '',
+        templateName: '',
+        templateCategory: 'other',
+        issuerName: '',
+        validityMonths: undefined,
+      });
+    }
+
+    async function 提交新建() {
+      if (!可写.value) return;
+      提交中.value = true;
+      try {
+        const 选项 = { 幂等键: 生成组织幂等键() };
+        if (当前新建类型.value === 'unit') {
+          await 组织创建组织({
+            unitName: 新建表单.unitName,
+            ...(新建表单.parentUnitId ? { parentUnitId: 新建表单.parentUnitId } : {}),
+            sortOrder: Number(新建表单.sortOrder),
+          }, 选项);
+        } else if (当前新建类型.value === 'businessRole') {
+          await 组织创建业务角色({
+            roleCode: 新建表单.roleCode,
+            roleName: 新建表单.roleName,
+            domainCode: 新建表单.domainCode,
+            category: 新建表单.roleCategory,
+            ...(新建表单.linkedCertificationTemplateId ? { linkedCertificationTemplateId: 新建表单.linkedCertificationTemplateId } : {}),
+          }, 选项);
+        } else {
+          await 组织创建证书模板({
+            templateCode: 新建表单.templateCode,
+            templateName: 新建表单.templateName,
+            category: 新建表单.templateCategory,
+            issuerName: 新建表单.issuerName,
+            ...(新建表单.validityMonths ? { validityMonths: Number(新建表单.validityMonths) } : {}),
+          }, 选项);
+        }
+        ElementPlus.ElMessage.success('已提交并写入审计记录。');
+        新建弹窗打开.value = false;
+        重置新建表单();
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error(读取错误信息(error, '提交失败，请检查填写内容后重试。'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+
+
+    // —— 管理员角色与用户角色分配（RBAC，仅超管可管理）——
+    function 角色范围摘要(角色) {
+      if (角色.isSystem) return '全局';
+      const 范围 = 角色.scopes || [];
+      if (!范围.length) return '无';
+      const 名称 = { all: '全局', self: '仅本人', org_subtree: '部门', region: '区域', partner: '渠道商' };
+      return Array.from(new Set(范围.map((项) => 名称[项.scopeType] || 项.scopeType))).join('、');
+    }
+    async function 加载角色管理数据() {
+      try {
+        const [角色列表, 权限] = await Promise.all([组织读取角色列表(), 组织读取权限字典()]);
+        角色管理列表.value = 角色列表.items || [];
+        权限字典.value = 权限;
+        角色管理错误.value = '';
+      } catch (error) {
+        角色管理错误.value = 读取错误信息(error, '角色管理数据读取失败，请稍后重试。');
+      }
+    }
+    function 打开角色编辑(角色) {
+      角色表单.id = 角色 ? 角色.id : '';
+      角色表单.roleName = 角色 ? (角色.roleName || '') : '';
+      角色表单.description = 角色 ? (角色.description || '') : '';
+      角色表单.permissionCodes = 角色 ? (角色.permissionCodes || []).slice() : [];
+      角色表单.范围.全局 = false;
+      角色表单.范围.仅本人 = false;
+      角色表单.范围.部门Ids = [];
+      角色表单.范围.渠道Ids = [];
+      if (角色) {
+        for (const 项 of (角色.scopes || [])) {
+          if (项.scopeType === 'all') 角色表单.范围.全局 = true;
+          else if (项.scopeType === 'self') 角色表单.范围.仅本人 = true;
+          else if (项.scopeType === 'org_subtree' && 项.scopeRefId) 角色表单.范围.部门Ids.push(项.scopeRefId);
+          else if (项.scopeRefId) 角色表单.范围.渠道Ids.push(项.scopeRefId);
+        }
+      }
+      角色编辑弹窗打开.value = true;
+    }
+    function 组装角色范围提交() {
+      const 范围 = [];
+      if (角色表单.范围.全局) 范围.push({ scopeType: 'all' });
+      if (角色表单.范围.仅本人) 范围.push({ scopeType: 'self' });
+      for (const id of 角色表单.范围.部门Ids) 范围.push({ scopeType: 'org_subtree', scopeRefId: id });
+      for (const id of 角色表单.范围.渠道Ids) {
+        // 渠道组织树包含大区/区域（region）与渠道商（partner）两类节点，须按节点实际类型分别提交，
+        // 否则渠道商会被误标为区域范围，导致范围识别与校验失败（后端白名单已支持 partner）。
+        const 目标 = 平铺渠道组织列表.value.find((项) => 项.id === id);
+        const 是渠道商 = Boolean(目标 && (目标.partnerName || 目标.partnerCode));
+        范围.push({ scopeType: 是渠道商 ? 'partner' : 'region', scopeRefId: id });
+      }
+      return 范围;
+    }
+    async function 提交角色保存() {
+      if (!可写.value) return;
+      if (!角色表单.roleName.trim()) { ElementPlus.ElMessage.warning('请填写角色名称。'); return; }
+      提交中.value = true;
+      try {
+        const 载荷 = {
+          roleName: 角色表单.roleName.trim(),
+          description: 角色表单.description.trim(),
+          permissionCodes: 角色表单.permissionCodes,
+          scopes: 组装角色范围提交(),
+        };
+        if (角色表单.id) await 组织更新角色(角色表单.id, 载荷);
+        else await 组织新建角色(载荷);
+        ElementPlus.ElMessage.success('角色已保存。');
+        角色编辑弹窗打开.value = false;
+        await 加载角色管理数据();
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 切换角色状态(角色) {
+      if (!可写.value) return;
+      const 新状态 = 角色.statusCode === 'disabled' ? 'active' : 'disabled';
+      try {
+        await 组织更新角色状态(角色.id, { statusCode: 新状态 });
+        ElementPlus.ElMessage.success(新状态 === 'active' ? '角色已启用。' : '角色已停用。');
+        await 加载角色管理数据();
+      } catch (error) {
+        ElementPlus.ElMessage.error('操作失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    async function 保存用户管理员角色() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!confirm('确认更新“' + 编辑用户.value.name + '”的系统角色吗？此操作仅改变本系统的角色授权，不修改 IAM、UniSDP 外部身份映射或单点登录会话。')) return;
+      提交中.value = true;
+      try {
+        await 组织覆盖用户角色(编辑用户.value.id, { roleIds: 编辑用户管理员角色Ids.value });
+        编辑用户.value.systemRoleCodes = 编辑用户已选角色.value.map((角色) => 角色.roleCode);
+        ElementPlus.ElMessage.success('管理员角色已更新。');
+        await 加载角色管理数据();
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 打开角色用户(角色) {
+      当前角色用户角色.value = 角色;
+      角色用户数据.value = { items: [], page: 1, pageSize: 20, total: 0 };
+      角色用户弹窗打开.value = true;
+      await 加载角色用户(1);
+    }
+    async function 加载角色用户(page = 1) {
+      if (!当前角色用户角色.value) return;
+      角色用户加载中.value = true;
+      try {
+        const 结果 = await 组织查询角色用户(当前角色用户角色.value.id, { page, pageSize: 20 });
+        角色用户数据.value = 结果;
+      } catch (error) {
+        ElementPlus.ElMessage.error('读取角色用户失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        角色用户加载中.value = false;
+      }
+    }
+    async function 打开角色用户账号(账号) {
+      角色用户弹窗打开.value = false;
+      await nextTick();
+      await 打开账号编辑(账号, 账号.partnerMembershipSummary ? 'channel' : 'internal');
+    }
+
+    // —— 账号统一维护（组织架构内编辑/新建，不触碰登录与单点登录）——
+    const 当前部门岗位列表 = computed(() =>
+      新任职表单.orgUnitId ? 岗位列表.value.filter((p) => p.orgUnitId === 新任职表单.orgUnitId && p.statusCode === 'active') : []
+    );
+    const 编辑部门岗位列表 = computed(() =>
+      新建用户表单.orgUnitId ? 岗位列表.value.filter((p) => p.orgUnitId === 新建用户表单.orgUnitId && p.statusCode === 'active') : []
+    );
+
+    function 角色中文(角色) {
+      return { superadmin: '超级管理员', admin: '区域管理员', region_manager: '区域管理员', partner_admin: '企业管理员', staff: '员工' }[角色] || 角色 || '—';
+    }
+    function 离职交接领域中文(领域) {
+      return { customer: '客户', registration: '报备', opportunity: '商机', quote: '报价', order: '订单', approval: '待处理审批' }[领域] || 领域 || '—';
+    }
+    function 状态中文(状态, 空文本 = '—') {
+      const 映射 = {
+        active: '启用', disabled: '停用', pending: '待审批', approved: '已审批', rejected: '已驳回',
+        processing: '处理中', completed: '已完成', closed: '已关闭', expired: '已过期', revoked: '已撤销',
+        locked: '已锁定', draft: '草稿', syncing: '同步中', success: '成功', failed: '失败',
+        applied: '已应用', skipped: '已跳过', running: '运行中', inactive: '停用',
+      };
+      return 状态 === null || 状态 === undefined || String(状态).trim() === '' ? 空文本 : (映射[状态] || 状态);
+    }
+    function 泛微候选来源中文(来源) { return 来源 === 'eteams_directory' ? '泛微用户目录' : '人工录入'; }
+    function 泛微候选状态中文(状态) {
+      return { pending: '待核验', confirmed: '已确认', rejected: '已驳回', superseded: '已替代' }[状态] || 状态 || '—';
+    }
+    function 填充泛微候选表单(候选) {
+      泛微候选表单.externalSubject = 候选?.externalSubject || '';
+      泛微候选表单.externalUsername = 候选?.externalUsername || '';
+      泛微候选表单.sourceCode = 候选?.sourceCode || 'manual';
+    }
+    function 重置泛微候选表单() { 填充泛微候选表单(null); }
+    function 领域中文(域) { return { internal: '内部', channel: '渠道' }[域] || 域 || '—'; }
+    function 业务角色类别中文(类别) {
+      return { sales: '销售', pre_sales: '售前', post_sales: '售后', tech_engineer: '技术工程师', business_assistant: '业务助理', manager: '管理', other: '其他' }[类别] || 类别 || '—';
+    }
+    function 证书类别中文(类别) { return 类别 === 'other' ? '通用' : (类别 || '—'); }
+    function 同步运行类型中文(类型) { return { full: '全量', incremental: '增量' }[类型] || 类型 || '—'; }
+    function 同步对象中文(对象) { return { user: '用户', department: '部门', partner: '渠道商' }[对象] || 对象 || '—'; }
+    function 同步变更类型中文(类型) { return { create: '新增', update: '更新', disable: '停用', delete: '删除', move: '移动', rename: '改名' }[类型] || 类型 || '—'; }
+    function 风险级别中文(级别) { return { low: '低', medium: '中', high: '高' }[级别] || 级别 || '—'; }
+    function 审批状态中文(状态) { return { pending: '待审批', approved: '已审批', rejected: '已驳回' }[状态] || 状态 || '—'; }
+    function 应用状态中文(状态) { return { pending: '待应用', applied: '已应用', skipped: '已跳过', failed: '失败' }[状态] || 状态 || '—'; }
+    function 格式化时间(值, 空文本) { return formatBusinessDateTime(值, 空文本); }
+
+    function 解析账号行(行) {
+      const 原始 = 行.原始数据 || {};
+      const 系统角色编码 = 行.systemRoleCodes || 原始.systemRoleCodes || [];
+      return {
+        id: 行.id,
+        username: 行.username || 行.负责人 || 原始.username || '',
+        name: 行.displayName || 行.标题 || 原始.name || '',
+        role: 系统角色编码[0] || 原始.role || 'staff',
+        systemRoleCodes: 系统角色编码,
+        systemRoleNames: 行.systemRoleNames || 原始.systemRoleNames || [],
+        status: 行.statusCode || 行.状态 || 原始.status || 'active',
+        phone: 行.phone || 原始.phone || '',
+        email: 行.email || 原始.email || '',
+        internalAssignmentSummary: 行.internalAssignmentSummary || '',
+        partnerMembershipSummary: 行.partnerMembershipSummary || '',
+      };
+    }
+    function 账号角色摘要(账号) {
+      return (账号.systemRoleNames || []).join('、') || 角色中文(账号.role);
+    }
+    function 延迟检索账号() {
+      if (账号检索定时器) clearTimeout(账号检索定时器);
+      const 词 = String(账号检索词.value || '').trim();
+      if (!词) {
+        账号检索已执行.value = false;
+        账号检索结果.value = [];
+        账号检索错误.value = '';
+        return;
+      }
+      账号检索定时器 = setTimeout(() => { 检索账号(); }, 300);
+    }
+    async function 检索账号() {
+      const 词 = String(账号检索词.value || '').trim();
+      账号检索结果.value = [];
+      账号检索错误.value = '';
+      账号检索已执行.value = Boolean(词);
+      if (!词) return;
+      账号检索中.value = true;
+      try {
+        const 结果 = await 组织查询账号({ keyword: 词 });
+        账号检索结果.value = (结果.items || []).map(解析账号行);
+      } catch (error) {
+        账号检索错误.value = 读取错误信息(error, '账号检索失败，请稍后重试。');
+      } finally {
+        账号检索中.value = false;
+      }
+    }
+    async function 打开账号编辑(账号, 模式 = 'internal', 渠道成员 = null) {
+      let 目标 = 账号 && 账号.id ? 解析账号行(账号) : null;
+      if (!目标) return;
+      if (!Object.prototype.hasOwnProperty.call(账号, 'phone')) {
+        try {
+          const 结果 = await 组织查询账号({ keyword: 目标.username });
+          const 完整账号 = (结果.items || []).find((项) => 项.id === 目标.id);
+          if (!完整账号) throw new Error('未找到账号完整信息。');
+          目标 = 解析账号行(完整账号);
+        } catch (error) {
+          ElementPlus.ElMessage.error('读取账号信息失败：' + 读取错误信息(error, '未知错误'));
+          return;
+        }
+      }
+      编辑模式.value = 模式;
+      编辑渠道成员.value = 渠道成员 || { partnerId: '', partnerName: '', memberId: '' };
+      编辑用户.value = { ...目标, avatar: (目标.name || '?').slice(0, 1) };
+      基本信息表单.name = 目标.name || '';
+      基本信息表单.phone = 目标.phone || '';
+      基本信息表单.email = 目标.email || '';
+      基本信息表单.status = 目标.status === 'disabled' ? 'disabled' : 'active';
+      // 抽屉打开时主动重取证书模板，避免初次加载慢或切换环境后下拉无选项
+      try {
+        const 模板结果 = await 组织查询证书模板();
+        证书模板列表.value = 模板结果.items || [];
+      } catch (_) { /* 保留既有列表 */ }
+      await 加载编辑详情(目标.id);
+      try {
+        const 用户角色 = await 组织读取用户角色(目标.id);
+        编辑用户管理员角色Ids.value = (用户角色.roleIds || []).slice();
+      } catch (error) {
+        编辑用户管理员角色Ids.value = [];
+      }
+      编辑抽屉打开.value = true;
+    }
+    async function 打开成员编辑(成员) {
+      await 打开账号编辑({
+        id: 成员.userId,
+        username: 成员.username,
+        name: 成员.displayName,
+        role: 'staff',
+        status: 'active',
+      });
+    }
+    async function 打开渠道成员授权(成员) {
+      await 打开账号编辑({
+        id: 成员.userId,
+        username: 成员.username,
+        displayName: 成员.displayName,
+        statusCode: 成员.statusCode,
+        phone: 成员.phone,
+        email: 成员.email,
+      }, 'channel', { partnerId: 成员.partnerId, partnerName: 成员.partnerName, memberId: 成员.id });
+    }
+    function 打开统一渠道成员资料(成员) {
+      统一渠道成员.value = {
+        ...成员,
+        partnerMemberId: 成员.id,
+        partnerName: 成员.partnerName || 当前渠道名称.value,
+      };
+    }
+    async function 处理统一渠道成员已保存() {
+      await 加载页面();
+    }
+    async function 打开任职编辑(任职) {
+      await 打开账号编辑({ id: 任职.userId, username: '', name: 任职.displayName, role: 'staff', status: 'active' });
+    }
+    async function 加载编辑详情(userId) {
+      编辑用户任职.value = 任职列表.value.filter((项) => 项.userId === userId && !项.expiredAt);
+      编辑用户业务角色.value = 成员业务角色列表.value.filter((项) => {
+        if (项.userId !== userId || 项.expiredAt) return false;
+        if (编辑模式.value === 'channel') return 项.partnerMemberId === 编辑渠道成员.value.memberId;
+        return Boolean(项.staffAssignmentId);
+      });
+      try {
+        const 证书结果 = await 组织查询成员证书({ userId });
+        编辑用户证书.value = 证书结果.items || [];
+      } catch (error) {
+        编辑用户证书.value = [];
+        ElementPlus.ElMessage.warning('该人员的证书读取失败，请稍后重试：' + 读取错误信息(error, '未知错误'));
+      }
+      try {
+        泛微OA身份.value = await 组织读取泛微OA身份(userId);
+        填充泛微候选表单(待核验泛微候选.value);
+      } catch (error) {
+        泛微OA身份.value = null;
+        重置泛微候选表单();
+        ElementPlus.ElMessage.warning('泛微 OA 身份读取失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    async function 保存泛微候选() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!String(泛微候选表单.externalSubject || '').trim() || !String(泛微候选表单.externalUsername || '').trim()) {
+        ElementPlus.ElMessage.warning('请填写泛微 OA userid 和对方姓名或登录名。');
+        return;
+      }
+      提交中.value = true;
+      try {
+        const 内容 = {
+          externalSubject: 泛微候选表单.externalSubject.trim(),
+          externalUsername: 泛微候选表单.externalUsername.trim(),
+          sourceCode: 泛微候选表单.sourceCode,
+        };
+        if (待核验泛微候选.value) {
+          await 组织更新泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, 内容, {
+            rowVersion: 待核验泛微候选.value.rowVersion,
+            幂等键: 生成组织幂等键(),
+          });
+          ElementPlus.ElMessage.success('泛微 OA 身份候选已更新，仍需人工确认。');
+        } else {
+          await 组织创建泛微OA身份候选(编辑用户.value.id, 内容, { 幂等键: 生成组织幂等键() });
+          ElementPlus.ElMessage.success('泛微 OA 身份候选已保存，尚不能用于发起流程。');
+        }
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存候选失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 确认当前泛微候选() {
+      if (!编辑用户.value || !待核验泛微候选.value || !可写.value) return;
+      const 核验说明 = prompt('请填写核验依据（可留空）；确认后该身份将可用于 OA 发起：', '');
+      if (核验说明 === null) return;
+      if (!confirm('确认该泛微 OA userid 已属于当前账号？确认后将创建正式映射。')) return;
+      提交中.value = true;
+      try {
+        const 内容 = 核验说明.trim() ? { verificationNote: 核验说明.trim() } : {};
+        await 组织确认泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, 内容, {
+          rowVersion: 待核验泛微候选.value.rowVersion,
+          幂等键: 生成组织幂等键(),
+        });
+        ElementPlus.ElMessage.success('泛微 OA 身份已确认，可供后续订单预审流程使用。');
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('确认失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 驳回当前泛微候选() {
+      if (!编辑用户.value || !待核验泛微候选.value || !可写.value) return;
+      const 原因 = prompt('请填写驳回原因：', '');
+      if (原因 === null) return;
+      if (!原因.trim()) {
+        ElementPlus.ElMessage.warning('请填写驳回原因。');
+        return;
+      }
+      提交中.value = true;
+      try {
+        await 组织驳回泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, { rejectedReason: 原因.trim() }, {
+          rowVersion: 待核验泛微候选.value.rowVersion,
+          幂等键: 生成组织幂等键(),
+        });
+        ElementPlus.ElMessage.success('泛微 OA 身份候选已驳回。');
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('驳回失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 停用当前泛微正式身份() {
+      if (!编辑用户.value || !泛微OA身份.value?.formalIdentity || !可写.value) return;
+      const 原因 = prompt('请填写停用原因：', '');
+      if (原因 === null) return;
+      if (!原因.trim()) {
+        ElementPlus.ElMessage.warning('请填写停用原因。');
+        return;
+      }
+      if (!confirm('停用后该账号不能再作为 OA 流程发起人，确认继续？')) return;
+      提交中.value = true;
+      try {
+        await 组织停用泛微OA身份(编辑用户.value.id, {
+          identityId: 泛微OA身份.value.formalIdentity.id,
+          reason: 原因.trim(),
+        }, {
+          rowVersion: 泛微OA身份.value.formalIdentity.rowVersion,
+          幂等键: 生成组织幂等键(),
+        });
+        ElementPlus.ElMessage.success('泛微 OA 正式身份已停用，历史记录仍保留。');
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('停用失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 处理账号深链() {
+      if (账号深链已处理.value || !已启用.value) return;
+      const 账号 = String(路由.query.account || '').trim();
+      if (!账号) return;
+      账号深链已处理.value = true;
+      账号检索词.value = 账号;
+      await 检索账号();
+      const 目标 = 账号检索结果.value.find((项) =>
+        String(项.username || '').toLowerCase() === 账号.toLowerCase()
+      );
+      if (!目标) {
+        ElementPlus.ElMessage.error('未找到需要停用交接的管理员账号。');
+        return;
+      }
+      await 打开账号编辑(目标, 'internal');
+      if (路由.query.action === 'offboarding') await 打开停用归档();
+      await 路由器.replace({ path: 路由.path });
+    }
+    function 任职部门名(任职) {
+      const 节点 = 查找树节点(树数据.value, 任职.orgUnitId);
+      return 节点 ? 节点.label : '—';
+    }
+    function 编辑用户主职任职() {
+      return 编辑用户任职.value.find((项) => 项.isPrimary) || 编辑用户任职.value[0] || null;
+    }
+    async function 保存基本信息() {
+      if (!编辑用户.value || !可写.value) return;
+      提交中.value = true;
+      try {
+        const 结果 = await apiRequest('PUT', '/users/' + encodeURIComponent(编辑用户.value.id), {
+          name: 基本信息表单.name,
+          phone: 基本信息表单.phone,
+          email: 基本信息表单.email,
+        });
+        if (!结果.success) {
+          ElementPlus.ElMessage.error('保存失败：' + (结果.error || '未知错误'));
+          return;
+        }
+        ElementPlus.ElMessage.success('基本信息已保存。');
+        编辑用户.value.name = 基本信息表单.name;
+        编辑用户.value.phone = 基本信息表单.phone;
+        编辑用户.value.email = 基本信息表单.email;
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 重置密码() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!confirm('确认将「' + 编辑用户.value.name + '」的密码重置为 123456 吗？')) return;
+      try {
+        const 结果 = await apiRequest('PUT', '/users/' + encodeURIComponent(编辑用户.value.id) + '/password', { password: '123456' });
+        if (!结果.success) { ElementPlus.ElMessage.error('重置失败：' + (结果.error || '未知错误')); return; }
+        ElementPlus.ElMessage.success('密码已重置为 123456。');
+      } catch (error) {
+        ElementPlus.ElMessage.error('重置失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    async function 打开停用归档() {
+      if (!编辑用户.value || !可写.value) return;
+      提交中.value = true;
+      try {
+        const 预览 = await 组织预览离职影响(编辑用户.value.id);
+        离职影响预览.value = 预览;
+        离职确认表单.replacementUserId = 预览.recommendedReplacementUserId || '';
+        离职确认表单.reason = '';
+        离职确认表单.confirmationUsername = '';
+        离职交接弹窗打开.value = true;
+      } catch (error) {
+        ElementPlus.ElMessage.error('影响预览失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 确认停用归档() {
+      if (!编辑用户.value || !可提交离职交接.value) return;
+      提交中.value = true;
+      try {
+        const 结果 = await 组织发起离职交接({
+          userId: 编辑用户.value.id,
+          effectiveAt: new Date().toISOString(),
+          ...(离职确认表单.replacementUserId ? { replacementUserId: 离职确认表单.replacementUserId } : {}),
+          reason: 离职确认表单.reason.trim(),
+          confirmationUsername: 离职确认表单.confirmationUsername.trim(),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('账号已停用并创建交接单，待处理 ' + (结果.affectedCount || 0) + ' 条。');
+        离职交接弹窗打开.value = false;
+        关闭编辑抽屉();
+        await 加载页面();
+        if (账号检索已执行.value) await 检索账号();
+      } catch (error) {
+        ElementPlus.ElMessage.error('停用归档失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    function 开始调整任职(任职) {
+      编辑任职Id.value = 任职.id;
+      新任职表单.orgUnitId = 任职.orgUnitId || '';
+      新任职表单.positionId = 任职.positionId || '';
+      新任职表单.isPrimary = true;
+      新任职表单.rowVersion = Number(任职.rowVersion || 1);
+    }
+    function 取消调整任职() {
+      编辑任职Id.value = '';
+      新任职表单.orgUnitId = '';
+      新任职表单.positionId = '';
+      新任职表单.isPrimary = true;
+      新任职表单.rowVersion = 1;
+    }
+    async function 保存任职() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!新任职表单.orgUnitId) { ElementPlus.ElMessage.warning('请选择部门。'); return; }
+      提交中.value = true;
+      try {
+        const 内容 = {
+          orgUnitId: 新任职表单.orgUnitId,
+          ...(新任职表单.positionId ? { positionId: 新任职表单.positionId } : {}),
+          isPrimary: true,
+        };
+        if (编辑任职Id.value) {
+          await 组织更新任职(编辑任职Id.value, {
+            ...内容,
+            rowVersion: 新任职表单.rowVersion,
+          }, { 幂等键: 生成组织幂等键() });
+          ElementPlus.ElMessage.success('任职已调整。');
+        } else {
+          await 组织创建任职(编辑用户.value.id, 内容, { 幂等键: 生成组织幂等键() });
+          ElementPlus.ElMessage.success('任职已添加。');
+        }
+        取消调整任职();
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('保存任职失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 结束任职(任职) {
+      if (!可写.value) return;
+      if (!confirm('确认结束该任职吗？')) return;
+      try {
+        await 组织结束任职(任职.id, { rowVersion: 任职.rowVersion }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('任职已结束。');
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('操作失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    async function 指派业务角色() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!新业务角色表单.businessRoleId) { ElementPlus.ElMessage.warning('请选择业务角色。'); return; }
+      const 是渠道 = 编辑模式.value === 'channel';
+      const 主职 = 编辑用户主职任职();
+      if (!是渠道 && !主职) { ElementPlus.ElMessage.warning('请先为账号添加任职，再指派业务角色。'); return; }
+      if (是渠道 && !编辑渠道成员.value.memberId) { ElementPlus.ElMessage.warning('缺少渠道成员关系，无法指派业务角色。'); return; }
+      提交中.value = true;
+      try {
+        await 组织指派成员业务角色({
+          businessRoleId: 新业务角色表单.businessRoleId,
+          ...(是渠道 ? { partnerMemberId: 编辑渠道成员.value.memberId } : { staffAssignmentId: 主职.id }),
+          isPrimaryDisplay: true,
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('业务角色已指派。');
+        新业务角色表单.businessRoleId = '';
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('指派失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 结束业务角色(角色) {
+      if (!可写.value) return;
+      if (!confirm('确认结束该业务角色吗？')) return;
+      try {
+        await 组织结束成员业务角色(角色.id, { rowVersion: 角色.rowVersion }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('业务角色已结束。');
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('操作失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    async function 颁发证书() {
+      if (!编辑用户.value || !可写.value) return;
+      if (!新证书表单.certificationTemplateId) { ElementPlus.ElMessage.warning('请选择证书名称。'); return; }
+      提交中.value = true;
+      try {
+        await 组织颁发证书(编辑用户.value.id, {
+          certificationTemplateId: 新证书表单.certificationTemplateId,
+          certificateNo: 新证书表单.certificateNo || '',
+          issuedOn: new Date().toISOString().slice(0, 10),
+          ...(新证书表单.expiresOn ? { expiresOn: 新证书表单.expiresOn } : {}),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('证书已颁发。');
+        新证书表单.certificationTemplateId = ''; 新证书表单.certificateNo = ''; 新证书表单.expiresOn = '';
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('颁发失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 撤销证书(证) {
+      if (!可写.value) return;
+      if (!confirm('确认撤销证书「' + 证.templateName + '」吗？')) return;
+      try {
+        await 组织撤销证书(证.id, { reason: '管理员撤销', rowVersion: 证.rowVersion }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('证书已撤销。');
+        await 加载页面();
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('操作失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    function 关闭编辑抽屉() {
+      编辑抽屉打开.value = false;
+      编辑用户.value = null;
+      编辑模式.value = 'internal';
+      编辑渠道成员.value = { partnerId: '', partnerName: '', memberId: '' };
+      渠道角色表单.role = 'staff';
+      编辑用户任职.value = [];
+      编辑用户业务角色.value = [];
+      编辑用户证书.value = [];
+      泛微OA身份.value = null;
+      重置泛微候选表单();
+      取消调整任职();
+      新业务角色表单.businessRoleId = '';
+      新证书表单.certificationTemplateId = ''; 新证书表单.certificateNo = ''; 新证书表单.expiresOn = '';
+    }
+    async function 打开渠道同步预览() {
+      if (!可写.value) return;
+      渠道同步中.value = true;
+      try {
+        const 摘要 = await 组织预览渠道商同步();
+        渠道同步预览摘要.value = 摘要;
+        渠道同步弹窗打开.value = true;
+      } catch (error) {
+        ElementPlus.ElMessage.error('读取渠道商同步预览失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        渠道同步中.value = false;
+      }
+    }
+
+    async function 执行渠道商同步() {
+      if (!可写.value) return;
+      const 摘要 = 渠道同步预览摘要.value;
+      if (!摘要) return;
+      const 待处理 = 摘要.missingRegionPartners?.length || 0;
+      const 提示 = 待处理 === 0
+        ? '当前没有未关联区域的渠道商，无需同步。确认关闭？'
+        : '将以 channel.partners 为事实来源，创建缺失的渠道区域并关联到对应渠道商（与 channel.partners 一一对应，DEC-0011）。共将处理 ' + 待处理 + ' 个渠道商。确认继续？';
+      if (!confirm(提示)) return;
+      渠道同步中.value = true;
+      try {
+        const 结果 = await 组织执行渠道商同步({ 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success(
+          '同步完成：扫描 ' + (结果.partnerScanned || 0) + ' 个渠道商，新建区域 ' + (结果.regionCreated || 0) + ' 个、关联 ' + (结果.partnerLinked || 0) + ' 个。',
+        );
+        渠道同步弹窗打开.value = false;
+        await 加载页面();
+        await 打开渠道同步预览();
+      } catch (error) {
+        ElementPlus.ElMessage.error('渠道商同步失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        渠道同步中.value = false;
+      }
+    }
+    const 证书筛选树数据 = computed(() => [
+      { id: 'internal-root', label: '联软总部', type: 'org-root', children: 树数据.value },
+      { id: 'channel-root', label: '渠道组织架构', type: 'channel-root', children: 渠道树数据.value },
+    ]);
+    const 证书筛选节点名称 = computed(() => {
+      const 节点 = 证书筛选节点.value;
+      if (!节点) return '全部持证记录';
+      if (节点.type === 'org-root') return '联软总部及全部内部部门';
+      if (节点.type === 'channel-root') return '渠道组织架构全部';
+      if (节点.type === 'big_region') return '大区：' + 节点.label;
+      if (节点.type === 'region') return '区域：' + 节点.label;
+      if (节点.type === 'partner') return '渠道商：' + 节点.label;
+      if (节点.type === 'unassigned') return '未分配区域';
+      if (节点.type === 'org_unit') return '部门：' + 节点.label;
+      return '渠道组织：' + 节点.label;
+    });
+    function 选择证书筛选节点(节点) {
+      证书筛选节点.value = 节点;
+      加载证书筛选结果();
+    }
+    async function 加载证书筛选结果() {
+      if (!已启用.value) return;
+      提交中.value = true;
+      try {
+        const 节点 = 证书筛选节点.value;
+        const 筛选 = {};
+        if (节点 && 节点.type === 'org-root') {
+          const 根部门 = 树数据.value[0];
+          if (根部门) 筛选.orgUnitId = 根部门.id;
+        } else if (节点 && 节点.type === 'org_unit') {
+          筛选.orgUnitId = 节点.id;
+        } else if (节点 && 节点.type === 'partner') {
+          筛选.partnerId = 节点.id;
+        } else if (节点 && (节点.type === 'big_region' || 节点.type === 'region')) {
+          筛选.regionId = 节点.id;
+        }
+        if (证书筛选类别.value) 筛选.category = 证书筛选类别.value;
+        if (证书名称检索词.value.trim()) 筛选.templateName = 证书名称检索词.value.trim();
+        const 证书 = await 组织查询成员证书(筛选);
+        成员证书列表.value = 证书.items;
+      } catch (error) {
+        ElementPlus.ElMessage.error('查询失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    function 重置证书筛选() {
+      证书筛选节点.value = null;
+      证书筛选类别.value = '';
+      证书名称检索词.value = '';
+      加载证书筛选结果();
+    }
+    function 打开新建用户弹窗() {
+      新建用户表单.username = ''; 新建用户表单.name = ''; 新建用户表单.phone = ''; 新建用户表单.email = '';
+      新建用户表单.password = '123456'; 新建用户表单.status = 'active'; 新建用户表单.role = 'staff';
+      新建用户表单.bigRegion = ''; 新建用户表单.region = '';
+      新建用户表单.orgUnitId = 选中部门Id.value || (平铺组织列表.value[0] ? 平铺组织列表.value[0].id : '');
+      新建用户表单.positionId = ''; 新建用户表单.businessRoleId = '';
+      新建用户表单.certificationTemplateId = ''; 新建用户表单.certificateExpiresOn = '';
+      新建用户管理员角色Ids.value = [];
+      新建用户弹窗打开.value = true;
+    }
+    async function 提交新建用户() {
+      if (!可写.value) return;
+      if (!新建用户表单.username || !新建用户表单.name) {
+        ElementPlus.ElMessage.warning('请填写登录账号和姓名。'); return;
+      }
+      if (!新建用户表单.orgUnitId) {
+        ElementPlus.ElMessage.warning('请选择所属部门。'); return;
+      }
+      提交中.value = true;
+      try {
+        const 账号载荷 = {
+          username: 新建用户表单.username,
+          name: 新建用户表单.name,
+          role: 新建用户表单.role,
+          status: 新建用户表单.status,
+          phone: 新建用户表单.phone,
+          email: 新建用户表单.email,
+          password: 新建用户表单.password || '123456',
+          ...(['admin', 'region_manager'].includes(新建用户表单.role) ? { bigRegion: 新建用户表单.bigRegion, region: 新建用户表单.region } : {}),
+        };
+        const 创建结果 = await apiRequest('POST', '/users', 账号载荷);
+        if (!创建结果.success) {
+          ElementPlus.ElMessage.error('创建账号失败：' + (创建结果.error || '未知错误'));
+          return;
+        }
+        const 检索结果 = await 组织查询账号({ keyword: String(新建用户表单.username).trim() });
+        const 新账号 = (检索结果.items || []).map(解析账号行).find((账号) => 账号.username === String(新建用户表单.username).trim());
+        if (!新账号) {
+          ElementPlus.ElMessage.warning('账号已创建，但未能定位到用户ID，请稍后在账号检索中打开后完善组织信息。');
+          新建用户弹窗打开.value = false;
+          await 加载页面();
+          return;
+        }
+        const 用户Id = 新账号.id;
+        await 组织创建任职(用户Id, {
+          orgUnitId: 新建用户表单.orgUnitId,
+          ...(新建用户表单.positionId ? { positionId: 新建用户表单.positionId } : {}),
+          isPrimary: true,
+        }, { 幂等键: 生成组织幂等键() });
+        if (新建用户管理员角色Ids.value.length) {
+          await 组织覆盖用户角色(用户Id, { roleIds: 新建用户管理员角色Ids.value });
+        }
+        const 任职结果 = await 组织查询任职(新建用户表单.orgUnitId);
+        const 新任职 = (任职结果.items || []).find((项) => 项.userId === 用户Id && !项.expiredAt);
+        if (新任职 && 新建用户表单.businessRoleId) {
+          await 组织指派成员业务角色({ businessRoleId: 新建用户表单.businessRoleId, staffAssignmentId: 新任职.id, isPrimaryDisplay: true }, { 幂等键: 生成组织幂等键() });
+        }
+        if (新建用户表单.certificationTemplateId) {
+          await 组织颁发证书(用户Id, {
+            certificationTemplateId: 新建用户表单.certificationTemplateId,
+            certificateNo: '',
+            issuedOn: new Date().toISOString().slice(0, 10),
+            ...(新建用户表单.certificateExpiresOn ? { expiresOn: 新建用户表单.certificateExpiresOn } : {}),
+          }, { 幂等键: 生成组织幂等键() });
+        }
+        ElementPlus.ElMessage.success('用户已创建，并完成任职与授权。');
+        新建用户弹窗打开.value = false;
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error('创建失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+
+    watch(新建弹窗打开, (打开) => {
+      if (!打开) 重置新建表单();
+    });
+
+    watch(组织树, (树) => {
+      if (!选中部门Id.value && 树.length) 选中部门Id.value = 树[0].id;
+    });
+
+    watch(部门搜索词, (词) => {
+      部门树引用.value && 部门树引用.value.filter(词);
+    });
+
+    watch(渠道组织树, (树) => {
+      if (!选中渠道Id.value && 树.length) 选中渠道Id.value = 树[0].id;
+    });
+
+    watch(渠道搜索词, (词) => {
+      渠道树引用.value && 渠道树引用.value.filter(词);
+    });
+
+    onMounted(async () => {
+      if (!已启动数据加载.value) {
+        已启动数据加载.value = true;
+        await 加载页面();
+        await 处理账号深链();
+      }
+    });
+
+    return {
+      导航项列表,
+      当前栏目,
+      当前导航,
+      已启用,
+      可写,
+      平铺组织列表,
+      平铺渠道组织列表,
+      部门文件输入,
+      成员文件输入,
+      触发文件选择,
+      导出部门Excel,
+      导出成员Excel,
+      部门树引用,
+      部门搜索词,
+      成员搜索词,
+      选中部门Id,
+      平铺树数据,
+      定位部门,
+      渠道树引用,
+      渠道搜索词,
+      渠道成员搜索词,
+      渠道树数据,
+      平铺渠道树数据,
+      当前渠道名称,
+      当前渠道类型,
+      当前渠道成员,
+      过滤后渠道成员,
+      选择渠道,
+      渠道节点成员数,
+      过滤渠道节点,
+      渠道同步预览摘要,
+      渠道同步中,
+      渠道同步弹窗打开,
+      打开渠道同步预览,
+      执行渠道商同步,
+      树数据,
+      树节点属性,
+      当前部门名称,
+      当前部门成员,
+      过滤后成员,
+      当前用户名,
+      选择部门,
+      节点成员数,
+      过滤部门节点,
+      证书状态类型,
+      证书详情,
+      处理部门导入文件,
+      处理成员导入文件,
+      直属负责人映射,
+      业务角色持有人数量,
+      近期到期数,
+      已过期数,
+      组织功能状态,
+      组织树,
+      岗位列表,
+      任职列表,
+      负责人关系列表,
+      业务角色列表,
+      成员业务角色列表,
+      证书模板列表,
+      成员证书列表,
+      离职交接列表,
+      离职交接弹窗打开,
+      离职影响预览,
+      离职确认表单,
+      可提交离职交接,
+      离职交接领域中文,
+      企微同步状态,
+      同步批次列表,
+      同步差异列表,
+      加载中,
+      提交中,
+      错误提示,
+      同步错误提示,
+      新建弹窗打开,
+      当前新建类型,
+      新建表单,
+      切换栏目,
+      打开新建弹窗,
+      提交新建,
+      账号检索词,
+      账号检索结果,
+      账号检索中,
+      账号检索已执行,
+      账号检索错误,
+      检索账号,
+      延迟检索账号,
+      账号角色摘要,
+      新建用户弹窗打开,
+      打开新建用户弹窗,
+      提交新建用户,
+      新建用户表单,
+      新建用户管理员角色Ids,
+      角色管理列表,
+      权限字典,
+      角色管理错误,
+      角色用户弹窗打开,
+      当前角色用户角色,
+      角色用户加载中,
+      角色用户数据,
+      角色编辑弹窗打开,
+      角色表单,
+      业务权限分组,
+      用户权限分组,
+      可分配角色列表,
+      角色范围摘要,
+      加载角色管理数据,
+      打开角色编辑,
+      打开角色用户,
+      加载角色用户,
+      打开角色用户账号,
+      提交角色保存,
+      切换角色状态,
+      编辑用户管理员角色Ids,
+      统一渠道成员,
+      编辑用户已选角色,
+      编辑用户有效权限数,
+      保存用户管理员角色,
+      编辑抽屉打开,
+      编辑用户,
+      编辑模式,
+      编辑渠道成员,
+      渠道角色表单,
+      编辑用户任职,
+      编辑用户业务角色,
+      编辑用户证书,
+      泛微OA身份,
+      泛微候选表单,
+      待核验泛微候选,
+      基本信息表单,
+      编辑任职Id,
+      新任职表单,
+      新业务角色表单,
+      新证书表单,
+      当前部门岗位列表,
+      编辑部门岗位列表,
+      打开账号编辑,
+      打开成员编辑,
+      打开渠道成员授权,
+      打开统一渠道成员资料,
+      处理统一渠道成员已保存,
+      打开任职编辑,
+      关闭编辑抽屉,
+      保存基本信息,
+      保存泛微候选,
+      确认当前泛微候选,
+      驳回当前泛微候选,
+      停用当前泛微正式身份,
+      泛微候选来源中文,
+      泛微候选状态中文,
+      重置密码,
+      打开停用归档,
+      确认停用归档,
+      开始调整任职,
+      取消调整任职,
+      保存任职,
+      结束任职,
+      指派业务角色,
+      结束业务角色,
+      颁发证书,
+      撤销证书,
+      任职部门名,
+      编辑用户主职任职,
+      加载证书筛选结果,
+      重置证书筛选,
+      证书类别列表,
+      证书筛选类别,
+      组织编辑弹窗打开,
+      组织编辑表单,
+      区域编辑弹窗打开,
+      区域编辑表单,
+      打开组织编辑,
+      提交组织编辑,
+      打开区域编辑,
+      提交区域编辑,
+      未归集管理账号数,
+      渠道成员业务角色映射,
+      平铺区域选项,
+      证书筛选树数据,
+      选择证书筛选节点,
+      证书筛选节点名称,
+      证书名称检索词,
+      证书筛选树引用,
+      角色中文,
+      状态中文,
+      领域中文,
+      业务角色类别中文,
+      证书类别中文,
+      同步运行类型中文,
+      同步对象中文,
+      同步变更类型中文,
+      风险级别中文,
+      审批状态中文,
+      应用状态中文,
+      格式化时间,
+    };
+  }
+};
+
+
 const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -17138,8 +21516,20 @@ const router = createRouter({
         { path: 'account-manage', component: AccountManage },
         { path: 'audit-logs', component: AuditLogs },
         { path: 'openapi-integration', component: OpenApiIntegration },
+        { path: 'message-platform', component: MessagePlatform },
+        { path: 'message-rules', component: MessageRules },
+        { path: 'organization', redirect: '/organization/units' },
+        { path: 'organization/units', component: OrganizationWorkspace },
+        { path: 'organization/staff', component: OrganizationWorkspace },
+        { path: 'organization/business-roles', component: OrganizationWorkspace },
+        { path: 'organization/certifications', component: OrganizationWorkspace },
+        { path: 'organization/rbac', component: OrganizationWorkspace },
+        { path: 'organization/data-scopes', component: OrganizationWorkspace },
+        { path: 'organization/offboarding', component: OrganizationWorkspace },
+        { path: 'organization/directory-sync', component: OrganizationWorkspace },
         { path: 'workload-config', component: WorkloadConfigV2 },
         { path: 'account-manage/staff-import', component: StaffImport },
+        { path: 'notifications', component: NotificationsPage },
       ]
     }
   ]
@@ -17154,6 +21544,14 @@ store.orders = [];
 store.adminAccounts = [];
 store.pendingApprovals = [];
 store.partners = [];
+
+// 供审核中心等子页面在审批后刷新侧边栏待审批badge
+window.__refreshPendingApprovals = () => {
+  if (!store?.user) return Promise.resolve();
+  return apiRequest('GET', '/pending-approvals', { userRole: store.user.role })
+    .then(res => { if (res.success) store.pendingApprovals = res.data || []; })
+    .catch(() => {});
+};
 
 function normalizeNotifications(list) {
   return (Array.isArray(list) ? list : []).map(item => ({
@@ -17340,6 +21738,9 @@ router.beforeEach((to, from) => {
   if (to.path === '/login' && store.user) return '/dashboard';
   if (to.path === '/audit-logs' && store.user?.role !== 'superadmin') return '/dashboard';
   if (to.path === '/openapi-integration' && store.user?.role !== 'superadmin') return '/dashboard';
+  if (to.path === '/message-platform' && store.user?.role !== 'superadmin') return '/dashboard';
+  if (to.path === '/message-rules' && store.user?.role !== 'superadmin') return '/dashboard';
+  if (to.path.startsWith('/organization') && store.user?.role !== 'superadmin') return '/dashboard';
 });
 
 // ── 挂载 ─────────────────────────────────────────────────────

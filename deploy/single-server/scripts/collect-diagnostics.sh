@@ -18,10 +18,19 @@ mkdir -p "${diagnostics_dir}"
 
 cd "${install_root}/compose"
 docker compose ps > "${diagnostics_dir}/compose-ps.txt" 2>&1 || true
-docker compose logs --tail=500 api-1 api-2 worker nginx postgres redis-state redis-cache \
-  > "${diagnostics_dir}/compose-logs.txt" 2>&1 || true
+docker compose logs --tail=500 api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration worker-order-preapproval nginx postgres redis-state redis-cache \
+  2>&1 | sed -E \
+    -e '/(PASSWORD|SECRET|KEY|TOKEN|WEBHOOK|DATABASE_URL|REDIS_URL|SESSION_SECRET|AUTHORIZATION|CREDENTIAL|凭据|密钥)/I s#.*#[敏感日志行已隐藏]#' \
+    -e 's#https?://[^[:space:]"'"'"']+#https://[地址已隐藏]#g' \
+    -e 's/[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}/[邮箱已隐藏]/g' \
+    -e 's/1[3-9][0-9]{9}/[手机号已隐藏]/g' \
+    > "${diagnostics_dir}/compose-logs.txt" || true
 
-sed -E 's#(PASSWORD|SECRET|KEY|TOKEN)=.*#\1=已隐藏#g' "${install_root}/config/v3.env" \
+if [ -x "${install_root}/scripts/message-observability.sh" ]; then
+  "${install_root}/scripts/message-observability.sh" > "${diagnostics_dir}/message-observability.txt" 2>&1 || true
+fi
+
+sed -E '/(PASSWORD|SECRET|KEY|TOKEN|WEBHOOK|DATABASE_URL|REDIS_URL|SESSION_SECRET|AUTHORIZATION|CREDENTIAL|凭据|密钥)/I s#=.*#=已隐藏#' "${install_root}/config/v3.env" \
   > "${diagnostics_dir}/v3-env-summary.txt" 2>/dev/null || true
 
 package_file="${diagnostics_dir}.zip"

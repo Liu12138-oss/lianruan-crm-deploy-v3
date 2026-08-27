@@ -43,6 +43,19 @@ describe("移动端业务接口", () => {
     expect(response.body.data).toHaveProperty("分页");
   });
 
+  it("移动端管理员可以读取商机列表", async () => {
+    const { app, token } = await 获取移动端令牌();
+
+    const response = await request(app)
+      .get("/api/mobile/opportunities?page=1&pageSize=20")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveProperty("数据");
+    expect(response.body.data).toHaveProperty("分页");
+  });
+
   it("拒绝伪造的历史页面令牌", async () => {
     const app = 创建应用({ env: 环境变量 });
 

@@ -3521,9 +3521,9 @@ textarea.form-control { resize: vertical; min-height: 100px; }
         <button class="btn btn-primary">➕ 发起离职</button>
       </div>
 
-      <!-- 4 个统计 -->
+      <!-- 分阶段统计 -->
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon blue">⏳</div><div><div class="stat-value">3</div><div class="stat-label">进行中</div></div></div>
+        <div class="stat-card"><div class="stat-icon blue">⏳</div><div><div class="stat-value">3</div><div class="stat-label">扫描中 / 交接中</div></div></div>
         <div class="stat-card"><div class="stat-icon orange">⚠️</div><div><div class="stat-value">2</div><div class="stat-label">部分完成（待补）</div></div></div>
         <div class="stat-card"><div class="stat-icon green">✅</div><div><div class="stat-value">8</div><div class="stat-label">已完成（30 天内）</div></div></div>
         <div class="stat-card"><div class="stat-icon purple">📋</div><div><div class="stat-value">7</div><div class="stat-label">管理员任务</div></div></div>
@@ -3533,7 +3533,7 @@ textarea.form-control { resize: vertical; min-height: 100px; }
       <div class="card" style="margin-bottom:16px;padding:14px 16px;">
         <div style="display:flex;gap:10px;align-items:center;">
           <input type="text" placeholder="🔍 按姓名 / 接收人搜索…" style="flex:1;padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fafafa;font-size:14px;">
-          <select style="padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fff;font-size:14px;"><option>所有状态</option><option>进行中</option><option>部分完成</option><option>已完成</option></select>
+          <select style="padding:9px 14px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:#fff;font-size:14px;"><option>所有状态</option><option>停权处理中</option><option>扫描中</option><option>交接中</option><option>部分完成</option><option>待管理员处理</option><option>已完成</option></select>
         </div>
       </div>
 
@@ -3553,11 +3553,11 @@ textarea.form-control { resize: vertical; min-height: 100px; }
               <th style="padding:12px 16px;text-align:right;font-size:12px;font-weight:600;color:#6E6E73;">操作</th>
             </tr></thead>
             <tbody>
-              <tr style="border-top:1px solid rgba(0,0,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-008</td><td style="padding:12px 16px;font-weight:600;">王芳</td><td style="padding:12px 16px;font-size:13px;">上海销售一部</td><td style="padding:12px 16px;">李伟</td><td style="padding:12px 16px;font-size:12px;">2026-08-12 09:15</td><td style="padding:12px 16px;font-size:13px;">3/6 完成</td><td style="padding:12px 16px;"><span class="tag tag-blue">● 进行中</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button><button class="btn btn-text btn-sm">重试</button></td></tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-008</td><td style="padding:12px 16px;font-weight:600;">王芳</td><td style="padding:12px 16px;font-size:13px;">上海销售一部</td><td style="padding:12px 16px;">李伟</td><td style="padding:12px 16px;font-size:12px;">2026-08-12 09:15</td><td style="padding:12px 16px;font-size:13px;">3/6 完成</td><td style="padding:12px 16px;"><span class="tag tag-blue">● 交接中</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button><button class="btn btn-text btn-sm">重试</button></td></tr>
               <tr style="border-top:1px solid rgba(0,0,0,0.04);background:rgba(255,149,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-007</td><td style="padding:12px 16px;font-weight:600;">陈强</td><td style="padding:12px 16px;font-size:13px;">上海销售二部</td><td style="padding:12px 16px;color:#FF9500;font-weight:600;">— 待补</td><td style="padding:12px 16px;font-size:12px;">2026-08-11 17:42</td><td style="padding:12px 16px;font-size:13px;">2/6 完成 · <span style="color:#FF9500;font-weight:600;">8 项进队列</span></td><td style="padding:12px 16px;"><span class="tag tag-orange">● 部分完成</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button><button class="btn btn-text btn-sm">补做</button></td></tr>
               <tr style="border-top:1px solid rgba(0,0,0,0.04);background:rgba(255,149,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-006</td><td style="padding:12px 16px;font-weight:600;">刘洋</td><td style="padding:12px 16px;font-size:13px;">上海销售一部</td><td style="padding:12px 16px;">张敏</td><td style="padding:12px 16px;font-size:12px;">2026-08-10 14:20</td><td style="padding:12px 16px;font-size:13px;">4/6 完成 · <span style="color:#FF9500;font-weight:600;">3 项进队列</span></td><td style="padding:12px 16px;"><span class="tag tag-orange">● 部分完成</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button><button class="btn btn-text btn-sm">补做</button></td></tr>
               <tr style="border-top:1px solid rgba(0,0,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-005</td><td style="padding:12px 16px;font-weight:600;">周丽</td><td style="padding:12px 16px;font-size:13px;">渠道销售部</td><td style="padding:12px 16px;">孙磊</td><td style="padding:12px 16px;font-size:12px;">2026-08-08 11:00</td><td style="padding:12px 16px;font-size:13px;">6/6 完成</td><td style="padding:12px 16px;"><span class="tag tag-green">● 已完成</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button></td></tr>
-              <tr style="border-top:1px solid rgba(0,0,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-004</td><td style="padding:12px 16px;font-weight:600;color:#888;">赵静</td><td style="padding:12px 16px;font-size:13px;color:#888;">上海销售二部</td><td style="padding:12px 16px;color:#888;">已取消</td><td style="padding:12px 16px;font-size:12px;">2026-08-05 16:30</td><td style="padding:12px 16px;font-size:13px;color:#888;">已取消</td><td style="padding:12px 16px;"><span class="tag tag-gray">● 已取消</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button></td></tr>
+              <tr style="border-top:1px solid rgba(0,0,0,0.04);background:rgba(255,149,0,0.04);"><td style="padding:12px 16px;font-family:monospace;font-size:12px;">HO-2026-004</td><td style="padding:12px 16px;font-weight:600;">赵静</td><td style="padding:12px 16px;font-size:13px;">上海销售二部</td><td style="padding:12px 16px;color:#FF9500;">管理员任务队列</td><td style="padding:12px 16px;font-size:12px;">2026-08-05 16:30</td><td style="padding:12px 16px;font-size:13px;">5/6 完成 · <span style="color:#FF9500;font-weight:600;">1 项待处理</span></td><td style="padding:12px 16px;"><span class="tag tag-orange">● 待管理员处理</span></td><td style="padding:12px 16px;text-align:right;"><button class="btn btn-text btn-sm">详情</button><button class="btn btn-text btn-sm">处理任务</button></td></tr>
             </tbody>
           </table>
         </div>
@@ -3571,8 +3571,8 @@ textarea.form-control { resize: vertical; min-height: 100px; }
           <span style="color:#888;">离职员工</span><span style="font-weight:600;">陈强（chenqiang）· 上海销售二部</span>
           <span style="color:#888;">离职原因</span><span>主动辞职</span>
           <span style="color:#888;">发起人</span><span>admin_lianruan</span>
-          <span style="color:#888;">账号状态</span><span><span class="tag tag-red">● 已停用</span> <span style="color:#888;font-size:12px;margin-left:6px;">已撤销 3 个会话</span></span>
-          <span style="color:#888;">任职状态</span><span style="color:#FF3B30;font-weight:600;">已结束所有任职</span>
+          <span style="color:#888;">账号状态</span><span><span class="tag tag-red">● 已停用</span> <span style="color:#888;font-size:12px;margin-left:6px;">旧会话已失效，缓存清理异步执行</span></span>
+          <span style="color:#888;">成员关系状态</span><span style="color:#FF3B30;font-weight:600;">已结束内部任职、渠道成员关系和成员业务角色</span>
           <span style="color:#888;">offboarding_status</span><span><code style="background:rgba(0,0,0,0.05);padding:2px 6px;border-radius:4px;">offboarding</code></span>
         </div>
 

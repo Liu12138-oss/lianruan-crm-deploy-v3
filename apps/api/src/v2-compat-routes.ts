@@ -7,7 +7,12 @@ import multer from "multer";
 import { Pool, type PoolClient } from "pg";
 import * as XLSX from "xlsx";
 
-import { 创建密码散列, 校验密码, 读取请求会话用户名 } from "./auth-routes.js";
+import {
+  写入正式页面可信Cookie会话,
+  创建密码散列,
+  校验密码,
+  读取请求会话用户名,
+} from "./auth-routes.js";
 import {
   创建业务数据服务,
   type 当前业务用户,
@@ -24,6 +29,7 @@ interface V2兼容路由参数 {
 }
 
 type 字典 = Record<string, unknown>;
+type 数据库查询器 = Pick<Pool, "query">;
 
 interface 数据库行 extends 字典 {
   id: string;
@@ -417,6 +423,14 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
         displayName: 用户.name || 用户.username,
         roleName: 用户.roleName || "V2页面用户",
       });
+      写入正式页面可信Cookie会话(
+        res,
+        { username: 用户.username, role: 用户.role },
+        {
+          sessionSecret: 参数.sessionSecret || "",
+          ...(参数.env ? { env: 参数.env } : {}),
+        },
+      );
       res.json({
         success: true,
         user: 用户,
@@ -755,7 +769,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
         { ...读取正文(req), status: "pending_superadmin_confirm", action: "price_adjust" },
-        读取当前V2业务用户(req, 参数),
+        读取当前V2可信Cookie用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
@@ -1312,19 +1326,38 @@ function 注册后台维护路由(
   router.post(
     "/partners",
     捕获(async (req, res) => {
-      res.json(成功(await 保存V2渠道商(需要数据库(pool), "", 读取正文(req))));
+      res.json(
+        成功(
+          await 保存V2渠道商(需要数据库(pool), "", 读取正文(req), 读取当前V2业务用户(req, 参数)),
+        ),
+      );
     }),
   );
   router.put(
     "/partners/:id",
     捕获(async (req, res) => {
-      res.json(成功(await 保存V2渠道商(需要数据库(pool), 读取路由参数(req, "id"), 读取正文(req))));
+      res.json(
+        成功(
+          await 保存V2渠道商(
+            需要数据库(pool),
+            读取路由参数(req, "id"),
+            读取正文(req),
+            读取当前V2业务用户(req, 参数),
+          ),
+        ),
+      );
     }),
   );
   router.delete(
     "/partners/:id",
     捕获(async (req, res) => {
-      await 更新渠道商状态(需要数据库(pool), 读取路由参数(req, "id"), "archived", 读取正文(req));
+      await 更新渠道商状态(
+        需要数据库(pool),
+        读取路由参数(req, "id"),
+        "archived",
+        读取正文(req),
+        读取当前V2业务用户(req, 参数),
+      );
       res.json(成功({ id: 读取路由参数(req, "id"), deleted: true }));
     }),
   );
@@ -1338,6 +1371,7 @@ function 注册后台维护路由(
             读取路由参数(req, "id"),
             读取正文文本(读取正文(req), ["status"], "active"),
             读取正文(req),
+            读取当前V2业务用户(req, 参数),
           ),
         ),
       );
@@ -1425,6 +1459,7 @@ function 注册后台维护路由(
         需要数据库(pool),
         读取路由参数(req, "partnerId"),
         读取路由参数(req, "staffId"),
+        读取当前V2业务用户(req, 参数),
       );
       res.json(成功(data));
     }),
@@ -1488,7 +1523,8 @@ function 注册后台维护路由(
     "/pending-approvals/:id",
     捕获(async (req, res) => {
       const action = 读取正文文本(读取正文(req), ["action"], "approve");
-      const status = action === "reject" ? "rejected" : "approved";
+      const status =
+        action === "reject" ? "rejected" : action === "resubmit" ? "pending" : "approved";
       const data = await 更新待审批状态(
         需要数据库(pool),
         读取路由参数(req, "id"),
@@ -1816,7 +1852,7 @@ async function 查询并校验V2用户(pool: Pool, username: string, password: s
   return 安全用户;
 }
 
-async function 查询V2用户(pool: Pool, username: string) {
+async function 查询V2用户(pool: 数据库查询器, username: string, 包含停用账号 = false) {
   const result = await pool.query<{
     id: string;
     v2_source_id: string | null;
@@ -1866,15 +1902,15 @@ async function 查询V2用户(pool: Pool, username: string) {
     LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
     LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
     LEFT JOIN org.regions reg ON reg.id = u.region_id
-    LEFT JOIN channel.partner_members pm ON pm.user_id = u.id
+    LEFT JOIN channel.partner_members pm ON pm.user_id = u.id AND pm.archived_at IS NULL
     LEFT JOIN channel.partners p ON p.id = pm.partner_id
     WHERE lower(u.username::text) = lower($1)
-      AND u.status_code = 'active'
+      AND ($2 OR u.status_code = 'active')
     GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash, u.status_code,
       reg.region_name, u.extra_json, p.v2_source_id, p.partner_code, p.id, p.partner_name
     LIMIT 1
     `,
-    [username],
+    [username, 包含停用账号],
   );
   const row = result.rows[0];
   if (!row) return null;
@@ -1890,7 +1926,7 @@ async function 查询V2用户(pool: Pool, username: string) {
     displayName: row.display_name || 读取对象文本(extra, "name") || row.username,
     role,
     roleName: row.role_name || 转V2角色名称(role),
-    status: row.status_code,
+    status: extra.status || row.status_code,
     region: 读取对象文本(extra, "region") || row.region_name || "",
     bigRegion: 读取对象文本(extra, "bigRegion"),
     partnerId: 读取对象文本(extra, "partnerId") || row.partner_id || "",
@@ -1979,6 +2015,14 @@ function 读取当前V2业务用户(req: Request, 参数: V2兼容路由参数):
   return { username: operatorId, externalUserId: operatorId, displayName, roleName };
 }
 
+function 读取当前V2可信Cookie用户(req: Request, 参数: V2兼容路由参数): 当前业务用户 | null {
+  const username = 读取请求会话用户名(req, {
+    sessionSecret: 参数.sessionSecret || "",
+    ...(参数.env ? { env: 参数.env } : {}),
+  });
+  return username ? { username, displayName: username, roleName: "V3登录用户" } : null;
+}
+
 function 读取阶段9查询(req: Request) {
   return {
     keyword: 读取查询文本(req, "keyword") || 读取查询文本(req, "q"),
@@ -2024,6 +2068,8 @@ function 转V2业务记录(模块: 阶段9模块, 记录: 阶段9记录): 字典
       username: 读取对象文本(原始, "username") || 记录.负责人,
       name: 读取对象文本(原始, "name") || 记录.标题,
       role: 转V2角色(读取对象文本(原始, "role") || "staff"),
+      phone: 读取对象文本(原始, "phone") || "",
+      email: 读取对象文本(原始, "email") || "",
     };
   }
   if (模块 === "partners") {
@@ -2291,7 +2337,7 @@ async function 单点登录降级响应(pool: Pool, req: Request) {
 }
 
 async function 保存用户密码(
-  pool: Pool,
+  pool: 数据库查询器,
   userId: string,
   password: string,
   mustChangePassword: boolean,
@@ -2395,16 +2441,44 @@ async function _调整订单价格(
   };
 }
 
-async function 保存V2用户(pool: Pool, id: string, 输入: 字典) {
-  const username = 读取正文文本(输入, ["username", "account", "loginName"], id || "");
+async function 保存V2用户(
+  pool: 数据库查询器,
+  id: string,
+  输入: 字典,
+  选项: { 同步渠道成员?: boolean } = {},
+) {
+  const 已有账号 = id ? await 查询V2账号保存快照(pool, id) : null;
+  if (id && !已有账号) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
+
+  const username = 读取正文文本(
+    输入,
+    ["username", "account", "loginName"],
+    已有账号?.username || id || "",
+  );
   if (!username) throw Object.assign(new Error("请输入登录账号。"), { statusCode: 400 });
   const code = id || 读取正文文本(输入, ["id", "userId"], username);
-  const name = 读取正文文本(输入, ["name", "displayName"], username);
-  const role = 转V3角色(读取正文文本(输入, ["role"], "staff"));
-  const status = 转V3账号状态(读取正文文本(输入, ["status"], "active"));
-  const phone = 读取正文文本(输入, ["phone", "mobile"], "");
-  const email = 读取正文文本(输入, ["email"], "");
-  const extra = { ...输入, id: code, userId: code, username, name, role: 转V2角色(role) };
+  const name = 读取正文文本(输入, ["name", "displayName"], 已有账号?.displayName || username);
+  const 角色输入 = 读取正文文本(输入, ["role"], "");
+  const role = 角色输入 ? 转V3角色(角色输入) : id ? "" : "staff";
+  const 待转状态 = 已有账号?.status
+    ? String(已有账号.status)
+    : 读取正文文本(输入, ["status"], "active");
+  const status = 转V3账号状态(待转状态);
+  const phone = 是否包含正文键(输入, ["phone", "mobile"])
+    ? 读取正文文本(输入, ["phone", "mobile"], "")
+    : 已有账号?.phone || "";
+  const email = 是否包含正文键(输入, ["email"])
+    ? 读取正文文本(输入, ["email"], "")
+    : 已有账号?.email || "";
+  const extra = {
+    ...(已有账号?.extra || {}),
+    ...输入,
+    id: code,
+    userId: code,
+    username,
+    name,
+    ...(role ? { role: 转V2角色(role) } : {}),
+  };
 
   await 校验账号联系电话唯一(pool, phone, { id: id || code, username });
 
@@ -2449,17 +2523,60 @@ async function 保存V2用户(pool: Pool, id: string, 输入: 字典) {
     throw error;
   }
 
-  await 绑定用户角色(pool, username, role);
-  await 同步用户渠道成员绑定(pool, username, role, 读取正文文本(输入, ["partnerId"], ""));
+  if (role) {
+    await 绑定用户角色(pool, username, role);
+    if (选项.同步渠道成员 !== false) {
+      await 同步用户渠道成员绑定(pool, username, role, 读取正文文本(输入, ["partnerId"], ""));
+    }
+  }
   const password = 读取正文文本(输入, ["password"], "");
   if (password) await 保存用户密码(pool, username, password, true);
-  const 用户 = await 查询V2用户(pool, username);
+  const 用户 = await 查询V2用户(pool, username, true);
   if (!用户) throw Object.assign(new Error("用户保存失败。"), { statusCode: 500 });
   return 用户;
 }
 
+async function 查询V2账号保存快照(pool: 数据库查询器, id: string) {
+  const result = await pool.query<{
+    username: string;
+    display_name: string | null;
+    status_code: string;
+    phone: string | null;
+    email: string | null;
+    extra_json: 字典 | null;
+  }>(
+    `
+    SELECT
+      username::text AS username,
+      display_name,
+      status_code,
+      phone,
+      email::text AS email,
+      extra_json
+    FROM iam.users
+    WHERE id::text = $1
+       OR v2_source_id = $1
+       OR username::text = $1
+       OR extra_json->>'id' = $1
+       OR extra_json->>'userId' = $1
+    LIMIT 1
+    `,
+    [id],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    username: row.username,
+    displayName: row.display_name || row.username,
+    status: row.extra_json?.status || row.status_code,
+    phone: row.phone || "",
+    email: row.email || "",
+    extra: row.extra_json || {},
+  };
+}
+
 async function 校验账号联系电话唯一(
-  pool: Pool,
+  pool: 数据库查询器,
   phone: string,
   当前账号: { id: string; username: string },
 ) {
@@ -2507,8 +2624,12 @@ function 规范化账号联系电话(phone: string): string {
   return phone.replace(/[^0-9]+/g, "");
 }
 
+function 是否包含正文键(来源: 字典, keys: string[]): boolean {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(来源, key));
+}
+
 async function 同步用户渠道成员绑定(
-  pool: Pool,
+  pool: 数据库查询器,
   username: string,
   role: string,
   partnerId: string,
@@ -2524,7 +2645,11 @@ async function 同步用户渠道成员绑定(
     ON CONFLICT (partner_id, user_id) DO UPDATE
     SET member_role_code = EXCLUDED.member_role_code,
         status_code = EXCLUDED.status_code,
-        ended_at = NULL
+        ended_at = NULL,
+        archived_at = NULL,
+        archive_reason = NULL,
+        updated_at = now(),
+        row_version = channel.partner_members.row_version + 1
     `,
     [partnerUuid, userUuid, role === "partner_admin" ? "partner_admin" : "staff"],
   );
@@ -2544,6 +2669,21 @@ async function 更新用户状态(pool: Pool, id: string, status: string) {
   );
   const username = result.rows[0]?.username;
   if (!username) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
+  if (status === "pending") {
+    const userUuid = await 查找用户UUID(pool, username);
+    const 成员 = userUuid ? await 查询账号首个渠道成员(pool, userUuid) : null;
+    if (userUuid && 成员) {
+      await 写入账号审批待办(pool, {
+        账号UUID: userUuid,
+        账号角色: 成员.role,
+        渠道UUID: 成员.partnerUuid,
+        渠道编号: 成员.partnerExternalId,
+        申请人UUID: null,
+        输入: { status: "pending" },
+        当前用户: null,
+      });
+    }
+  }
   return 查询V2用户(pool, username);
 }
 
@@ -2566,6 +2706,8 @@ function 读取显式账号角色(输入: 字典): string {
 }
 
 function 读取员工职位(输入: 字典, accountRole: string): string {
+  const businessRoleCode = 读取渠道业务角色代码(输入);
+  if (businessRoleCode) return businessRoleCode === "channel_technical" ? "技术" : "销售";
   const staffRole = 读取正文文本(输入, ["staffRole", "title"], "");
   if (staffRole) return staffRole;
   const role = 读取正文文本(输入, ["role"], "");
@@ -2573,8 +2715,27 @@ function 读取员工职位(输入: 字典, accountRole: string): string {
   return accountRole === "partner_admin" ? "企业管理员" : "销售代表";
 }
 
+function 读取渠道业务角色代码(输入: 字典): string {
+  const value = 读取正文文本(输入, ["businessRoleCode", "businessRoleType"], "");
+  if (value) {
+    const mapping: Record<string, string> = {
+      sales: "channel_sales",
+      technical: "channel_technical",
+      channel_sales: "channel_sales",
+      channel_technical: "channel_technical",
+    };
+    const result = mapping[value];
+    if (!result) throw Object.assign(new Error("业务角色仅支持销售或技术。"), { statusCode: 400 });
+    return result;
+  }
+  const legacy = 读取正文文本(输入, ["staffRole", "title"], "");
+  if (legacy.includes("技术")) return "channel_technical";
+  if (legacy.includes("销售")) return "channel_sales";
+  return "";
+}
+
 async function 查询渠道成员账号角色(
-  pool: Pool,
+  pool: 数据库查询器,
   partnerUuid: string,
   staffId: string,
 ): Promise<string> {
@@ -2585,6 +2746,7 @@ async function 查询渠道成员账号角色(
     FROM channel.partner_members pm
     JOIN iam.users u ON u.id = pm.user_id
     WHERE pm.partner_id = $1::uuid
+      AND pm.archived_at IS NULL
       AND (
         u.id::text = $2
         OR u.v2_source_id = $2
@@ -2599,7 +2761,7 @@ async function 查询渠道成员账号角色(
   return result.rows[0]?.member_role_code || "";
 }
 
-async function 绑定用户角色(pool: Pool, username: string, roleCode: string) {
+async function 绑定用户角色(pool: 数据库查询器, username: string, roleCode: string) {
   await pool.query(
     `
     INSERT INTO iam.roles (role_code, role_name, status_code)
@@ -2627,28 +2789,79 @@ async function 绑定用户角色(pool: Pool, username: string, roleCode: string
   );
 }
 
-async function 保存V2渠道商(pool: Pool, id: string, 输入: 字典) {
+async function 保存V2渠道商(
+  pool: Pool,
+  id: string,
+  输入: 字典,
+  当前用户: 当前业务用户 | null = null,
+) {
   const name = 读取正文文本(输入, ["name", "partnerName"], "");
   if (!name) throw Object.assign(new Error("请输入渠道商名称。"), { statusCode: 400 });
   const code = id || 读取正文文本(输入, ["id", "partnerId", "code"], `PARTNER-V3-${Date.now()}`);
   const level = 读取正文文本(输入, ["partnerLevel", "level"], "none");
-  const extra = { ...输入, id: code, name, partnerName: name, level };
-  const params = [
-    code,
-    name,
-    migrationNormalizedName(name),
-    转V3渠道级别(level),
-    读取正文文本(输入, ["city"], ""),
-    读取正文文本(输入, ["contact", "contactName"], ""),
-    读取正文文本(输入, ["phone", "contactPhone"], ""),
-    读取正文文本(输入, ["email", "contactEmail"], ""),
-    转V3伙伴状态(读取正文文本(输入, ["status"], "active")),
-    JSON.stringify(extra),
-  ];
+  const 协议编号已提供 = ["agreementNo", "agreement_no", "协议编号"].some((key) =>
+    Object.prototype.hasOwnProperty.call(输入, key),
+  );
+  const 国家电话区号已提供 = ["countryCallingCode", "country_calling_code", "国家电话区号"].some(
+    (key) => Object.prototype.hasOwnProperty.call(输入, key),
+  );
+  const agreementNo = 读取正文文本(输入, ["agreementNo", "agreement_no", "协议编号"], "").trim();
+  const countryCallingCode = 读取正文文本(
+    输入,
+    ["countryCallingCode", "country_calling_code", "国家电话区号"],
+    "86",
+  ).trim();
+  if (!/^[0-9]{1,3}$/.test(countryCallingCode)) {
+    throw Object.assign(new Error("国家电话区号必须为 1 至 3 位数字。"), { statusCode: 400 });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    if (agreementNo) {
+      const existing = await client.query<{ id: string }>(
+        `
+      SELECT id::text AS id
+      FROM channel.partners
+      WHERE agreement_no = $1
+        AND NOT (id::text = $2 OR v2_source_id = $2 OR partner_code = $2)
+      LIMIT 1
+      `,
+        [agreementNo, id],
+      );
+      if (existing.rows[0]) {
+        throw Object.assign(new Error("协议编号已被其他渠道商使用。"), { statusCode: 409 });
+      }
+    }
+    const extra = {
+      ...输入,
+      id: code,
+      name,
+      partnerName: name,
+      level,
+      agreementNo,
+      countryCallingCode,
+    };
+    const params = [
+      code,
+      name,
+      migrationNormalizedName(name),
+      转V3渠道级别(level),
+      读取正文文本(输入, ["city"], ""),
+      读取正文文本(输入, ["contact", "contactName"], ""),
+      读取正文文本(输入, ["phone", "contactPhone"], ""),
+      读取正文文本(输入, ["email", "contactEmail"], ""),
+      转V3伙伴状态(读取正文文本(输入, ["status"], "active")),
+      JSON.stringify(extra),
+      agreementNo,
+      countryCallingCode,
+      协议编号已提供,
+      国家电话区号已提供,
+    ];
 
-  if (id) {
-    const result = await pool.query<{ id: string }>(
-      `
+    let 渠道UUID = "";
+    if (id) {
+      const result = await client.query<{ id: string }>(
+        `
       UPDATE channel.partners
       SET partner_name = $2,
           normalized_name = $3,
@@ -2658,22 +2871,26 @@ async function 保存V2渠道商(pool: Pool, id: string, 输入: 字典) {
           contact_phone = NULLIF($7, ''),
           contact_email = NULLIF($8, '')::citext,
           status_code = $9,
+          agreement_no = CASE WHEN $13 THEN NULLIF($11, '') ELSE agreement_no END,
+          country_calling_code = CASE WHEN $14 THEN $12 ELSE country_calling_code END,
           updated_at = now(),
           extra_json = extra_json || $10::jsonb
       WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
       RETURNING id::text AS id
       `,
-      params,
-    );
-    if (!result.rows[0]) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
-  } else {
-    await pool.query(
-      `
+        params,
+      );
+      if (!result.rows[0]) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
+      渠道UUID = result.rows[0].id;
+    } else {
+      const result = await client.query<{ id: string }>(
+        `
       INSERT INTO channel.partners (
         v2_source_id, partner_code, partner_name, normalized_name, partner_level_code,
-        city_name, contact_name, contact_phone, contact_email, status_code, extra_json
+        city_name, contact_name, contact_phone, contact_email, status_code, extra_json,
+        agreement_no, country_calling_code
       )
-      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $10::jsonb)
+      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $10::jsonb, NULLIF($11, ''), $12)
       ON CONFLICT (v2_source_id) DO UPDATE
       SET partner_name = EXCLUDED.partner_name,
           normalized_name = EXCLUDED.normalized_name,
@@ -2683,31 +2900,79 @@ async function 保存V2渠道商(pool: Pool, id: string, 输入: 字典) {
           contact_phone = EXCLUDED.contact_phone,
           contact_email = EXCLUDED.contact_email,
           status_code = EXCLUDED.status_code,
+          agreement_no = EXCLUDED.agreement_no,
+          country_calling_code = EXCLUDED.country_calling_code,
           updated_at = now(),
           extra_json = channel.partners.extra_json || EXCLUDED.extra_json
+      RETURNING id::text AS id
       `,
-      params,
-    );
-  }
+        params.slice(0, 12),
+      );
+      渠道UUID = result.rows[0]?.id || "";
+    }
 
-  return { ...extra, status: 读取正文文本(输入, ["status"], "active") };
+    if (读取正文文本(输入, ["status"], "active") === "pending" && 渠道UUID) {
+      const 申请人UUID = 当前用户?.username ? await 查找用户UUID(client, 当前用户.username) : null;
+      await 写入渠道商审批待办(client, {
+        渠道UUID,
+        渠道编号: code,
+        申请人UUID,
+        输入,
+        当前用户,
+      });
+    }
+
+    await client.query("COMMIT");
+    return { ...extra, status: 读取正文文本(输入, ["status"], "active") };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
-async function 更新渠道商状态(pool: Pool, id: string, status: string, 输入: 字典) {
-  const result = await pool.query<{ id: string; partner_name: string }>(
-    `
-    UPDATE channel.partners
-    SET status_code = $2,
-        updated_at = now(),
-        extra_json = extra_json || $3::jsonb
-    WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
-    RETURNING COALESCE(v2_source_id, partner_code, id::text) AS id, partner_name
-    `,
-    [id, 转V3伙伴状态(status), JSON.stringify({ ...输入, status })],
-  );
-  const row = result.rows[0];
-  if (!row) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
-  return { id: row.id, name: row.partner_name, partnerName: row.partner_name, status };
+async function 更新渠道商状态(
+  pool: Pool,
+  id: string,
+  status: string,
+  输入: 字典,
+  当前用户: 当前业务用户 | null = null,
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ id: string; external_id: string; partner_name: string }>(
+      `
+      UPDATE channel.partners
+      SET status_code = $2,
+          updated_at = now(),
+          extra_json = extra_json || $3::jsonb
+      WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
+      RETURNING id::text AS id, COALESCE(v2_source_id, partner_code, id::text) AS external_id, partner_name
+      `,
+      [id, 转V3伙伴状态(status), JSON.stringify({ ...输入, status })],
+    );
+    const row = result.rows[0];
+    if (!row) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
+    if (status === "pending") {
+      const 申请人UUID = 当前用户?.username ? await 查找用户UUID(client, 当前用户.username) : null;
+      await 写入渠道商审批待办(client, {
+        渠道UUID: row.id,
+        渠道编号: row.external_id,
+        申请人UUID,
+        输入,
+        当前用户,
+      });
+    }
+    await client.query("COMMIT");
+    return { id: row.external_id, name: row.partner_name, partnerName: row.partner_name, status };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 async function 保存渠道商分销层级(pool: Pool, id: string, 输入: 字典) {
@@ -2760,6 +3025,8 @@ async function 查询渠道商简介(pool: Pool, id: string) {
     partner_id: string;
     partner_code: string | null;
     partner_name: string;
+    agreement_no: string | null;
+    country_calling_code: string | null;
     profile_id: string | null;
     extra_json: 字典 | null;
     partner_extra_json: 字典 | null;
@@ -2769,6 +3036,8 @@ async function 查询渠道商简介(pool: Pool, id: string) {
       p.id::text AS partner_id,
       COALESCE(p.v2_source_id, p.partner_code) AS partner_code,
       p.partner_name,
+      p.agreement_no,
+      p.country_calling_code,
       pp.id::text AS profile_id,
       pp.extra_json,
       p.extra_json AS partner_extra_json
@@ -2794,6 +3063,8 @@ async function 查询渠道商简介(pool: Pool, id: string) {
     id: row.profile_id || row.partner_code || row.partner_id,
     partnerId: row.partner_code || row.partner_id,
     partnerName: row.partner_name,
+    agreementNo: row.agreement_no || "",
+    countryCallingCode: row.country_calling_code || "86",
     permissions: {
       canEditProfile: true,
       canManageProducts: true,
@@ -2826,6 +3097,193 @@ async function 保存渠道商简介(pool: Pool, id: string, 输入: 字典) {
   return 查询渠道商简介(pool, id);
 }
 
+async function 查询账号首个渠道成员(
+  db: Pool,
+  userUuid: string,
+): Promise<{ role: string; partnerUuid: string; partnerExternalId: string } | null> {
+  const result = await db.query<{
+    member_role_code: string;
+    partner_id: string;
+    partner_external_id: string;
+  }>(
+    `
+    SELECT pm.member_role_code,
+      pm.partner_id::text AS partner_id,
+      COALESCE(p.v2_source_id, p.partner_code, p.id::text) AS partner_external_id
+    FROM channel.partner_members pm
+    JOIN channel.partners p ON p.id = pm.partner_id
+    WHERE pm.user_id = $1::uuid
+      AND pm.archived_at IS NULL
+    ORDER BY pm.started_at DESC
+    LIMIT 1
+    `,
+    [userUuid],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    role: row.member_role_code,
+    partnerUuid: row.partner_id,
+    partnerExternalId: row.partner_external_id,
+  };
+}
+
+async function 写入账号审批待办(
+  db: Pool | PoolClient,
+  参数: {
+    账号UUID: string;
+    账号角色: string;
+    渠道UUID: string;
+    渠道编号: string;
+    申请人UUID: string | null;
+    输入: 字典;
+    当前用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const 快照 = await db.query<{
+    partner_name: string | null;
+    region_id: string | null;
+    region_name: string | null;
+  }>(
+    `
+    SELECT p.partner_name, p.region_id::text AS region_id, reg.region_name
+    FROM channel.partners p
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
+    WHERE p.id = $1::uuid
+    LIMIT 1
+    `,
+    [参数.渠道UUID],
+  );
+  const row = 快照.rows[0];
+  const 姓名 = 读取正文文本(参数.输入, ["name", "displayName"], "");
+  const 用户名 = 读取正文文本(参数.输入, ["username"], "");
+  const result = await db.query<{ id: string }>(
+    `
+    INSERT INTO ops.approvals (
+      v2_source_id, approval_type_code, target_type, target_id, applicant_user_id,
+      applicant_partner_id, status_code, created_at, updated_at, extra_json
+    )
+    VALUES ($1, $2, 'user', $3::uuid, $4::uuid, $5::uuid, 'pending', now(), now(), $6::jsonb)
+    ON CONFLICT (v2_source_id) DO UPDATE
+    SET status_code = 'pending',
+        updated_at = now(),
+        extra_json = ops.approvals.extra_json || EXCLUDED.extra_json
+    RETURNING id::text AS id
+    `,
+    [
+      `account:${参数.账号UUID}`,
+      参数.账号角色 === "partner_admin" ? "partner_admin" : "staff",
+      参数.账号UUID,
+      参数.申请人UUID,
+      参数.渠道UUID,
+      JSON.stringify({
+        status: "pending",
+        type: 参数.账号角色,
+        targetType: "user",
+        targetName: 姓名,
+        username: 用户名,
+        targetPartnerId: 参数.渠道编号,
+        partnerId: 参数.渠道编号,
+        partnerUuid: 参数.渠道UUID,
+        targetPartnerName: row?.partner_name || 读取正文文本(参数.输入, ["partnerName"], ""),
+        region: 读取正文文本(参数.输入, ["region"], row?.region_name || ""),
+        regionId: row?.region_id || "",
+        createdBy: 参数.当前用户?.displayName || 读取正文文本(参数.输入, ["createdBy"], ""),
+        createdByRole: 参数.当前用户?.roleName || 读取正文文本(参数.输入, ["createdByRole"], ""),
+        staffRole: 读取正文文本(参数.输入, ["staffRole"], ""),
+        phone: 读取正文文本(参数.输入, ["phone"], ""),
+        email: 读取正文文本(参数.输入, ["email"], ""),
+      }),
+    ],
+  );
+  const approvalId = result.rows[0]?.id || "";
+  await db.query(
+    `
+    INSERT INTO ops.approval_events (approval_id, event_code, to_status_code, reason, extra_json)
+    VALUES ($1::uuid, 'submit', 'pending', $2, $3::jsonb)
+    `,
+    [
+      approvalId,
+      参数.账号角色 === "partner_admin" ? "区管提交企业管理员审批" : "区管提交员工账号审批",
+      JSON.stringify({ actorName: 参数.当前用户?.displayName || "" }),
+    ],
+  );
+  await 写入统一提醒发件箱事件(db, {
+    事件类型: "iam.account.approval.pending",
+    聚合编号: approvalId,
+    聚合类型: "approval",
+    载荷: { approvalId, accountId: 参数.账号UUID, partnerId: 参数.渠道UUID },
+  });
+}
+
+async function 写入渠道商审批待办(
+  db: Pool | PoolClient,
+  参数: {
+    渠道UUID: string;
+    渠道编号: string;
+    申请人UUID: string | null;
+    输入: 字典;
+    当前用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const result = await db.query<{ id: string }>(
+    `
+    INSERT INTO ops.approvals (
+      v2_source_id, approval_type_code, target_type, target_id, applicant_user_id,
+      applicant_partner_id, status_code, created_at, updated_at, extra_json
+    )
+    VALUES ($1, 'partner', 'partner', $2::uuid, $3::uuid, $2::uuid, 'pending', now(), now(), $4::jsonb)
+    ON CONFLICT (v2_source_id) DO UPDATE
+    SET status_code = 'pending',
+        applicant_user_id = EXCLUDED.applicant_user_id,
+        updated_at = now(),
+        extra_json = ops.approvals.extra_json || EXCLUDED.extra_json
+    RETURNING id::text AS id
+    `,
+    [
+      `partner:${参数.渠道UUID}`,
+      参数.渠道UUID,
+      参数.申请人UUID,
+      JSON.stringify({
+        status: "pending",
+        type: "partner",
+        targetType: "partner",
+        targetPartnerId: 参数.渠道编号,
+        targetPartnerName: 读取正文文本(参数.输入, ["name", "partnerName"], ""),
+        createdBy: 参数.当前用户?.displayName || 读取正文文本(参数.输入, ["createdBy"], ""),
+      }),
+    ],
+  );
+  const approvalId = result.rows[0]?.id || "";
+  await db.query(
+    `
+    INSERT INTO ops.approval_events (approval_id, event_code, to_status_code, reason, extra_json)
+    VALUES ($1::uuid, 'submit', 'pending', '提交渠道商审核', $2::jsonb)
+    `,
+    [approvalId, JSON.stringify({ actorName: 参数.当前用户?.displayName || "" })],
+  );
+  await 写入统一提醒发件箱事件(db, {
+    事件类型: "channel.partner.approval.pending",
+    聚合编号: approvalId,
+    聚合类型: "approval",
+    载荷: { approvalId, partnerId: 参数.渠道UUID },
+  });
+}
+
+async function 写入统一提醒发件箱事件(
+  db: Pool | PoolClient,
+  参数: { 事件类型: string; 聚合类型: string; 聚合编号: string; 载荷: 字典 },
+): Promise<void> {
+  await db.query(
+    `
+    INSERT INTO ops.outbox_events (
+      event_type, aggregate_type, aggregate_id, payload_json, status_code, created_at
+    ) VALUES ($1, $2, $3::uuid, $4::jsonb, 'pending', now())
+    `,
+    [参数.事件类型, 参数.聚合类型, 参数.聚合编号, JSON.stringify(参数.载荷)],
+  );
+}
+
 async function 保存渠道商员工(
   pool: Pool,
   partnerId: string,
@@ -2833,41 +3291,151 @@ async function 保存渠道商员工(
   输入: 字典,
   当前用户?: 当前业务用户 | null,
 ) {
-  const partnerUuid = await 查找渠道商UUID(pool, partnerId);
-  if (!partnerUuid) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
-  const 已有账号角色 = staffId ? await 查询渠道成员账号角色(pool, partnerUuid, staffId) : "";
-  const 账号角色 = 读取显式账号角色(输入) || 已有账号角色 || "staff";
-  await 校验企业管理员渠道范围(pool, partnerUuid, 账号角色, 当前用户 || null);
-  const 员工职位 = 读取员工职位(输入, 账号角色);
-  const 用户 = await 保存V2用户(pool, staffId, {
-    ...输入,
-    role: 账号角色,
-    staffRole: 员工职位,
-    partnerId,
-  });
-  const userUuid = await 查找用户UUID(pool, 用户.id || 用户.username);
-  if (!userUuid) throw Object.assign(new Error("员工账号保存失败。"), { statusCode: 500 });
-  await pool.query(
-    `
-    INSERT INTO channel.partner_members (partner_id, user_id, member_role_code, status_code)
-    VALUES ($1::uuid, $2::uuid, $3, $4)
-    ON CONFLICT (partner_id, user_id) DO UPDATE
-    SET member_role_code = EXCLUDED.member_role_code,
-        status_code = EXCLUDED.status_code,
-        ended_at = NULL
-    `,
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const partnerUuid = await 查找渠道商UUID(client, partnerId);
+    if (!partnerUuid) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
+    const 已有账号角色 = staffId ? await 查询渠道成员账号角色(client, partnerUuid, staffId) : "";
+    const 账号角色 = 读取显式账号角色(输入) || 已有账号角色 || "staff";
+    await 校验企业管理员渠道范围(client, partnerUuid, 账号角色, 当前用户 || null);
+    const 员工职位 = 读取员工职位(输入, 账号角色);
+    const 用户 = await 保存V2用户(
+      client,
+      staffId,
+      {
+        ...输入,
+        role: 账号角色,
+        staffRole: 员工职位,
+        partnerId,
+      },
+      { 同步渠道成员: false },
+    );
+    const userUuid = await 查找用户UUID(client, 用户.id || 用户.username);
+    if (!userUuid) throw Object.assign(new Error("员工账号保存失败。"), { statusCode: 500 });
+    await client.query(
+      `
+      INSERT INTO channel.partner_members (partner_id, user_id, member_role_code, status_code)
+      VALUES ($1::uuid, $2::uuid, $3, $4)
+      ON CONFLICT (partner_id, user_id) DO UPDATE
+      SET member_role_code = EXCLUDED.member_role_code,
+          status_code = EXCLUDED.status_code,
+          ended_at = NULL,
+          archived_at = NULL,
+          archive_reason = NULL,
+          updated_at = now(),
+          row_version = channel.partner_members.row_version + 1
+      `,
+      [
+        partnerUuid,
+        userUuid,
+        账号角色 === "partner_admin" ? "partner_admin" : "staff",
+        转V3账号状态(读取正文文本(输入, ["status"], "active")),
+      ],
+    );
+    const 业务角色代码 = 读取渠道业务角色代码(输入);
+    if (业务角色代码) {
+      await 同步渠道成员业务角色(client, partnerUuid, userUuid, 业务角色代码, 当前用户 || null);
+    }
+    if (读取正文文本(输入, ["status"], "active") === "pending") {
+      const 申请人UUID = 当前用户?.username ? await 查找用户UUID(client, 当前用户.username) : null;
+      await 写入账号审批待办(client, {
+        账号UUID: userUuid,
+        账号角色,
+        渠道UUID: partnerUuid,
+        渠道编号: partnerId,
+        申请人UUID,
+        输入,
+        当前用户: 当前用户 || null,
+      });
+    }
+    await client.query("COMMIT");
+    return 用户;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function 同步渠道成员业务角色(
+  db: 数据库查询器,
+  partnerUuid: string,
+  userUuid: string,
+  roleCode: string,
+  actor: 当前业务用户 | null,
+): Promise<void> {
+  const member = await db.query<{ id: string }>(
+    `SELECT id::text AS id FROM channel.partner_members
+       WHERE partner_id=$1::uuid AND user_id=$2::uuid AND archived_at IS NULL
+       FOR UPDATE`,
+    [partnerUuid, userUuid],
+  );
+  if (!member.rows[0]) {
+    return;
+  }
+  const role = await db.query<{ id: string; role_name: string }>(
+    `SELECT id::text AS id,role_name FROM org.business_roles
+       WHERE role_code=$1 AND domain_code='channel' AND status_code='active'
+       FOR UPDATE`,
+    [roleCode],
+  );
+  if (!role.rows[0])
+    throw Object.assign(new Error("销售或技术业务角色尚未初始化。"), { statusCode: 409 });
+  await db.query(
+    `UPDATE org.member_business_roles m
+       SET expired_at=now(),row_version=m.row_version+1
+       FROM org.business_roles b
+       WHERE m.business_role_id=b.id AND m.partner_member_id=$1::uuid
+         AND m.expired_at IS NULL AND b.domain_code='channel' AND b.id<>$2::uuid`,
+    [member.rows[0].id, role.rows[0].id],
+  );
+  const actorUser = actor?.username
+    ? await db.query<{ id: string }>(
+        "SELECT id::text AS id FROM iam.users WHERE lower(username::text)=lower($1) LIMIT 1",
+        [actor.username],
+      )
+    : null;
+  await db.query(
+    `INSERT INTO org.member_business_roles(
+         business_role_id,partner_member_id,is_primary_display,effective_at,created_by_user_id
+       )
+       SELECT $1::uuid,$2::uuid,true,now(),$3::uuid
+       WHERE NOT EXISTS (
+         SELECT 1 FROM org.member_business_roles
+         WHERE business_role_id=$1::uuid AND partner_member_id=$2::uuid AND expired_at IS NULL
+       )`,
+    [role.rows[0].id, member.rows[0].id, actorUser?.rows[0]?.id || null],
+  );
+  await db.query(
+    `UPDATE iam.users
+       SET extra_json=extra_json || jsonb_build_object(
+         'staffRole',$1::text,'businessRoleCode',$2::text
+       ),updated_at=now()
+       WHERE id=$3::uuid`,
+    [role.rows[0].role_name, roleCode, userUuid],
+  );
+  await db.query(
+    `INSERT INTO audit.audit_logs(
+         created_at,request_id,actor_user_id,actor_username,actor_name,actor_role,module_code,
+         action_code,target_type,target_id,result_code,message,before_json,after_json,extra_json
+       ) VALUES(now(),$1,$2::uuid,$3,$4,$5,'organization','channel_member.business_role_synced',
+         'channel_member',$6,'success','兼容入口同步渠道成员业务角色','{}'::jsonb,$7::jsonb,'{}'::jsonb)`,
     [
-      partnerUuid,
-      userUuid,
-      账号角色 === "partner_admin" ? "partner_admin" : "staff",
-      转V3账号状态(读取正文文本(输入, ["status"], "active")),
+      actor?.requestId || "",
+      actorUser?.rows[0]?.id || null,
+      actor?.username || "system",
+      actor?.displayName || actor?.username || "系统",
+      actor?.roleName || "兼容入口",
+      member.rows[0].id,
+      JSON.stringify({ businessRoleCode: roleCode, businessRoleName: role.rows[0].role_name }),
     ],
   );
-  return 用户;
 }
 
 async function 校验企业管理员渠道范围(
-  pool: Pool,
+  pool: 数据库查询器,
   partnerUuid: string,
   accountRole: string,
   当前用户: 当前业务用户 | null,
@@ -2900,7 +3468,7 @@ async function 校验企业管理员渠道范围(
 }
 
 async function 查询账号创建范围(
-  pool: Pool,
+  pool: 数据库查询器,
   用户: 当前业务用户,
 ): Promise<{ roleCode: string; regionId: string; regionName: string } | null> {
   const result = await pool.query<{
@@ -2949,19 +3517,29 @@ async function 更新渠道商员工状态(pool: Pool, partnerId: string, staffI
   const userUuid = await 查找用户UUID(pool, staffId);
   if (!partnerUuid || !userUuid)
     throw Object.assign(new Error("渠道商或员工不存在。"), { statusCode: 404 });
-  await pool.query(
+  const updated = await pool.query(
     `
     UPDATE channel.partner_members
     SET status_code = $3,
-        ended_at = CASE WHEN $3 = 'disabled' THEN now() ELSE NULL END
-    WHERE partner_id = $1::uuid AND user_id = $2::uuid
+        ended_at = CASE WHEN $3 = 'disabled' THEN now() ELSE NULL END,
+        updated_at = now(),
+        row_version = row_version + 1
+    WHERE partner_id = $1::uuid AND user_id = $2::uuid AND archived_at IS NULL
+    RETURNING id
     `,
     [partnerUuid, userUuid, 转V3账号状态(status)],
   );
+  if (!updated.rows[0])
+    throw Object.assign(new Error("渠道商员工关系不存在或已归档。"), { statusCode: 404 });
   return 更新用户状态(pool, staffId, status);
 }
 
-async function 删除渠道商员工(pool: Pool, partnerId: string, staffId: string) {
+async function 删除渠道商员工(
+  pool: Pool,
+  partnerId: string,
+  staffId: string,
+  当前用户: 当前业务用户 | null,
+) {
   const partnerUuid = await 查找渠道商UUID(pool, partnerId);
   const userUuid = await 查找用户UUID(pool, staffId);
   if (!partnerUuid || !userUuid)
@@ -2970,52 +3548,107 @@ async function 删除渠道商员工(pool: Pool, partnerId: string, staffId: str
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const removed = await client.query<{ member_role_code: string }>(
+    const removed = await client.query<{ id: string; member_role_code: string }>(
       `
-      DELETE FROM channel.partner_members
-      WHERE partner_id = $1::uuid AND user_id = $2::uuid
-      RETURNING member_role_code
+      UPDATE channel.partner_members
+      SET status_code = 'disabled',
+          ended_at = COALESCE(ended_at, now()),
+          archived_at = now(),
+          archive_reason = '渠道商管理移除成员',
+          updated_at = now(),
+          row_version = row_version + 1
+      WHERE partner_id = $1::uuid AND user_id = $2::uuid AND archived_at IS NULL
+      RETURNING id::text AS id, member_role_code
       `,
       [partnerUuid, userUuid],
     );
     if (!removed.rows[0])
       throw Object.assign(new Error("渠道商员工关系不存在。"), { statusCode: 404 });
 
-    const remaining = await client.query<{ count: string }>(
+    const remaining = await client.query<{
+      partner_external_id: string;
+      partner_name: string;
+    }>(
       `
-      SELECT COUNT(*)::text AS count
-      FROM channel.partner_members
-      WHERE user_id = $1::uuid
+      SELECT COALESCE(p.v2_source_id,p.partner_code,p.id::text) AS partner_external_id,
+        p.partner_name
+      FROM channel.partner_members pm
+      JOIN channel.partners p ON p.id=pm.partner_id AND p.status_code='active'
+      WHERE pm.user_id = $1::uuid AND pm.status_code = 'active' AND pm.archived_at IS NULL
+      ORDER BY CASE pm.member_role_code WHEN 'partner_admin' THEN 0 ELSE 1 END,pm.started_at DESC
+      LIMIT 1
       `,
       [userUuid],
     );
+    const archivedAt = new Date().toISOString();
     const extra = {
-      status: "deleted",
-      deletedFromPartnerId: partnerId,
-      deletedAt: new Date().toISOString(),
+      lastArchivedPartnerId: partnerId,
+      lastArchivedAt: archivedAt,
     };
-    if (Number(remaining.rows[0]?.count || 0) === 0) {
+    const remainingMembership = remaining.rows[0];
+    if (!remainingMembership) {
       await client.query(
         `
         UPDATE iam.users
         SET status_code = 'disabled',
             updated_at = now(),
-            extra_json = extra_json || $2::jsonb
+            extra_json = (extra_json - 'partnerId' - 'partnerName') || $2::jsonb
         WHERE id = $1::uuid
         `,
-        [userUuid, JSON.stringify(extra)],
+        [userUuid, JSON.stringify({ ...extra, status: "deleted" })],
       );
     } else {
       await client.query(
         `
         UPDATE iam.users
-        SET updated_at = now(),
-            extra_json = extra_json || $2::jsonb
+        SET status_code = 'active',
+            updated_at = now(),
+            extra_json = (extra_json - 'partnerId' - 'partnerName') || $2::jsonb
         WHERE id = $1::uuid
         `,
-        [userUuid, JSON.stringify(extra)],
+        [
+          userUuid,
+          JSON.stringify({
+            ...extra,
+            status: "active",
+            partnerId: remainingMembership.partner_external_id,
+            partnerName: remainingMembership.partner_name,
+          }),
+        ],
       );
     }
+    const actorUser = 当前用户?.username
+      ? await client.query<{ id: string }>(
+          "SELECT id::text AS id FROM iam.users WHERE lower(username::text)=lower($1) LIMIT 1",
+          [当前用户.username],
+        )
+      : null;
+    await client.query(
+      `INSERT INTO audit.audit_logs(
+         created_at,request_id,actor_user_id,actor_username,actor_name,actor_role,module_code,
+         action_code,target_type,target_id,result_code,message,before_json,after_json,extra_json
+       ) VALUES(now(),$1,$2::uuid,$3,$4,$5,'organization','channel_member.archived',
+         'channel_member',$6,'success','渠道成员已从当前团队停用归档',$7::jsonb,$8::jsonb,'{}'::jsonb)`,
+      [
+        当前用户?.requestId || "",
+        actorUser?.rows[0]?.id || null,
+        当前用户?.username || "system",
+        当前用户?.displayName || 当前用户?.username || "系统",
+        当前用户?.roleName || "兼容入口",
+        removed.rows[0].id,
+        JSON.stringify({
+          partnerId,
+          userId: userUuid,
+          memberRoleCode: removed.rows[0].member_role_code,
+        }),
+        JSON.stringify({
+          statusCode: "disabled",
+          archived: true,
+          accountDisabled: !remainingMembership,
+          replacementPartnerId: remainingMembership?.partner_external_id || null,
+        }),
+      ],
+    );
     await client.query("COMMIT");
     return { id: staffId, userId: userUuid, partnerId, deleted: true };
   } catch (error) {
@@ -3027,64 +3660,173 @@ async function 删除渠道商员工(pool: Pool, partnerId: string, staffId: str
 }
 
 async function 更新待审批状态(pool: Pool, id: string, status: string, 输入: 字典) {
-  const result = await pool.query<{
-    id: string;
-    target_type: string;
-    target_id: string | null;
-    extra_json: 字典 | null;
-  }>(
-    `
-    UPDATE ops.approvals
-    SET status_code = $2,
-        updated_at = now(),
-        extra_json = extra_json || $3::jsonb
-    WHERE id::text = $1 OR v2_source_id = $1
-    RETURNING COALESCE(v2_source_id, id::text) AS id, target_type, target_id::text AS target_id, extra_json
-    `,
-    [id, status, JSON.stringify({ ...输入, status })],
-  );
-  const row = result.rows[0];
-  if (!row) throw Object.assign(new Error("审批记录不存在。"), { statusCode: 404 });
-  if (row.target_id) {
-    if (
-      row.target_type === "user" ||
-      row.target_type === "staff" ||
-      row.target_type === "account"
-    ) {
-      await pool.query(
-        "UPDATE iam.users SET status_code = $2, updated_at = now() WHERE id = $1::uuid",
-        [row.target_id, status === "approved" ? "active" : "disabled"],
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const 当前 = await client.query<{
+      id: string;
+      v2_source_id: string | null;
+      status_code: string;
+      approval_type_code: string;
+      target_type: string;
+      target_id: string | null;
+      applicant_partner_id: string | null;
+      extra_json: 字典 | null;
+    }>(
+      `
+      SELECT id::text AS id, v2_source_id, status_code, approval_type_code, target_type, target_id::text AS target_id,
+        applicant_partner_id::text AS applicant_partner_id, extra_json
+      FROM ops.approvals
+      WHERE id::text = $1 OR v2_source_id = $1
+      FOR UPDATE
+      `,
+      [id],
+    );
+    const row = 当前.rows[0];
+    if (!row) throw Object.assign(new Error("审批记录不存在。"), { statusCode: 404 });
+    const 是重新提交 = status === "pending";
+    const 允许的当前状态 = 是重新提交 ? "rejected" : "pending";
+    if (row.status_code !== 允许的当前状态) {
+      throw Object.assign(
+        new Error(
+          是重新提交 ? "仅已驳回的审批事项可以重新提交。" : "该审批事项已处理，请刷新列表后重试。",
+        ),
+        { statusCode: 409 },
       );
     }
-    if (row.target_type === "partner") {
-      await pool.query(
-        "UPDATE channel.partners SET status_code = $2, updated_at = now() WHERE id = $1::uuid",
-        [row.target_id, status === "approved" ? "active" : "disabled"],
-      );
-    }
-    if (row.target_type === "registration") {
-      await pool.query(
-        `
-        UPDATE crm.registrations
-        SET status_code = $2,
-            approved_at = CASE WHEN $2 = 'approved' THEN now() ELSE approved_at END,
-            updated_at = now(),
-            extra_json = extra_json || $3::jsonb
-        WHERE id = $1::uuid
-        `,
-        [
-          row.target_id,
-          status,
-          JSON.stringify({
+
+    const 审批人 = 读取对象文本(输入, "approvedBy") || "V2兼容审批";
+    const 原因 = 读取对象文本(输入, "remark") || 读取对象文本(输入, "reason");
+    const 审批更新 = {
+      ...输入,
+      status,
+      reviewRemark: 原因,
+      reviewedByName: 审批人,
+      reviewedAt: new Date().toISOString(),
+    };
+    await client.query(
+      `
+      UPDATE ops.approvals
+      SET status_code = $2,
+          updated_at = now(),
+          extra_json = extra_json || $3::jsonb
+      WHERE id = $1::uuid
+      `,
+      [row.id, status, JSON.stringify(审批更新)],
+    );
+    await client.query(
+      `
+      INSERT INTO ops.approval_events (
+        approval_id, event_code, from_status_code, to_status_code, reason, extra_json
+      )
+      VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+      `,
+      [
+        row.id,
+        是重新提交 ? "resubmit" : status === "approved" ? "approve" : "reject",
+        row.status_code,
+        status,
+        原因,
+        JSON.stringify({ actorName: 审批人 }),
+      ],
+    );
+
+    const 渠道UUID =
+      row.applicant_partner_id || 读取对象文本(row.extra_json || {}, "partnerUuid") || null;
+    if (row.target_id) {
+      if (["user", "staff", "account"].includes(row.target_type)) {
+        const 目标状态 = status === "approved" ? "active" : "disabled";
+        await client.query(
+          `
+          UPDATE iam.users
+          SET status_code = $2,
+              updated_at = now(),
+              extra_json = extra_json || $3::jsonb
+          WHERE id = $1::uuid
+          `,
+          [
+            row.target_id,
+            目标状态,
+            JSON.stringify({
+              status: status === "approved" ? "active" : 是重新提交 ? "pending" : "rejected",
+            }),
+          ],
+        );
+        if (渠道UUID) {
+          await client.query(
+            `
+            UPDATE channel.partner_members
+            SET status_code = $2,
+                ended_at = CASE WHEN $2 = 'disabled' THEN now() ELSE NULL END,
+                updated_at = now(),
+                row_version = row_version + 1
+            WHERE user_id = $1::uuid AND partner_id = $3::uuid AND archived_at IS NULL
+            `,
+            [row.target_id, 目标状态, 渠道UUID],
+          );
+        }
+      }
+      if (row.target_type === "partner") {
+        await client.query(
+          "UPDATE channel.partners SET status_code = $2, updated_at = now() WHERE id = $1::uuid",
+          [row.target_id, status === "approved" ? "active" : "disabled"],
+        );
+      }
+      if (row.target_type === "registration") {
+        await client.query(
+          `
+          UPDATE crm.registrations
+          SET status_code = $2,
+              approved_at = CASE WHEN $2 = 'approved' THEN now() ELSE approved_at END,
+              updated_at = now(),
+              extra_json = extra_json || $3::jsonb
+          WHERE id = $1::uuid
+          `,
+          [
+            row.target_id,
             status,
-            reviewRemark: 读取对象文本(输入, "remark") || 读取对象文本(输入, "reason"),
-            updatedByName: 读取对象文本(输入, "approvedBy") || "V2兼容审批",
-          }),
-        ],
-      );
+            JSON.stringify({
+              status,
+              reviewRemark: 原因,
+              updatedByName: 审批人,
+            }),
+          ],
+        );
+      }
     }
+    if (是重新提交 && row.target_id) {
+      const 事件类型 =
+        row.target_type === "partner"
+          ? "channel.partner.approval.pending"
+          : ["user", "staff", "account"].includes(row.target_type)
+            ? "iam.account.approval.pending"
+            : "";
+      if (事件类型) {
+        await 写入统一提醒发件箱事件(client, {
+          事件类型,
+          聚合类型: "approval",
+          聚合编号: row.id,
+          载荷: {
+            approvalId: row.id,
+            targetId: row.target_id,
+            approvalType: row.approval_type_code,
+          },
+        });
+      }
+    }
+    await client.query("COMMIT");
+    return {
+      ...(row.extra_json || {}),
+      id: row.v2_source_id || row.id,
+      approvalId: row.id,
+      status,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
-  return { ...(row.extra_json || {}), id: row.id, status };
 }
 
 async function 查询工作量分类(pool: Pool) {
@@ -3812,7 +4554,7 @@ function 取V2编号(row: 数据库行): string {
   return 读取对象文本(extra, "id") || row.v2_source_id || row.id;
 }
 
-async function 查找渠道商UUID(pool: Pool, id: string): Promise<string> {
+async function 查找渠道商UUID(pool: Pick<Pool, "query">, id: string): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `
     SELECT id::text AS id
@@ -3825,7 +4567,7 @@ async function 查找渠道商UUID(pool: Pool, id: string): Promise<string> {
   return result.rows[0]?.id || "";
 }
 
-async function 查找用户UUID(pool: Pool, id: string): Promise<string> {
+async function 查找用户UUID(pool: Pick<Pool, "query">, id: string): Promise<string> {
   const result = await pool.query<{ id: string }>(
     `
     SELECT id::text AS id
@@ -4542,7 +5284,7 @@ async function 查询员工按姓名和渠道(
       COALESCE(r.region_name, u.extra_json->>'region', p.extra_json->>'region', '') AS region,
       COALESCE(big.region_name, u.extra_json->>'bigRegion', p.extra_json->>'bigRegion', '') AS "bigRegion"
     FROM iam.users u
-    JOIN channel.partner_members pm ON pm.user_id = u.id AND pm.status_code = 'active'
+    JOIN channel.partner_members pm ON pm.user_id = u.id AND pm.status_code = 'active' AND pm.archived_at IS NULL
     JOIN channel.partners p ON p.id = pm.partner_id
     LEFT JOIN org.regions r ON r.id = COALESCE(u.region_id, p.region_id)
     LEFT JOIN org.regions big ON big.id = r.parent_region_id
@@ -4976,7 +5718,7 @@ function 转V3角色名称(role: string): string {
 }
 
 function 转V3账号状态(status: string): string {
-  if (["disabled", "inactive", "rejected", "archived", "cancelled"].includes(status))
+  if (["disabled", "inactive", "rejected", "archived", "cancelled", "pending"].includes(status))
     return "disabled";
   if (status === "locked") return "locked";
   return "active";

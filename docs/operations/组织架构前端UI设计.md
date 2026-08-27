@@ -2,7 +2,9 @@
 
 > 本文档配套 8 份 HTML 原型，每份原型在浏览器中打开即可看到真实渲染效果。
 > 原型路径：`docs/operations/组织架构UI原型/`
+> `docs/operations/组织架构UI原型.bak/` 仅为历史备份，不是开发、评审或验收依据；与正式原型冲突时一律忽略。
 > 原型技术栈：Vue 3 + Element Plus（与项目实际一致），CDN 加载，无需构建。
+> 修订版本：2026-08-27-R5；在 R4 基础上补齐合作伙伴经营报表入口，对齐当前正式 `/admin.html`：左侧单一组织架构入口、单一内部任职、销售/技术二选一、渠道成员四入口统一资料、多证书授权和逻辑归档。8 份原型仅保留视觉参考，若与当前正式页面和 OpenAPI 冲突，以正式页面和契约为准。
 
 ---
 
@@ -19,11 +21,16 @@
 | --- | --- |
 | 与 V3 现有视觉一致 | 沿用 `apps/web/public/style.css`（Apple Design Style，主色 `#007AFF`，侧栏 `#1D1D1F`），所有原型直接引用真实样式表 |
 | 使用项目已有组件库 | Element Plus 全量注册（见 `apps/web/src/main.ts`） |
-| 单一管理入口 | 所有页面挂在 `/admin/platform-admin/organization/*` 下 |
+| 单一管理入口 | 当前正式入口为 `/admin.html#/organization/*`，继续使用原左侧菜单和内容区；`/workspace/admin/*` 仅为工程化过渡预览 |
 | 移动端首期不做 | D-06 决策，桌面端优先 |
 | D-02 红线视觉化 | 业务角色页、证书页、数据范围页都有"业务角色 ≠ 权限"的醒目提示 |
 | D-03 视觉化 | 证书页顶部 banner + "仅告警不撤销"说明 |
-| D-07 占位页面真实可看 | 同步占位页不是空白，时间线 + 占位说明清楚 |
+| D-07 / D-19 同步受控 | 企微同步先只读预览，审批后受控应用；安全边界和高风险差异始终可见 |
+| D-13 上下文可见 | 顶栏始终展示当前内部或渠道工作身份；切换后重新加载权限与数据，不能只换标签 |
+| 冲突可恢复 | `row_version` 冲突保留用户输入，展示差异并允许刷新后重试 |
+| 高风险可控 | 离职保留一次业务确认，叠加独立权限、近期强认证和后端幂等，不重复弹窗 |
+| 单一内部任职 | 当前不展示主职、兼职或跨部门任职；已有任职使用“调整”，无任职时才允许“添加” |
+| 统一成员资料 | 组织架构、渠道商员工、企业管理员、合作伙伴经营报表共用姓名、电话、邮箱、销售/技术角色和多份证书；身份、审批、账号状态、系统权限和外部身份独立 |
 
 ## 2. 全局布局
 
@@ -31,9 +38,11 @@
 
 ```
 ┌──────────┬──────────────────────────────────────────┐
-│          │ 顶栏：面包屑 + 用户身份                       │
+│          │ 顶栏：面包屑 + 当前工作身份 + 返回原工作台     │
 │  侧边栏   ├──────────────────────────────────────────┤
 │ 232px    │                                          │
+│          │  页签：组织与成员 | 证书管理 | 角色管理       │
+│          │  | 权限与范围 | 离职交接 | 企微同步         │
 │          │  页面标题 + 操作按钮                          │
 │  平台管理   │                                          │
 │  - 组织架构 │  内容区（白色卡片 + 圆角 10px + 边框 #e5ecf3）│
@@ -45,6 +54,8 @@
 ```
 
 侧边栏设计：每个分组用大写小标题区分（"日常业务" / "平台管理"），当前激活项用苹果蓝 `#007AFF` 背景 + 白字 + 蓝色光晕。
+
+组织架构内嵌于当前管理员页面内容区：点击左侧菜单“组织架构”后，侧边栏与顶栏保持不变；六个栏目（组织与成员、证书管理、角色管理、权限与范围、离职交接、企微同步）在内容区顶部切换。销售/技术业务角色不再单独提供自定义字典页，而是在内部成员抽屉和渠道统一成员资料弹窗中二选一。
 
 #### V3 视觉规范基线（开发必须遵守）
 
@@ -76,26 +87,16 @@
 ### 2.2 路由设计
 
 ```
-/admin/platform-admin/organization
-├── /units                   → 01-组织架构主页
-│   ├── /units/:id           → 详情页
-│   └── /units/:id/status    → 启停归档对话框
-├── /positions               → 岗位字典
-├── /staff                   → 人员与任职
-├── /business-roles          → 02-业务角色
-│   ├── /business-roles/:id  → 业务角色详情
-│   └── /business-roles/:id/cert-requirements → 证书要求
-├── /certifications          → 03-证书管理
-│   ├── /certifications/templates
-│   └── /certifications/members
-├── /data-scopes             → 04-数据范围
-│   ├── /data-scopes/roles
-│   └── /data-scopes/users   → D-08 关闭
-├── /offboarding             → 05-离职交接
-│   ├── /offboarding/:id      → 交接单详情
-│   └── /offboarding/initiate → 08-发起离职对话框
-├── /directory-sync          → 06-同步占位
-└── /audit                   → 07-审计日志（与 platform-admin 共用）
+/admin.html
+└── #/organization
+    ├── /units                   → 组织与成员（默认）
+    ├── /certifications          → 证书管理
+    ├── /rbac                    → 系统角色管理
+    ├── /data-scopes             → 权限与范围
+    ├── /offboarding             → 离职交接
+    └── /directory-sync          → 企微组织同步
+
+兼容路径 `#/organization/staff` 和 `#/organization/business-roles` 保留路由识别，但不作为正式菜单入口；不得据此恢复一人多任职或自定义人员业务角色页面。
 ```
 
 ## 3. 页面清单
@@ -103,11 +104,11 @@
 | 编号 | 原型文件 | 页面名 | 子项 | 优先级 |
 |---|---|---|---|---|
 | 01 | `01-组织架构主页.html` | 组织架构主页 | 11.1 + 11.2 | P0 |
-| 02 | `02-业务角色.html` | 业务角色字典 | 11.3 | P0 |
+| 02 | `02-业务角色.html` | 历史业务角色视觉参考；当前由统一成员资料弹窗承载销售/技术选择 | 11.3 | 参考 |
 | 03 | `03-证书管理.html` | 证书管理 | 11.4 | P0 |
 | 04 | `04-数据范围.html` | 数据范围绑定 | 11.5 | P0 |
 | 05 | `05-离职交接.html` | 离职交接列表 | 11.6 | P0 |
-| 06 | `06-同步占位.html` | 组织同步占位 | 11.7 | P0 |
+| 06 | `06-同步占位.html` | 企微组织同步控制台 | 11.7A + 11.7B | P0 |
 | 07 | `07-审计查看.html` | 审计日志 | §10 | P0 |
 | 08 | `08-发起离职对话框.html` | 发起离职对话框 | 11.6 | P0 |
 
@@ -117,7 +118,7 @@
 
 ## 4. 页面 01：组织架构主页
 
-**路径**：`/admin/platform-admin/organization/units`
+**路径**：`/admin.html#/organization/units`
 
 **原型**：`01-组织架构主页.html`
 
@@ -145,13 +146,14 @@
 | 组织编码 | 文本 | `GET /api/org/units/:id` | `org.org_units.unit_code` |
 | 所属域 | 标签 | 同上 | `unit_type` 决定（`department`/`region` 等） |
 | 父组织 | 文本+跳转 | 同上 | `parent_unit_id` |
-| 负责人 | 文本 | 同上 + `org.manager_relations` | `org.staff_assignments.manager_assignment_id` |
+| 组织负责人 | 文本 | 同上 | `org.org_units.manager_assignment_id` → `org.staff_assignments` → `iam.users`；直属汇报关系仍只读 `org.manager_relations` |
 | 当前状态 | 标签 | 同上 | `status_code` |
 | 生效时间 | 日期 | 同上 | `effective_at` |
 | 失效时间 | 文本 | 同上 | `expired_at` |
 | 数据来源 | 标签 | 同上 | `source_code` |
 | 路径 | 等宽字体 | 同上 | `path_code::text` |
 | sort_order | 数字 | 同上 | `sort_order` |
+| 数据版本 | 隐藏提交字段 | 同上 | `row_version` |
 
 **岗位子表**：
 
@@ -170,8 +172,8 @@
 | 姓名 | `iam.users.display_name` |
 | 账号 | `iam.users.username` |
 | 岗位 | `org.positions.position_name` |
-| 主职 | `org.staff_assignments.is_primary` |
-| 直属负责人 | `org.manager_relations.manager_assignment_id` → 用户 |
+| 任职状态 | 当前未结束记录统一显示“当前任职” |
+| 直属负责人 | `org.manager_relations` 中当前有效 `direct` 关系 → 负责人任职 → 用户 |
 | 有效期 | `effective_at` ~ `expired_at` |
 | 操作 | 调岗 / 改负责人 / 离职 |
 
@@ -188,25 +190,37 @@
 | 调岗 | 结束旧 + 新建新任职 | `org.assignment.update` |
 | 离职 | 跳到 08 对话框 | `org.staff.offboard` |
 
+交互约束：
+
+- 编辑和移动提交携带 `row_version`；发生版本冲突时不关闭弹窗，展示“数据已被其他人更新”，允许对比最新值、复制已填内容或重新应用。
+- 渠道域组织必须先选择所属渠道商；选择父节点后自动锁定渠道商，禁止出现跨渠道父子组合。
+- 状态切换只展示服务端返回的可执行动作，前端不自行推导状态机。
+
 ---
 
-## 5. 页面 02：业务角色
+## 5. 页面 02：业务角色（当前不单独开放）
 
-**路径**：`/admin/platform-admin/organization/business-roles`
+**当前入口**：内部成员编辑抽屉、渠道统一成员资料弹窗。
 
 **原型**：`02-业务角色.html`
 
-### 5.1 顶部 D-02 红线提示
+原 `02-业务角色.html` 只保留视觉参考。当前业务规则固定为：
+
+- 内部成员：销售、技术二选一，对应 `internal_sales`、`internal_technical`。
+- 渠道成员：销售、技术二选一，对应 `channel_sales`、`channel_technical`。
+- 不在正式页面创建、改名、停用或扩展人员业务角色，也不展示售前、售后、商务、管理、其他等自定义类别。
+- 业务角色只表示人员职责，不自动授予系统权限；系统角色仍在“角色管理”栏目独立配置。
+- 同一弹窗可以独立勾选多份证书；证书颁发、撤销、到期均不自动改变销售/技术角色。
+
+### 5.1 D-02 红线提示
 
 页面顶部必须有黄色 alert：
 
 > ⚠ D-02 红线：业务角色名（"销售经理"）**不等于**权限（`partner.order.create`）。授权走 `user_permission_roles`，岗位名只做业务显示。
 
-### 5.2 三个 Tab
+### 5.2 统一成员资料弹窗
 
-1. **业务角色**：字典表（编码 / 名称 / 域 / 类别 / 覆盖部门 / 持有人 / 证书要求 / 状态 / 操作）
-2. **角色-证书要求**：哪个业务角色要求哪个证书模板，多少张
-3. **角色-权限映射**：业务角色被指派时，自动应用哪些 `iam.roles`
+弹窗字段固定为姓名、登录账号只读、电话、邮箱、业务角色单选和证书多选。渠道成员的所属渠道、企业管理员身份、审批状态、账号状态、系统权限和 IAM/UniSDP 外部身份只展示或保持原入口管理，不进入统一保存参数。
 
 ### 5.3 字段映射
 
@@ -215,28 +229,32 @@
 | 编码 | `org.business_roles.role_code` |
 | 名称 | `org.business_roles.role_name` |
 | 域 | `domain_code`（internal/channel） |
-| 类别 | `category`（sales/pre_sales/post_sales/tech/business_assistant/manager） |
-| 覆盖部门 | `JOIN org.staff_assignments` 计数（去重 org_unit_id） |
-| 持有人 | `JOIN org.staff_assignments WHERE business_role_id=X` 计数 |
+| 类别 | `sales` 或 `tech_engineer` |
+| 覆盖组织或渠道 | `org.member_business_roles` 分别关联内部任职的 `org_unit_id` 或渠道成员的 `partner_id` 后去重计数 |
+| 持有人 | `JOIN org.member_business_roles` 后按内部任职或渠道成员去重计数 |
 | 证书要求 | `JOIN org.business_role_cert_requirements` 显示证书模板名 + (持有/要求) 比例 |
 | 状态 | `status_code`（active/disabled） |
 
-### 5.4 业务角色类别标签配色
+### 5.4 四入口一致性
+
+- 超级管理员从组织架构、渠道商员工、企业管理员或合作伙伴经营报表编辑渠道人员时，均调用 `GET /api/org/channel-members/:id/profile` 读取。
+- 保存均调用 `PUT /api/org/channel-members/:id/profile`，携带行版本、业务角色和证书增撤集合；服务端在同一事务更新。
+- 保存成功后关闭弹窗并重新加载当前入口，不依赖前端本地复制形成“看似同步”。
+- 区域管理员继续沿用原渠道成员受限编辑流程，不因经营报表复用统一弹窗而扩大为组织架构管理权限。
+- 企业管理员身份和审批状态独立保存，统一资料接口不得接收或改写相应字段。
+
+### 5.5 业务角色类别标签配色
 
 | 类别 | 配色 | 标签 |
 |---|---|---|
 | sales | 浅黄 | 销售 |
-| pre_sales | 浅蓝 | 售前 |
-| post_sales | 浅紫 | 售后 |
-| tech | 浅绿 | 技术 |
-| business_assistant | 浅红 | 商务 |
-| manager | 浅橙 | 管理 |
+| tech_engineer | 浅绿 | 技术 |
 
 ---
 
 ## 6. 页面 03：证书管理
 
-**路径**：`/admin/platform-admin/organization/certifications`
+**路径**：`/admin.html#/organization/certifications`
 
 **原型**：`03-证书管理.html`
 
@@ -261,6 +279,8 @@
 1. **证书模板**：`org.certification_templates`
 2. **员工证书**（默认）：**所属渠道商** / 持有人 / 模板 / 类别 / 颁发方 / 颁发日 / 到期日 / 剩余天数 / 状态
 3. **过期事件**：`org.certification_expiry_events`，含检测时间 / 通知发送状态 / 处理人
+
+告警详情按站内、企微和邮箱分别显示“待投递、已受理、已送达、失败、重试中”，不得用一个“已发送”覆盖三通道结果。重复扫描不应在页面产生重复阈值事件。
 
 > **关键改进（KB-20260813）**：
 > - 员工证书表新增"所属渠道商"列，通过 `channel.partner_members` 反查 join，区分渠道员工与内部员工（"— 内部员工"）。
@@ -356,35 +376,31 @@
 
 | 页面操作 | 接口 |
 |---|---|
-| 列表筛选查询 | `GET /api/org/member-certifications?keyword=&partner_id=&category=&status=` |
+| 列表筛选查询 | `GET /api/org/member-certifications?keyword=&partnerId=&category=&status=` |
 | 颁发证书 | `POST /api/org/users/:id/certifications`（携带 `partner_id` 来源） |
 | 延期 | `PUT /api/org/member-certifications/:id/extend` |
 | 撤销 | `PUT /api/org/member-certifications/:id/revoke` |
 | 渠道商下拉 | `GET /api/channel/partners?status=active`（仅 active） |
 | 渠道员工列表 | `GET /api/channel/partners/:id/members?keyword=` |
 
-> 推荐新增接口（KB-20260813）：
-> - `GET /api/org/member-certifications/search-by-partner?partner_id=&keyword=` —— 专项渠道证书检索
-> - `GET /api/org/cert-templates?category=` —— 模板按类别筛选
+> 接口收口（KB-20260814）：复用 `GET /api/org/member-certifications` 的组合筛选能力，不新增用途重叠的 `search-by-partner` 路径；模板类别筛选统一使用 `GET /api/org/certification-templates?category=`。
 
 ---
 
 ## 7. 页面 04：数据范围
 
-**路径**：`/admin/platform-admin/organization/data-scopes`
+**路径**：`/admin.html#/organization/data-scopes`
 
 **原型**：`04-数据范围.html`
 
 ### 7.1 D-08 / D-11 提示
 
 - 顶部黄色 alert：**首期仅支持 `subject_type='role'`**，用户级覆盖默认关闭。
-- 右侧切换 Tab：
-  - "按角色绑定"（可用）
-  - "按用户绑定（D-08 关闭）"（灰色 + 提示）
+- 首期只渲染“按角色绑定”，不提供用户级编辑 Tab；页面说明区提供“查看历史用户级绑定审计”链接。
 
 ### 7.2 主体选择器
 
-选择某个角色后，展示该角色的所有数据范围绑定。
+先展示当前工作身份，再选择权限角色，展示该角色在当前上下文中的数据范围绑定。首期不提供用户级编辑切换；历史用户级绑定只在审计详情中只读展示。
 
 ### 7.3 资源 + 范围卡片
 
@@ -414,22 +430,27 @@
 - 覆盖范围项（distinct scope_target_id）
 - 数据范围策略（聚合展示）
 - 授权版本（与 `iam.users.authorization_version` 联动）
+- 当前工作上下文（内部组织或渠道商）
+- 权限差异任务（待确认、超期）
 
 ---
 
 ## 8. 页面 05：离职交接
 
-**路径**：`/admin/platform-admin/organization/offboarding`
+**路径**：`/admin.html#/organization/offboarding`
 
 **原型**：`05-离职交接.html`
 
 ### 8.1 顶部状态卡片
 
-4 个统计卡：
+状态统计卡：
 
-- 进行中（蓝色）
+- 停权处理中（红色）
+- 扫描中（蓝色）
+- 交接中（蓝色）
 - 部分完成（待补，黄色）
 - 已完成（30 天内，绿色）
+- 待管理员处理（橙色）
 - 已生成管理员任务（紫色）
 
 ### 8.2 交接单列表
@@ -439,7 +460,7 @@
 - 交接单号（`HO-YYYY-NNN`）
 - 离职员工 + 账号
 - 所属组织
-- 接收人（"待补"或"取消"灰色标记）
+- 接收人（“待补”或“管理员任务队列”标记）
 - 发起时间
 - 领域完成度（`已完成/总数`，部分完成时附带"X 项进入管理员队列"）
 - 状态标签
@@ -452,12 +473,14 @@
 - 离职原因（主动 / 公司辞退 / 退休 / 其他）
 - 发起人 + 时间
 - **账号状态**（红色强调：已停用）
-- **任职状态**（红色强调：已结束所有任职）
+- **成员关系状态**（红色强调：已结束内部任职、渠道成员关系和成员业务角色）
 - `offboarding_status`（offboarding）
 
 **部分完成警告**：
 
 > ⚠ 部分完成：客户 N 项、报备 M 项因"客户有保护规则"未自动转移。剩余 X 项已写入 `workflow.process_tasks`，由具备 `org.offboarding.handle` 权限的内部管理员与企业管理员处理。
+
+第一阶段停权提交成功后立即显示“账号已停用，正在扫描交接对象”，不能等待六领域扫描完成才反馈成功。每个领域独立显示扫描、排队、执行、部分完成和失败状态；失败操作只重试当前项，不重复停权和重复转移已完成项。
 
 ### 8.4 6 领域明细
 
@@ -477,53 +500,90 @@
 - 重试项：对单项重新触发 transfer
 - 补做：进入管理员任务列表（`/workspace/admin/workflow/tasks`）
 - 查看详情：抽屉展开
-- 取消：仅进行中可取消
+- 受控重新启用：仅授权管理员在确认误操作或返聘后发起；创建新任职和新授权，不恢复旧会话、旧任职、旧成员关系及已结束业务角色
 
 ---
 
-## 9. 页面 06：同步占位
+## 9. 页面 06：企微组织同步
 
-**路径**：`/admin/platform-admin/organization/directory-sync`
+**路径**：`/admin.html#/organization/directory-sync`
 
 **原型**：`06-同步占位.html`
 
-### 9.1 设计要点
+### 9.1 设计目标
 
-**首期不允许"空白页"或"开发中"**——必须给业务方一个"我们知道这事、未来会做"的明确答复。
+- 管理员一眼看到连接是否健康、同步范围、最近成功全量、回调健康和当前是否允许应用。
+- 把“测试连接”“生成预览”和“应用已审批差异”明确分层，避免只读操作与正式写入混淆。
+- 高风险差异同时展示 V3 当前值、企微候选值、业务影响和建议动作，不把技术字段直接丢给业务人员。
+- 固定展示安全边界：单向读取、不改权限、不发证、不自动停号或离职、不碰渠道组织。
 
-### 9.2 状态信息
+### 9.2 页面状态
 
-- 顶部蓝色 alert：`enabled=false · 首期未启用`
-- 字段预留说明：所有相关字段已建好，启用仅需实现 service / worker
+连接器状态使用独立标签：未配置、已配置但关闭、只读连接、预览中、待审批、应用中、已暂停、降级、失败。
 
-### 9.3 时间线（计划感）
+顶部状态区包含：
 
-5 步时间线，已完成项是青色实心圆 + 蓝色标签，未来项是灰色圆 + 浅色标签：
+- 企业微信连接器名称和企业编号脱敏摘要。
+- 当前模式：只读预览或审批后应用。
+- 同步可见范围摘要，不展示无权限部门详情。
+- 最近成功全量时间、回调最近接收时间、当前积压和熔断原因。
+- 总开关与应用开关只显示状态；配置修改进入独立强认证流程。
 
-1. ✅ 字段预留完成（2026-08-13）
-2. ✅ 占位接口实现（2026-08-13）
-3. ⏳ 接入 IAM 适配器
-4. ⏳ 接入企微通讯录适配器
-5. ⏳ 实现冲突策略
+### 9.3 操作区
 
-### 9.4 手工映射登记
+| 操作 | 交互 | 安全约束 |
+| --- | --- | --- |
+| 测试连接 | 主按钮，显示只读说明和结果摘要 | 不写映射、不建任职、不改变正式数据 |
+| 生成预览 | 创建异步批次，立即跳转批次详情 | 防重复点击，使用幂等键 |
+| 查看差异 | 打开差异列表，默认高风险优先 | 显示筛选和未读高风险数 |
+| 应用已审批差异 | 危险操作，默认禁用 | 审批完整、应用开关开启、近期强认证和二次确认后才可用 |
+| 暂停 | 暂停尚未领取的新应用项 | 已领取项在对象边界完成后暂停 |
 
-下方"外部对象手工映射"区域：首期允许手工登记，提示"供将来启用同步时使用"。
+确认框必须显示批次号、批准差异数、高风险项数、预计影响部门和人员数，不使用含糊的“确认同步全部”文案。
 
-### 9.5 接口对应
+### 9.4 差异汇总与列表
 
-| 接口 | 响应 |
-|---|---|
-| `POST /api/integrations/directory-sync/preview` | 501 + "首期未启用" |
-| `POST /api/integrations/directory-sync/run` | 501 + "首期未启用" |
-| `GET /api/integrations/directory-sync/runs` | 200 + `{ runs: [], note: '首期未启用' }` |
-| `GET /api/integrations/directory-sync/status` | 200 + `{ enabled: false, note: '...' }` |
+统计卡片：新增、资料更新、中风险、高风险、阻断、待审批、已忽略、应用失败。
+
+差异列表字段：对象类型、企微对象、V3 映射、变化类型、风险级别、当前值、候选值、影响、处理建议、审批状态、版本和操作。
+
+处理规则：
+
+- 首期所有差异都需要审批，允许按低风险分组批量批准。
+- 部门移动、删除、成员退出或禁用、当前任职部门变化、负责人变化始终逐项确认。
+- 对象不可见只显示“待再次全量确认”，不得展示为“已离职”。
+- `row_version` 冲突时保留审批选择，刷新差异并要求重新确认，不能覆盖新值。
+- 同名未映射人员提示“禁止按姓名自动合并”，提供受控人工映射入口。
+
+### 9.5 批次与回调
+
+批次列表展示：批次号、类型、触发来源、状态、开始和完成时间、部门数、成员数、差异数、失败数和操作。
+
+批次详情展示分段进度：获取部门、获取成员、规范化、比对、待审批、应用、审计。失败项显示中文原因、企业微信错误码、是否可重试和下一步动作，不展示令牌或密钥。
+
+回调健康只展示事件类型、接收时间、处理状态、重复次数和脱敏对象编号；不展示解密后的完整原文或敏感字段。
+
+### 9.6 空状态与降级状态
+
+- 未配置：显示配置清单和“前往连接配置”，不显示应用按钮。
+- 只读观察：显示观察剩余天数、最近两轮全量对账和“应用保持关闭”。
+- 无差异：说明最近校准一致，并显示校准时间和对象数量。
+- 降级或熔断：顶部红色告警，说明应用已自动暂停、原因、最后成功快照和恢复步骤。
+- 可见对象数量异常突降：用最高风险告警，禁止产生失效和离职动作。
+
+### 9.7 原型兼容说明
+
+为避免破坏既有文档链接，正式原型暂时保留文件名 `06-同步占位.html`，但页面内容和开发名称均为“企微组织同步控制台”，旧的禁用实现已经废止。
+
+### 9.8 接口对应
+
+接口统一见第 14.6 节和 `企业微信组织架构同步实施方案.md` 第 11 章。
 
 ---
 
 ## 10. 页面 07：审计查看
 
-**路径**：`/admin/platform-admin/audit`（与 platform-admin 共用）
+**路径**：`/workspace/admin/platform-admin/audit`（与 platform-admin 共用）
 
 **原型**：`07-审计查看.html`
 
@@ -606,7 +666,7 @@
 
 ### 11.1 视觉强调
 
-- 顶部红色 alert：**"重要提示：此操作不可撤回"**
+- 顶部红色 alert：**“高风险操作：提交后立即停权”**；同时说明误操作只能走受控重新启用，且不会恢复旧会话、旧任职和已结束授权
 - 立即停用 + 撤销会话必须醒目（红字）
 - 6 个领域扫描预览提前展示，让管理员看到"会有什么发生"
 
@@ -634,9 +694,12 @@
 
 ### 11.4 决策点回看
 
-- **不引入二次确认**（用户已决定）
-- 弹窗内文必须明确告知"账号将立即停用、所有会话将被撤销"
-- 误操作风险：弹窗顶部红色 alert + "不可撤回"措辞 + 底部按钮文案"确认发起离职"（红色）
+- 保留一次业务确认，不叠加第二个内容相同的确认弹窗。
+- 提交前校验独立高风险权限和最近十五分钟强认证；强认证过期时打开认证层，认证成功后恢复原表单和预览，不要求重新填写。
+- 提交按钮只允许点击一次并携带幂等键；超时后查询原请求结果，不能让用户通过反复点击创建多个交接单。
+- 弹窗内文必须明确告知“账号将立即停用、旧会话立即失效，内部任职、渠道成员关系和成员业务角色立即结束”
+- 误操作风险：弹窗顶部红色 alert + “重新启用不会恢复旧会话、旧任职和已结束授权”说明 + 底部按钮文案“确认发起离职”（红色）
+- 接收人选择器仅展示有效、非本人、非离职中且满足当前六领域范围要求的账号；不符合项显示不可选原因。
 
 ---
 
@@ -661,6 +724,8 @@ apps/web/src/components/admin/organization/
 ├── BusinessRoleFormDialog.vue
 ├── BusinessRoleCertRequirements.vue
 ├── BusinessRolePermissionGrants.vue
+├── PermissionRoleDriftPanel.vue     # 派生权限差异与确认回收
+├── WorkContextSwitcher.vue          # 当前内部/渠道工作身份
 ├── CertificationTemplateTable.vue
 ├── CertificationTemplateDialog.vue
 ├── MemberCertificationTable.vue
@@ -697,12 +762,19 @@ apps/web/src/components/admin/organization/
 | 渠道域 | `tag-purple` | `#5856D6` | 域标签 |
 | 区域 | `#fae8ff` | `#86198f` | 地理标签 |
 | 渠道 | `#fed7aa` | `#9a3412` | 渠道标签 |
-| 主职 | `#fef9c3` | `#854d0e` | 业务角色标记 |
+| 当前任职 | `#fef9c3` | `#854d0e` | 唯一有效内部任职标记 |
 | 部分完成 | `#fef3c7` | `#92400e` | 交接状态 |
 | 已完成 | `#dcfce7` | `#166534` | 交接状态 |
-| 已取消 | `#e5e7eb` | `#4b5563` | 交接状态 |
+| 停权处理中 | `#fee2e2` | `#991b1b` | 离职第一阶段 |
+| 扫描中 / 交接中 | `#dbeafe` | `#1d4ed8` | 离职异步阶段 |
+| 待管理员处理 | `#ffedd5` | `#9a3412` | 离职剩余项 |
+| 只读连接 / 预览中 | `#dbeafe` | `#1d4ed8` | 企微同步非写入状态 |
+| 待审批 | `#fef3c7` | `#92400e` | 企微差异待确认 |
+| 降级 / 熔断 | `#fee2e2` | `#991b1b` | 企微应用已自动暂停 |
 
 ## 14. 与后端接口的对应
+
+本节只用于页面反查。最终路径、字段、错误码、幂等键、`row_version`、权限和工作上下文以 `packages/contracts/openapi/organization.yaml` 为唯一来源；契约变更后必须自动生成或同步更新 `organization-client.ts`，禁止前端自行拼出另一套接口。
 
 ### 14.1 11.1 + 11.2 接口对应
 
@@ -710,7 +782,7 @@ apps/web/src/components/admin/organization/
 |---|---|
 | 01 主页（树加载） | `GET /api/org/units/tree` |
 | 01 详情面板 | `GET /api/org/units/:id` |
-| 01 岗位表 | `GET /api/org/units/:id/positions` |
+| 01 岗位表 | `GET /api/org/positions?orgUnitId=:id` |
 | 01 任职表 | `GET /api/org/units/:id/staff` |
 | 01 新建组织 | `POST /api/org/units` |
 | 01 编辑 | `PUT /api/org/units/:id` |
@@ -722,19 +794,19 @@ apps/web/src/components/admin/organization/
 
 | 页面 | 接口 |
 |---|---|
-| 02 列表 | `GET /api/org/business-roles` |
-| 02 详情 | `GET /api/org/business-roles/:id` |
-| 02 证书要求 | `GET /api/org/business-roles/:id/cert-requirements` |
-| 02 权限映射 | `GET /api/org/business-roles/:id/permission-grants` |
-| 02 指派业务角色 | `POST /api/channel/partners/:id/members` |
-| 02 撤销业务角色 | `PUT /api/channel/partner-members/:id/expire` |
+| 固定角色候选 | `GET /api/org/business-roles`，前端只取四个固定编码 |
+| 内部成员选择销售/技术 | `POST /api/org/member-business-roles`，同一成员切换时结束旧固定角色 |
+| 渠道成员统一资料读取 | `GET /api/org/channel-members/:id/profile` |
+| 渠道成员统一资料保存 | `PUT /api/org/channel-members/:id/profile` |
+| 02 新增渠道成员 | `POST /api/channel/partners/:id/members` |
+| 渠道成员移除 | 兼容入口执行逻辑归档，保留角色、证书、业务和审计历史 |
 
 ### 14.3 11.4 接口对应
 
 | 页面 | 接口 |
 |---|---|
 | 03 模板列表 | `GET /api/org/certification-templates` |
-| 03 员工证书 | `GET /api/org/users/:id/certifications` |
+| 03 员工证书 | `GET /api/org/member-certifications?userId=&partnerId=&category=&status=&keyword=` |
 | 03 颁发证书 | `POST /api/org/users/:id/certifications` |
 | 03 延期 | `PUT /api/org/member-certifications/:id/extend` |
 | 03 撤销 | `PUT /api/org/member-certifications/:id/revoke` |
@@ -743,8 +815,9 @@ apps/web/src/components/admin/organization/
 
 | 页面 | 接口 |
 |---|---|
-| 04 角色绑定 | `GET /api/org/roles/:id/data-scopes` |
-| 04 保存 | `PUT /api/org/roles/:id/data-scopes` |
+| 04 角色绑定 | `GET /api/org/data-scopes/:subjectType/:subjectId`，首期固定 `subjectType=role` |
+| 04 保存 | `PUT /api/org/data-scopes/:subjectType/:subjectId`，首期固定 `subjectType=role` |
+| 04 删除单条绑定 | `DELETE /api/org/data-scopes/bindings/:id` |
 | 04 用户绑定（D-08 关闭） | 返回 409 |
 
 ### 14.5 11.6 接口对应
@@ -755,16 +828,21 @@ apps/web/src/components/admin/organization/
 | 05 详情 | `GET /api/org/offboarding/:id` |
 | 05 重试项 | `POST /api/org/offboarding/:id/retry-items` |
 | 08 发起 | `POST /api/org/staff/:userId/offboard` |
-| 08 扫描预览 | `POST /api/org/staff/:userId/offboard/preview`（新增建议接口） |
+| 08 扫描预览 | `POST /api/org/staff/:userId/offboard/preview` |
 
 ### 14.6 11.7 接口对应
 
-| 页面 | 接口 | 响应 |
+| 页面 | 接口 | 用途 |
 |---|---|---|
-| 06 状态 | `GET /api/integrations/directory-sync/status` | 200 `{enabled:false,note:'...'}` |
-| 06 占位 | `POST /api/integrations/directory-sync/preview` | 501 |
-| 06 占位 | `POST /api/integrations/directory-sync/run` | 501 |
-| 06 占位 | `GET /api/integrations/directory-sync/runs` | 200 `{runs:[],note:'...'}` |
+| 06 状态 | `GET /api/integrations/directory-sync/status` | 连接、回调、最近批次和熔断状态 |
+| 06 测试连接 | `POST /api/integrations/directory-sync/test-connection` | 只读测试并返回可见范围摘要 |
+| 06 生成预览 | `POST /api/integrations/directory-sync/preview` | 创建异步预览批次 |
+| 06 创建运行 | `POST /api/integrations/directory-sync/runs` | 创建全量或校准运行 |
+| 06 批次列表 | `GET /api/integrations/directory-sync/runs` | 分页查询批次 |
+| 06 批次详情 | `GET /api/integrations/directory-sync/runs/:id` | 查询进度、统计、检查点和错误 |
+| 06 差异列表 | `GET /api/integrations/directory-sync/changes` | 按批次、风险和状态筛选 |
+| 06 应用 | `POST /api/integrations/directory-sync/runs/:id/apply` | 应用明确列出且版本匹配的已审批差异 |
+| 06 暂停 | `POST /api/integrations/directory-sync/runs/:id/pause` | 暂停尚未领取的新应用项 |
 
 ### 14.7 审计接口对应
 
@@ -774,6 +852,22 @@ apps/web/src/components/admin/organization/
 | 07 详情 | `GET /api/org/audit/events/:id` |
 | 07 哈希链 | `GET /api/org/audit/hash-chain?start=...&end=...` |
 | 07 导出 | `GET /api/org/audit/events/export?...` |
+
+### 14.8 通用反馈与错误恢复
+
+| 场景 | 页面行为 |
+| --- | --- |
+| 首次加载 | 使用与最终结构一致的骨架屏，避免树和详情跳动 |
+| 空数据 | 说明为空原因和下一步动作；无权限与确实无数据使用不同文案 |
+| 401 会话失效 | 保存未提交表单草稿，完成登录后回到原安全路径并恢复草稿 |
+| 403 无权限或越界 | 显示当前工作身份和缺少的动作，不泄露目标对象详情 |
+| 409 版本或状态冲突 | 保留输入，展示最新数据摘要，允许刷新、对比或重新应用 |
+| 409 用户级范围关闭 | 明确提示首期仅支持角色级，并提供跳转到角色绑定入口 |
+| 422 业务校验失败 | 定位到具体字段或树节点，使用中文说明可采取的修正动作 |
+| 503 任务底座未就绪 | 保留当前业务事实，显示任务将自动重试或管理员处理入口 |
+| 请求超时 | 先按请求编号或幂等键查询结果，不能直接提示用户重复提交 |
+
+所有写操作成功后同时刷新当前对象、列表统计和可执行动作；失败时不得清空筛选条件、当前树节点或已填表单。跨页面返回时保留最近一次组织节点、筛选项和分页位置，但不得缓存越权数据正文。
 
 ## 15. 可访问性
 
@@ -801,6 +895,7 @@ apps/web/src/components/admin/organization/
 - 表格 100 行内 < 500ms 渲染
 - 树懒加载：每次展开最多加载 50 个子节点
 - 接口响应 < 200ms（缓存友好）
+- 企微测试、预览、全量和应用接口只负责创建异步任务，管理接口 1 秒内返回受理结果；不以外部接口完成时间作为页面请求时长。
 
 ## 19. 原型查看方法
 
@@ -821,4 +916,4 @@ qlmanage -p 01-组织架构主页.html
 
 ---
 
-[返回组织架构首期落地开发方案](组织架构首期落地开发方案.md) · [返回主方案](V3业务平台底座与业务扩展实施交付方案.md#章节-21)
+[返回组织架构首期落地开发方案](组织架构首期落地开发方案.md) · [返回主方案](../V3业务平台底座与业务扩展实施交付方案.md#章节-21)

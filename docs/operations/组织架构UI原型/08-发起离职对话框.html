@@ -3517,10 +3517,11 @@ textarea.form-control { resize: vertical; min-height: 100px; }
 
   <div class="dialog-body">
     <div class="warning-card">
-      <div class="warning-title">⚠ 重要提示：此操作不可撤回</div>
+      <div class="warning-title">⚠ 高风险操作：提交后立即停权</div>
       <div class="warning-desc">
-        发起离职后，<b style="color:#FF3B30;">账号将立即停用</b>，<b style="color:#FF3B30;">所有会话将立即撤销</b>，员工将无法登录系统（即使未完成交接）。
+        发起离职后，<b style="color:#FF3B30;">账号将立即停用</b>，<b style="color:#FF3B30;">旧会话将立即失效</b>，内部任职、渠道成员关系和成员业务角色将同时结束，员工将无法登录系统（即使未完成交接）。
         客户、报备、商机、合同、待办、未完成审批 6 个领域的交接将通过异步任务执行。
+        如发生误操作，只能由授权管理员走受控重新启用流程，且不会恢复旧会话、旧任职和已结束授权。
       </div>
     </div>
 
@@ -3551,6 +3552,7 @@ textarea.form-control { resize: vertical; min-height: 100px; }
         <option>李伟（同部门销售代表）</option>
         <option>由管理员处理（进队列）</option>
       </select>
+      <div style="font-size:12px;color:#888;margin-top:6px;">仅展示有效、非本人、非离职中且满足交接范围要求的账号；不可选人员会显示具体原因。</div>
     </div>
 
     <div class="section">
@@ -3572,6 +3574,9 @@ textarea.form-control { resize: vertical; min-height: 100px; }
         <li>橙色"需人工"的项生成 <code style="background:rgba(0,122,255,0.1);padding:1px 4px;border-radius:3px;">workflow.process_tasks</code>（D-09），由具备 <code style="background:rgba(0,122,255,0.1);padding:1px 4px;border-radius:3px;">org.offboarding.handle</code> 权限的内部管理员与企业管理员处理</li>
         <li>财务复核 / 法务复核涉及的合同<b>不会自动</b>转移</li>
       </ul>
+    </div>
+    <div style="margin-top:10px;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.25);border-radius:10px;padding:10px 14px;font-size:12px;color:#3a3a3c;line-height:1.7;">
+      🔐 提交需要离职高风险动作权限和最近 15 分钟强认证。认证过期时会补充认证并保留本表单，不会重复弹出业务确认。
     </div>
   </div>
 

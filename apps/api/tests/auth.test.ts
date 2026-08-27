@@ -11,6 +11,21 @@ import type { 认证流程日志器 } from "../src/logger.js";
 import { 读取UniSdp单点登录配置 } from "../src/unisdp-sso.js";
 
 const 密码散列 = 创建密码散列("LrCRM@2026!", Buffer.from("0123456789abcdef"));
+const 区域管理员数据库行 = {
+  id: "region-manager-001",
+  v2_source_id: "region-manager-source-001",
+  username: "chenyiming",
+  display_name: "陈一鸣",
+  password_hash: 密码散列,
+  role_code: "region_manager",
+  role_name: "区域管理员",
+  region_name: "测试区域",
+  phone: null,
+  extra_json: {},
+  partner_id: "",
+  partner_name: "",
+  role_codes: ["region_manager"],
+};
 const 认证环境 = 创建测试环境变量({
   V3_DELIVERY_AUTH_ENABLED: "true",
   V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
@@ -60,6 +75,15 @@ function 创建捕获认证流程日志器(): 认证流程日志器 & { lines: s
     write: (line) => lines.push(line),
     flush: () => Promise.resolve(),
   };
+}
+
+function 模拟区域管理员数据库查询(): void {
+  vi.spyOn(Pool.prototype, "query").mockImplementation(async (...args: unknown[]) => {
+    const params = args[1] as unknown[] | undefined;
+    return String(params?.[0] || "") === "chenyiming"
+      ? ({ rows: [区域管理员数据库行] } as never)
+      : ({ rows: [] } as never);
+  });
 }
 
 afterEach(() => {
@@ -220,6 +244,41 @@ describe("IAM单点登录成功流程", () => {
     expect(登录.body.data.entry).toBe("admin");
     const 校验地址 = new URL(校验地址文本);
     expect(校验地址.searchParams.get("isaid")).toBe("crm-v3-test");
+  });
+
+  it("IAM移动端允许区域管理员按用户名登录管理端", async () => {
+    模拟区域管理员数据库查询();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 2000,
+              data: { mailuser: { username: "chenyiming", struserdes: "陈一鸣" } },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const app = 创建应用({
+      env: 创建测试环境变量({
+        ...认证环境,
+        DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/test",
+        V3_IAM_H5_SSO_ENABLED: "true",
+        V3_IAM_H5_SSO_VALIDATE_URL: "https://iam.example.test/validate",
+        V3_IAM_H5_SSO_VALIDATE_ISAID: "crm-v3-test",
+      }),
+    });
+
+    const 登录 = await request(app)
+      .post("/api/auth/sso/iam/login")
+      .send({ token: "iam-region-manager-token", clientType: "mobile" })
+      .expect(200);
+
+    expect(登录.body.data.entry).toBe("admin");
+    expect(登录.body.data.user.username).toBe("chenyiming");
+    expect(登录.body.data.pageSession.user.role).toBe("admin");
   });
 
   it("渠道账号用 IAM username(非手机号形态)登录被拒绝", async () => {
@@ -477,9 +536,7 @@ describe("UniSDP门户单点登录流程", () => {
 
     const 摘要文本 = authFlowLogger.lines.join("\n");
     expect(摘要文本).toContain("[UNISDP-SSO] [全流程]");
-    expect(摘要文本).toContain(
-      "[认证服务校验通过] UniSDP返回账号：delivery_admin，手机号：未返回",
-    );
+    expect(摘要文本).toContain("[认证服务校验通过] UniSDP返回账号：delivery_admin，手机号：未返回");
     expect(摘要文本).toContain("[登录成功] 本地账号：delivery_admin");
     expect(摘要文本).toContain('"requestId"');
     expect(摘要文本).not.toContain("unisdp-token-for-test");
@@ -613,6 +670,47 @@ describe("UniSDP门户单点登录流程", () => {
 
     const 当前用户 = await agent.get("/api/auth/me").expect(200);
     expect(当前用户.body.data.user.username).toBe("delivery_admin");
+  });
+
+  it("UniSDP门户允许区域管理员按用户名进入管理端", async () => {
+    模拟区域管理员数据库查询();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              status: 2000,
+              username: "chenyiming",
+              isLogin: true,
+              errmsg: "ok",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const app = 创建应用({
+      env: 创建测试环境变量({
+        ...认证环境,
+        DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/test",
+        V3_IAM_H5_SSO_ENABLED: "false",
+        V3_UNISDP_SSO_ENABLED: "true",
+        V3_UNISDP_SSO_VALIDATE_URL: "https://portal.example.test/UniSSO/auth/sso_token.json",
+        V3_UNISDP_SSO_ISAID: "crm-unisdp-test",
+      }),
+    });
+
+    const agent = request.agent(app);
+    const 登录 = await agent
+      .post("/app/sso.htm")
+      .type("form")
+      .send({ sso_token: "unisdp-region-manager-token" })
+      .expect(200);
+
+    expect(登录.headers["set-cookie"]?.[0]).toContain("HttpOnly");
+    expect(登录.text).toContain("/admin.html");
+    const 当前用户 = await agent.get("/api/auth/me").expect(200);
+    expect(当前用户.body.data.user.username).toBe("chenyiming");
   });
 
   it("UniSDP门户表单登录失败时回到账密登录兜底", async () => {

@@ -102,8 +102,144 @@ describe("阶段9业务兼容接口", () => {
     expect(res.body.data.迁移状态.批次编号).toBe("S8-RUN-20260727-001");
   });
 
-  it("可以跑通报备、商机、报价、订单第一闭环", async () => {
+  it("V2历史订单保留原合作伙伴和待确认流转", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `V2-LEGACY-ORDER-${Date.now()}`;
+    const 客户名称 = `${批次}-客户`;
+    const V2合作伙伴名称 = `${批次}-一级合作伙伴`;
+    try {
+      const [迁移批次, 客户, 实际归属渠道] = await Promise.all([
+        pool.query<{ id: string }>(
+          "SELECT id::text AS id FROM migration.migration_batches ORDER BY started_at DESC LIMIT 1",
+        ),
+        pool.query<{ id: string }>(
+          "SELECT id::text AS id FROM crm.customers ORDER BY created_at LIMIT 1",
+        ),
+        pool.query<{ id: string; partner_name: string }>(
+          "SELECT id::text AS id, partner_name FROM channel.partners WHERE status_code = 'active' ORDER BY created_at LIMIT 1",
+        ),
+      ]);
+      const 迁移批次编号 = 迁移批次.rows[0]?.id;
+      const 客户编号 = 客户.rows[0]?.id;
+      const 实际渠道 = 实际归属渠道.rows[0];
+      if (!迁移批次编号 || !客户编号 || !实际渠道) {
+        throw new Error("缺少V2历史订单兼容测试所需的基础数据。");
+      }
+
+      await pool.query(
+        `
+        INSERT INTO migration.v2_raw_records (
+          batch_id, entity_name, source_id, source_sha256, raw_json, redacted_json, process_status
+        )
+        VALUES ($1::uuid, 'orders', $2, repeat('a', 64), $3::jsonb, $3::jsonb, 'loaded')
+        `,
+        [
+          迁移批次编号,
+          批次,
+          JSON.stringify({
+            data: {
+              id: 批次,
+              customer: 客户名称,
+              partnerId: "V2-SECONDARY-PARTNER",
+              partnerName: 实际渠道.partner_name,
+              assignedPartnerId: "V2-PRIMARY-PARTNER",
+              assignedPartnerName: V2合作伙伴名称,
+              status: "pending",
+              total: 5060,
+            },
+          }),
+        ],
+      );
+      await pool.query(
+        `
+        INSERT INTO crm.orders (
+          v2_source_id, order_no, customer_id, partner_id, status_code, total_amount, extra_json
+        )
+        VALUES ($1, $1, $2::uuid, $3::uuid, 'pending_primary_confirm', 5060, $4::jsonb)
+        `,
+        [
+          批次,
+          客户编号,
+          实际渠道.id,
+          JSON.stringify({
+            id: 批次,
+            customer: 客户名称,
+            partnerId: "V2-SECONDARY-PARTNER",
+            partnerName: 实际渠道.partner_name,
+            assignedPartnerId: "V2-PRIMARY-PARTNER",
+            assignedPartnerName: V2合作伙伴名称,
+            status: "pending_primary_confirm",
+            total: 5060,
+          }),
+        ],
+      );
+
+      const 列表 = await request(app)
+        .get(`/api/v2/orders?keyword=${encodeURIComponent(批次)}&pageSize=20`)
+        .expect(200);
+      const 历史订单 = 列表.body.data.find((项: { id?: string }) => 项.id === 批次);
+      expect(历史订单?.legacyV2Order).toBe(true);
+      expect(历史订单?.status).toBe("pending");
+      expect(历史订单?.statusName).toBe("待确认");
+      expect(历史订单?.partnerName).toBe(V2合作伙伴名称);
+
+      const 确认 = await request(app)
+        .put(`/api/v2/orders/${批次}/status`)
+        .send({ status: "processing", reason: "V2历史订单确认" })
+        .expect(200);
+      expect(确认.body.data.status).toBe("processing");
+
+      const 发货 = await request(app)
+        .put(`/api/v2/orders/${批次}/status`)
+        .send({ status: "shipped", reason: "V2历史订单确认发货" })
+        .expect(200);
+      expect(发货.body.data.status).toBe("shipped");
+
+      const 完成 = await request(app)
+        .put(`/api/v2/orders/${批次}/status`)
+        .send({ status: "completed", reason: "V2历史订单完成" })
+        .expect(200);
+      expect(完成.body.data.status).toBe("completed");
+
+      const 状态历史 = await pool.query<{
+        from_status_code: string | null;
+        to_status_code: string;
+      }>(
+        `
+        SELECT h.from_status_code, h.to_status_code
+        FROM crm.order_status_history h
+        JOIN crm.orders o ON o.id = h.order_id
+        WHERE o.v2_source_id = $1
+        ORDER BY h.changed_at ASC
+        `,
+        [批次],
+      );
+      expect(状态历史.rows).toEqual([
+        { from_status_code: "pending", to_status_code: "processing" },
+        { from_status_code: "processing", to_status_code: "shipped" },
+        { from_status_code: "shipped", to_status_code: "completed" },
+      ]);
+    } finally {
+      await pool.query("DELETE FROM crm.orders WHERE v2_source_id = $1", [批次]);
+      await pool.query(
+        "DELETE FROM migration.v2_raw_records WHERE entity_name = 'orders' AND source_id = $1",
+        [批次],
+      );
+      await pool.end();
+    }
+  });
+
+  it("可以跑通报备、商机、报价、订单第一闭环", async () => {
+    const app = 创建应用({
+      env: {
+        ...测试环境变量,
+        V3_DELIVERY_AUTH_ENABLED: "true",
+        V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
+        V3_DELIVERY_AUTH_USERS_JSON: "[]",
+      },
+    });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
 
     const 报备 = await request(app)
       .post("/api/registrations")
@@ -188,18 +324,140 @@ describe("阶段9业务兼容接口", () => {
       (项: { uuid?: string }) => 项.uuid === 订单.body.data.id,
     );
     expect(V2订单?.id).toMatch(/^LS-.+-\d{8}-\d{4}$/);
+    const 批次 = `ORDER-FORMAL-${Date.now()}`;
+    await 准备渠道范围测试角色(pool);
+    const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+    const 渠道商 = await 创建渠道范围测试渠道(pool, 批次, "正式编号", 区域编号);
+    const 区域管理员 = await 创建渠道范围测试用户(
+      pool,
+      批次,
+      "region_manager",
+      "区域管理员",
+      "region_manager",
+      "region",
+      区域编号,
+    );
+    const 超级管理员 = await 创建渠道范围测试用户(
+      pool,
+      批次,
+      "superadmin",
+      "超级管理员",
+      "superadmin",
+      "all",
+      区域编号,
+    );
+    await pool.query(
+      "UPDATE channel.partners SET region_id = $2::uuid, agreement_no = $3, country_calling_code = '86' WHERE id = $1::uuid",
+      [渠道商.id, 区域编号, `${批次}-协议`],
+    );
+    await pool.query("UPDATE crm.orders SET partner_id = $2::uuid WHERE id = $1::uuid", [
+      订单.body.data.id,
+      渠道商.id,
+    ]);
 
     const 区管确认 = await request(app)
       .put(`/api/orders/${订单.body.data.id}/primary-confirm`)
       .send({ reason: "阶段9自动化区管确认" })
+      .set("Authorization", 签发测试V2令牌(区域管理员.username))
       .expect(200);
     expect(区管确认.body.data.状态).toBe("pending_superadmin_confirm");
+    expect(区管确认.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-086-01`);
+    expect(区管确认.body.data.原始数据.preRegionOrderNo).toMatch(/^LS-.+-\d{8}-\d{4}$/);
+    expect(区管确认.body.data.原始数据.numberNotice).toContain("区管邮箱缺失");
+    const 普通路径预审 = await pool.query<{ trigger_code: string; status_code: string }>(
+      `
+      SELECT trigger_code, status_code
+      FROM integration.order_preapproval_requests
+      WHERE order_id = $1::uuid
+      `,
+      [订单.body.data.id],
+    );
+    expect(普通路径预审.rows).toEqual([
+      { trigger_code: "region_confirmed", status_code: "pending" },
+    ]);
+
+    const 区管正式页面会话 = request.agent(app);
+    await 区管正式页面会话
+      .post("/api/v2/auth/login")
+      .send({ username: 区域管理员.username, password: "LrCRM@2026!" })
+      .expect(200);
+    const 已取号后调价 = await 区管正式页面会话
+      .put(`/api/v2/orders/${订单.body.data.id}/price-adjust`)
+      .send({
+        newAmount: Number(区管确认.body.data.金额 || 区管确认.body.data.原始数据.total || 1),
+        adjustmentReason: "已生成正式编号后区管调价验收",
+      })
+      .expect(200);
+    expect(已取号后调价.body.data.id).toBe(区管确认.body.data.编号);
+    expect(已取号后调价.body.data.preRegionOrderNo).toBe(
+      区管确认.body.data.原始数据.preRegionOrderNo,
+    );
 
     const 超管确认 = await request(app)
       .put(`/api/orders/${订单.body.data.id}/status`)
       .send({ status: "confirmed", reason: "阶段9自动化超管确认" })
+      .set("Authorization", 签发测试V2令牌(超级管理员.username))
       .expect(200);
     expect(超管确认.body.data.状态).toBe("confirmed");
+    const 调价后的预审 = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
+      [订单.body.data.id],
+    );
+    expect(调价后的预审.rows[0]?.count).toBe("1");
+    await pool.end();
+  });
+
+  it("报备审核的各正式入口只为一次真实状态转换写入一次发件箱事件", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    try {
+      const 报备 = await request(app)
+        .post("/api/registrations")
+        .send({
+          customer: "消息发件箱审核验收客户",
+          creditCode: "91370000V3MESSAGE001",
+          contact: "验收联系人",
+          phone: "13800000001",
+        })
+        .expect(200);
+      const 报备编号 = 报备.body.data.id as string;
+
+      await request(app)
+        .put(`/api/registrations/${报备编号}`)
+        .send({ status: "approved", reason: "审核通过" })
+        .expect(200);
+      await request(app)
+        .put(`/api/registrations/${报备编号}`)
+        .send({ status: "approved", reason: "重复提交" })
+        .expect(200);
+      await request(app)
+        .put(`/api/registrations/${报备编号}/status`)
+        .send({ status: "rejected", reason: "重新审核驳回" })
+        .expect(200);
+      await request(app)
+        .put(`/api/registrations/${报备编号}/status`)
+        .send({ status: "rejected", reason: "重复提交" })
+        .expect(200);
+
+      const 事件 = await pool.query<{ event_type: string; count: string }>(
+        `
+        SELECT event_type, COUNT(*)::text AS count
+        FROM ops.outbox_events
+        WHERE aggregate_type = 'registration'
+          AND aggregate_id = $1::uuid
+          AND event_type IN ('crm.registration.approved', 'crm.registration.rejected')
+        GROUP BY event_type
+        ORDER BY event_type
+        `,
+        [报备编号],
+      );
+      expect(事件.rows).toEqual([
+        { event_type: "crm.registration.approved", count: "1" },
+        { event_type: "crm.registration.rejected", count: "1" },
+      ]);
+    } finally {
+      await pool.end();
+    }
   });
 
   it("既有业务和V2导入数据均统一为当前编号规则，并保留原编号追溯信息", async () => {
@@ -229,6 +487,7 @@ describe("阶段9业务兼容接口", () => {
           ) AS "不合规数"
           FROM crm.orders o
           JOIN iam.users u ON u.id = o.owner_user_id
+          WHERE o.pre_region_order_no IS NULL
           `,
         ),
         pool.query<{ V2总数: string; 已保留原编号数: string }>(
@@ -415,6 +674,28 @@ describe("阶段9业务兼容接口", () => {
         "self",
         区域编号,
       );
+      const 区域管理员 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "region_manager",
+        "区域管理员",
+        "region_manager",
+        "region",
+        区域编号,
+      );
+      const 超级管理员 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "superadmin",
+        "超级管理员",
+        "superadmin",
+        "all",
+        区域编号,
+      );
+      await pool.query(
+        "UPDATE channel.partners SET agreement_no = $2, country_calling_code = '86' WHERE id = $1::uuid",
+        [二级分销商.id, `${批次}-协议`],
+      );
       await 绑定渠道范围测试成员(pool, 二级分销商.id, 二级员工.id, "staff");
       const 客户名称 = `${批次}-二级订单审批客户`;
       const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 二级员工.id, 二级分销商.id);
@@ -483,17 +764,102 @@ describe("阶段9业务兼容接口", () => {
         .expect(200);
       expect(一级确认.body.data.状态).toBe("primary_confirmed");
 
-      const 区管确认 = await request(app)
-        .put(`/api/orders/${订单.body.data.id}/status`)
-        .send({ status: "pending_superadmin_confirm", reason: "区管确认" })
+      const 区管调价 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/price-adjust`)
+        .send({ newAmount: 16880, adjustmentReason: "区管调价" })
+        .set("Authorization", 签发测试V2令牌(区域管理员.username))
         .expect(200);
-      expect(区管确认.body.data.状态).toBe("pending_superadmin_confirm");
+      expect(区管调价.body.data.状态).toBe("pending_superadmin_confirm");
+      expect(区管调价.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-086-01`);
+      const 调价前预审 = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
+        [订单.body.data.id],
+      );
+      expect(调价前预审.rows[0]?.count).toBe("0");
+      const 调价前自动发起事件 = await pool.query<{ count: string }>(
+        `
+        SELECT COUNT(*)::text AS count
+        FROM ops.outbox_events
+        JOIN integration.order_preapproval_requests request
+          ON request.id = ops.outbox_events.aggregate_id
+        WHERE event_type = 'crm.order.preapproval.requested'
+          AND request.order_id = $1::uuid
+          AND payload_json->>'triggerCode' = 'superadmin_confirmed_after_price_adjust'
+        `,
+        [订单.body.data.id],
+      );
+      expect(调价前自动发起事件.rows[0]?.count).toBe("0");
+
+      const 非超管确认 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/status`)
+        .send({ status: "confirmed", reason: "区管无权执行超管确认" })
+        .set("Authorization", 签发测试V2令牌(区域管理员.username))
+        .expect(403);
+      expect(非超管确认.body.error?.code).toBe("V3_PERMISSION_DENIED");
 
       const 超管确认 = await request(app)
         .put(`/api/orders/${订单.body.data.id}/status`)
         .send({ status: "confirmed", reason: "超管确认" })
+        .set("Authorization", 签发测试V2令牌(超级管理员.username))
         .expect(200);
       expect(超管确认.body.data.状态).toBe("confirmed");
+      const 调价超管确认后的预审 = await pool.query<{ trigger_code: string; status_code: string }>(
+        `
+        SELECT trigger_code, status_code
+        FROM integration.order_preapproval_requests
+        WHERE order_id = $1::uuid
+        `,
+        [订单.body.data.id],
+      );
+      expect(调价超管确认后的预审.rows).toEqual([
+        { trigger_code: "superadmin_confirmed_after_price_adjust", status_code: "pending" },
+      ]);
+      const 调价后自动发起事件 = await pool.query<{
+        request_id: string;
+        trigger_code: string;
+        status_code: string;
+      }>(
+        `
+        SELECT
+          payload_json->>'orderPreapprovalRequestId' AS request_id,
+          payload_json->>'triggerCode' AS trigger_code,
+          ops.outbox_events.status_code
+        FROM ops.outbox_events
+        JOIN integration.order_preapproval_requests request
+          ON request.id = ops.outbox_events.aggregate_id
+        WHERE event_type = 'crm.order.preapproval.requested'
+          AND request.order_id = $1::uuid
+          AND payload_json->>'triggerCode' = 'superadmin_confirmed_after_price_adjust'
+        ORDER BY ops.outbox_events.created_at DESC
+        LIMIT 1
+        `,
+        [订单.body.data.id],
+      );
+      expect(调价后自动发起事件.rows).toEqual([
+        {
+          request_id: expect.any(String),
+          trigger_code: "superadmin_confirmed_after_price_adjust",
+          status_code: "pending",
+        },
+      ]);
+
+      const 待审批事件 = await pool.query<{ step: string; count: string }>(
+        `
+        SELECT COALESCE(payload_json->>'step', '') AS step, COUNT(*)::text AS count
+        FROM ops.outbox_events
+        WHERE aggregate_type = 'order'
+          AND aggregate_id = $1::uuid
+          AND event_type = 'crm.order.approval.pending'
+        GROUP BY COALESCE(payload_json->>'step', '')
+        ORDER BY step
+        `,
+        [订单.body.data.id],
+      );
+      expect(待审批事件.rows).toEqual([
+        { step: "primary_confirm", count: "1" },
+        { step: "region_confirm", count: "1" },
+        { step: "superadmin_confirm", count: "1" },
+      ]);
     } finally {
       await pool.end();
     }
@@ -964,8 +1330,9 @@ async function 读取可登录测试用户(): Promise<{ username: string }> {
       JOIN iam.password_credentials pc ON pc.user_id = u.id
       WHERE u.status_code = 'active'
         AND pc.algorithm = 'scrypt'
+        AND u.username::text IN ('liulonghai', 'admin')
       ORDER BY
-        CASE WHEN u.username::text LIKE 'kb003-%' THEN 1 ELSE 0 END,
+        CASE WHEN u.username::text = 'liulonghai' THEN 0 ELSE 1 END,
         u.created_at DESC
       LIMIT 1
       `,

@@ -216,6 +216,10 @@
     return STATUS_TEXT[value] || value || '—';
   }
 
+  function recordStatusText(item) {
+    return item?.statusName || statusText(item?.status || item?.stage);
+  }
+
   function statusClass(value) {
     if (['approved', 'active', 'confirmed', 'completed', 'won'].includes(value)) return 'status-success';
     if (['rejected', 'cancelled', 'lost'].includes(value)) return 'status-danger';
@@ -268,34 +272,34 @@
   function detailRows(item, type) {
     const rowsByType = {
       registration: [
-        ['编号', item.id], ['状态', statusText(item.status)], ['客户名称', recordName(item)],
+        ['编号', item.id], ['状态', recordStatusText(item)], ['客户名称', recordName(item)],
         ['统一社会信用代码', item.creditCode], ['所属行业', item.industry], ['联系人', item.contact],
         ['联系电话', item.phone], ['所在城市', item.city], ['所属区域', item.region],
         ['渠道商', item.partnerName || item.assignedPartnerName], ['审核意见', item.remark], ['提交时间', formatDateTime(item.createdAt)],
         ['需求说明', item.notes]
       ],
       opportunity: [
-        ['编号', item.id], ['阶段', statusText(item.stage)], ['商机名称', recordName(item)],
+        ['编号', item.id], ['阶段', recordStatusText(item)], ['商机名称', recordName(item)],
         ['客户名称', item.customer || item.customerName], ['关联报备', item.regId], ['预计金额', formatAmount(item.amount)],
         ['预计终端数', item.endpoints], ['预计成交日期', formatDate(item.expectedClose)], ['所属区域', item.region],
         ['负责人', item.assignedStaffName || item.owner || item.createdByName], ['渠道商', item.partnerName || item.assignedPartnerName],
         ['创建时间', formatDateTime(item.createdAt)], ['跟进说明', item.notes]
       ],
       quote: [
-        ['报价单号', item.id], ['状态', statusText(item.status)], ['客户名称', item.customerName || item.customer],
+        ['报价单号', item.id], ['状态', recordStatusText(item)], ['客户名称', item.customerName || item.customer],
         ['关联报备', item.regId], ['报价金额', formatAmount(item.total ?? item.amount)], ['终端数量', item.endpoints],
         ['渠道商', item.partnerName], ['转订单编号', item.convertedOrderId], ['创建时间', formatDateTime(item.createdAt)],
         ['产品', Array.isArray(item.products) ? item.products.join('、') : item.products]
       ],
       order: [
-        ['订单号', item.id], ['状态', statusText(item.status)], ['客户名称', item.customerName || item.customer],
+        ['订单号', item.id], ['状态', recordStatusText(item)], ['客户名称', item.customerName || item.customer],
         ['关联报价', item.quoteId], ['订单金额', formatAmount(item.total ?? item.amount)], ['渠道商', item.partnerName],
         ['下单时间', formatDateTime(item.createdAt)], ['收货地址', item.deliveryAddr || item.deliveryAddress],
         ['联系人', item.deliveryContactName || item.contacts], ['联系电话', item.deliveryContactPhone],
         ['发票抬头', item.invoiceTitle], ['订单备注', item.remark]
       ],
       partner: [
-        ['渠道商编号', item.id], ['状态', statusText(item.status)], ['渠道商名称', recordName(item)],
+        ['渠道商编号', item.id], ['状态', recordStatusText(item)], ['渠道商名称', recordName(item)],
         ['合作级别', item.level], ['渠道层级', item.partnerLevel], ['所属区域', item.region], ['所在城市', item.city],
         ['联系人', item.contact], ['联系电话', item.phone], ['电子邮箱', item.email], ['审核意见', item.remark], ['加入日期', formatDate(item.joinDate)]
       ]
@@ -318,11 +322,11 @@
     props: { items: { type: Array, default: () => [] }, type: String, emptyText: String, hasMore: Boolean, loadingMore: Boolean },
     emits: ['open', 'load-more'],
     components: { EmptyState },
-    methods: { recordName, statusText, statusClass, formatDate, formatDateTime, formatAmount, itemAmount },
+    methods: { recordName, statusText, recordStatusText, statusClass, formatDate, formatDateTime, formatAmount, itemAmount },
     template: `
       <div v-if="items.length" class="card-list">
         <button v-for="item in items" :key="item.id" class="record-card" type="button" @click="$emit('open', item)">
-          <div class="record-card__top"><span class="record-card__status" :class="statusClass(item.status || item.stage)">{{ statusText(item.status || item.stage) }}</span><small>{{ item.id }}</small></div>
+          <div class="record-card__top"><span class="record-card__status" :class="statusClass(item.status || item.stage)">{{ recordStatusText(item) }}</span><small>{{ item.id }}</small></div>
           <strong>{{ recordName(item) }}</strong>
           <p>{{ item.partnerName || item.contact || item.createdByName || '—' }}</p>
           <div class="record-card__bottom"><span>{{ formatDateTime(item.createdAt || item.joinDate) }}</span><b v-if="itemAmount(item, type) !== undefined">{{ formatAmount(itemAmount(item, type)) }}</b></div>
@@ -446,6 +450,7 @@
       const page = computed(() => {
         const current = path.value;
         if (current.endsWith('/home')) return 'home';
+        if (current === '/partner/notifications' || current === '/admin/notifications') return 'notifications';
         if (current === '/partner/opportunities') return 'opportunities';
         if (current === '/partner/opportunities/new') return 'opportunity-new';
         if (current.startsWith('/partner/opportunities/')) return 'opportunity-detail';
@@ -469,10 +474,10 @@
         home: '工作台', opportunities: '商机', 'opportunity-new': '新建商机', 'opportunity-detail': '商机详情',
         registrations: '客户报备', 'registration-new': '新建报备', 'registration-detail': '报备详情',
         quotes: '报价单', 'quote-detail': '报价详情', orders: '订单', 'order-detail': '订单详情',
-        reviews: '审核中心', business: '业务查询', 'business-detail': '业务详情', partners: '渠道商',
+        reviews: '审核中心', business: '业务查询', 'business-detail': '业务详情', partners: '渠道商', notifications: '消息提醒',
         'partner-detail': '渠道商详情', me: '我的'
       }[page.value] || '移动端'));
-      const showNavigation = computed(() => ['home', 'opportunities', 'registrations', 'quotes', 'reviews', 'business', 'partners', 'me'].includes(page.value));
+      const showNavigation = computed(() => ['home', 'opportunities', 'registrations', 'quotes', 'reviews', 'business', 'partners', 'notifications', 'me'].includes(page.value));
       const showBack = computed(() => !['home', 'opportunities', 'registrations', 'quotes', 'reviews', 'business', 'partners', 'me'].includes(page.value));
       const pendingRegistrations = computed(() => registrations.value.filter(item => ['pending', 'reviewing'].includes(item.status)));
       const pendingRegistrationCount = computed(() => pendingRegistrations.value.length);
@@ -480,6 +485,11 @@
       const pendingAccounts = computed(() => pendingApprovals.value.filter(item => ['staff', 'partner_admin'].includes(item.type) && item.status === 'pending'));
       const reviewPendingAccounts = computed(() => reviewAccounts.value.filter(item => ['staff', 'partner_admin'].includes(item.type) && item.status === 'pending'));
       const pendingApprovalCount = computed(() => pendingPartners.value.length + pendingAccounts.value.length);
+      const messageItems = ref([]);
+      const messageUnreadCount = ref(0);
+      const messageLoading = ref(false);
+      const messageError = ref('');
+      const messageClient = window.createMessageClient?.({ getToken: readAuthToken });
       const keyword = computed(() => filters.keyword.trim().toLowerCase());
       const matchKeyword = (item) => {
         if (!keyword.value) return true;
@@ -658,6 +668,49 @@
         if (item.path === '/admin/business') return page.value === 'business' || page.value === 'business-detail';
         if (item.path === '/admin/partners') return page.value === 'partners' || page.value === 'partner-detail';
         return path.value === item.path;
+      }
+
+      async function loadMessages() {
+        if (!messageClient || !user.value) return;
+        messageLoading.value = true;
+        messageError.value = '';
+        try {
+          const [list, unread] = await Promise.all([messageClient.list({ limit: 20 }), messageClient.unreadCount()]);
+          messageItems.value = list.items;
+          messageUnreadCount.value = unread;
+        } catch (error) {
+          messageItems.value = [];
+          messageUnreadCount.value = 0;
+          messageError.value = error.message || '消息服务暂时不可用，请稍后重试。';
+        } finally {
+          messageLoading.value = false;
+        }
+      }
+
+      async function markAllMessagesRead() {
+        try {
+          await messageClient?.markAllRead();
+          messageItems.value.forEach(item => { item.statusCode = 'read'; });
+          messageUnreadCount.value = 0;
+        } catch (error) {
+          messageError.value = error.message || '标记已读失败，请稍后重试。';
+        }
+      }
+
+      async function openMessage(item) {
+        try {
+          if (item.statusCode === 'unread') await messageClient?.markRead(item.id);
+          item.statusCode = 'read';
+          messageUnreadCount.value = Math.max(0, messageUnreadCount.value - 1);
+          const target = window.resolveMessageTarget?.(item, {
+            scope: isPartnerScope.value ? 'partner' : 'admin',
+            device: 'mobile'
+          });
+          if (!target) throw new Error('该记录不存在、已失效或当前账号无权访问。');
+          go(target);
+        } catch (error) {
+          messageError.value = error.message || '该记录不存在、已失效或当前账号无权访问。';
+        }
       }
 
       const collectionEndpoints = {
@@ -875,6 +928,10 @@
 
       async function reloadForRoute() {
         if (!user.value) return;
+        if (page.value === 'notifications') {
+          await loadMessages();
+          return;
+        }
         if (detailRouteInfo()) {
           await loadDetail();
           return;
@@ -884,7 +941,7 @@
           return;
         }
         if (page.value === 'home') {
-          await loadPageData();
+          await Promise.all([loadPageData(), loadMessages()]);
           return;
         }
         if (page.value !== 'reviews') {
@@ -1481,7 +1538,8 @@
               method: 'PUT', body: { status: reviewDialog.action === 'approve' ? 'active' : 'rejected', remark: reviewDialog.remark.trim() }
             });
           } else {
-            await mobileRequest(`/pending-approvals/${encodeURIComponent(reviewDialog.item.id)}`, {
+            const approvalId = reviewDialog.item.approvalId || reviewDialog.item.id;
+            await mobileRequest(`/pending-approvals/${encodeURIComponent(approvalId)}`, {
               method: 'PUT', body: { action: reviewDialog.action, remark: reviewDialog.remark.trim() }
             });
           }
@@ -1582,11 +1640,11 @@
         opportunities, registrations, quotes, orders, partners, pendingApprovals, reviewRegistrations, reviewPartners, reviewPendingAccounts,
         pageMeta, loading, reviewPageMeta, reviewLoading, reviewDialog, registrationForm, opportunityForm, followUpTypeOptions, followUpForm, quoteOrderForm, detailFormError, companyPicker,
         isPartnerScope, isAdminScope, isSuperAdmin, roleName, stageOptions, registrationStatusOptions, industries, businessTabs,
-        navigation, page, pageTitle, showNavigation, showBack, pendingRegistrations, pendingRegistrationCount,
+        navigation, page, pageTitle, showNavigation, showBack, pendingRegistrations, pendingRegistrationCount, messageItems, messageUnreadCount, messageLoading, messageError,
         pendingPartners, pendingAccounts, pendingApprovalCount, filteredOpportunities, filteredRegistrations, filteredQuotes,
         filteredOrders, filteredPartners, businessItems, businessCollectionKey, businessPageMeta, selectedOpportunity, selectedRegistration, selectedQuote, selectedOrder,
         selectedPartner, canAddFollowUp, canConvertSelectedQuote, selectedQuoteConvertedText, businessDetailType, selectedBusinessItem, reviewDialogRows,
-        chooseScope, backToScope, go, goBack, isNavActive, loadPageData, loadMore, loadMoreReview, loadMoreApprovedRegistrations, login, logout,
+        chooseScope, backToScope, go, goBack, isNavActive, loadPageData, loadMessages, markAllMessagesRead, openMessage, loadMore, loadMoreReview, loadMoreApprovedRegistrations, login, logout,
         submitRegistration, submitOpportunity, fillOpportunityFromRegistration, openOpportunityRegistrationPicker, hideOpportunityRegistrationPicker, selectOpportunityRegistration,
         submitFollowUp, submitQuoteConvertOrder,
         openRegistrationCompanyPicker, hideRegistrationCompanyPicker, selectRegistrationCompany, openPartnerDetail, openBusinessDetail, openAdminPartner,

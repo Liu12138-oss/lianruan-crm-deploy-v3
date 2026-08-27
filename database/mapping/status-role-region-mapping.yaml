@@ -22,6 +22,12 @@ quoteStatus:
   converted: "已转订单"
 orderStatus:
   cancelled: "已取消"
+  v2LegacyOrder:
+    identification: "仅当订单存在 v2_source_id 且 migration.v2_raw_records 中存在 orders 原始快照时按 V2 历史订单处理；原始业务字段按 migration.v2_data(redacted_json) 读取"
+    partnerDisplay: "优先展示原始快照 assignedPartnerName；订单 partner_id 仍用于数据归属和权限判断"
+    pending: "待确认"
+    flow: "待确认 -> 确认订单 -> 处理中 -> 确认发货 -> 已发货 -> 完成"
+    approval: "V2 历史订单不进入 V3 一级渠道、区管、超管三级审批；V3 新建订单继续执行三级审批"
 approvalStatus:
   active: "待处理或处理中，需产品确认"
   approved: "已通过"

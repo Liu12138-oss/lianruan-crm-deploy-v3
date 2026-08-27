@@ -19,11 +19,14 @@ export function 启动接口服务(config: 应用配置 = 读取应用配置()):
     });
   });
 
-  注册优雅停止(服务, logger);
+  注册优雅停止(服务, logger, async () => {
+    const 关闭资源 = app.locals.关闭资源 as (() => Promise<void>) | undefined;
+    await 关闭资源?.();
+  });
   return 服务;
 }
 
-function 注册优雅停止(服务: Server, logger: 日志器) {
+function 注册优雅停止(服务: Server, logger: 日志器, 关闭资源: () => Promise<void>) {
   let 正在停止 = false;
 
   const 停止 = (信号: NodeJS.Signals) => {
@@ -44,7 +47,7 @@ function 注册优雅停止(服务: Server, logger: 日志器) {
       process.exit(1);
     }, 10000);
 
-    服务.close((错误) => {
+    服务.close(async (错误) => {
       clearTimeout(强制退出计时器);
       if (错误) {
         logger.error("接口服务停止失败", {
@@ -54,10 +57,19 @@ function 注册优雅停止(服务: Server, logger: 日志器) {
         process.exit(1);
       }
 
-      logger.info("接口服务已优雅停止", {
-        event: "api.service.stopped",
-      });
-      process.exit(0);
+      try {
+        await 关闭资源();
+        logger.info("接口服务已优雅停止", {
+          event: "api.service.stopped",
+        });
+        process.exit(0);
+      } catch (关闭错误) {
+        logger.error("接口服务资源关闭失败", {
+          event: "api.service.resource_close_failed",
+          errorMessage: 关闭错误 instanceof Error ? 关闭错误.message : "原因未知",
+        });
+        process.exit(1);
+      }
     });
   };
 

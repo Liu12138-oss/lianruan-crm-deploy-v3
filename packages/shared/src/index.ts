@@ -5,6 +5,21 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
+export {
+  事件代码集合,
+  事件目录,
+  到期数据源代码集合,
+  到期数据源目录,
+  接收人类型目录,
+  type 提醒任务类型,
+  type 提醒变量定义,
+  type 提醒接收人类型,
+  type 提醒渠道代码,
+  提醒渠道目录,
+  查找事件,
+  查找到期数据源,
+} from "./message-catalog.js";
+
 export type 应用环境 = "development" | "test" | "staging" | "production";
 
 export type 日志级别 = "debug" | "info" | "warn" | "error";

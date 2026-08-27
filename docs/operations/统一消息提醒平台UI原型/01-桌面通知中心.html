@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>统一消息提醒平台桌面端原型</title>
+    <style>
+      :root {
+        --primary: #007aff;
+        --success: #34c759;
+        --warning: #ff9500;
+        --danger: #ff3b30;
+        --info: #5856d6;
+        --background: #f5f5f7;
+        --surface: #ffffff;
+        --sidebar: #1d1d1f;
+        --text: #1d1d1f;
+        --secondary: #6e6e73;
+        --tertiary: #a1a1a6;
+        --border: rgba(0, 0, 0, 0.08);
+        --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        min-width: 1180px;
+        margin: 0;
+        color: var(--text);
+        background: var(--background);
+        font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      .shell { min-height: 100vh; display: flex; }
+      .sidebar {
+        width: 240px;
+        padding: 0 12px;
+        color: rgba(255, 255, 255, 0.72);
+        background: var(--sidebar);
+      }
+      .brand {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        color: #fff;
+        font-weight: 600;
+      }
+      .brand-mark {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        border-radius: 10px;
+        background: linear-gradient(135deg, var(--primary), var(--info));
+      }
+      .nav-label { margin: 22px 8px 8px; color: rgba(255, 255, 255, 0.36); font-size: 11px; letter-spacing: .5px; }
+      .nav-item {
+        height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 12px;
+        margin: 2px 0;
+        border-radius: 8px;
+      }
+      .nav-item.active { color: #fff; background: var(--primary); box-shadow: 0 2px 8px rgba(0, 122, 255, .4); }
+      .nav-count { margin-left: auto; min-width: 21px; padding: 1px 7px; border-radius: 999px; color: #fff; background: var(--danger); font-size: 11px; text-align: center; }
+      .sidebar-user { position: absolute; bottom: 18px; display: flex; align-items: center; gap: 10px; }
+      .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; color: #fff; background: linear-gradient(135deg, var(--primary), var(--info)); font-weight: 600; }
+      .user-name { color: #fff; font-size: 13px; font-weight: 600; }
+      .user-role { color: rgba(255, 255, 255, .45); font-size: 11px; }
+
+      .main { flex: 1; min-width: 0; }
+      .topbar {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 28px;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        background: rgba(255, 255, 255, .9);
+      }
+      .breadcrumb { color: var(--secondary); }
+      .breadcrumb b { color: var(--text); }
+      .header-actions { display: flex; align-items: center; gap: 12px; }
+      .bell {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        position: relative;
+        border-radius: 50%;
+        color: var(--secondary);
+        background: transparent;
+        font-size: 18px;
+      }
+      .bell-badge { position: absolute; top: 1px; right: -2px; min-width: 17px; height: 17px; padding: 0 4px; border: 2px solid #fff; border-radius: 999px; color: #fff; background: var(--danger); font-size: 10px; line-height: 13px; text-align: center; }
+      .content { padding: 28px; }
+      .heading { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 22px; }
+      .heading h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.4px; }
+      .heading p { margin: 0; color: var(--secondary); }
+      .button { height: 36px; padding: 0 14px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--text); font: inherit; }
+      .button.primary { border-color: var(--primary); color: #fff; background: var(--primary); box-shadow: 0 2px 8px rgba(0, 122, 255, .25); }
+      .card { overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+      .tabs { display: flex; gap: 26px; padding: 0 24px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
+      .tab { padding: 16px 0 13px; color: var(--secondary); font-weight: 500; }
+      .tab.active { border-bottom: 2px solid var(--primary); color: var(--primary); font-weight: 650; }
+      .filters { display: flex; gap: 10px; align-items: center; padding: 16px 24px; border-bottom: 1px solid rgba(0, 0, 0, .05); background: #fafafa; }
+      .select, .search { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; color: var(--secondary); background: #fff; }
+      .search { width: 240px; margin-left: auto; }
+      .notice { display: grid; grid-template-columns: 8px minmax(0, 1fr) 136px; gap: 16px; padding: 17px 24px; border-bottom: 1px solid rgba(0, 0, 0, .05); }
+      .notice.unread { background: #f3f8ff; }
+      .notice-dot { width: 6px; height: 6px; margin-top: 7px; border-radius: 50%; background: var(--primary); }
+      .notice-dot.read { background: transparent; }
+      .notice-title { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+      .tag { padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+      .tag.todo { color: #145dbb; background: #eaf3ff; }
+      .tag.business { color: #6f4a00; background: #fff3df; }
+      .tag.system { color: #4c42a6; background: #eeedff; }
+      .notice-desc { margin-top: 4px; color: var(--secondary); }
+      .notice-time { margin-top: 6px; color: var(--tertiary); font-size: 12px; }
+      .notice-action { align-self: center; color: var(--primary); font-weight: 600; text-align: right; }
+      .pager { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 15px 24px; color: var(--secondary); }
+
+      .drawer {
+        width: 400px;
+        position: absolute;
+        top: 64px;
+        right: 28px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 18px 42px rgba(0, 0, 0, .16);
+      }
+      .drawer-head { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px 0 18px; border-bottom: 1px solid rgba(0, 0, 0, .06); }
+      .drawer-head strong { font-size: 16px; }
+      .drawer-link { color: var(--primary); font-weight: 600; font-size: 13px; }
+      .drawer-tabs { display: flex; gap: 16px; padding: 12px 16px 0; color: var(--secondary); font-size: 13px; }
+      .drawer-tabs span:first-child { padding-bottom: 10px; border-bottom: 2px solid var(--primary); color: var(--primary); font-weight: 600; }
+      .drawer-item { display: grid; grid-template-columns: 8px 1fr; gap: 10px; padding: 14px 16px; border-bottom: 1px solid rgba(0, 0, 0, .05); }
+      .drawer-item.unread { background: #f5f9ff; }
+      .drawer-item-title { color: var(--text); font-weight: 600; }
+      .drawer-item-desc { margin-top: 2px; overflow: hidden; color: var(--secondary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+      .drawer-item-time { margin-top: 4px; color: var(--tertiary); font-size: 11px; }
+      .drawer-footer { padding: 14px; color: var(--primary); font-weight: 600; text-align: center; }
+      .annotation { position: absolute; bottom: 24px; right: 28px; color: var(--tertiary); font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">✦</span><span>联软渠道管理平台</span></div>
+        <p class="nav-label">日常业务</p>
+        <div class="nav-item">⌂ 工作台</div>
+        <div class="nav-item">◎ 客户报备</div>
+        <div class="nav-item">◉ 商机管理</div>
+        <div class="nav-item">¥ 报价与订单</div>
+        <p class="nav-label">个人中心</p>
+        <div class="nav-item active">♢ 消息通知 <span class="nav-count">8</span></div>
+        <div class="nav-item">◌ 个人设置</div>
+        <div class="sidebar-user"><span class="avatar">李</span><span><span class="user-name">李明</span><br /><span class="user-role">区域管理员</span></span></div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="breadcrumb">首页 <span>›</span> <b>消息通知</b></div>
+          <div class="header-actions"><span>帮助</span><span class="bell">♧<span class="bell-badge">8</span></span><span>李明 ▾</span></div>
+        </header>
+        <section class="content">
+          <div class="heading">
+            <div><h1>消息通知</h1><p>查看待办、业务提醒、系统和安全通知</p></div>
+            <div><button class="button">偏好设置</button> <button class="button primary">全部已读</button></div>
+          </div>
+          <div class="card">
+            <div class="tabs"><span class="tab active">全部 <b>8</b></span><span class="tab">待办 <b>3</b></span><span class="tab">业务提醒 <b>4</b></span><span class="tab">系统通知 <b>1</b></span><span class="tab">安全通知</span></div>
+            <div class="filters"><button class="button">仅看未读</button><span class="select">最近 30 天 ▾</span><span class="select">未归档 ▾</span><input class="search" value="搜索标题或摘要" /></div>
+            <article class="notice unread"><span class="notice-dot"></span><div><div class="notice-title"><span class="tag todo">待办</span> 待确认订单</div><div class="notice-desc">订单 DD20260814001 等待您处理，请在规定时间内完成确认。</div><div class="notice-time">2 分钟前</div></div><div class="notice-action">去处理 ›</div></article>
+            <article class="notice unread"><span class="notice-dot"></span><div><div class="notice-title"><span class="tag business">业务提醒</span> 合同即将到期</div><div class="notice-desc">合同摘要将在 7 天后到期，请核对续签计划和负责人。</div><div class="notice-time">今天 09:30</div></div><div class="notice-action">查看 ›</div></article>
+            <article class="notice"><span class="notice-dot read"></span><div><div class="notice-title"><span class="tag system">系统通知</span> 数据同步任务已完成</div><div class="notice-desc">本次同步完成，未发现需要人工处理的异常。</div><div class="notice-time">昨天 16:42</div></div><div class="notice-action">归档</div></article>
+            <div class="pager"><span>共 32 条</span><button class="button">上一页</button><b>第 1 / 2 页</b><button class="button">下一页</button></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <aside class="drawer">
+      <div class="drawer-head"><strong>通知中心</strong><span class="drawer-link">全部已读</span><span>×</span></div>
+      <div class="drawer-tabs"><span>全部</span><span>待办</span><span>提醒</span><span>系统</span></div>
+      <div class="drawer-item unread"><span class="notice-dot"></span><div><div class="drawer-item-title">待确认订单</div><div class="drawer-item-desc">订单 DD20260814001 等待您处理</div><div class="drawer-item-time">2 分钟前</div></div></div>
+      <div class="drawer-item unread"><span class="notice-dot"></span><div><div class="drawer-item-title">合同即将到期</div><div class="drawer-item-desc">合同摘要将在 7 天后到期</div><div class="drawer-item-time">今天 09:30</div></div></div>
+      <div class="drawer-item"><span class="notice-dot read"></span><div><div class="drawer-item-title">数据同步任务已完成</div><div class="drawer-item-desc">本次同步完成，未发现异常</div><div class="drawer-item-time">昨天 16:42</div></div></div>
+      <div class="drawer-footer">查看全部通知</div>
+    </aside>
+    <div class="annotation">统一消息提醒平台 · 桌面端视觉原型 · 基于 V3 当前样式</div>
+  </body>
+</html>

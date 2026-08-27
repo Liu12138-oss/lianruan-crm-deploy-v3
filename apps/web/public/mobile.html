@@ -7,7 +7,7 @@
   <meta name="format-detection" content="telephone=no" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563c7'/%3E%3Cpath d='M9 10h14v12H9z' fill='white'/%3E%3C/svg%3E" />
   <title>联软渠道管理平台移动端</title>
-  <link rel="stylesheet" href="mobile.css?v=6" />
+  <link rel="stylesheet" href="mobile.css?v=7" />
   <script>
     (function () {
       const scope = new URLSearchParams(window.location.search).get('scope');
@@ -70,7 +70,10 @@
           <strong>{{ pageTitle }}</strong>
           <small>{{ roleName }}</small>
         </div>
-        <button class="icon-button" type="button" aria-label="刷新当前数据" @click="loadPageData">↻</button>
+        <div class="mobile-header__actions">
+          <button class="icon-button mobile-message-bell" type="button" aria-label="打开通知中心" @click="go(isPartnerScope ? '/partner/notifications' : '/admin/notifications')">🔔<i v-if="messageUnreadCount" aria-hidden="true"></i></button>
+          <button class="icon-button" type="button" aria-label="刷新当前数据" @click="loadPageData">↻</button>
+        </div>
       </header>
 
       <main class="mobile-main" :class="{ 'mobile-main--with-nav': showNavigation }">
@@ -87,6 +90,14 @@
             <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/quotes' : '/admin/business')"><b>{{ pageMeta.quotes.total }}</b><span>报价单</span></button>
             <button class="stat-card" type="button" @click="go(isPartnerScope ? '/partner/orders' : '/admin/partners')"><b>{{ isPartnerScope ? pageMeta.orders.total : pageMeta.partners.total }}</b><span>{{ isPartnerScope ? '订单' : '渠道商' }}</span></button>
           </div>
+
+          <section class="content-block mobile-message-summary">
+            <div class="section-heading"><h2>消息提醒</h2><button type="button" @click="go(isPartnerScope ? '/partner/notifications' : '/admin/notifications')">查看全部</button></div>
+            <button class="mobile-message-summary__item" type="button" @click="go(isPartnerScope ? '/partner/notifications' : '/admin/notifications')">
+              <span>未读通知</span><b>{{ messageUnreadCount }} 条 ›</b>
+            </button>
+            <p v-if="messageError" class="mobile-message-summary__hint">消息服务暂时不可用，可稍后重试。</p>
+          </section>
 
           <section class="content-block">
             <div class="section-heading"><h2>{{ isPartnerScope ? '快捷操作' : '待办事项' }}</h2></div>
@@ -269,6 +280,19 @@
         <section v-else-if="page === 'partners'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索渠道商名称" /></div><record-list :items="filteredPartners" type="partner" empty-text="暂无渠道商" :has-more="pageMeta.partners.hasMore" :loading-more="loading.partners" @open="openAdminPartner" @load-more="loadMore('partners')"></record-list></section>
         <section v-else-if="page === 'partner-detail'" class="page-section"><detail-card v-if="selectedPartner" :item="selectedPartner" type="partner"></detail-card><empty-state v-else :text="detailMessage('partner')"></empty-state></section>
 
+        <section v-else-if="page === 'notifications'" class="page-section">
+          <form-heading title="消息提醒" text="仅展示当前账号有权查看的站内通知"></form-heading>
+          <div class="section-heading"><h2>全部通知</h2><button type="button" :disabled="!messageUnreadCount || messageLoading" @click="markAllMessagesRead">全部已读</button></div>
+          <p v-if="messageLoading" class="mobile-message-state">正在加载通知…</p>
+          <div v-else-if="messageError" class="mobile-message-state mobile-message-state--error"><p>{{ messageError }}</p><button class="button button--secondary" type="button" @click="loadMessages">重试</button></div>
+          <empty-state v-else-if="!messageItems.length" text="暂无通知"></empty-state>
+          <div v-else class="mobile-message-list">
+            <button v-for="item in messageItems" :key="item.id" class="mobile-message-card" :class="{ 'mobile-message-card--unread': item.statusCode === 'unread' }" type="button" @click="openMessage(item)">
+              <strong>{{ item.title }}</strong><span>{{ item.body }}</span><small>{{ formatDateTime(item.createdAt) }}</small>
+            </button>
+          </div>
+        </section>
+
         <section v-else-if="page === 'me'" class="page-section">
           <div class="profile-card"><div class="profile-card__avatar">{{ (user.name || user.username || '用').slice(0, 1) }}</div><div><h2>{{ user.name || user.username }}</h2><p>{{ roleName }}</p><small>{{ user.partnerName || user.region || '—' }}</small></div></div>
           <div class="settings-list"><button type="button" @click="loadPageData">刷新数据 <b>›</b></button><button type="button" class="settings-list__danger" @click="logout">退出登录 <b>›</b></button></div>
@@ -298,6 +322,7 @@
 
   <script src="libs/vue.min.js"></script>
   <script src="emm-h5-sso.js?v=1"></script>
-  <script src="mobile-app.js?v=17"></script>
+  <script src="message-client.js?v=1"></script>
+  <script src="mobile-app.js?v=19"></script>
 </body>
 </html>

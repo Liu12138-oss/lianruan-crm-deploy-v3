@@ -1195,7 +1195,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
       LEFT JOIN org.staff_profiles sp ON sp.user_id = u.id
       LEFT JOIN org.regions reg ON reg.id = u.region_id
-      LEFT JOIN channel.partner_members pm ON pm.user_id = u.id
+      LEFT JOIN channel.partner_members pm ON pm.user_id = u.id AND pm.archived_at IS NULL
       LEFT JOIN channel.partners p ON p.id = pm.partner_id AND p.status_code = 'active'
       LEFT JOIN channel.partners p_extra ON p_extra.status_code = 'active'
         AND NULLIF(u.extra_json->>'partnerId', '') IS NOT NULL
@@ -1339,7 +1339,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     if (查询.keyword) {
       参数.push("%" + 查询.keyword + "%");
       条件.push(
-        `("标题" ILIKE $${参数.length} OR "客户名称" ILIKE $${参数.length} OR "渠道名称" ILIKE $${参数.length})`,
+        `("标题" ILIKE $${参数.length} OR "客户名称" ILIKE $${参数.length} OR "渠道名称" ILIKE $${参数.length}${模块 === "orders" ? ` OR "原始数据"->>'preRegionOrderNo' ILIKE $${参数.length}` : ""})`,
       );
     }
     if (查询.status) {
@@ -1455,7 +1455,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     用户?: 当前业务用户 | null,
   ): Promise<阶段9记录> {
     const 上下文 = await this.解析当前用户上下文(用户 || null);
-    const where = `"id" = $1 OR "编号" = $1`;
+    const where = `"id" = $1 OR "编号" = $1${模块 === "orders" ? ` OR "原始数据"->>'preRegionOrderNo' = $1` : ""}`;
     const 参数: unknown[] = [id];
     const baseSql = this.模块查询SQL(模块, this.构建数据范围条件(模块, 上下文, 参数));
     const 列表 = await this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, 参数, {
@@ -1567,14 +1567,16 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     try {
       await client.query("BEGIN");
       const 当前 = await client.query<{
+        status_code: string;
         approved_at: Date | null;
         extra_json: Record<string, unknown>;
       }>(
         `
-        SELECT approved_at, extra_json
+        SELECT status_code, approved_at, extra_json
         FROM crm.registrations
         WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
         LIMIT 1
+        FOR UPDATE
         `,
         [id],
       );
@@ -1624,6 +1626,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         原因: 读取文本(输入, ["reason", "remark", "审核意见"], ""),
         用户,
       });
+      if (状态 !== 当前报备.status_code && (状态 === "approved" || 状态 === "rejected")) {
+        await 写入报备发件箱事件(client, 报备.id, `crm.registration.${状态}`, {
+          fromStatus: 当前报备.status_code,
+          toStatus: 状态,
+          ownerUserId: 报备.owner_user_id || "",
+          partnerId: 报备.partner_id || "",
+        });
+      }
       await client.query("COMMIT");
       return this.查询详情("registrations", 报备.id, 用户);
     } catch (error) {
@@ -1803,10 +1813,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         status_code: string;
         target_type: string;
         target_id: string | null;
+        applicant_partner_id: string | null;
         title: string;
       }>(
         `
         SELECT id::text AS id, status_code, target_type, target_id::text AS target_id,
+          applicant_partner_id::text AS applicant_partner_id,
           COALESCE(extra_json->>'targetName', target_type) AS title
         FROM ops.approvals
         WHERE id::text = $1 OR v2_source_id = $1 OR target_id::text = $1
@@ -1850,11 +1862,38 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           JSON.stringify({ actorName: 用户?.displayName || "" }),
         ],
       );
-      if (审批.target_type === "user" && 审批.target_id) {
-        await client.query(`UPDATE iam.users SET status_code = $2 WHERE id::text = $1`, [
-          审批.target_id,
-          状态 === "approved" ? "active" : "disabled",
-        ]);
+      if (
+        (审批.target_type === "user" ||
+          审批.target_type === "staff" ||
+          审批.target_type === "account") &&
+        审批.target_id
+      ) {
+        const 目标状态 = 状态 === "approved" ? "active" : "disabled";
+        await client.query(
+          `
+          UPDATE iam.users
+          SET status_code = $2,
+              updated_at = now(),
+              extra_json = extra_json || $3::jsonb
+          WHERE id = $1::uuid
+          `,
+          [
+            审批.target_id,
+            目标状态,
+            JSON.stringify({ status: 状态 === "approved" ? "active" : "rejected" }),
+          ],
+        );
+        if (审批.applicant_partner_id) {
+          await client.query(
+            `
+            UPDATE channel.partner_members
+            SET status_code = $2,
+                ended_at = CASE WHEN $2 = 'disabled' THEN now() ELSE NULL END
+            WHERE user_id = $1::uuid AND partner_id = $3::uuid
+            `,
+            [审批.target_id, 目标状态, 审批.applicant_partner_id],
+          );
+        }
       }
       await 写入审计日志(client, {
         用户,
@@ -1903,6 +1942,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         FROM crm.registrations
         WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
         LIMIT 1
+        FOR UPDATE
         `,
         [id],
       );
@@ -1968,6 +2008,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 报备编号 = result.rows[0]?.id;
       if (!报备编号) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      if (状态 !== row.status_code && (状态 === "approved" || 状态 === "rejected")) {
+        await 写入报备发件箱事件(client, 报备编号, `crm.registration.${状态}`, {
+          fromStatus: row.status_code,
+          toStatus: 状态,
+          ownerUserId: 归属.ownerUserId || row.owner_user_id || "",
+          partnerId: 归属.partnerId || row.partner_id || "",
+        });
+      }
       await client.query("COMMIT");
       return this.查询详情("registrations", 报备编号, 用户);
     } catch (error) {
@@ -2578,6 +2626,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
+    const 当前用户上下文 = await this.解析当前用户上下文(用户);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -2586,13 +2635,48 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         status_code: string;
         total_amount: string | number;
         extra_json: Record<string, unknown> | null;
+        order_no: string;
+        pre_region_order_no: string | null;
+        region_confirmed_by_user_id: string | null;
+        region_confirmed_at: Date | null;
+        v2_source_id: string | null;
+        legacy_v2_status: string | null;
+        is_legacy_v2_initial: boolean;
       }>(
         `
-        SELECT id::text AS id, status_code, total_amount, extra_json
-        FROM crm.orders
-        WHERE id::text = $1 OR v2_source_id = $1 OR order_no = $1
+        SELECT
+          o.id::text AS id,
+          o.status_code,
+          o.total_amount,
+          o.extra_json,
+          o.order_no,
+          o.pre_region_order_no,
+          o.region_confirmed_by_user_id::text AS region_confirmed_by_user_id,
+          o.region_confirmed_at,
+          o.v2_source_id,
+          COALESCE(
+            NULLIF(migration.v2_data(v2_raw.redacted_json)->>'status', ''),
+            NULLIF(o.extra_json->>'status', '')
+          ) AS legacy_v2_status,
+          o.v2_source_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM crm.order_status_history h
+              WHERE h.order_id = o.id
+                AND COALESCE(h.reason, '') <> '升级补齐订单审批状态机初始记录'
+            ) AS is_legacy_v2_initial
+        FROM crm.orders o
+        LEFT JOIN LATERAL (
+          SELECT r.redacted_json
+          FROM migration.v2_raw_records r
+          WHERE r.entity_name = 'orders'
+            AND r.source_id = o.v2_source_id
+          ORDER BY r.source_updated_at DESC NULLS LAST, r.created_at DESC
+          LIMIT 1
+        ) v2_raw ON true
+        WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.order_no = $1 OR o.pre_region_order_no = $1
         LIMIT 1
-        FOR UPDATE
+        FOR UPDATE OF o
         `,
         [id],
       );
@@ -2601,9 +2685,21 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 请求状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
       const 调价金额 = 读取订单调整金额(输入);
       const 是否调价 = 调价金额 !== null || 读取文本(输入, ["action"], "") === "price_adjust";
-      const 状态 = 是否调价
-        ? "pending_superadmin_confirm"
-        : 推导订单下一状态(订单.status_code, 请求状态);
+      if (是否调价) {
+        await 校验订单所属区域区管(client, 订单.id, 当前用户上下文);
+      }
+      const V2历史初始状态 = 规范V2历史订单状态(订单.legacy_v2_status || "");
+      const 按V2历史流程 = Boolean(
+        订单.v2_source_id && 订单.is_legacy_v2_initial && V2历史初始状态,
+      );
+      const 状态 = 按V2历史流程
+        ? 推导V2历史订单下一状态(V2历史初始状态, 请求状态)
+        : 是否调价
+          ? "pending_superadmin_confirm"
+          : 推导订单下一状态(订单.status_code, 请求状态);
+      if (!是否调价 && 订单.status_code === "pending_superadmin_confirm" && 状态 === "confirmed") {
+        校验超级管理员上下文(当前用户上下文);
+      }
       const 原因 = 读取文本(输入, ["reason", "remark", "adjustmentReason", "审核意见"], "");
       const 操作人 = 用户?.displayName || 读取文本(输入, ["operatorName"], "阶段9测试账号");
       const 旧金额 = Number(订单.total_amount) || 0;
@@ -2621,11 +2717,29 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             },
           ]
         : undefined;
+      const 需要生成正式编号 =
+        !按V2历史流程 &&
+        !订单.region_confirmed_at &&
+        (是否调价 ||
+          (订单.status_code === "primary_confirmed" && 状态 === "pending_superadmin_confirm"));
+      const 正式编号结果 = 需要生成正式编号
+        ? await 生成区管正式订单编号(client, 订单.id, 当前用户上下文)
+        : null;
       await client.query(
         `
         UPDATE crm.orders
         SET status_code = $2,
             total_amount = COALESCE($4::numeric, total_amount),
+            order_no = COALESCE($5, order_no),
+            pre_region_order_no = COALESCE($6, pre_region_order_no),
+            region_confirmed_by_user_id = COALESCE($7::uuid, region_confirmed_by_user_id),
+            region_confirmed_at = CASE WHEN $5 IS NULL THEN region_confirmed_at ELSE now() END,
+            region_confirmed_email_prefix = COALESCE($8, region_confirmed_email_prefix),
+            region_confirmed_username = COALESCE($9, region_confirmed_username),
+            agreement_no_snapshot = COALESCE($10, agreement_no_snapshot),
+            country_calling_code_snapshot = COALESCE($11, country_calling_code_snapshot),
+            contract_sequence = COALESCE($12::integer, contract_sequence),
+            contract_year = COALESCE($13::integer, contract_year),
             updated_at = now(),
             row_version = row_version + 1,
             extra_json = extra_json || $3::jsonb
@@ -2642,25 +2756,64 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             reviewRemark: 原因,
             lastOperatorName: 操作人,
             updatedByName: 操作人,
+            id: 正式编号结果?.订单编号,
+            formalOrderNo: 正式编号结果?.订单编号,
+            preRegionOrderNo: 正式编号结果?.前置订单编号,
+            agreementNo: 正式编号结果?.协议编号,
+            countryCallingCode: 正式编号结果?.国家电话区号,
+            contractSequence: 正式编号结果?.合同流水号,
+            contractYear: 正式编号结果?.合同年份,
+            regionConfirmedByUsername: 正式编号结果?.区管账号,
+            regionConfirmedEmailPrefix: 正式编号结果?.邮箱前缀,
+            numberNotice: 正式编号结果?.邮箱缺失提示 || undefined,
           }),
           调价金额,
+          正式编号结果?.订单编号 || null,
+          正式编号结果?.前置订单编号 || null,
+          正式编号结果?.区管用户编号 || null,
+          正式编号结果?.邮箱前缀 || null,
+          正式编号结果?.区管账号 || null,
+          正式编号结果?.协议编号 || null,
+          正式编号结果?.国家电话区号 || null,
+          正式编号结果?.合同流水号 || null,
+          正式编号结果?.合同年份 || null,
         ],
       );
       await 写入订单状态历史(client, {
         订单编号: 订单.id,
-        原状态: 订单.status_code,
+        原状态: 按V2历史流程 ? V2历史初始状态 : 订单.status_code,
         新状态: 状态,
-        原因: 原因 || (是否调价 ? "区管调价后提交超管确认" : "订单状态流转"),
+        原因:
+          原因 ||
+          (按V2历史流程
+            ? "V2历史订单按原流程流转"
+            : 是否调价
+              ? "区管调价后提交超管确认"
+              : "订单状态流转"),
         用户,
       });
-      await 同步订单审批链路(client, {
-        订单编号: 订单.id,
-        原状态: 订单.status_code,
-        新状态: 状态,
-        是否调价,
-        原因,
-        用户,
-      });
+      if (按V2历史流程) {
+        await 关闭V2历史订单审批待办(client, 订单.id, 用户);
+      } else {
+        await 同步订单审批链路(client, {
+          订单编号: 订单.id,
+          原状态: 订单.status_code,
+          新状态: 状态,
+          是否调价,
+          原因,
+          用户,
+        });
+        await 写入订单预审自动发起事件(client, {
+          订单编号: 订单.id,
+          订单编号文本: 正式编号结果?.订单编号 || 订单.order_no,
+          原状态: 订单.status_code,
+          新状态: 状态,
+          是否当前调价: 是否调价,
+          是否存在调价记录: Array.isArray(订单.extra_json?.priceAdjustments),
+          区管用户编号: 正式编号结果?.区管用户编号 || 订单.region_confirmed_by_user_id,
+          用户,
+        });
+      }
       await 写入订单发件箱事件(client, 订单.id, "crm.order.status.changed", {
         fromStatus: 订单.status_code,
         toStatus: 状态,
@@ -4112,6 +4265,8 @@ function 构建账号数据范围条件(用户: 业务用户上下文, 参数: u
       FROM channel.partner_members pm_scope
       WHERE pm_scope.user_id = u.id
         AND pm_scope.partner_id = ANY($${参数.length}::uuid[])
+        AND pm_scope.status_code = 'active'
+        AND pm_scope.archived_at IS NULL
     )`;
   }
   if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
@@ -4429,11 +4584,12 @@ function 订单查询SQL(where: string): string {
       '订单' AS "类型",
       COALESCE(c.customer_name, o.extra_json->>'customer', o.order_no, o.id::text) AS "标题",
       COALESCE(c.customer_name, o.extra_json->>'customer') AS "客户名称",
-      COALESCE(p.partner_name, o.extra_json->>'partnerName') AS "渠道名称",
+      COALESCE(legacy.display_partner_name, p.partner_name, o.extra_json->>'partnerName') AS "渠道名称",
       COALESCE(u.display_name, o.extra_json->>'assignedStaffName', o.extra_json->>'createdByName') AS "负责人",
       COALESCE(reg.region_name, o.extra_json->>'region', p.extra_json->>'region', '') AS "区域",
-      o.status_code AS "状态",
-      CASE o.status_code
+      legacy.display_status AS "状态",
+      CASE legacy.display_status
+        WHEN 'pending' THEN '待确认'
         WHEN 'pending_primary_confirm' THEN '待一级确认'
         WHEN 'primary_confirmed' THEN '一级已确认'
         WHEN 'primary_rejected' THEN '一级已驳回'
@@ -4453,8 +4609,19 @@ function 订单查询SQL(where: string): string {
         'partnerUuid', COALESCE(o.partner_id::text, ''),
         'partnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'partnerId', ''),
         'assignedPartnerId', COALESCE(o.extra_json->>'assignedPartnerId', p.v2_source_id, p.partner_code, o.partner_id::text, ''),
-        'partnerName', COALESCE(p.partner_name, o.extra_json->>'partnerName', ''),
+        'partnerName', COALESCE(legacy.display_partner_name, p.partner_name, o.extra_json->>'partnerName', ''),
         'assignedPartnerName', COALESCE(o.extra_json->>'assignedPartnerName', p.partner_name, ''),
+        'formalOrderNo', o.order_no,
+        'preRegionOrderNo', COALESCE(o.pre_region_order_no, o.extra_json->>'preRegionOrderNo', ''),
+        'agreementNo', COALESCE(o.agreement_no_snapshot, o.extra_json->>'agreementNo', ''),
+        'countryCallingCode', COALESCE(o.country_calling_code_snapshot, o.extra_json->>'countryCallingCode', ''),
+        'contractSequence', o.contract_sequence,
+        'contractYear', o.contract_year,
+        'regionConfirmedByUsername', COALESCE(o.region_confirmed_username, o.extra_json->>'regionConfirmedByUsername', ''),
+        'regionConfirmedEmailPrefix', COALESCE(o.region_confirmed_email_prefix, o.extra_json->>'regionConfirmedEmailPrefix', ''),
+        'legacyV2Order', legacy.is_v2_order,
+        'legacyV2InitialStatus', legacy.source_status,
+        'legacyV2PartnerName', legacy.display_partner_name,
         'partnerLevel', COALESCE(p.partner_level_code, o.extra_json->>'partnerLevel', ''),
         'parentPartnerId', COALESCE(o.extra_json->>'parentPartnerId', parent_rel.parent_partner_external_id, ''),
         'parentPartnerUuid', COALESCE(o.extra_json->>'parentPartnerUuid', parent_rel.parent_partner_id, ''),
@@ -4482,6 +4649,45 @@ function 订单查询SQL(where: string): string {
     LEFT JOIN crm.opportunities related_opportunity ON related_opportunity.id = related_quote.opportunity_id
     LEFT JOIN crm.registrations report ON report.id = related_opportunity.registration_id
     LEFT JOIN LATERAL (
+      SELECT r.redacted_json
+      FROM migration.v2_raw_records r
+      WHERE r.entity_name = 'orders'
+        AND r.source_id = o.v2_source_id
+      ORDER BY r.source_updated_at DESC NULLS LAST, r.created_at DESC
+      LIMIT 1
+    ) v2_raw ON true
+    LEFT JOIN LATERAL (
+      SELECT
+        o.v2_source_id IS NOT NULL AS is_v2_order,
+        COALESCE(
+          NULLIF(migration.v2_data(v2_raw.redacted_json)->>'status', ''),
+          NULLIF(o.extra_json->>'status', '')
+        ) AS source_status,
+        COALESCE(
+          NULLIF(migration.v2_data(v2_raw.redacted_json)->>'assignedPartnerName', ''),
+          NULLIF(o.extra_json->>'assignedPartnerName', '')
+        ) AS display_partner_name,
+        CASE
+          WHEN o.v2_source_id IS NOT NULL
+            AND COALESCE(
+              NULLIF(migration.v2_data(v2_raw.redacted_json)->>'status', ''),
+              NULLIF(o.extra_json->>'status', '')
+            ) IN ('draft', 'pending', 'confirmed', 'rejected', 'cancelled', 'processing', 'shipped', 'completed')
+            AND NOT EXISTS (
+              SELECT 1
+              FROM crm.order_status_history h
+              WHERE h.order_id = o.id
+                AND COALESCE(h.reason, '') <> '升级补齐订单审批状态机初始记录'
+            )
+          THEN COALESCE(
+            NULLIF(migration.v2_data(v2_raw.redacted_json)->>'status', ''),
+            NULLIF(o.extra_json->>'status', ''),
+            o.status_code
+          )
+          ELSE o.status_code
+        END AS display_status
+    ) legacy ON true
+    LEFT JOIN LATERAL (
       SELECT
         parent.id::text AS parent_partner_id,
         COALESCE(parent.v2_source_id, parent.partner_code, parent.id::text) AS parent_partner_external_id,
@@ -4498,7 +4704,13 @@ function 订单查询SQL(where: string): string {
     LEFT JOIN LATERAL (
       SELECT jsonb_agg(
         jsonb_build_object(
-          'from', h.from_status_code,
+          'from', CASE
+            WHEN legacy.is_v2_order
+              AND h.from_status_code IN ('pending_primary_confirm', 'primary_confirmed', 'pending_superadmin_confirm')
+              AND legacy.source_status IN ('draft', 'pending', 'confirmed', 'rejected', 'cancelled', 'processing', 'shipped', 'completed')
+            THEN legacy.source_status
+            ELSE h.from_status_code
+          END,
           'to', h.to_status_code,
           'operatorName', COALESCE(actor.display_name, ''),
           'timestamp', h.changed_at,
@@ -4509,6 +4721,7 @@ function 订单查询SQL(where: string): string {
       FROM crm.order_status_history h
       LEFT JOIN iam.users actor ON actor.id = h.actor_user_id
       WHERE h.order_id = o.id
+        AND (NOT legacy.is_v2_order OR COALESCE(h.reason, '') <> '升级补齐订单审批状态机初始记录')
     ) order_history ON true
     WHERE ${where}
   `;
@@ -4542,6 +4755,8 @@ function 渠道查询SQL(where: string): string {
         'contact', COALESCE(NULLIF(p.contact_name, ''), p.extra_json->>'contact', ''),
         'phone', COALESCE(NULLIF(p.contact_phone, ''), p.extra_json->>'phone', ''),
         'email', COALESCE(p.contact_email::text, p.extra_json->>'email', ''),
+        'agreementNo', COALESCE(p.agreement_no, p.extra_json->>'agreementNo', ''),
+        'countryCallingCode', COALESCE(p.country_calling_code, p.extra_json->>'countryCallingCode', '86'),
         'status', CASE p.status_code WHEN 'disabled' THEN 'inactive' ELSE p.status_code END,
         'staff', COALESCE(
           成员.staff,
@@ -4557,20 +4772,24 @@ function 渠道查询SQL(where: string): string {
       SELECT jsonb_agg(
         jsonb_build_object(
           'id', COALESCE(u.v2_source_id, u.extra_json->>'id', u.username::text, u.id::text),
+          'partnerMemberId', pm.id::text,
+          'rowVersion', pm.row_version,
           'uuid', u.id::text,
           'userId', COALESCE(u.v2_source_id, u.extra_json->>'userId', u.id::text),
           'username', u.username::text,
           'name', COALESCE(NULLIF(u.display_name, ''), u.extra_json->>'name', u.username::text),
-          'role', COALESCE(
-            NULLIF(u.extra_json->>'staffRole', ''),
-            NULLIF(u.extra_json->>'title', ''),
-            CASE pm.member_role_code WHEN 'partner_admin' THEN '企业管理员' ELSE '销售代表' END
-          ),
-          'staffRole', COALESCE(
-            NULLIF(u.extra_json->>'staffRole', ''),
-            NULLIF(u.extra_json->>'title', ''),
-            CASE pm.member_role_code WHEN 'partner_admin' THEN '企业管理员' ELSE '销售代表' END
-          ),
+          'role', COALESCE(member_role.role_name,
+            CASE WHEN COALESCE(u.extra_json->>'staffRole',u.extra_json->>'title','') LIKE '%技术%'
+              THEN '技术' ELSE '销售' END),
+          'staffRole', COALESCE(member_role.role_name,
+            CASE WHEN COALESCE(u.extra_json->>'staffRole',u.extra_json->>'title','') LIKE '%技术%'
+              THEN '技术' ELSE '销售' END),
+          'businessRoleType', COALESCE(member_role.business_role_type,
+            CASE WHEN COALESCE(u.extra_json->>'staffRole',u.extra_json->>'title','') LIKE '%技术%'
+              THEN 'technical' ELSE 'sales' END),
+          'businessRoleCode', COALESCE(member_role.role_code,
+            CASE WHEN COALESCE(u.extra_json->>'staffRole',u.extra_json->>'title','') LIKE '%技术%'
+              THEN 'channel_technical' ELSE 'channel_sales' END),
           'accountRole', pm.member_role_code,
           'phone', COALESCE(NULLIF(u.phone, ''), u.extra_json->>'phone', u.extra_json->>'mobile', ''),
           'email', COALESCE(u.email::text, u.extra_json->>'email', ''),
@@ -4581,13 +4800,34 @@ function 渠道查询SQL(where: string): string {
           END,
           'createdAt', COALESCE(u.extra_json->>'createdAt', u.created_at::text),
           'createdByRole', COALESCE(u.extra_json->>'createdByRole', ''),
-          'approvedBy', COALESCE(u.extra_json->>'approvedBy', '')
+          'approvedBy', COALESCE(u.extra_json->>'approvedBy', ''),
+          'certifications', COALESCE(member_cert.certifications,'[]'::jsonb)
         )
         ORDER BY pm.member_role_code, u.display_name, u.username::text
       ) AS staff
       FROM channel.partner_members pm
       JOIN iam.users u ON u.id = pm.user_id
-      WHERE pm.partner_id = p.id
+      LEFT JOIN LATERAL (
+        SELECT b.role_code,b.role_name,
+          CASE WHEN b.role_code='channel_technical' OR b.category IN ('pre_sales','post_sales','tech_engineer')
+            THEN 'technical' ELSE 'sales' END AS business_role_type
+        FROM org.member_business_roles m
+        JOIN org.business_roles b ON b.id=m.business_role_id
+        WHERE m.partner_member_id=pm.id AND m.expired_at IS NULL AND b.domain_code='channel'
+        ORDER BY m.is_primary_display DESC,m.effective_at DESC
+        LIMIT 1
+      ) member_role ON true
+      LEFT JOIN LATERAL (
+        SELECT jsonb_agg(jsonb_build_object(
+          'id',c.id::text,'certificationTemplateId',c.certification_template_id::text,
+          'templateName',t.template_name,'category',t.category,'certificateNo',COALESCE(c.certificate_no,''),
+          'issuedOn',c.issued_on,'expiresOn',c.expires_on,'statusCode',c.status_code,'rowVersion',c.row_version
+        ) ORDER BY CASE c.status_code WHEN 'active' THEN 0 ELSE 1 END,c.expires_on NULLS LAST) AS certifications
+        FROM org.member_certifications c
+        JOIN org.certification_templates t ON t.id=c.certification_template_id
+        WHERE c.user_id=u.id
+      ) member_cert ON true
+      WHERE pm.partner_id = p.id AND pm.archived_at IS NULL
     ) 成员 ON true
     WHERE ${where}
   `;
@@ -4652,7 +4892,11 @@ function 账号查询SQL(where: string): string {
       0::numeric AS "金额",
       u.created_at AS "创建时间",
       u.updated_at AS "更新时间",
-      u.extra_json AS "原始数据"
+      jsonb_set(
+        COALESCE(u.extra_json, '{}'::jsonb),
+        '{phone}',
+        to_jsonb(COALESCE(u.phone, ''))
+      ) || jsonb_build_object('email', COALESCE(u.email::text, '')) AS "原始数据"
     FROM iam.users u
     LEFT JOIN org.regions r ON r.id = u.region_id
     WHERE ${where}
@@ -4980,6 +5224,14 @@ async function 写入报备审批待办(
       JSON.stringify({ actorName: 参数.用户?.displayName || "阶段9测试账号" }),
     ],
   );
+  if (参数.状态 === "pending") {
+    await 写入报备发件箱事件(client, 参数.报备编号, "crm.registration.approval.pending", {
+      fromStatus: "pending",
+      toStatus: "pending",
+      ownerUserId: 参数.申请人编号 || "",
+      partnerId: 参数.渠道编号 || "",
+    });
+  }
 }
 
 async function 同步报备审批状态(
@@ -5276,6 +5528,53 @@ async function 同步订单审批状态(
   );
 }
 
+async function 关闭V2历史订单审批待办(
+  client: PoolClient,
+  订单编号: string,
+  用户: 当前业务用户 | null,
+): Promise<void> {
+  const 原因 = "V2历史订单按原流程确认，关闭迁移生成的审批待办";
+  const result = await client.query<{ id: string }>(
+    `
+    UPDATE ops.approvals
+    SET status_code = 'cancelled',
+        updated_at = now(),
+        extra_json = extra_json || $2::jsonb
+    WHERE target_type = 'order'
+      AND target_id::text = $1
+      AND status_code = 'pending'
+    RETURNING id::text AS id
+    `,
+    [
+      订单编号,
+      JSON.stringify({
+        status: "cancelled",
+        reviewRemark: 原因,
+        updatedByName: 用户?.displayName || "阶段9测试账号",
+      }),
+    ],
+  );
+  for (const approval of result.rows) {
+    await client.query(
+      `
+      INSERT INTO ops.approval_events (
+        approval_id, event_code, from_status_code, to_status_code, reason, extra_json
+      )
+      VALUES ($1::uuid, 'cancel', $2, 'cancelled', $3, $4::jsonb)
+      `,
+      [
+        approval.id,
+        "pending",
+        原因,
+        JSON.stringify({
+          actorName: 用户?.displayName || "阶段9测试账号",
+          source: "v2-legacy-order",
+        }),
+      ],
+    );
+  }
+}
+
 async function 同步订单审批链路(
   client: PoolClient,
   参数: {
@@ -5302,6 +5601,10 @@ async function 同步订单审批链路(
       原因: "一级已确认，等待区管确认",
       用户: 参数.用户,
     });
+    await 写入订单发件箱事件(client, 参数.订单编号, "crm.order.approval.pending", {
+      status: "primary_confirmed",
+      step: "region_confirm",
+    });
     return;
   }
   if (参数.新状态 === "pending_superadmin_confirm") {
@@ -5320,6 +5623,10 @@ async function 同步订单审批链路(
       步骤: "superadmin_confirm",
       原因: 参数.是否调价 ? "区管调价后等待超管确认" : "区管已确认，等待超管确认",
       用户: 参数.用户,
+    });
+    await 写入订单发件箱事件(client, 参数.订单编号, "crm.order.approval.pending", {
+      status: "pending_superadmin_confirm",
+      step: "superadmin_confirm",
     });
     return;
   }
@@ -5384,6 +5691,148 @@ async function 写入订单发件箱事件(
     VALUES ($1, 'order', $2::uuid, $3::jsonb, 'pending', now())
     `,
     [事件类型, 订单编号, JSON.stringify({ orderId: 订单编号, ...载荷 })],
+  );
+}
+
+/**
+ * 自动预审只由订单状态机调用：普通订单在区管确认后投递；调价订单仅在超管确认后投递。
+ * 订单唯一约束是最终幂等门禁，重复流转、并发请求和后续调价均不得生成第二条 OA 发起记录。
+ */
+async function 写入订单预审自动发起事件(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    订单编号文本: string;
+    原状态: string;
+    新状态: string;
+    是否当前调价: boolean;
+    是否存在调价记录: boolean;
+    区管用户编号: string | null;
+    用户: 当前业务用户 | null;
+  },
+): Promise<void> {
+  const 普通订单区管确认 =
+    !参数.是否当前调价 &&
+    参数.原状态 === "primary_confirmed" &&
+    参数.新状态 === "pending_superadmin_confirm";
+  const 调价订单超管确认 =
+    !参数.是否当前调价 &&
+    参数.原状态 === "pending_superadmin_confirm" &&
+    参数.新状态 === "confirmed" &&
+    参数.是否存在调价记录;
+  if (!普通订单区管确认 && !调价订单超管确认) return;
+
+  const 触发代码 = 普通订单区管确认
+    ? "region_confirmed"
+    : "superadmin_confirmed_after_price_adjust";
+  const 模板查询 = await client.query<{
+    id: string;
+    template_version: string;
+    workflow_id: string;
+    form_id: string;
+    field_mapping_json: Record<string, unknown>;
+  }>(
+    `
+    SELECT id::text AS id, template_version, workflow_id, form_id, field_mapping_json
+    FROM integration.order_preapproval_templates
+    WHERE template_code = 'channel_product_order_precheck'
+      AND environment_code = 'shared'
+      AND status_code = 'active'
+    ORDER BY updated_at DESC, id
+    LIMIT 1
+    `,
+  );
+  const 模板 = 模板查询.rows[0];
+  const 幂等键 = `order-preapproval:${参数.订单编号}:2026-08-27-v1`;
+  const 发起结果 = await client.query<{ id: string }>(
+    `
+    INSERT INTO integration.order_preapproval_requests (
+      order_id, template_id, template_version, trigger_code, region_manager_user_id,
+      idempotency_key, status_code, failure_code, failure_summary, template_snapshot_json, request_snapshot_json
+    )
+    VALUES (
+      $1::uuid, $2::uuid, $3, $4, $5::uuid,
+      $6, $7, $8, $9, $10::jsonb, $11::jsonb
+    )
+    ON CONFLICT (order_id) DO NOTHING
+    RETURNING id::text AS id
+    `,
+    [
+      参数.订单编号,
+      模板?.id || null,
+      模板?.template_version || "unconfigured",
+      触发代码,
+      参数.区管用户编号,
+      幂等键,
+      模板 ? "pending" : "stopped",
+      模板 ? null : "ORDER_PREAPPROVAL_TEMPLATE_UNAVAILABLE",
+      模板 ? null : "订单预审模板未启用，已停止自动发起，请由超级管理员核验模板配置。",
+      JSON.stringify(
+        模板
+          ? {
+              templateId: 模板.id,
+              templateVersion: 模板.template_version,
+              workflowId: 模板.workflow_id,
+              formId: 模板.form_id,
+              fieldMapping: 模板.field_mapping_json,
+            }
+          : {},
+      ),
+      JSON.stringify({
+        orderNo: 参数.订单编号文本,
+        triggerCode: 触发代码,
+        regionManagerUserId: 参数.区管用户编号 || "",
+      }),
+    ],
+  );
+  const 发起编号 = 发起结果.rows[0]?.id;
+  if (!发起编号) return;
+
+  if (模板) {
+    await client.query(
+      `
+      INSERT INTO ops.outbox_events (
+        event_type, aggregate_type, aggregate_id, payload_json, status_code, created_at
+      )
+      VALUES ($1, 'order_preapproval', $2::uuid, $3::jsonb, 'pending', now())
+      `,
+      [
+        "crm.order.preapproval.requested",
+        发起编号,
+        JSON.stringify({ orderPreapprovalRequestId: 发起编号, triggerCode: 触发代码 }),
+      ],
+    );
+  }
+  await 写入审计日志(client, {
+    用户: 参数.用户,
+    模块: "order_preapproval",
+    动作: "auto_requested",
+    对象类型: "order",
+    对象编号: 参数.订单编号,
+    对象名称: 参数.订单编号文本,
+    结果: 模板 ? "queued" : "stopped",
+    说明: 模板
+      ? "订单状态机已自动创建渠道产品订单预审发起请求。"
+      : "订单状态机已创建停止的预审记录，等待模板配置恢复。",
+    变更后: { requestId: 发起编号, triggerCode: 触发代码 },
+  });
+}
+
+async function 写入报备发件箱事件(
+  client: PoolClient,
+  报备编号: string,
+  事件类型:
+    "crm.registration.approved" | "crm.registration.rejected" | "crm.registration.approval.pending",
+  载荷: Record<string, unknown>,
+): Promise<void> {
+  await client.query(
+    `
+    INSERT INTO ops.outbox_events (
+      event_type, aggregate_type, aggregate_id, payload_json, status_code, created_at
+    )
+    VALUES ($1, 'registration', $2::uuid, $3::jsonb, 'pending', now())
+    `,
+    [事件类型, 报备编号, JSON.stringify({ registrationId: 报备编号, ...载荷 })],
   );
 }
 
@@ -5677,6 +6126,7 @@ async function 查询账号首个渠道(
     JOIN channel.partners p ON p.id = pm.partner_id
     WHERE pm.user_id = $1::uuid
       AND pm.status_code = 'active'
+      AND pm.archived_at IS NULL
       AND p.status_code = 'active'
     ORDER BY pm.started_at DESC
     LIMIT 1
@@ -5699,6 +6149,7 @@ async function 是否渠道成员(
       WHERE partner_id = $1::uuid
         AND user_id = $2::uuid
         AND status_code = 'active'
+        AND archived_at IS NULL
     ) AS exists
     `,
     [partnerId, userId],
@@ -6153,6 +6604,28 @@ function 规范订单状态(status: string): string {
   return "confirmed";
 }
 
+function 规范V2历史订单状态(status: string): string {
+  return [
+    "draft",
+    "pending",
+    "confirmed",
+    "rejected",
+    "cancelled",
+    "processing",
+    "shipped",
+    "completed",
+  ].includes(status)
+    ? status
+    : "";
+}
+
+function 推导V2历史订单下一状态(当前状态: string, 请求状态: string): string {
+  if (["rejected", "cancelled", "shipped", "completed"].includes(请求状态)) return 请求状态;
+  if (当前状态 === "pending" && ["confirmed", "processing"].includes(请求状态)) return "processing";
+  if (当前状态 === "processing" && 请求状态 === "confirmed") return "processing";
+  return 请求状态;
+}
+
 function 推导订单下一状态(当前状态: string, 请求状态: string): string {
   if (["rejected", "primary_rejected", "cancelled", "shipped", "completed"].includes(请求状态)) {
     return 请求状态;
@@ -6223,6 +6696,187 @@ async function 生成业务编号(
   const 编号 = result.rows[0]?.编号;
   if (!编号) throw new 应用错误("V3_BUSINESS_NUMBER_GENERATE_FAILED", "业务编号生成失败。", 500);
   return 编号;
+}
+
+async function 生成区管正式订单编号(
+  client: PoolClient,
+  订单编号: string,
+  当前用户: 业务用户上下文 | null,
+): Promise<{
+  订单编号: string;
+  前置订单编号: string;
+  区管用户编号: string;
+  区管账号: string;
+  邮箱前缀: string;
+  邮箱缺失提示: string;
+  协议编号: string;
+  国家电话区号: string;
+  合同流水号: number;
+  合同年份: number;
+}> {
+  if (!当前用户?.userId) {
+    throw new 应用错误(
+      "V3_ORDER_REGION_MANAGER_REQUIRED",
+      "区管确认或调价必须由已登录的区管账号执行。",
+      403,
+    );
+  }
+  const 订单结果 = await client.query<{
+    order_no: string;
+    pre_region_order_no: string | null;
+    region_confirmed_at: Date | null;
+    agreement_no: string | null;
+    country_calling_code: string | null;
+  }>(
+    `
+    SELECT o.order_no, o.pre_region_order_no, o.region_confirmed_at,
+      p.agreement_no, p.country_calling_code
+    FROM crm.orders o
+    JOIN channel.partners p ON p.id = o.partner_id
+    WHERE o.id = $1::uuid
+    FOR UPDATE OF o, p
+    `,
+    [订单编号],
+  );
+  const 订单 = 订单结果.rows[0];
+  if (!订单) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到关联渠道商的订单。", 404);
+  if (订单.pre_region_order_no || 订单.region_confirmed_at) {
+    throw new 应用错误(
+      "V3_ORDER_FORMAL_NUMBER_EXISTS",
+      "该订单已经生成正式编号，不能重复取号。",
+      409,
+    );
+  }
+  const 协议编号 = (订单.agreement_no || "").trim();
+  if (!协议编号) {
+    throw new 应用错误(
+      "V3_ORDER_AGREEMENT_NO_REQUIRED",
+      "渠道商未维护协议编号，不能执行区管确认或调价。",
+      422,
+    );
+  }
+  const 区管结果 = await client.query<{
+    user_id: string;
+    username: string;
+    email: string | null;
+  }>(
+    `
+    SELECT u.id::text AS user_id, u.username::text AS username, u.email::text AS email
+    FROM iam.users u
+    JOIN iam.user_roles ur ON ur.user_id = u.id
+    JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+    JOIN crm.orders o ON o.id = $1::uuid
+    JOIN channel.partners p ON p.id = o.partner_id
+    WHERE u.id = $2::uuid
+      AND u.status_code = 'active'
+      AND r.role_code IN ('admin', 'region_manager')
+      AND u.region_id IS NOT NULL
+      AND u.region_id = p.region_id
+    LIMIT 1
+    `,
+    [订单编号, 当前用户.userId],
+  );
+  const 区管 = 区管结果.rows[0];
+  if (!区管) {
+    throw new 应用错误(
+      "V3_ORDER_REGION_MANAGER_REQUIRED",
+      "仅订单所属区域的区管账号可以确认或调价。",
+      403,
+    );
+  }
+  const 邮箱 = (区管.email || "").trim();
+  const 有效邮箱前缀 = 邮箱.match(/^([^@\s]+)@[^@\s]+$/)?.[1] || "";
+  const 邮箱前缀 = 有效邮箱前缀 || 区管.username.trim();
+  if (!邮箱前缀) {
+    throw new 应用错误(
+      "V3_ORDER_REGION_MANAGER_ACCOUNT_REQUIRED",
+      "区管账号不能为空，不能生成正式订单编号。",
+      422,
+    );
+  }
+  const 邮箱缺失提示 = 有效邮箱前缀
+    ? ""
+    : `区管邮箱缺失，正式订单编号已使用账号“${区管.username}”代替邮箱前缀。`;
+  const 原始区号 = (订单.country_calling_code || "").replace(/\D/g, "");
+  if (!/^[0-9]{1,3}$/.test(原始区号)) {
+    throw new 应用错误(
+      "V3_ORDER_COUNTRY_CALLING_CODE_INVALID",
+      "渠道商国家电话区号必须为 1 至 3 位数字。",
+      422,
+    );
+  }
+  const 国家电话区号 = 原始区号.padStart(3, "0");
+  const 年份结果 = await client.query<{ year: number }>(
+    "SELECT EXTRACT(YEAR FROM now() AT TIME ZONE 'Asia/Shanghai')::integer AS year",
+  );
+  const 合同年份 = 年份结果.rows[0]?.year;
+  if (!合同年份) throw new 应用错误("V3_ORDER_CONTRACT_YEAR_FAILED", "无法确定合同编号年份。", 500);
+  const 流水结果 = await client.query<{ current_value: number }>(
+    `
+    INSERT INTO crm.region_manager_contract_counters (
+      region_manager_user_id, contract_year, current_value
+    )
+    VALUES ($1::uuid, $2, 1)
+    ON CONFLICT (region_manager_user_id, contract_year) DO UPDATE
+    SET current_value = crm.region_manager_contract_counters.current_value + 1
+    RETURNING current_value
+    `,
+    [区管.user_id, 合同年份],
+  );
+  const 合同流水号 = Number(流水结果.rows[0]?.current_value);
+  if (!Number.isInteger(合同流水号) || 合同流水号 < 1) {
+    throw new 应用错误("V3_ORDER_CONTRACT_SEQUENCE_FAILED", "合同编号流水生成失败。", 500);
+  }
+  return {
+    订单编号: `${协议编号}-smb-${邮箱前缀}-${国家电话区号}-${String(合同流水号).padStart(2, "0")}`,
+    前置订单编号: 订单.order_no,
+    区管用户编号: 区管.user_id,
+    区管账号: 区管.username,
+    邮箱前缀,
+    邮箱缺失提示,
+    协议编号,
+    国家电话区号,
+    合同流水号,
+    合同年份,
+  };
+}
+
+async function 校验订单所属区域区管(
+  client: PoolClient,
+  订单编号: string,
+  当前用户: 业务用户上下文 | null,
+): Promise<void> {
+  if (!当前用户?.userId) {
+    throw new 应用错误(
+      "V3_ORDER_REGION_MANAGER_REQUIRED",
+      "区管确认或调价必须由已登录的区管账号执行。",
+      403,
+    );
+  }
+  const result = await client.query<{ allowed: boolean }>(
+    `
+    SELECT true AS allowed
+    FROM iam.users u
+    JOIN iam.user_roles ur ON ur.user_id = u.id
+    JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+    JOIN crm.orders o ON o.id = $1::uuid
+    JOIN channel.partners p ON p.id = o.partner_id
+    WHERE u.id = $2::uuid
+      AND u.status_code = 'active'
+      AND r.role_code IN ('admin', 'region_manager')
+      AND u.region_id IS NOT NULL
+      AND u.region_id = p.region_id
+    LIMIT 1
+    `,
+    [订单编号, 当前用户.userId],
+  );
+  if (!result.rows[0]?.allowed) {
+    throw new 应用错误(
+      "V3_ORDER_REGION_MANAGER_REQUIRED",
+      "仅订单所属区域的区管账号可以确认或调价。",
+      403,
+    );
+  }
 }
 
 async function 查询业务负责人账号(client: PoolClient, userId: string | null): Promise<string> {

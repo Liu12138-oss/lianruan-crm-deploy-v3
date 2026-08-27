@@ -127,18 +127,18 @@ function 执行本地容器迁移() {
 
   const 所有迁移 = fs
     .readdirSync(迁移目录)
-    .filter((文件名) => 文件名.endsWith(".sql"))
+    .filter(
+      (文件名) =>
+        文件名.endsWith(".sql") &&
+        !文件名.endsWith(".rollback.sql") &&
+        !文件名.endsWith(".down.sql"),
+    )
     .sort((左, 右) => 左.localeCompare(右, "zh-CN"));
   const 正式落表 = 所有迁移.find((文件名) => 文件名.includes("S8_004"));
-  const 前置迁移 = 所有迁移.filter(
-    (文件名) =>
-      !文件名.includes("S8_004") &&
-      !文件名.includes("S9_") &&
-      !文件名.includes("S10_"),
-  );
-  const 后置迁移 = 所有迁移.filter(
-    (文件名) => 文件名.includes("S9_") || 文件名.includes("S10_"),
-  );
+  // R 系列依赖 S10 建表（R02 需要 org.business_roles / org.certification_templates）；
+  // M11 依赖阶段8导入的启用超管账号。两者必须后置于阶段8暂存装载与正式落表之后执行，且不得重复进入前置列表。
+  const 后置迁移 = 所有迁移.filter((文件名) => /(S9_|S10_|R\d{2}_|M11_)/.test(文件名));
+  const 前置迁移 = 所有迁移.filter((文件名) => !/(S8_004|S9_|S10_|R\d{2}_|M11_)/.test(文件名));
 
   for (const 文件名 of 前置迁移) 执行迁移文件(文件名);
   执行阶段8暂存装载();
