@@ -59,7 +59,6 @@ export function 生成订单预审报价单PDF(报价单: 订单预审报价单)
   );
 
   for (let 下标 = 0; 下标 < 页面.length; 下标 += 1) {
-    const 页面编号 = 页面对象起始编号 + 下标;
     const 内容编号 = 内容对象起始编号 + 下标;
     对象.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${内容编号} 0 R >>`,

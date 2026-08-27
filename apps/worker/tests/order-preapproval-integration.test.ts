@@ -2,10 +2,9 @@ import { 读取应用配置 } from "@lianruan/config";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  type 订单预审字段映射,
-  订单预审外部错误,
-  泛微订单预审客户端,
   序列化订单预审创建载荷,
+  泛微订单预审客户端,
+  type 订单预审字段映射,
 } from "../src/order-preapproval-eteams.js";
 import { 生成订单预审报价单PDF } from "../src/order-preapproval-pdf.js";
 import { 企微订单预审群客户端 } from "../src/order-preapproval-wecom.js";

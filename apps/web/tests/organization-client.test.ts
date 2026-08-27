@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  应用已审批企微同步差异,
-  创建泛微OA身份候选,
   停用泛微OA身份,
+  创建泛微OA身份候选,
+  应用已审批企微同步差异,
   更新任职,
-  更新组织,
   更新泛微OA身份候选,
-  确认泛微OA身份候选,
+  更新组织,
   查询岗位,
   查询成员业务角色,
   查询负责人关系,
   生成企微同步预览,
-  读取组织状态,
+  确认泛微OA身份候选,
   读取泛微OA身份,
+  读取组织状态,
   驳回泛微OA身份候选,
 } from "../src/api/organization-client.js";
 

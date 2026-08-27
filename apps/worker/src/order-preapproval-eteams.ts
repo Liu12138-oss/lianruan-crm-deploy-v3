@@ -265,15 +265,15 @@ export function 序列化订单预审创建载荷(数据: 订单预审流程数�
   ];
   return [
     "{",
-    `\"userid\":${JSON.stringify(数据.发起人泛微编号)},`,
-    `\"workflowId\":${JSON.stringify(数据.workflowId)},`,
-    `\"requestname\":${JSON.stringify(`渠道产品订单预审-${数据.订单编号}`)},`,
+    `"userid":${JSON.stringify(数据.发起人泛微编号)},`,
+    `"workflowId":${JSON.stringify(数据.workflowId)},`,
+    `"requestname":${JSON.stringify(`渠道产品订单预审-${数据.订单编号}`)},`,
     '"isnextflow":1,',
     '"isVerifyFormRequired":true,',
     '"formData":{',
-    `\"formId\":${JSON.stringify(数据.formId)},`,
+    `"formId":${JSON.stringify(数据.formId)},`,
     '"module":"workflow",',
-    `\"dataDetails\":[${文本字段.join(",")}]`,
+    `"dataDetails":[${文本字段.join(",")}]`,
     "}",
     "}",
   ].join("");
@@ -334,14 +334,14 @@ export function 校验订单预审字段映射(原始: unknown): 订单预审字
 }
 
 function 构建文本字段(fieldId: string, 值: string): string {
-  return `{\"fieldId\":${fieldId},\"dataOptions\":[{\"optionId\":${JSON.stringify(值)}}]}`;
+  return `{"fieldId":${fieldId},"dataOptions":[{"optionId":${JSON.stringify(值)}}]}`;
 }
 
 function 构建附件字段(fieldId: string, 文件: 泛微上传文件): string {
   if (!/^\d{1,30}$/.test(文件.fileId)) {
     throw new 订单预审外部错误("ETEAMS_UPLOAD_FILE_ID_INVALID", "泛微附件编号格式无效。", {});
   }
-  return `{\"fieldId\":${fieldId},\"dataOptions\":[{\"optionId\":${文件.fileId},\"optionObj\":{\"name\":${JSON.stringify(文件.fileName)},\"extName\":\"pdf\",\"type\":\"application/pdf\",\"img\":false}}]}`;
+  return `{"fieldId":${fieldId},"dataOptions":[{"optionId":${文件.fileId},"optionObj":{"name":${JSON.stringify(文件.fileName)},"extName":"pdf","type":"application/pdf","img":false}}]}`;
 }
 
 function 校验流程回查结果(原始: unknown, 条件: 泛微流程回查条件, httpStatus: number): void {

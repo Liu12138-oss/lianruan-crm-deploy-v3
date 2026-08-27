@@ -21,16 +21,16 @@ export {
   消息消费者代码,
 } from "./message-task.js";
 export { 启动消息任务服务 } from "./message-worker.js";
-export { 订单预审任务存储 } from "./order-preapproval-store.js";
-export { 启动订单预审任务服务 } from "./order-preapproval-worker.js";
-export { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
 export {
-  订单预审外部错误,
-  泛微订单预审客户端,
   序列化订单预审创建载荷,
   校验订单预审字段映射,
+  泛微订单预审客户端,
+  订单预审外部错误,
 } from "./order-preapproval-eteams.js";
-export { 解密订单预审企微应用凭据, 企微订单预审群客户端 } from "./order-preapproval-wecom.js";
+export { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
+export { 订单预审任务存储 } from "./order-preapproval-store.js";
+export { 企微订单预审群客户端,解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
+export { 启动订单预审任务服务 } from "./order-preapproval-worker.js";
 export {
   启动组织离职交接任务服务,
   组织离职交接任务存储,
