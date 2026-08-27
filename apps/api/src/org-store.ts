@@ -2049,7 +2049,14 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                    source_code AS "sourceCode",status_code AS "statusCode",created_at AS "createdAt",row_version AS "rowVersion"`,
         [userId, 候选.externalSubject, 候选.externalUsername, 候选.sourceCode, 操作人],
       );
-      await 审计(db, actor, 操作人, "eteams_identity.candidate_created", 结果.rows[0].id, 结果.rows[0]);
+      await 审计(
+        db,
+        actor,
+        操作人,
+        "eteams_identity.candidate_created",
+        结果.rows[0].id,
+        结果.rows[0],
+      );
       return 结果.rows[0];
     });
   }
@@ -2065,7 +2072,11 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       await 校验泛微OA目标账号(db, userId);
       const 原记录 = await 查询并锁定泛微OA候选(db, userId, candidateId);
       if (原记录.status_code !== "pending")
-        throw new 应用错误("ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED", "已完成核验的候选不能再修改。", 409);
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED",
+          "已完成核验的候选不能再修改。",
+          409,
+        );
       if (Number(原记录.row_version) !== 版本(input)) throw 冲突();
       await 校验泛微OA候选可写入(db, userId, 候选.externalSubject, candidateId);
       const 结果 = await db.query(
@@ -2077,7 +2088,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         [候选.externalSubject, 候选.externalUsername, 候选.sourceCode, candidateId, 版本(input)],
       );
       if (!结果.rows[0]) throw 冲突();
-      await 审计(db, actor, 操作人, "eteams_identity.candidate_updated", candidateId, 结果.rows[0], 原记录);
+      await 审计(
+        db,
+        actor,
+        操作人,
+        "eteams_identity.candidate_updated",
+        candidateId,
+        结果.rows[0],
+        原记录,
+      );
       return 结果.rows[0];
     });
   }
@@ -2092,7 +2111,11 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       await 校验泛微OA目标账号(db, userId);
       const 候选 = await 查询并锁定泛微OA候选(db, userId, candidateId);
       if (候选.status_code !== "pending")
-        throw new 应用错误("ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED", "该候选已完成核验，不能重复确认。", 409);
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED",
+          "该候选已完成核验，不能重复确认。",
+          409,
+        );
       if (Number(候选.row_version) !== 版本(input)) throw 冲突();
       const 已有用户映射 = await db.query(
         `SELECT id::text AS id,external_subject
@@ -2162,7 +2185,11 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       await 校验泛微OA目标账号(db, userId);
       const 候选 = await 查询并锁定泛微OA候选(db, userId, candidateId);
       if (候选.status_code !== "pending")
-        throw new 应用错误("ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED", "该候选已完成核验，不能重复驳回。", 409);
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_CANDIDATE_FINALIZED",
+          "该候选已完成核验，不能重复驳回。",
+          409,
+        );
       if (Number(候选.row_version) !== 版本(input)) throw 冲突();
       const 结果 = await db.query(
         `UPDATE iam.external_identity_candidates
@@ -2174,7 +2201,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         [原因, 操作人, candidateId, 版本(input)],
       );
       if (!结果.rows[0]) throw 冲突();
-      await 审计(db, actor, 操作人, "eteams_identity.candidate_rejected", candidateId, 结果.rows[0], 候选);
+      await 审计(
+        db,
+        actor,
+        操作人,
+        "eteams_identity.candidate_rejected",
+        candidateId,
+        结果.rows[0],
+        候选,
+      );
       return 结果.rows[0];
     });
   }
@@ -2192,7 +2227,8 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
          FOR UPDATE`,
         [映射Id, userId],
       );
-      if (!原映射.rows[0]) throw new 应用错误("ORG_EXTERNAL_IDENTITY_NOT_FOUND", "泛微 OA 正式身份不存在。", 404);
+      if (!原映射.rows[0])
+        throw new 应用错误("ORG_EXTERNAL_IDENTITY_NOT_FOUND", "泛微 OA 正式身份不存在。", 404);
       if (原映射.rows[0].status_code !== "active")
         throw new 应用错误("ORG_EXTERNAL_IDENTITY_DISABLED", "该泛微 OA 身份已停用。", 409);
       if (Number(原映射.rows[0].row_version) !== 版本(input)) throw 冲突();
@@ -2772,8 +2808,7 @@ function 读取泛微OA候选输入(input: Record<string, unknown>): 泛微OA候
     externalSubject: 受限文本(input, "externalSubject", 200),
     externalUsername: 受限文本(input, "externalUsername", 200),
     sourceCode: 枚举(input, "sourceCode", ["manual", "eteams_directory"], "manual") as
-      | "manual"
-      | "eteams_directory",
+      "manual" | "eteams_directory",
   };
 }
 
@@ -2784,7 +2819,11 @@ async function 校验泛微OA目标账号(db: PoolClient, userId: string): Promi
   );
   if (!用户.rows[0]) throw new 应用错误("ORG_USER_NOT_FOUND", "用户不存在。", 404);
   if (用户.rows[0].status_code !== "active")
-    throw new 应用错误("ORG_EXTERNAL_IDENTITY_USER_INACTIVE", "已停用账号不能维护泛微 OA 身份。", 409);
+    throw new 应用错误(
+      "ORG_EXTERNAL_IDENTITY_USER_INACTIVE",
+      "已停用账号不能维护泛微 OA 身份。",
+      409,
+    );
 }
 
 async function 查询并锁定泛微OA候选(db: PoolClient, userId: string, candidateId: string) {
@@ -2797,7 +2836,11 @@ async function 查询并锁定泛微OA候选(db: PoolClient, userId: string, can
     [candidateId, userId],
   );
   if (!结果.rows[0])
-    throw new 应用错误("ORG_EXTERNAL_IDENTITY_CANDIDATE_NOT_FOUND", "泛微 OA 身份候选不存在。", 404);
+    throw new 应用错误(
+      "ORG_EXTERNAL_IDENTITY_CANDIDATE_NOT_FOUND",
+      "泛微 OA 身份候选不存在。",
+      404,
+    );
   return 结果.rows[0];
 }
 

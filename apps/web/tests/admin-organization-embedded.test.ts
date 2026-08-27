@@ -420,13 +420,15 @@ it("渠道成员四处入口共用统一资料，业务角色严格单选且证�
   const 统一资料挂载次数 = 脚本文本.match(/<ChannelMemberProfileDialog/g)?.length || 0;
   expect(统一资料挂载次数).toBe(4);
   expect(脚本文本).toContain("组织架构、渠道商员工、企业管理员、经营报表四处实时共用");
-  expect(脚本文本).toContain('const PartnerReport = {\n  components: { ChannelMemberProfileDialog },');
+  expect(脚本文本).toContain(
+    "const PartnerReport = {\n  components: { ChannelMemberProfileDialog },",
+  );
   expect(脚本文本).toContain("console.warn('经营报表渠道商数据加载失败：', error);");
   expect(脚本文本).toMatch(/const PartnerReport = \{[\s\S]*?onMounted\(loadPartners\);/);
-  expect(脚本文本).toContain('function normalizedMetric(value)');
-  expect(脚本文本).toContain('quoteCount: normalizedMetric(partner.quoteCount)');
-  expect(脚本文本).toContain('orderCount: normalizedMetric(partner.orderCount)');
-  expect(脚本文本).toContain('totalAmt: normalizedMetric(partner.totalAmt)');
+  expect(脚本文本).toContain("function normalizedMetric(value)");
+  expect(脚本文本).toContain("quoteCount: normalizedMetric(partner.quoteCount)");
+  expect(脚本文本).toContain("orderCount: normalizedMetric(partner.orderCount)");
+  expect(脚本文本).toContain("totalAmt: normalizedMetric(partner.totalAmt)");
   expect(脚本文本).toContain('@click="editStaff(s)"');
   expect(脚本文本).toContain("if (store.user?.role === 'superadmin')");
   expect(脚本文本).toContain("经营报表渠道商详情刷新失败");
@@ -477,7 +479,9 @@ it("历史账号仅允许人工归集，组织模块提供停用交接且不编�
   const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
 
   expect(脚本文本).toContain("请通过账号检索逐一核对后，为确认属于内部人员的账号添加任职");
-  expect(脚本文本).toContain("姓名、电话、邮箱、销售/技术角色和证书四处共用；企业管理员身份、审批、账号状态与系统权限独立。");
+  expect(脚本文本).toContain(
+    "姓名、电话、邮箱、销售/技术角色和证书四处共用；企业管理员身份、审批、账号状态与系统权限独立。",
+  );
   expect(脚本文本).toContain('<el-tag size="small" type="success">当前任职</el-tag>');
   expect(脚本文本).not.toContain("成员.isPrimary ? '主职' : '兼职'");
   expect(脚本文本).not.toContain("'/api/org/admin-accounts/sync'");

@@ -2335,7 +2335,8 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
           <section class="组织抽屉区块">
             <h4>泛微 OA 身份</h4>
             <p class="组织说明文字">
-              仅已确认的泛微 userid 可作为订单预审的 OA 发起人；候选身份不会自动绑定，也不能用于流程发起。
+              仅已确认的泛微 userid 可作为订单预审的 OA
+              发起人；候选身份不会自动绑定，也不能用于流程发起。
             </p>
             <div v-if="泛微OA身份?.formalIdentity" class="组织抽屉小卡">
               <div class="组织抽屉小卡主">
@@ -2371,7 +2372,11 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               </div>
             </div>
             <div v-if="!泛微OA身份?.formalIdentity" class="组织抽屉新增行" style="margin-top: 10px">
-              <input v-model="泛微候选表单.externalSubject" class="form-control" placeholder="泛微 OA userid" />
+              <input
+                v-model="泛微候选表单.externalSubject"
+                class="form-control"
+                placeholder="泛微 OA userid"
+              />
               <input
                 v-model="泛微候选表单.externalUsername"
                 class="form-control"
@@ -2381,7 +2386,13 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                 <el-option label="人工录入" value="manual" />
                 <el-option label="泛微用户目录" value="eteams_directory" />
               </el-select>
-              <el-button v-if="可写" size="small" type="primary" plain :loading="提交中" @click="保存泛微候选"
+              <el-button
+                v-if="可写"
+                size="small"
+                type="primary"
+                plain
+                :loading="提交中"
+                @click="保存泛微候选"
                 >{{ 待核验泛微候选 ? "更正候选" : "保存候选" }}</el-button
               >
               <el-button

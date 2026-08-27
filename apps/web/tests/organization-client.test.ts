@@ -179,7 +179,11 @@ describe("组织架构接口客户端", () => {
     await 更新泛微OA身份候选(
       "user/1",
       "candidate/1",
-      { externalSubject: "eteams-002", externalUsername: "泛微人员", sourceCode: "eteams_directory" },
+      {
+        externalSubject: "eteams-002",
+        externalUsername: "泛微人员",
+        sourceCode: "eteams_directory",
+      },
       { rowVersion: 2, 幂等键: "eteams-update-1" },
     );
     await 确认泛微OA身份候选(

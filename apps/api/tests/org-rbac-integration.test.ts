@@ -222,7 +222,9 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       businessRoleCode: "channel_sales",
     });
     expect(档案.body.data.certificationTemplates).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 证书模板Id, templateName: "测试证书" })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 证书模板Id, templateName: "测试证书" }),
+      ]),
     );
   });
 

@@ -422,7 +422,10 @@ describe("组织架构路由", () => {
     });
     const cookie = await 登录Cookie(app, "org_admin");
 
-    await request(app).get(`/api/org/users/${标识}/eteams-identity`).set("Cookie", cookie).expect(200);
+    await request(app)
+      .get(`/api/org/users/${标识}/eteams-identity`)
+      .set("Cookie", cookie)
+      .expect(200);
     expect(查询调用).toHaveBeenCalledWith(标识);
 
     const 候选内容 = {

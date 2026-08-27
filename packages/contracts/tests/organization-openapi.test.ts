@@ -59,8 +59,12 @@ describe("组织架构 OpenAPI 契约", () => {
 
     expect(契约内容).toContain("/api/org/users/{userId}/eteams-identity:");
     expect(契约内容).toContain("/api/org/users/{userId}/eteams-identity-candidates:");
-    expect(契约内容).toContain("/api/org/users/{userId}/eteams-identity-candidates/{candidateId}/confirm:");
-    expect(契约内容).toContain("/api/org/users/{userId}/eteams-identity-candidates/{candidateId}/reject:");
+    expect(契约内容).toContain(
+      "/api/org/users/{userId}/eteams-identity-candidates/{candidateId}/confirm:",
+    );
+    expect(契约内容).toContain(
+      "/api/org/users/{userId}/eteams-identity-candidates/{candidateId}/reject:",
+    );
     expect(契约内容).toContain("/api/org/users/{userId}/eteams-identity/disable:");
     expect(契约内容).toContain("候选不具备流程发起资格");
     expect(契约内容).toContain("不得按姓名自动创建候选或正式映射");

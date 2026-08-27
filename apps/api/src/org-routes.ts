@@ -69,10 +69,7 @@ export function 创建组织路由(参数: 组织路由参数): Router {
       return {
         enabled: true,
         writeEnabled: 读取开关(参数.env, "V3_ORGANIZATION_WRITE_ENABLED"),
-        channelPhoneEditEnabled: 读取开关(
-          参数.env,
-          "V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED",
-        ),
+        channelPhoneEditEnabled: 读取开关(参数.env, "V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED"),
         directorySyncEnabled: 读取开关(参数.env, "V3_DIRECTORY_SYNC_ENABLED"),
         accountEntryMerged: 读取开关(参数.env, "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED"),
         accountStatusCheckEnabled: 读取开关(参数.env, "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED"),

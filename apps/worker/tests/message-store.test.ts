@@ -391,7 +391,9 @@ describe("到期提醒规则扫描", () => {
           ],
         })
         .mockResolvedValueOnce({
-          rows: [{ partner_name: "联软渠道商", submitter_name: "湛怀玉", target_name: "待审核员工" }],
+          rows: [
+            { partner_name: "联软渠道商", submitter_name: "湛怀玉", target_name: "待审核员工" },
+          ],
         })
         .mockResolvedValueOnce({ rows: [{ user_id: "00000000-0000-4000-8000-000000000024" }] })
         .mockResolvedValueOnce({ rows: [{ id: "00000000-0000-4000-8000-000000000025" }] })
@@ -416,8 +418,10 @@ describe("到期提醒规则扫描", () => {
     )?.[0] as string;
     expect(变量查询).toContain("LEFT JOIN channel.partners partner");
     expect(变量查询).toContain("LEFT JOIN iam.users submitter");
-    const 指定用户查询 = 执行连接.query.mock.calls.find(([语句]) =>
-      String(语句).includes("user_account.id = ANY($1::uuid[])") && String(语句).includes("status_code = 'active'"),
+    const 指定用户查询 = 执行连接.query.mock.calls.find(
+      ([语句]) =>
+        String(语句).includes("user_account.id = ANY($1::uuid[])") &&
+        String(语句).includes("status_code = 'active'"),
     )?.[1] as unknown[];
     expect(指定用户查询).toEqual([["00000000-0000-4000-8000-000000000024"]]);
     const 通知写入参数 = 执行连接.query.mock.calls.find(([语句]) =>
