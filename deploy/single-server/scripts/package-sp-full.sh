@@ -107,21 +107,26 @@ done
 bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
 
 验证镜像归档与本地镜像一致() {
-  local image_name image_file image_tag archive_config_path archive_config_sha local_image_id
+  local image_name image_file image_tag archive_index archive_config_path archive_image_sha local_image_id
   for image_name in api worker nginx; do
     image_file="${image_dir}/lianruan-crm-v3-${image_name}-${target_version}.docker-image"
     image_tag="lianruan-crm-v3-${image_name}:${target_version}"
-    archive_config_path="$(tar -xOf "${image_file}" manifest.json 2>/dev/null | tr -d '\n' | sed -n 's/.*"Config"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-    [ -n "${archive_config_path}" ] || 失败 "镜像归档缺少 Config 信息：${image_file}"
-    archive_config_sha="${archive_config_path##*/}"
-    archive_config_sha="${archive_config_sha%.json}"
-    [ "${#archive_config_sha}" -eq 64 ] || 失败 "镜像归档 Config 格式无效：${image_file}"
-    case "${archive_config_sha}" in
-      *[!0-9a-f]*) 失败 "镜像归档 Config 格式无效：${image_file}" ;;
+    archive_index="$(tar -xOf "${image_file}" index.json 2>/dev/null || true)"
+    if [ -n "${archive_index}" ]; then
+      archive_image_sha="$(printf '%s' "${archive_index}" | tr -d '\n' | sed -n 's/.*"digest":"sha256:\([0-9a-f]\{64\}\)".*/\1/p')"
+    else
+      archive_config_path="$(tar -xOf "${image_file}" manifest.json 2>/dev/null | tr -d '\n' | sed -n 's/.*"Config"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+      [ -n "${archive_config_path}" ] || 失败 "镜像归档缺少 OCI 索引或 Docker Config 信息：${image_file}"
+      archive_image_sha="${archive_config_path##*/}"
+      archive_image_sha="${archive_image_sha%.json}"
+    fi
+    [ "${#archive_image_sha}" -eq 64 ] || 失败 "镜像归档摘要格式无效：${image_file}"
+    case "${archive_image_sha}" in
+      *[!0-9a-f]*) 失败 "镜像归档摘要格式无效：${image_file}" ;;
     esac
     local_image_id="$(docker image inspect --format '{{.Id}}' "${image_tag}" 2>/dev/null || true)"
     [ -n "${local_image_id}" ] || 失败 "本地不存在目标镜像：${image_tag}"
-    [ "${local_image_id#sha256:}" = "${archive_config_sha}" ] ||
+    [ "${local_image_id#sha256:}" = "${archive_image_sha}" ] ||
       失败 "镜像归档与本地同标签镜像不一致：${image_tag}"
   done
 }
