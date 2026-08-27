@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { 校验消息通道配置加密密钥,type 消息通道密文, 解密消息通道配置 } from "@lianruan/config";
+import { 校验消息通道配置加密密钥, type 消息通道密文, 解密消息通道配置 } from "@lianruan/config";
 
 import { 订单预审外部错误 } from "./order-preapproval-eteams.js";
 

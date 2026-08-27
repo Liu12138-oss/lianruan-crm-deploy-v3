@@ -29,7 +29,7 @@ export {
 } from "./order-preapproval-eteams.js";
 export { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
 export { 订单预审任务存储 } from "./order-preapproval-store.js";
-export { 企微订单预审群客户端,解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
+export { 企微订单预审群客户端, 解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
 export { 启动订单预审任务服务 } from "./order-preapproval-worker.js";
 export {
   启动组织离职交接任务服务,
