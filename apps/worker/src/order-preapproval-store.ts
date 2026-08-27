@@ -5,7 +5,11 @@ import path from "node:path";
 import type { 应用配置 } from "@lianruan/config";
 import { Pool, type PoolClient } from "pg";
 
-import { 泛微订单预审客户端, 订单预审外部错误 } from "./order-preapproval-eteams.js";
+import {
+  校验订单预审字段映射,
+  泛微订单预审客户端,
+  订单预审外部错误,
+} from "./order-preapproval-eteams.js";
 import { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
 import { 企微订单预审群客户端, 解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
 
