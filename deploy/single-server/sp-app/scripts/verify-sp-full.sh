@@ -67,6 +67,36 @@ verify_target_service() {
   echo "${service_name} 目标镜像与运行状态通过。"
 }
 
+验证运行中发布安全开关() {
+  local service_name container_id container_env key value
+  local -a services=(api-1 api-2 worker)
+  local -a switches=(
+    V3_ORGANIZATION_ENABLED
+    V3_ORGANIZATION_WRITE_ENABLED
+    V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED
+    V3_DIRECTORY_SYNC_ENABLED
+    V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED
+    V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED
+    V3_ORGANIZATION_OFFBOARDING_ENABLED
+  )
+  if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+    services+=(worker-message-critical worker-message-maintenance worker-message-integration)
+  fi
+  for service_name in "${services[@]}"; do
+    container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+    [ -n "${container_id}" ] || { echo "验证失败：未找到 ${service_name} 容器。" >&2; exit 1; }
+    container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
+    for key in "${switches[@]}"; do
+      value="$(printf '%s\n' "${container_env}" | awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' | tr -d '\r')"
+      [ "${value}" = "false" ] || {
+        echo "验证失败：${service_name} 的 ${key} 实际值为 ${value:-未设置}，升级验证期间必须为 false。" >&2
+        exit 1
+      }
+    done
+  done
+  echo "运行中的 7 项发布安全开关均为 false。"
+}
+
 current_version="$(awk -F= '$1 == "V3_IMAGE_TAG" { value=$2 } END { print value }' "${install_root}/compose/.env" | tr -d '\r')"
 [ "${current_version}" = "${TARGET_VERSION}" ] || {
   echo "验证失败：当前镜像版本为 ${current_version:-未设置}，预期 ${TARGET_VERSION}。" >&2
@@ -91,28 +121,7 @@ if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }
   verify_target_service worker-message-integration lianruan-crm-v3-worker
 fi
 
-organization_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-organization_write_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_WRITE_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-channel_phone_edit_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-directory_sync_enabled="$(awk -F= '$1 == "V3_DIRECTORY_SYNC_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-account_entry_merged="$(awk -F= '$1 == "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-account_status_check_enabled="$(awk -F= '$1 == "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-offboarding_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-for switch_value in \
-  "组织总开关:${organization_enabled}" \
-  "组织写入开关:${organization_write_enabled}" \
-  "渠道成员手机号编辑开关:${channel_phone_edit_enabled}" \
-  "企微目录同步开关:${directory_sync_enabled}" \
-  "账号入口整合开关:${account_entry_merged}" \
-  "账号状态防护开关:${account_status_check_enabled}" \
-  "停用归档与交接开关:${offboarding_enabled}"; do
-  switch_name="${switch_value%%:*}"
-  switch_state="${switch_value#*:}"
-  [ "${switch_state}" = "false" ] || {
-    echo "验证失败：首次发布验证期间${switch_name}必须保持 false。" >&2
-    exit 1
-  }
-done
+验证运行中发布安全开关
 
 organization_migration_count="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
   SELECT count(*)
@@ -199,12 +208,19 @@ for required_field in entries requestIsaidByEntry timeoutMs; do
 done
 wait_for_http "/login" http://127.0.0.1/login
 wait_for_http "/admin.html" http://127.0.0.1/admin.html
-case "${response_body}" in
-  *"admin-app.js?v=156"*"style.css?v=16"*) ;;
-  *) echo "验证失败：正式 admin.html 未同时使用 admin-app.js?v=156 和 style.css?v=16。" >&2; exit 1 ;;
+admin_html_body="${response_body}"
+admin_app_ref="$(printf '%s\n' "${admin_html_body}" | sed -n 's/.*src="\([^"]*admin-app\.js?v=[^"]*\)".*/\1/p')"
+admin_style_ref="$(printf '%s\n' "${admin_html_body}" | sed -n 's/.*href="\([^"]*style\.css?v=[^"]*\)".*/\1/p')"
+[ -n "${admin_app_ref}" ] && [ -n "${admin_style_ref}" ] || {
+  echo "验证失败：正式 admin.html 未找到带版本号的 admin-app.js 或 style.css 引用。" >&2
+  exit 1
+}
+case "${admin_app_ref}${admin_style_ref}" in
+  *$'\n'*) echo "验证失败：正式 admin.html 的静态资源版本引用不唯一。" >&2; exit 1 ;;
 esac
-wait_for_http "/admin-app.js" http://127.0.0.1/admin-app.js
+wait_for_http "${admin_app_ref}" "http://127.0.0.1/${admin_app_ref}"
 admin_script_text="${response_body}"
+wait_for_http "${admin_style_ref}" "http://127.0.0.1/${admin_style_ref}"
 case "${admin_script_text}" in
   *"组织架构"*"router.push('/organization/units')"*) ;;
   *) echo "验证失败：正式 admin-app.js 缺少组织架构内嵌入口。" >&2; exit 1 ;;

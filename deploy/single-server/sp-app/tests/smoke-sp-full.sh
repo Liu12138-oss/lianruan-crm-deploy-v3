@@ -37,16 +37,24 @@ for required_field in entries requestIsaidByEntry timeoutMs; do
 done
 wait_for_http "/login" "${base_url}/login"
 wait_for_http "/admin.html" "${base_url}/admin.html"
-case "${response_body}" in
-  *"admin-app.js?v=156"*"style.css?v=16"*) ;;
-  *) echo "冒烟失败：正式 admin.html 未同时使用 admin-app.js?v=156 和 style.css?v=16。" >&2; exit 1 ;;
+admin_html="${response_body}"
+admin_app_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*src="\([^"]*admin-app\.js?v=[^"]*\)".*/\1/p')"
+admin_style_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*href="\([^"]*style\.css?v=[^"]*\)".*/\1/p')"
+[ -n "${admin_app_ref}" ] && [ -n "${admin_style_ref}" ] || {
+  echo "冒烟失败：正式 admin.html 未找到带版本号的 admin-app.js 或 style.css 引用。" >&2
+  exit 1
+}
+case "${admin_app_ref}${admin_style_ref}" in
+  *$'\n'*) echo "冒烟失败：正式 admin.html 的静态资源版本引用不唯一。" >&2; exit 1 ;;
 esac
-wait_for_http "/admin-app.js" "${base_url}/admin-app.js"
-case "${response_body}" in
+wait_for_http "${admin_app_ref}" "${base_url}/${admin_app_ref}"
+admin_script="${response_body}"
+wait_for_http "${admin_style_ref}" "${base_url}/${admin_style_ref}"
+case "${admin_script}" in
   *"组织架构"*"router.push('/organization/units')"*"{ path: 'organization/units', component: OrganizationWorkspace }"*) ;;
   *) echo "冒烟失败：正式 admin-app.js 缺少组织架构入口或内嵌路由。" >&2; exit 1 ;;
 esac
-case "${response_body}" in
+case "${admin_script}" in
   *"/api/org/status"*"只读观察"*) ;;
   *) echo "冒烟失败：正式 admin-app.js 缺少组织状态与只读观察逻辑。" >&2; exit 1 ;;
 esac

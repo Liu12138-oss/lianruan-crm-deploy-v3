@@ -38,16 +38,18 @@ done
 wait_for_http "/login" "${base_url}/login"
 wait_for_http "/admin.html" "${base_url}/admin.html"
 admin_html="${response_body}"
-case "${admin_html}" in
-  *"admin-app.js?v=156"*) ;;
-  *) echo "冒烟失败：正式 admin.html 未使用 admin-app.js?v=156。" >&2; exit 1 ;;
+admin_app_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*src="\([^"]*admin-app\.js?v=[^"]*\)".*/\1/p')"
+admin_style_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*href="\([^"]*style\.css?v=[^"]*\)".*/\1/p')"
+[ -n "${admin_app_ref}" ] && [ -n "${admin_style_ref}" ] || {
+  echo "冒烟失败：正式 admin.html 未找到带版本号的 admin-app.js 或 style.css 引用。" >&2
+  exit 1
+}
+case "${admin_app_ref}${admin_style_ref}" in
+  *$'\n'*) echo "冒烟失败：正式 admin.html 的静态资源版本引用不唯一。" >&2; exit 1 ;;
 esac
-case "${admin_html}" in
-  *"style.css?v=16"*) ;;
-  *) echo "冒烟失败：正式 admin.html 未使用 style.css?v=16。" >&2; exit 1 ;;
-esac
-wait_for_http "/admin-app.js" "${base_url}/admin-app.js"
+wait_for_http "${admin_app_ref}" "${base_url}/${admin_app_ref}"
 admin_script="${response_body}"
+wait_for_http "${admin_style_ref}" "${base_url}/${admin_style_ref}"
 case "${admin_script}" in *"组织架构"*) ;; *) echo "冒烟失败：管理员页面缺少组织架构入口。" >&2; exit 1 ;; esac
 case "${admin_script}" in *"router.push('/organization/units')"*) ;; *) echo "冒烟失败：组织架构入口未内嵌到管理员页面。" >&2; exit 1 ;; esac
 case "${admin_script}" in *"{ path: 'organization/units', component: OrganizationWorkspace }"*) ;; *) echo "冒烟失败：管理员页面缺少组织架构内嵌路由。" >&2; exit 1 ;; esac

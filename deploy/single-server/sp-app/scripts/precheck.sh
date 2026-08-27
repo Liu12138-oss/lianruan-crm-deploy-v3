@@ -54,24 +54,20 @@ set +a
 [ -f "${install_root}/secrets/postgres_password" ] || 失败 "未找到 PostgreSQL 密钥文件。"
 [ -f "${install_root}/secrets/redis_password" ] || 失败 "未找到 Redis 密钥文件。"
 
-organization_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-organization_write_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_WRITE_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-directory_sync_enabled="$(awk -F= '$1 == "V3_DIRECTORY_SYNC_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-account_entry_merged="$(awk -F= '$1 == "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-account_status_check_enabled="$(awk -F= '$1 == "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-offboarding_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-[ "${organization_enabled}" = "false" ] ||
-  失败 "发布前组织总开关必须保持 false；完成新版本和服务器静态资源验证后，再单独开启只读观察。"
-[ "${organization_write_enabled}" = "false" ] ||
-  失败 "组织写入开关必须保持 false，本包仅允许交付只读观察能力。"
-[ "${directory_sync_enabled}" = "false" ] ||
-  失败 "企微目录同步开关必须保持 false，本包不启用真实同步。"
-[ "${account_entry_merged}" = "false" ] ||
-  失败 "账号入口整合开关必须保持 false，完成新旧入口能力对照后再单独开启。"
-[ "${account_status_check_enabled}" = "false" ] ||
-  失败 "首次发布前账号状态防护必须保持 false，完成新版本登录回归后再独立灰度。"
-[ "${offboarding_enabled}" = "false" ] ||
-  失败 "停用归档与交接执行开关必须保持 false，专项验收和回退演练通过后才能单独评审。"
+unsafe_switches="$(awk -F= '
+  $1 == "V3_ORGANIZATION_ENABLED" ||
+  $1 == "V3_ORGANIZATION_WRITE_ENABLED" ||
+  $1 == "V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED" ||
+  $1 == "V3_DIRECTORY_SYNC_ENABLED" ||
+  $1 == "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED" ||
+  $1 == "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED" ||
+  $1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" {
+    if ($2 != "false") print $1 "=" $2
+  }
+' "${install_root}/config/v3.env" | tr -d '\r')"
+if [ -n "${unsafe_switches}" ]; then
+  echo "预检查提示：发布安全开关当前不是 false：$(printf '%s' "${unsafe_switches}" | tr '\n' ' ')。SP-FULL 升级入口会临时关闭并在验证后恢复原配置；不会自动重启服务重新启用。"
+fi
 
 if [ "$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "SELECT to_regclass('org.business_roles') IS NOT NULL")" = "t" ]; then
   fixed_role_conflict="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "

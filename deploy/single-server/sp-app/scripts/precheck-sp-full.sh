@@ -88,18 +88,20 @@ if [ -d "${install_root}" ]; then
   [ "${migration_table_exists}" = "t" ] ||
     失败 "未识别到 V3 迁移谱系表 migration.schema_migrations，拒绝覆盖未知数据库。"
 
-  current_organization_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  current_organization_write_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_WRITE_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  current_directory_sync_enabled="$(awk -F= '$1 == "V3_DIRECTORY_SYNC_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  current_account_entry_merged="$(awk -F= '$1 == "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  current_account_status_check="$(awk -F= '$1 == "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  current_offboarding_enabled="$(awk -F= '$1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
-  [ "${current_organization_enabled}" = "false" ] || 失败 "升级前组织总开关必须保持 false。"
-  [ "${current_organization_write_enabled}" = "false" ] || 失败 "升级前组织写入开关必须保持 false。"
-  [ "${current_directory_sync_enabled}" = "false" ] || 失败 "升级前企微目录同步开关必须保持 false。"
-  [ "${current_account_entry_merged}" = "false" ] || 失败 "升级前账号入口整合开关必须保持 false。"
-  [ "${current_account_status_check}" = "false" ] || 失败 "首次升级前账号状态防护必须保持 false，升级后再独立灰度。"
-  [ "${current_offboarding_enabled}" = "false" ] || 失败 "升级前停用归档与交接必须保持 false，避免升级期间继续领取任务且无法安全回退。"
+  unsafe_switches="$(awk -F= '
+    $1 == "V3_ORGANIZATION_ENABLED" ||
+    $1 == "V3_ORGANIZATION_WRITE_ENABLED" ||
+    $1 == "V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED" ||
+    $1 == "V3_DIRECTORY_SYNC_ENABLED" ||
+    $1 == "V3_ORGANIZATION_ACCOUNT_ENTRY_MERGED" ||
+    $1 == "V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED" ||
+    $1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" {
+      if ($2 != "false") print $1 "=" $2
+    }
+  ' "${install_root}/config/v3.env" | tr -d '\r')"
+  if [ -n "${unsafe_switches}" ]; then
+    提示 "检测到发布安全开关当前不是 false：$(printf '%s' "${unsafe_switches}" | tr '\n' ' ')。执行 upgrade-sp-full.sh 时会临时关闭、完成升级验证后恢复原配置；不会自动重启服务重新启用。"
+  fi
 
   if [ "$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "SELECT to_regclass('org.business_roles') IS NOT NULL")" = "t" ]; then
     fixed_role_conflict="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
