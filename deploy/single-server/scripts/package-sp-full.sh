@@ -133,7 +133,7 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
 
 验证Web镜像静态资源() {
   local container_id static_dir workspace_asset source_workspace_asset workspace_candidate
-  local source_admin_html source_admin_app source_admin_style
+  local source_admin_html source_admin_app source_admin_style source_admin_app_ref source_admin_style_ref
   local dist_admin_html dist_admin_app dist_admin_style
   local -a source_workspace_assets image_workspace_assets
   source_admin_html="${project_root}/apps/web/public/admin.html"
@@ -147,12 +147,19 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     "${dist_admin_html}" "${dist_admin_app}" "${dist_admin_style}"; do
     [ -f "${required_file}" ] || 失败 "缺少 Web 源码或构建产物：${required_file}"
   done
-  grep -Fq 'admin-app.js?v=156' "${source_admin_html}" &&
-    grep -Fq 'admin-app.js?v=156' "${dist_admin_html}" ||
-    失败 "正式 admin.html 未使用 admin-app.js?v=156。"
-  grep -Fq 'style.css?v=16' "${source_admin_html}" &&
-    grep -Fq 'style.css?v=16' "${dist_admin_html}" ||
-    失败 "正式 admin.html 未使用 style.css?v=16。"
+  source_admin_app_ref="$(sed -n 's/.*src="\([^"]*admin-app\.js?v=[^"]*\)".*/\1/p' "${source_admin_html}")"
+  source_admin_style_ref="$(sed -n 's/.*href="\([^"]*style\.css?v=[^"]*\)".*/\1/p' "${source_admin_html}")"
+  [ -n "${source_admin_app_ref}" ] ||
+    失败 "正式 admin.html 未找到 admin-app.js 版本引用。"
+  [ -n "${source_admin_style_ref}" ] ||
+    失败 "正式 admin.html 未找到 style.css 版本引用。"
+  case "${source_admin_app_ref}${source_admin_style_ref}" in
+    *$'\n'*) 失败 "正式 admin.html 的静态资源版本引用不唯一。" ;;
+  esac
+  grep -Fq "src=\"${source_admin_app_ref}\"" "${dist_admin_html}" ||
+    失败 "Web 构建产物 admin.html 与正式页面的 admin-app.js 引用不一致。"
+  grep -Fq "href=\"${source_admin_style_ref}\"" "${dist_admin_html}" ||
+    失败 "Web 构建产物 admin.html 与正式页面的 style.css 引用不一致。"
   [ "$(sha256sum "${source_admin_html}" | awk '{print $1}')" = "$(sha256sum "${dist_admin_html}" | awk '{print $1}')" ] ||
     失败 "Web 源码 admin.html 与构建产物不一致。"
   [ "$(sha256sum "${source_admin_app}" | awk '{print $1}')" = "$(sha256sum "${dist_admin_app}" | awk '{print $1}')" ] ||
@@ -187,10 +194,10 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
       失败 "目标 Nginx 镜像缺少静态文件：${required_file}"
     fi
   done
-  if ! grep -Fq 'admin-app.js?v=156' "${static_dir}/admin.html" ||
-    ! grep -Fq 'style.css?v=16' "${static_dir}/admin.html"; then
+  if ! grep -Fq "src=\"${source_admin_app_ref}\"" "${static_dir}/admin.html" ||
+    ! grep -Fq "href=\"${source_admin_style_ref}\"" "${static_dir}/admin.html"; then
     清理Web镜像检查
-    失败 "目标 admin.html 未同时使用 admin-app.js?v=156 和 style.css?v=16。"
+    失败 "目标 Nginx 镜像 admin.html 与正式页面的静态资源引用不一致。"
   fi
   if ! grep -Fq '组织架构' "${static_dir}/admin-app.js" ||
     ! grep -Fq "router.push('/organization/units')" "${static_dir}/admin-app.js" ||
