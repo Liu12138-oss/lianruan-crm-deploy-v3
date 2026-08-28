@@ -182,7 +182,7 @@ describe("阶段9业务兼容接口", () => {
       expect(历史订单?.legacyV2Order).toBe(true);
       expect(历史订单?.status).toBe("pending");
       expect(历史订单?.statusName).toBe("待确认");
-      expect(历史订单?.partnerName).toBe(V2合作伙伴名称);
+      expect(历史订单?.partnerName).toBe(实际渠道.partner_name);
 
       const 确认 = await request(app)
         .put(`/api/v2/orders/${批次}/status`)
@@ -347,7 +347,7 @@ describe("阶段9业务兼容接口", () => {
       区域编号,
     );
     await pool.query(
-      "UPDATE channel.partners SET region_id = $2::uuid, agreement_no = $3, country_calling_code = '86' WHERE id = $1::uuid",
+      "UPDATE channel.partners SET region_id = $2::uuid, city_name = '南京市', agreement_no = $3, country_calling_code = '86' WHERE id = $1::uuid",
       [渠道商.id, 区域编号, `${批次}-协议`],
     );
     await pool.query("UPDATE crm.orders SET partner_id = $2::uuid WHERE id = $1::uuid", [
@@ -361,7 +361,7 @@ describe("阶段9业务兼容接口", () => {
       .set("Authorization", 签发测试V2令牌(区域管理员.username))
       .expect(200);
     expect(区管确认.body.data.状态).toBe("pending_superadmin_confirm");
-    expect(区管确认.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-086-01`);
+    expect(区管确认.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-025-01`);
     expect(区管确认.body.data.原始数据.preRegionOrderNo).toMatch(/^LS-.+-\d{8}-\d{4}$/);
     expect(区管确认.body.data.原始数据.numberNotice).toContain("区管邮箱缺失");
     const 普通路径预审 = await pool.query<{ trigger_code: string; status_code: string }>(
@@ -693,7 +693,7 @@ describe("阶段9业务兼容接口", () => {
         区域编号,
       );
       await pool.query(
-        "UPDATE channel.partners SET agreement_no = $2, country_calling_code = '86' WHERE id = $1::uuid",
+        "UPDATE channel.partners SET city_name = '南京市', agreement_no = $2, country_calling_code = '86' WHERE id = $1::uuid",
         [二级分销商.id, `${批次}-协议`],
       );
       await 绑定渠道范围测试成员(pool, 二级分销商.id, 二级员工.id, "staff");
@@ -770,7 +770,7 @@ describe("阶段9业务兼容接口", () => {
         .set("Authorization", 签发测试V2令牌(区域管理员.username))
         .expect(200);
       expect(区管调价.body.data.状态).toBe("pending_superadmin_confirm");
-      expect(区管调价.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-086-01`);
+      expect(区管调价.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-025-01`);
       const 调价前预审 = await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
         [订单.body.data.id],

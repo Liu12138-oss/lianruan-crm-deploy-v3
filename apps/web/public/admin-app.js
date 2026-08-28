@@ -8355,7 +8355,7 @@ const Partners = {
             <div class="form-item"><label class="form-label required">联系人</label><input class="form-control" v-model="form.contact" placeholder="负责人姓名"/></div>
             <div class="form-item"><label class="form-label required">联系电话</label><input class="form-control" v-model="form.phone" placeholder="138-0000-0000"/></div>
             <div class="form-item"><label class="form-label">协议编号</label><input class="form-control" v-model.trim="form.agreementNo" placeholder="渠道合作协议编号"/></div>
-            <div class="form-item"><label class="form-label">国家电话区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="3" placeholder="例如：86"/></div>
+            <div class="form-item"><label class="form-label">地市区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="4" placeholder="例如：025、0512"/></div>
             <div class="form-item full"><label class="form-label">企业邮箱</label><input class="form-control" v-model="form.email" placeholder="contact@company.com"/></div>
             <div class="form-item"><label class="form-label">合作状态</label>
               <select class="form-control" v-model="form.status">
@@ -8426,7 +8426,7 @@ const Partners = {
                     <div class="form-item"><label class="form-label required">联系人</label><input class="form-control" v-model="form.contact" placeholder="负责人姓名"/></div>
                     <div class="form-item"><label class="form-label required">联系电话</label><input class="form-control" v-model="form.phone" placeholder="138-0000-0000"/></div>
                     <div class="form-item"><label class="form-label">协议编号</label><input class="form-control" v-model.trim="form.agreementNo" placeholder="渠道合作协议编号"/></div>
-                    <div class="form-item"><label class="form-label">国家电话区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="3" placeholder="例如：86"/></div>
+                    <div class="form-item"><label class="form-label">地市区号</label><input class="form-control" v-model.trim="form.countryCallingCode" inputmode="numeric" maxlength="4" placeholder="例如：025、0512"/></div>
                     <div class="form-item full"><label class="form-label">企业邮箱</label><input class="form-control" v-model="form.email" placeholder="contact@company.com"/></div>
                   </div>
                 </section>
@@ -8588,8 +8588,8 @@ const Partners = {
                 <dl>
                   <dt>协议编号</dt>
                   <dd>{{ displayValue(detail.agreementNo) }}</dd>
-                  <dt>国家电话区号</dt>
-                  <dd>{{ detail.countryCallingCode ? '+' + String(detail.countryCallingCode).padStart(3, '0') : '待补充' }}</dd>
+                  <dt>地市区号</dt>
+                  <dd>{{ detail.countryCallingCode ? String(detail.countryCallingCode).padStart(3, '0') : '按所在城市自动取值' }}</dd>
                 </dl>
               </div>
 
@@ -9298,7 +9298,7 @@ const Partners = {
       phone: '',
       email: '',
       agreementNo: '',
-      countryCallingCode: '86',
+      countryCallingCode: '',
       status: 'active',
       techServiceType: '',
       address: '',
@@ -10411,7 +10411,7 @@ const Partners = {
     function openNew() {
       editing.value = false;
       form.id = ''; form.name = ''; form.level = 'gold'; form.region = adminRegion.value || '安徽区';
-      form.city = ''; form.contact = ''; form.phone = ''; form.email = ''; form.agreementNo = ''; form.countryCallingCode = '86'; form.status = 'active'; form.techServiceType = '';
+      form.city = ''; form.contact = ''; form.phone = ''; form.email = ''; form.agreementNo = ''; form.countryCallingCode = ''; form.status = 'active'; form.techServiceType = '';
       resetCreateProfileFields();
       showForm.value = true;
     }
@@ -10420,7 +10420,7 @@ const Partners = {
       Object.assign(form, p);
       form.city = p.city || '';
       form.agreementNo = p.agreementNo || '';
-      form.countryCallingCode = p.countryCallingCode || '86';
+      form.countryCallingCode = p.countryCallingCode || '';
       form.techServiceType = p.techServiceType && p.techServiceType !== 'none' ? p.techServiceType : '';
       resetCreateProfileFields();
       showForm.value = true;

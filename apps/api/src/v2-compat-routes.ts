@@ -2051,7 +2051,8 @@ function 转V2业务记录(模块: 阶段9模块, 记录: 阶段9记录): 字典
     customer: 读取对象文本(原始, "customer") || 读取对象文本(原始, "customerName") || 记录.客户名称,
     customerName:
       读取对象文本(原始, "customerName") || 读取对象文本(原始, "customer") || 记录.客户名称,
-    partnerName: 读取对象文本(原始, "partnerName") || 记录.渠道名称,
+    partnerName: 记录.渠道名称 || 读取对象文本(原始, "partnerName"),
+    legacyV2Order: Boolean(原始.legacyV2Order),
     assignedStaffName: 读取对象文本(原始, "assignedStaffName") || 记录.负责人,
     ownerName: 读取对象文本(原始, "ownerName") || 记录.负责人,
     region: 读取对象文本(原始, "region") || 记录.区域,
@@ -2811,8 +2812,8 @@ async function 保存V2渠道商(
     ["countryCallingCode", "country_calling_code", "国家电话区号"],
     "86",
   ).trim();
-  if (!/^[0-9]{1,3}$/.test(countryCallingCode)) {
-    throw Object.assign(new Error("国家电话区号必须为 1 至 3 位数字。"), { statusCode: 400 });
+  if (countryCallingCode && !/^[0-9]{2,4}$/.test(countryCallingCode)) {
+    throw Object.assign(new Error("地市区号必须为 2 至 4 位数字。"), { statusCode: 400 });
   }
   const client = await pool.connect();
   try {
@@ -2839,7 +2840,7 @@ async function 保存V2渠道商(
       partnerName: name,
       level,
       agreementNo,
-      countryCallingCode,
+      countryCallingCode: countryCallingCode || "",
     };
     const params = [
       code,
@@ -2872,7 +2873,7 @@ async function 保存V2渠道商(
           contact_email = NULLIF($8, '')::citext,
           status_code = $9,
           agreement_no = CASE WHEN $13 THEN NULLIF($11, '') ELSE agreement_no END,
-          country_calling_code = CASE WHEN $14 THEN $12 ELSE country_calling_code END,
+          country_calling_code = CASE WHEN $14 THEN NULLIF($12, '') ELSE country_calling_code END,
           updated_at = now(),
           extra_json = extra_json || $10::jsonb
       WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
@@ -2890,7 +2891,7 @@ async function 保存V2渠道商(
         city_name, contact_name, contact_phone, contact_email, status_code, extra_json,
         agreement_no, country_calling_code
       )
-      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $10::jsonb, NULLIF($11, ''), $12)
+      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $10::jsonb, NULLIF($11, ''), NULLIF($12, ''))
       ON CONFLICT (v2_source_id) DO UPDATE
       SET partner_name = EXCLUDED.partner_name,
           normalized_name = EXCLUDED.normalized_name,
@@ -3064,7 +3065,7 @@ async function 查询渠道商简介(pool: Pool, id: string) {
     partnerId: row.partner_code || row.partner_id,
     partnerName: row.partner_name,
     agreementNo: row.agreement_no || "",
-    countryCallingCode: row.country_calling_code || "86",
+    countryCallingCode: row.country_calling_code || "",
     permissions: {
       canEditProfile: true,
       canManageProducts: true,
