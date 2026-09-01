@@ -214,6 +214,19 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
+  router.get("/quotes/:id/parent-partners", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.查询报价一级渠道商(读取路由参数(req, "id"), 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
   router.put("/quotes/:id", async (req, res, next) => {
     try {
       res.json(

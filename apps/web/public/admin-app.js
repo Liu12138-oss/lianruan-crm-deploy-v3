@@ -5212,7 +5212,7 @@ const QuoteNew = {
     });
 
     function isVisibleQuoteOpportunity(o) {
-      if (!o || !o.customer || ['won','lost'].includes(o.stage)) return false;
+      if (!o || !o.customer || ['won','lost','cancelled'].includes(o.stage)) return false;
       if (isStaff.value) {
         return o.ownerId === userId.value ||
           o.assignedStaffId === userId.value ||

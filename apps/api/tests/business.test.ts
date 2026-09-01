@@ -813,6 +813,13 @@ describe("阶段9业务兼容接口", () => {
       const 报价 = 报价结果.rows[0];
       if (!报价) throw new Error("创建二级订单审批测试报价失败。");
 
+      const 一级渠道查询 = await request(app)
+        .get(`/api/quotes/${报价.id}/parent-partners`)
+        .expect(200);
+      expect(一级渠道查询.body.data).toEqual([
+        expect.objectContaining({ id: 一级分销商.id, name: 一级分销商.partner_name }),
+      ]);
+
       const 订单 = await request(app)
         .post("/api/orders")
         .send({ quoteId: 报价.id, assignedPartnerId: 一级分销商.partner_code })
@@ -937,6 +944,49 @@ describe("阶段9业务兼容接口", () => {
         { step: "region_confirm", count: "1" },
         { step: "superadmin_confirm", count: "1" },
       ]);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("已取消商机不能创建报价单", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `CANCELLED-OPPORTUNITY-QUOTE-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 渠道 = await 创建渠道范围测试渠道(pool, 批次, "取消商机", 区域编号);
+      const 员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "staff",
+        "取消商机员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 渠道.id, 员工.id, "staff");
+      const 商机 = await 创建渠道范围测试商机(
+        pool,
+        批次,
+        `${批次}-客户`,
+        `${批次}-商机`,
+        渠道,
+        员工,
+        区域编号,
+      );
+      await pool.query(
+        `UPDATE crm.opportunities SET stage_code = 'cancelled', raw_stage_name = '项目取消', status_code = 'cancelled' WHERE id = $1::uuid`,
+        [商机.id],
+      );
+      const 产品 = await request(app).get("/api/products?pageSize=1").expect(200);
+      const 产品编号 = 产品.body.data.数据[0]?.id;
+      const 响应 = await request(app)
+        .post("/api/quotes")
+        .send({ opportunityId: 商机.id, endpoints: 100, productIds: 产品编号 ? [产品编号] : [] })
+        .expect(409);
+      expect(响应.body.error?.code).toBe("V3_STAGE9_CANCELLED_OPPORTUNITY_QUOTE_FORBIDDEN");
     } finally {
       await pool.end();
     }

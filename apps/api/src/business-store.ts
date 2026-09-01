@@ -132,6 +132,14 @@ export interface 报价试算结果 {
   workloadSummary: string;
 }
 
+export interface 报价一级渠道商 {
+  id: string;
+  name: string;
+  region: string;
+  contact: string;
+  phone: string;
+}
+
 export interface 开放接口总览 {
   baseUrl: string;
   tokenEndpoint: string;
@@ -254,6 +262,7 @@ export interface 业务数据服务 {
   ): Promise<阶段9记录>;
   试算报价(输入: Record<string, unknown>): Promise<报价试算结果>;
   创建报价(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
+  查询报价一级渠道商(id: string, 用户: 当前业务用户 | null): Promise<报价一级渠道商[]>;
   更新报价(
     id: string,
     输入: Record<string, unknown>,
@@ -815,6 +824,13 @@ class 内存业务数据服务 implements 业务数据服务 {
     const 记录 = 转报价记录(原始数据);
     this.取记录集合("quotes").unshift(记录);
     return 记录;
+  }
+
+  public async 查询报价一级渠道商(
+    _id: string,
+    _用户: 当前业务用户 | null,
+  ): Promise<报价一级渠道商[]> {
+    return [];
   }
 
   public async 更新报价(
@@ -2506,9 +2522,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         partner_id: string | null;
         owner_user_id: string | null;
         owner_username: string | null;
+        status_code: string;
+        stage_code: string;
       }>(
         `
-        SELECT o.id, o.customer_id, o.partner_id, o.owner_user_id, u.username::text AS owner_username
+        SELECT o.id, o.customer_id, o.partner_id, o.owner_user_id, u.username::text AS owner_username,
+          o.status_code, o.stage_code
         FROM crm.opportunities o
         LEFT JOIN iam.users u ON u.id = o.owner_user_id
         WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.opportunity_no = $1
@@ -2517,6 +2536,13 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         [opportunityId],
       );
       const 商机 = opp.rows[0];
+      if (商机 && (商机.status_code === "cancelled" || 商机.stage_code === "cancelled")) {
+        throw new 应用错误(
+          "V3_STAGE9_CANCELLED_OPPORTUNITY_QUOTE_FORBIDDEN",
+          "已取消的商机不能创建报价单。",
+          409,
+        );
+      }
       const 试算 = await this.试算报价(输入);
       const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 商机?.owner_username);
       const 报价编号 = await 生成业务编号(client, "quote", 提报账号);
@@ -2566,6 +2592,48 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     } finally {
       client.release();
     }
+  }
+
+  public async 查询报价一级渠道商(
+    id: string,
+    用户: 当前业务用户 | null,
+  ): Promise<报价一级渠道商[]> {
+    const 报价 = await this.查询详情("quotes", id, 用户);
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      region: string | null;
+      contact: string | null;
+      phone: string | null;
+    }>(
+      `
+      SELECT
+        parent.id::text AS id,
+        parent.partner_name AS name,
+        COALESCE(reg.region_name, parent.extra_json->>'region', '') AS region,
+        COALESCE(parent.contact_name, parent.extra_json->>'contact', '') AS contact,
+        COALESCE(parent.contact_phone, parent.extra_json->>'phone', '') AS phone
+      FROM crm.quotes q
+      JOIN channel.partner_relations rel
+        ON rel.child_partner_id = q.partner_id
+       AND rel.relation_code = 'primary_secondary'
+       AND rel.ended_at IS NULL
+      JOIN channel.partners parent
+        ON parent.id = rel.parent_partner_id
+       AND parent.status_code = 'active'
+      LEFT JOIN org.regions reg ON reg.id = parent.region_id
+      WHERE q.id::text = $1
+      ORDER BY rel.started_at DESC, parent.partner_name
+      `,
+      [报价.id],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      region: row.region || "",
+      contact: row.contact || "",
+      phone: row.phone || "",
+    }));
   }
 
   public async 更新报价(

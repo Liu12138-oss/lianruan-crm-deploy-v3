@@ -2882,50 +2882,20 @@ const QuoteList = {
     
     // 打开选择一级渠道商弹窗（支持多个上级渠道商）
     async function openSelectParentPartnerModal(q) {
-      // 通过API获取当前渠道商信息
-      const partnerId = store.user?.partnerId;
-      if (!partnerId) {
-        alert('无法获取渠道商信息');
-        return;
-      }
-      
       try {
-        const res = await apiRequest('GET', `/partners/${partnerId}`);
-        if (!res.success || !res.data) {
-          alert('获取渠道商信息失败');
-          return;
-        }
-        
-        const currentPartner = res.data;
-        
-        // 检查是否为二级渠道商
-        if (currentPartner.partnerLevel !== 'secondary') {
-          // 不是二级渠道商，直接创建订单
-          await toOrderDirectly(q);
-          return;
-        }
-        
-        // 获取绑定的一级渠道商ID列表（支持多个）
-        const parentPartnerIds = currentPartner.parentPartnerIds || 
-                                (currentPartner.parentPartnerId ? [currentPartner.parentPartnerId] : []);
-        if (parentPartnerIds.length === 0) {
-          alert('您未绑定任何一级渠道商，请联系管理员设置');
-          return;
-        }
-        
-        // 获取所有一级渠道商信息
-        const parentPromises = parentPartnerIds.map(pid => apiRequest('GET', `/partners/${pid}`));
-        const parentResults = await Promise.all(parentPromises);
-        const validParents = parentResults.filter(r => r.success && r.data).map(r => r.data);
-        
-        if (validParents.length === 0) {
+        const res = await apiRequest('GET', `/quotes/${encodeURIComponent(q.id)}/parent-partners`);
+        if (!res.success || !Array.isArray(res.data)) {
           alert('获取一级渠道商信息失败，请联系管理员');
           return;
         }
-        
-        // 更新列表和默认选中第一个
-        parentPartnersList.value = validParents;
-        selectedParentPartnerId.value = validParents[0].id;
+
+        if (res.data.length === 0) {
+          await toOrderDirectly(q);
+          return;
+        }
+
+        parentPartnersList.value = res.data;
+        selectedParentPartnerId.value = res.data[0].id;
         currentQuoteForParentSelect.value = q;
         showParentPartnerModal.value = true;
       } catch (err) {
@@ -4426,7 +4396,7 @@ const QuoteNew = {
     });
 
     function isVisibleQuoteOpportunity(o) {
-      if (!o || !o.customer || ['won','lost'].includes(o.stage)) return false;
+      if (!o || !o.customer || ['won','lost','cancelled'].includes(o.stage)) return false;
       const partnerId = store.user?.partnerId;
       const isPartnerAdmin = store.user?.role === 'partner_admin';
       if (isPartnerAdmin && partnerId) return o.partnerId === partnerId;
