@@ -46,18 +46,21 @@ http_port="${HTTP_PORT:-80}"
   local container_id
   local state
   local health
-  container_id="$(docker compose ps -q "${service}" 2>/dev/null || true)"
-  if [ -z "${container_id}" ]; then
-    echo "订单预审任务未运行：${service}" >&2
-    return 1
-  fi
-  state="$(docker inspect -f '{{.State.Status}}' "${container_id}" 2>/dev/null || true)"
-  health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}未配置{{end}}' "${container_id}" 2>/dev/null || true)"
-  if [ "${state}" != "running" ] || { [ "${health}" != "healthy" ] && [ "${health}" != "未配置" ]; }; then
-    echo "订单预审任务异常：${service}，状态=${state:-未知}，健康=${health:-未知}" >&2
-    return 1
-  fi
-  echo "订单预审任务正常。"
+  local attempt
+  for attempt in $(seq 1 90); do
+    container_id="$(docker compose --profile order-preapproval ps -q "${service}" 2>/dev/null || true)"
+    if [ -n "${container_id}" ]; then
+      state="$(docker inspect -f '{{.State.Status}}' "${container_id}" 2>/dev/null || true)"
+      health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}未配置{{end}}' "${container_id}" 2>/dev/null || true)"
+      if [ "${state}" = "running" ] && { [ "${health}" = "healthy" ] || [ "${health}" = "未配置" ]; }; then
+        echo "订单预审任务正常。"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+  echo "订单预审任务异常：${service} 未在 180 秒内就绪，状态=${state:-未知}，健康=${health:-未知}" >&2
+  return 1
 }
 cd "${install_root}/compose"
 

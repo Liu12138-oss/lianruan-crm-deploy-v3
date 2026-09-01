@@ -39,7 +39,7 @@ wait_for_http() {
   local service_name="$1" container_id="$2" attempt health_status
   echo "等待 ${service_name} 健康检查通过。"
   for attempt in $(seq 1 90); do
-    container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}" 2>/dev/null || true)"
+    container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}" 2>/dev/null || true)"
     if [ -n "${container_id}" ]; then
       health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container_id}" 2>/dev/null || true)"
       if [ "${health_status}" = "healthy" ] || { [ -z "$(docker inspect -f '{{if .State.Health}}yes{{end}}' "${container_id}" 2>/dev/null)" ] && [ "${health_status}" = "running" ]; }; then
@@ -57,7 +57,7 @@ verify_target_service() {
   local target_image target_image_id container_id running_image running_image_id health_status
   target_image="${image_name}:${TARGET_VERSION}"
   target_image_id="$(docker image inspect -f '{{.Id}}' "${target_image}")"
-  container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+  container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}")"
   [ -n "${container_id}" ] || { echo "验证失败：服务未运行：${service_name}。" >&2; exit 1; }
   running_image="$(docker inspect -f '{{.Config.Image}}' "${container_id}")"
   running_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
@@ -82,8 +82,11 @@ verify_target_service() {
   if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
     services+=(worker-message-critical worker-message-maintenance worker-message-integration)
   fi
+  if [ "$(awk -F= '$1 == "ORDER_PREAPPROVAL_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+    services+=(worker-order-preapproval)
+  fi
   for service_name in "${services[@]}"; do
-    container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+    container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}")"
     [ -n "${container_id}" ] || { echo "验证失败：未找到 ${service_name} 容器。" >&2; exit 1; }
     container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
     for key in "${switches[@]}"; do
@@ -119,6 +122,9 @@ if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }
   verify_target_service worker-message-critical lianruan-crm-v3-worker
   verify_target_service worker-message-maintenance lianruan-crm-v3-worker
   verify_target_service worker-message-integration lianruan-crm-v3-worker
+fi
+if [ "$(awk -F= '$1 == "ORDER_PREAPPROVAL_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+  verify_target_service worker-order-preapproval lianruan-crm-v3-worker
 fi
 
 验证运行中发布安全开关

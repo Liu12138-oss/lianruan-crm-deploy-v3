@@ -164,8 +164,8 @@ if [ -d "${install_root}/compose" ] && [ -f "${install_root}/compose/.env" ] && 
   cp "${install_root}/config/nginx/default.conf" "${release_dir}/config/nginx/default.conf"
   cp "${install_root}/scripts/"*.sh "${release_dir}/scripts/" 2>/dev/null || true
   printf 'services:\n' > "${release_dir}/runtime/rollback-images.yml"
-  for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration; do
-    container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}" 2>/dev/null || true)"
+  for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration worker-order-preapproval; do
+    container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}" 2>/dev/null || true)"
     if [ -n "${container_id}" ]; then
       running_image="$(docker inspect -f '{{.Config.Image}}' "${container_id}" 2>/dev/null || true)"
       running_image_id="$(docker inspect -f '{{.Image}}' "${container_id}" 2>/dev/null || true)"
@@ -183,7 +183,8 @@ if [ -d "${install_root}/compose" ] && [ -f "${install_root}/compose/.env" ] && 
 
   echo "停止应用写入服务。"
   app_switch_started=true
-  run_compose --profile message --profile message-external stop nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration || true
+  run_compose --profile message --profile message-external --profile order-preapproval stop \
+    nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration worker-order-preapproval || true
 
   echo "同步 Compose、Nginx、运维脚本与数据库迁移。"
   cp "${package_root}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"

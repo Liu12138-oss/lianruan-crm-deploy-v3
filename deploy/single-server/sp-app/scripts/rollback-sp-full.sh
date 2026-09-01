@@ -77,8 +77,8 @@ fi
 verify_offboarding_quiesced
 
 echo "开始恢复升级前应用文件和各组件真实镜像。数据库不会自动恢复。"
-run_compose --profile message --profile message-external stop \
-  nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration || true
+run_compose --profile message --profile message-external --profile order-preapproval stop \
+  nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration worker-order-preapproval || true
 cp "${release_dir}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
 cp "${release_dir}/compose/.env" "${install_root}/compose/.env"
 cp "${release_dir}/config/v3.env" "${install_root}/config/v3.env"
@@ -87,14 +87,19 @@ cp "${release_dir}/config/nginx/default.conf" "${install_root}/config/nginx/defa
 cp "${release_dir}/scripts/"*.sh "${install_root}/scripts/" 2>/dev/null || true
 chmod 750 "${install_root}/scripts/"*.sh 2>/dev/null || true
 
-for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration; do
+services=(api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration)
+if [ -n "$(read_runtime_field worker-order-preapproval 2)" ]; then
+  services+=(worker-order-preapproval)
+fi
+
+for service_name in "${services[@]}"; do
   source_image="$(read_runtime_field "${service_name}" 2)"
   source_image_id="$(read_runtime_field "${service_name}" 3)"
   [ -n "${source_image}" ] || fail "快照缺少 ${service_name}。"
   [ "$(docker image inspect -f '{{.Id}}' "${source_image}")" = "${source_image_id}" ] || fail "${service_name} 的源镜像已不存在或摘要变化。"
 done
 
-run_compose -f "${install_root}/compose/docker-compose.yml" -f "${release_dir}/runtime/rollback-images.yml" --profile message --profile message-external up -d --no-deps --force-recreate \
-  api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration
+run_compose -f "${install_root}/compose/docker-compose.yml" -f "${release_dir}/runtime/rollback-images.yml" --profile message --profile message-external --profile order-preapproval up -d --no-deps --force-recreate \
+  "${services[@]}"
 
 echo "应用回退完成，已恢复升级前各组件真实镜像；数据库扩展迁移被保留，数据库恢复仍须负责人确认。"
