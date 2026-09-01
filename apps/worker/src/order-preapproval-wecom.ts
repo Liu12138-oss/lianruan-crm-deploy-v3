@@ -26,18 +26,6 @@ export class 企微订单预审群客户端 {
     private readonly 请求: typeof fetch = fetch,
   ) {}
 
-  public async 查询群(群编号: string): Promise<string | null> {
-    const accessToken = await this.获取令牌();
-    const 地址 = new URL("https://qyapi.weixin.qq.com/cgi-bin/appchat/get");
-    地址.searchParams.set("access_token", accessToken);
-    地址.searchParams.set("chatid", 群编号);
-    const 响应 = await this.发送请求("查询订单预审群", 地址, { method: "GET" }, true);
-    const 错误码 = 读取企微错误码(响应.json);
-    if (错误码 === 0) return 读取文本(响应.json, "chatid") || 群编号;
-    if (错误码 === 40003) return null;
-    throw 构建企微错误("查询订单预审群", 响应.status, 错误码, true);
-  }
-
   public async 创建群(参数: 订单预审群参数): Promise<string> {
     const accessToken = await this.获取令牌();
     const 地址 = new URL("https://qyapi.weixin.qq.com/cgi-bin/appchat/create");

@@ -250,6 +250,36 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
+  router.post("/orders/:id/revision-requests", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.申请订单修订(读取路由参数(req, "id"), req.body, 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.put("/order-revision-requests/:id/status", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.更新订单修订申请(
+            读取路由参数(req, "id"),
+            req.body,
+            读取用户(req),
+          ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
   router.put("/orders/:id/status", async (req, res, next) => {
     try {
       res.json(

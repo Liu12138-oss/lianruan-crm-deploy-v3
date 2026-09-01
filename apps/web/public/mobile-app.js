@@ -1435,7 +1435,13 @@
         try {
           await mobileRequest(`/opportunities/${encodeURIComponent(selectedOpportunity.value.id)}/follow-ups`, {
             method: 'POST',
-            body: { ...followUpForm, content }
+            body: {
+              ...followUpForm,
+              content,
+              changeReason: followUpForm.stage !== selectedOpportunity.value.stage
+                ? `记录跟进并推进到${statusText(followUpForm.stage)}`
+                : '记录跟进'
+            }
           });
           Object.assign(followUpForm, { type: '电话', stage: selectedOpportunity.value?.stage || 'contacted', content: '', nextFollowAt: '' });
           await loadDetail();

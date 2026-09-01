@@ -61,6 +61,6 @@ describe("正式管理员页组织架构入口", () => {
   it("正式页面使用本次组织状态入口对应的稳定资源版本", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=158"></script>');
+    expect(页面文本).toContain('<script src="admin-app.js?v=159"></script>');
   });
 });

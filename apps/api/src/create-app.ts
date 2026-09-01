@@ -32,6 +32,7 @@ import { 创建Rbac路由 } from "./rbac-routes.js";
 import { 请求编号中间件 } from "./request-context.js";
 import {
   type 会话账号状态服务,
+  创建会话角色实时防护,
   创建会话账号状态服务,
   创建停用账号会话防护,
 } from "./session-account-guard.js";
@@ -99,9 +100,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const 停用账号会话防护已启用 = config.organization.accountStatusCheckEnabled;
   const 会话账号状态服务 =
     参数.sessionAccountStatusService ||
-    (停用账号会话防护已启用 && config.database.url
-      ? 创建会话账号状态服务(config.database.url)
-      : undefined);
+    (config.database.url ? 创建会话账号状态服务(config.database.url) : undefined);
   if (停用账号会话防护已启用 && !会话账号状态服务)
     throw new 应用错误(
       "V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE",
@@ -115,6 +114,14 @@ export function 创建应用(参数: 创建应用参数 = {}) {
     "/api",
     创建停用账号会话防护({
       enabled: 停用账号会话防护已启用,
+      sessionSecret: config.session.secret,
+      ...(参数.env ? { env: 参数.env } : {}),
+      ...(会话账号状态服务 ? { service: 会话账号状态服务 } : {}),
+    }),
+  );
+  app.use(
+    "/api",
+    创建会话角色实时防护({
       sessionSecret: config.session.secret,
       ...(参数.env ? { env: 参数.env } : {}),
       ...(会话账号状态服务 ? { service: 会话账号状态服务 } : {}),

@@ -1,4 +1,5 @@
 import { 创建测试环境变量 } from "@lianruan/testing";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -69,8 +70,10 @@ describe("移动端业务接口", () => {
 
   it("相同幂等键的重复报备会回放首次结果", async () => {
     const { app, token } = await 获取移动端令牌();
-    const 幂等键 = "mobile-registration-retry-001";
-    const 请求体 = { customerName: "移动端幂等测试客户", contact: "测试联系人" };
+    const 唯一后缀 = randomUUID();
+    const 幂等键 = "mobile-registration-retry-" + 唯一后缀;
+    const 客户名称 = "移动端幂等测试客户-" + 唯一后缀;
+    const 请求体 = { customerName: 客户名称, contact: "测试联系人" };
 
     const 首次 = await request(app)
       .post("/api/mobile/registrations")
@@ -87,12 +90,10 @@ describe("移动端业务接口", () => {
 
     expect(重试.body.data).toEqual(首次.body.data);
     const 列表 = await request(app)
-      .get("/api/mobile/registrations?page=1&pageSize=100")
+      .get("/api/mobile/registrations?page=1&pageSize=100&keyword=" + encodeURIComponent(客户名称))
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
-    expect(
-      列表.body.data.数据.filter((项: { 标题: string }) => 项.标题 === "移动端幂等测试客户"),
-    ).toHaveLength(1);
+    expect(列表.body.data.数据.filter((项: { 标题: string }) => 项.标题 === 客户名称)).toHaveLength(1);
   });
 
   it("同一幂等键不能用于不同请求", async () => {

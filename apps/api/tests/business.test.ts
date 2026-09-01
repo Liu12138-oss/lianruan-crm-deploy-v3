@@ -407,6 +407,79 @@ describe("阶段9业务兼容接口", () => {
     await pool.end();
   });
 
+  it("赢单和输单商机允许编辑且必须记录变更原因和前后值", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `OPPORTUNITY-EDIT-AUDIT-${Date.now()}`;
+    let 商机编号 = "";
+    try {
+      const 报备 = await request(app)
+        .post("/api/registrations")
+        .send({
+          customer: `${批次}-客户`,
+          creditCode: `${批次}-统一信用代码`,
+          contact: "商机编辑验收联系人",
+          phone: "13800000001",
+        })
+        .expect(200);
+      await request(app)
+        .put(`/api/registrations/${报备.body.data.id}/status`)
+        .send({ status: "approved", reason: "商机编辑验收" })
+        .expect(200);
+      const 创建 = await request(app)
+        .post("/api/opportunities")
+        .send({ registrationId: 报备.body.data.id, name: `${批次}-商机`, amount: 1000 })
+        .expect(200);
+      商机编号 = 创建.body.data.id;
+
+      await request(app)
+        .put(`/api/opportunities/${商机编号}`)
+        .send({ stage: "lost" })
+        .expect(400);
+
+      const 输单编辑 = await request(app)
+        .put(`/api/opportunities/${商机编号}`)
+        .send({ stage: "lost", amount: 1200, changeReason: "客户暂缓采购，修正预计金额" })
+        .expect(200);
+      expect(输单编辑.body.data.状态).toBe("lost");
+      expect(Number(输单编辑.body.data.金额)).toBe(1200);
+
+      const 赢单编辑 = await request(app)
+        .put(`/api/opportunities/${商机编号}`)
+        .send({ stage: "won", name: `${批次}-商机-重新激活`, changeReason: "客户重新启动采购，恢复商机" })
+        .expect(200);
+      expect(赢单编辑.body.data.状态).toBe("won");
+      expect(赢单编辑.body.data.标题).toBe(`${批次}-商机-重新激活`);
+
+      await request(app)
+        .put(`/api/opportunities/${商机编号}`)
+        .send({ stage: "won", changeReason: "重复保存验收" })
+        .expect(200);
+
+      const 审计 = await pool.query<{ message: string; before_json: Record<string, unknown>; after_json: Record<string, unknown> }>(
+        `
+        SELECT message, before_json, after_json
+        FROM audit.audit_logs
+        WHERE target_id = $1 AND action_code = 'opportunity.updated'
+        ORDER BY created_at ASC
+        `,
+        [商机编号],
+      );
+      expect(审计.rows).toHaveLength(2);
+      const 输单审计 = 审计.rows.find((项) => 项.after_json.stage === "lost");
+      const 赢单审计 = 审计.rows.find((项) => 项.after_json.stage === "won");
+      expect(输单审计?.message).toContain("客户暂缓采购，修正预计金额");
+      expect(输单审计?.before_json.stage).not.toBe("lost");
+      expect(输单审计?.after_json.stage).toBe("lost");
+      expect(赢单审计?.message).toContain("客户重新启动采购，恢复商机");
+      expect(赢单审计?.before_json.stage).toBe("lost");
+      expect(赢单审计?.after_json.stage).toBe("won");
+    } finally {
+      if (商机编号) await pool.query("DELETE FROM crm.opportunities WHERE id::text = $1", [商机编号]);
+      await pool.end();
+    }
+  });
+
   it("报备审核的各正式入口只为一次真实状态转换写入一次发件箱事件", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
@@ -745,6 +818,10 @@ describe("阶段9业务兼容接口", () => {
         .send({ quoteId: 报价.id, assignedPartnerId: 一级分销商.partner_code })
         .expect(200);
       expect(订单.body.data.状态).toBe("pending_primary_confirm");
+      expect(订单.body.data.原始数据.partnerName).toBe(二级分销商.partner_name);
+      expect(订单.body.data.原始数据.assignedPartnerName).toBe(二级分销商.partner_name);
+      expect(订单.body.data.原始数据.parentPartnerName).toBe(一级分销商.partner_name);
+      expect(订单.body.data.原始数据.assignedStaffName).toBe(二级员工.display_name);
 
       const 一级待办 = await request(app)
         .get(
@@ -917,6 +994,174 @@ describe("阶段9业务兼容接口", () => {
           项.客户名称 === 渠道客户 && 项.状态 === "pending",
       ),
     ).toBe(true);
+  });
+
+  it("订单回退修改按申请、驳回恢复和批准生成新版本闭环", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-REVISION-${Date.now()}`;
+    let 原订单编号 = "";
+    let 新订单编号 = "";
+    try {
+      const 数据 = await 准备渠道范围测试数据(pool, 批次);
+      原订单编号 = 数据.订单.id;
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'primary_confirmed', revision_no = 1 WHERE id = $1::uuid`,
+        [原订单编号],
+      );
+      await 创建渠道范围测试订单审批待办(pool, 批次, 数据.订单, 数据.渠道一, 数据.员工一);
+
+      await request(app)
+        .post(`/api/orders/${原订单编号}/revision-requests`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .send({ reason: "超管账号不允许代替渠道商发起修订", newAmount: 13000 })
+        .expect(403);
+
+      await request(app)
+        .post(`/api/orders/${原订单编号}/revision-requests`)
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .send({
+          reason: "模块价格填写错误",
+          newAmount: 13000,
+          items: [{ itemName: "终端防护", quantity: 1, unitPrice: 12000, lineAmount: 12000 }],
+        })
+        .expect(400);
+
+      const 首次申请 = await request(app)
+        .post(`/api/orders/${原订单编号}/revision-requests`)
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .send({
+          reason: "模块价格填写错误，按实际采购数量修正",
+          newAmount: 13000,
+          items: [{ itemName: "终端防护", quantity: 1, unitPrice: 13000, lineAmount: 13000 }],
+        })
+        .expect(200);
+      const 首次申请编号 = 首次申请.body.data.原始数据.revisionRequestId as string;
+      expect(首次申请.body.data.状态).toBe("revision_requested");
+
+      const 暂停待办 = await pool.query<{ status_code: string }>(
+        `SELECT status_code FROM ops.approvals WHERE target_type = 'order' AND target_id = $1::uuid`,
+        [原订单编号],
+      );
+      expect(暂停待办.rows).toEqual([{ status_code: "cancelled" }]);
+      const 暂停事件 = await pool.query<{ event_code: string; to_status_code: string }>(
+        `
+        SELECT e.event_code, e.to_status_code
+        FROM ops.approval_events e
+        JOIN ops.approvals a ON a.id = e.approval_id
+        WHERE a.target_type = 'order' AND a.target_id = $1::uuid AND e.event_code = 'cancel'
+        `,
+        [原订单编号],
+      );
+      expect(暂停事件.rows).toEqual([{ event_code: "cancel", to_status_code: "cancelled" }]);
+
+      const 待审核列表 = await request(app)
+        .get(`/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(批次)}&pageSize=20`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .expect(200);
+      expect(
+        待审核列表.body.data.数据.some(
+          (项: { 类型: string; 金额: number; 原始数据?: { requestId?: string } }) =>
+            项.类型 === "订单回退修改" && Number(项.金额) === 13000 && 项.原始数据?.requestId === 首次申请编号,
+        ),
+      ).toBe(true);
+
+      const 驳回 = await request(app)
+        .put(`/api/order-revision-requests/${首次申请编号}/status`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .send({ action: "reject", reason: "请确认模块数量后重新提交" })
+        .expect(200);
+      expect(驳回.body.data.状态).toBe("primary_confirmed");
+      const 恢复待办 = await pool.query<{ status_code: string; step: string }>(
+        `SELECT status_code, extra_json->>'step' AS step FROM ops.approvals WHERE target_type = 'order' AND target_id = $1::uuid AND status_code = 'pending'`,
+        [原订单编号],
+      );
+      expect(恢复待办.rows).toEqual([{ status_code: "pending", step: "region_confirm" }]);
+
+      const 再次申请 = await request(app)
+        .post(`/api/orders/${原订单编号}/revision-requests`)
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .send({
+          reason: "已核对采购清单，修正订单金额和模块",
+          newAmount: 14000,
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 7000, lineAmount: 14000 }],
+        })
+        .expect(200);
+      const 再次申请编号 = 再次申请.body.data.原始数据.revisionRequestId as string;
+
+      const 批准 = await request(app)
+        .put(`/api/order-revision-requests/${再次申请编号}/status`)
+        .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
+        .send({ action: "approve", reason: "审核通过，生成订单新版本" })
+        .expect(200);
+      新订单编号 = 批准.body.data.id;
+      expect(批准.body.data.状态).toBe("primary_confirmed");
+      expect(批准.body.data.原始数据.revisionNo).toBe(2);
+      expect(批准.body.data.原始数据.replacesOrderId).toBe(原订单编号);
+
+      const 版本关系 = await pool.query<{
+        old_status: string;
+        new_status: string;
+        revision_no: number;
+        old_superseded_by: string;
+        new_replaces: string;
+        request_status: string;
+        result_order_id: string;
+        new_approval_count: string;
+        new_pending_event_count: string;
+      }>(
+        `
+        SELECT
+          old_order.status_code AS old_status,
+          new_order.status_code AS new_status,
+          new_order.revision_no,
+          old_order.superseded_by_order_id::text AS old_superseded_by,
+          new_order.replaces_order_id::text AS new_replaces,
+          rr.status_code AS request_status,
+          rr.result_order_id::text AS result_order_id,
+          (
+            SELECT COUNT(*)::text FROM ops.approvals a
+            WHERE a.target_type = 'order' AND a.target_id = new_order.id AND a.status_code = 'pending'
+          ) AS new_approval_count,
+          (
+            SELECT COUNT(*)::text FROM ops.outbox_events e
+            WHERE e.aggregate_id = new_order.id AND e.event_type = 'crm.order.approval.pending'
+          ) AS new_pending_event_count
+        FROM crm.orders old_order
+        JOIN crm.orders new_order ON new_order.replaces_order_id = old_order.id
+        JOIN crm.order_revision_requests rr ON rr.result_order_id = new_order.id
+        WHERE old_order.id = $1::uuid AND rr.id = $2::uuid
+        `,
+        [原订单编号, 再次申请编号],
+      );
+      expect(版本关系.rows).toEqual([
+        {
+          old_status: "replaced",
+          new_status: "primary_confirmed",
+          revision_no: 2,
+          old_superseded_by: 新订单编号,
+          new_replaces: 原订单编号,
+          request_status: "applied",
+          result_order_id: 新订单编号,
+          new_approval_count: "1",
+          new_pending_event_count: "1",
+        },
+      ]);
+    } finally {
+      if (新订单编号) {
+        await pool.query("DELETE FROM ops.approval_events WHERE approval_id IN (SELECT id FROM ops.approvals WHERE target_id = $1::uuid)", [新订单编号]);
+        await pool.query("DELETE FROM ops.approvals WHERE target_id = $1::uuid", [新订单编号]);
+        await pool.query("DELETE FROM ops.outbox_events WHERE aggregate_id = $1::uuid", [新订单编号]);
+      }
+      if (原订单编号) {
+        await pool.query("DELETE FROM ops.approval_events WHERE approval_id IN (SELECT id FROM ops.approvals WHERE target_id = $1::uuid)", [原订单编号]);
+        await pool.query("DELETE FROM ops.approvals WHERE target_id = $1::uuid", [原订单编号]);
+        await pool.query("DELETE FROM crm.order_revision_requests WHERE order_id = $1::uuid", [原订单编号]);
+        await pool.query("DELETE FROM ops.outbox_events WHERE aggregate_id = $1::uuid", [原订单编号]);
+        await pool.query("DELETE FROM crm.orders WHERE id = $1::uuid OR replaces_order_id = $1::uuid", [原订单编号]);
+      }
+      await pool.end();
+    }
   });
 
   it("渠道报备和商机按服务端账号范围隔离并支持管理员指派", async () => {
@@ -1169,6 +1414,7 @@ describe("阶段9业务兼容接口", () => {
           assignedStaffId: 数据.员工一.username,
           stage: "design",
           followup: "管理员改派后跟进",
+          changeReason: "管理员改派商机并记录跟进",
         })
         .expect(200);
       expect(改派商机.body.data.partnerName).toBe(数据.渠道一.partner_name);

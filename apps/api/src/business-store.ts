@@ -265,6 +265,16 @@ export interface 业务数据服务 {
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录>;
   创建订单(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
+  申请订单修订(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
+  更新订单修订申请(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
   更新订单状态(
     id: string,
     输入: Record<string, unknown>,
@@ -358,10 +368,12 @@ const 状态中文: Record<string, string> = {
   primary_confirmed: "一级已确认",
   primary_rejected: "一级已驳回",
   pending_superadmin_confirm: "待超管确认",
+  revision_requested: "待回退修改审核",
   confirmed: "已确认",
   processing: "处理中",
   shipped: "已发货",
   completed: "已完成",
+  replaced: "已替换",
   unread: "未读",
   read: "已读",
   queued: "排队中",
@@ -714,15 +726,43 @@ class 内存业务数据服务 implements 业务数据服务 {
   ): Promise<阶段9记录> {
     const 记录 = await this.查询详情("opportunities", id);
     const now = new Date().toISOString();
-    const 阶段 = 读取文本(输入, ["stage", "阶段"], 记录.状态);
+    const 变更原因 = 读取文本(输入, ["changeReason", "reason", "变更原因"], "");
+    if (!变更原因)
+      throw new 应用错误(
+        "V3_STAGE9_OPPORTUNITY_CHANGE_REASON_REQUIRED",
+        "编辑商机必须填写变更原因。",
+        400,
+      );
+    if (变更原因.length > 500)
+      throw new 应用错误(
+        "V3_STAGE9_OPPORTUNITY_CHANGE_REASON_INVALID",
+        "变更原因不能超过500个字符。",
+        400,
+      );
+    const 原阶段 = 记录.状态;
+    const 阶段 = 读取文本(输入, ["stage", "阶段"], 原阶段);
     记录.状态 = 规范商机状态(阶段);
     记录.状态名称 = 状态中文[记录.状态] || 阶段;
     记录.更新时间 = now;
     const 跟进 = 读取文本(输入, ["followup", "content", "跟进内容"], "");
     const 历史 = Array.isArray(记录.原始数据.followups) ? 记录.原始数据.followups : [];
+    const 是否有变更 = 原阶段 !== 记录.状态 || Boolean(跟进);
     记录.原始数据 = {
       ...记录.原始数据,
       stage: 阶段,
+      ...(是否有变更
+        ? {
+            changeHistory: [
+              ...(Array.isArray(记录.原始数据.changeHistory) ? 记录.原始数据.changeHistory : []),
+              {
+                actorName: 用户?.displayName || "阶段9测试账号",
+                changedAt: now,
+                reason: 变更原因,
+                changes: { stage: { before: 原阶段, after: 记录.状态 } },
+              },
+            ],
+          }
+        : {}),
       updatedAt: now,
       updatedByName: 用户?.displayName || "阶段9测试账号",
       followups: 跟进
@@ -852,6 +892,60 @@ class 内存业务数据服务 implements 业务数据服务 {
     const 订单 = 转订单记录(原始数据);
     this.取记录集合("orders").unshift(订单);
     return 订单;
+  }
+
+  public async 申请订单修订(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 订单 = await this.查询详情("orders", id, 用户);
+    const 原因 = 读取文本(输入, ["reason", "修改原因", "remark"], "");
+    if (!原因) throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
+    if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(订单.状态)) {
+      throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "订单进入履约或终态后不能申请回退修改。", 409);
+    }
+    const 金额 = 读取订单调整金额(输入);
+    const 明细 = 读取订单修订明细(输入);
+    if (金额 === null && !明细.length) {
+      throw new 应用错误("V3_ORDER_REVISION_CHANGE_REQUIRED", "请至少填写新的订单金额或模块明细。", 400);
+    }
+    const now = new Date().toISOString();
+    const 原始数据 = {
+      ...订单.原始数据,
+      orderRevisionRequest: {
+        reason: 原因,
+        newAmount: 金额,
+        items: 明细,
+        requestedByName: 用户?.displayName || "阶段9测试账号",
+        createdAt: now,
+      },
+      updatedAt: now,
+    };
+    const 请求 = {
+      id: "REV-V3-" + Date.now(),
+      status: "pending",
+      orderId: 订单.id,
+      reason: 原因,
+      newAmount: 金额,
+      items: 明细,
+    };
+    订单.原始数据 = { ...原始数据, revisionRequest: 请求 };
+    return 订单;
+  }
+
+  public async 更新订单修订申请(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    校验超级管理员(用户);
+    const action = 读取文本(输入, ["action", "status"], "reject");
+    if (action === "reject") {
+      const 原因 = 读取文本(输入, ["reason", "remark"], "");
+      if (!原因) throw new 应用错误("V3_ORDER_REVISION_REVIEW_REASON_REQUIRED", "驳回订单修订必须填写原因。", 400);
+    }
+    throw new 应用错误("V3_ORDER_REVISION_NOT_SUPPORTED", "内存模式不支持订单修订审批，请使用 PostgreSQL 数据库。", 501);
   }
 
   public async 更新订单状态(
@@ -1814,11 +1908,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         target_type: string;
         target_id: string | null;
         applicant_partner_id: string | null;
+        v2_source_id: string | null;
         title: string;
       }>(
         `
         SELECT id::text AS id, status_code, target_type, target_id::text AS target_id,
-          applicant_partner_id::text AS applicant_partner_id,
+          applicant_partner_id::text AS applicant_partner_id, v2_source_id,
           COALESCE(extra_json->>'targetName', target_type) AS title
         FROM ops.approvals
         WHERE id::text = $1 OR v2_source_id = $1 OR target_id::text = $1
@@ -1829,6 +1924,23 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 审批 = 当前.rows[0];
       if (!审批) throw new 应用错误("V3_APPROVAL_NOT_FOUND", "待审批事项不存在。", 404);
+      if (审批.target_type === "order_revision") {
+        const 修订申请编号 = 审批.v2_source_id?.startsWith("order-revision:")
+          ? 审批.v2_source_id.slice("order-revision:".length)
+          : "";
+        if (!修订申请编号) {
+          throw new 应用错误("V3_ORDER_REVISION_NOT_FOUND", "订单修订申请关联信息缺失。", 409);
+        }
+        await client.query("ROLLBACK");
+        return this.更新订单修订申请(
+          修订申请编号,
+          {
+            action: 读取文本(输入, ["action"], "approve"),
+            reason: 读取文本(输入, ["remark", "reason"], ""),
+          },
+          用户,
+        );
+      }
       await client.query(
         `
         UPDATE ops.approvals
@@ -2171,12 +2283,17 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         owner_user_id: string | null;
         region_id: string | null;
         customer_id: string;
+        customer_name: string;
+        expected_amount: string | number | null;
+        extra_json: Record<string, unknown>;
       }>(
         `
-        SELECT id::text AS id, stage_code, raw_stage_name, partner_id::text AS partner_id,
-          owner_user_id::text AS owner_user_id, region_id::text AS region_id, customer_id::text AS customer_id
-        FROM crm.opportunities
-        WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
+        SELECT o.id::text AS id, o.stage_code, o.raw_stage_name, o.partner_id::text AS partner_id,
+          o.owner_user_id::text AS owner_user_id, o.region_id::text AS region_id,
+          o.customer_id::text AS customer_id, c.customer_name, o.expected_amount, o.extra_json
+        FROM crm.opportunities o
+        JOIN crm.customers c ON c.id = o.customer_id
+        WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.opportunity_no = $1
         LIMIT 1
         `,
         [id],
@@ -2188,11 +2305,60 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ownerUserId: row.owner_user_id,
         regionId: row.region_id,
       });
-      const 阶段 = 读取文本(输入, ["stage", "阶段"], row.raw_stage_name || row.stage_code);
+      const 变更原因 = 读取文本(输入, ["changeReason", "reason", "变更原因"], "");
+      if (!变更原因) {
+        throw new 应用错误(
+          "V3_STAGE9_OPPORTUNITY_CHANGE_REASON_REQUIRED",
+          "编辑商机必须填写变更原因。",
+          400,
+        );
+      }
+      if (变更原因.length > 500) {
+        throw new 应用错误(
+          "V3_STAGE9_OPPORTUNITY_CHANGE_REASON_INVALID",
+          "变更原因不能超过500个字符。",
+          400,
+        );
+      }
+      const 阶段 = 读取文本(输入, ["stage", "阶段"], row.stage_code);
       const 状态 = 规范商机状态(阶段);
       const content = 读取文本(输入, ["followup", "content", "跟进内容"], "");
       const 客户名称 = 读取文本(输入, ["customer", "customerName", "客户名称"], "");
       const customerId = 客户名称 ? await 查询或创建客户(client, 客户名称, 输入) : row.customer_id;
+      const 扩展输入 = { ...输入 };
+      delete 扩展输入.changeReason;
+      delete 扩展输入.reason;
+      delete 扩展输入["变更原因"];
+      const 变更前 = {
+        name: 读取文本(row.extra_json, ["name"], ""),
+        customer: row.customer_name,
+        amount: Number(row.expected_amount || 0),
+        expectedClose: 读取文本(row.extra_json, ["expectedClose"], ""),
+        stage: row.stage_code,
+        partnerId: row.partner_id || "",
+        ownerUserId: row.owner_user_id || "",
+        regionId: row.region_id || "",
+      };
+      const 变更后 = {
+        name: 读取文本(输入, ["name", "商机名称"], 变更前.name),
+        customer: 客户名称 || 变更前.customer,
+        amount:
+          输入.amount !== undefined || 输入["预计金额"] !== undefined
+            ? 读取数字(输入, ["amount", "预计金额"], 变更前.amount)
+            : 变更前.amount,
+        expectedClose:
+          输入.expectedClose !== undefined ? 读取文本(输入, ["expectedClose"], "") : 变更前.expectedClose,
+        stage: 阶段,
+        partnerId: 归属.partnerId || "",
+        ownerUserId: 归属.ownerUserId || "",
+        regionId: 归属.regionId || "",
+      };
+      const 变更字段 = Object.keys(变更后).filter(
+        (字段) =>
+          String(变更前[字段 as keyof typeof 变更前]) !==
+          String(变更后[字段 as keyof typeof 变更后]),
+      );
+      if (content) 变更字段.push("followup");
       await client.query(
         `
         UPDATE crm.opportunities
@@ -2204,9 +2370,10 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           stage_code = $6,
           raw_stage_name = $7,
           status_code = $8,
+          expected_amount = $9,
           updated_at = now(),
           row_version = row_version + 1,
-          extra_json = extra_json || $9::jsonb
+          extra_json = extra_json || $10::jsonb
         WHERE id::text = $1 OR v2_source_id = $1 OR opportunity_no = $1
         `,
         [
@@ -2218,8 +2385,9 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           阶段,
           阶段,
           状态,
+          变更后.amount,
           JSON.stringify({
-            ...输入,
+            ...扩展输入,
             ...(客户名称 ? { customer: 客户名称, customerName: 客户名称 } : {}),
             partnerId: 归属.partnerId || "",
             assignedPartnerId: 归属.partnerId || "",
@@ -2235,6 +2403,26 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           }),
         ],
       );
+      if (变更字段.length > 0) {
+        await 写入审计日志(client, {
+          用户,
+          操作者编号: 上下文?.userId || 用户?.userId,
+          模块: "opportunities",
+          动作: "opportunity.updated",
+          对象类型: "opportunity",
+          对象编号: row.id,
+          对象名称: 变更后.name || 变更前.name || row.id,
+          结果: "success",
+          说明: `商机编辑：${变更原因}`,
+          变更前,
+          变更后: {
+            ...变更后,
+            changedFields: 变更字段,
+            changeReason: 变更原因,
+            followup: content || undefined,
+          },
+        });
+      }
       if (content) {
         await client.query(
           `
@@ -2560,8 +2748,9 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             parentPartnerId: 一级渠道?.externalId || "",
             parentPartnerUuid: 一级渠道?.id || "",
             parentPartnerName: 一级渠道?.name || "",
-            assignedPartnerId: 一级渠道?.externalId || 报价.partner_external_id || "",
-            assignedPartnerName: 一级渠道?.name || 报价.partner_name || "",
+            // 订单归属始终是创建报价的实际渠道商；一级渠道仅用于审批链路。
+            assignedPartnerId: 报价.partner_external_id || "",
+            assignedPartnerName: 报价.partner_name || "",
             ownerUserId: 报价.owner_user_id || "",
             assignedStaffId: 报价.owner_user_id || 读取文本(输入, ["assignedStaffId"], ""),
             assignedStaffName: 报价.owner_user_name || 读取文本(输入, ["assignedStaffName"], ""),
@@ -2613,6 +2802,370 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       });
       await client.query("COMMIT");
       return this.查询详情("orders", id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 申请订单修订(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    const 原因 = 读取文本(输入, ["reason", "修改原因", "remark"], "");
+    if (!原因) throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
+    const 金额 = 读取订单调整金额(输入);
+    const 明细 = 读取订单修订明细(输入);
+    if (金额 === null && !明细.length) {
+      throw new 应用错误("V3_ORDER_REVISION_CHANGE_REQUIRED", "请至少填写新的订单金额或模块明细。", 400);
+    }
+    if (金额 !== null && 明细.length && Math.abs(金额 - 明细.reduce((sum, item) => sum + item.lineAmount, 0)) > 0.01) {
+      throw new 应用错误("V3_ORDER_REVISION_AMOUNT_MISMATCH", "订单金额必须与模块明细小计一致。", 400);
+    }
+    if (!上下文?.userId) throw new 应用错误("V3_AUTH_REQUIRED", "请先登录后再申请订单修订。", 401);
+    if (!["partner_admin", "staff"].includes(上下文.roleCode)) {
+      throw new 应用错误("V3_ORDER_REVISION_PARTNER_REQUIRED", "只有渠道商企业管理员或员工可以申请订单回退修改。", 403);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 当前结果 = await client.query<{
+        id: string;
+        status_code: string;
+        customer_id: string | null;
+        partner_id: string | null;
+        owner_user_id: string | null;
+        order_no: string | null;
+        quote_id: string | null;
+        total_amount: string | number;
+      }>(
+        `
+        SELECT id::text AS id, status_code, customer_id::text AS customer_id,
+          partner_id::text AS partner_id, owner_user_id::text AS owner_user_id,
+          order_no, quote_id::text AS quote_id, total_amount
+        FROM crm.orders
+        WHERE id::text = $1 OR order_no = $1 OR pre_region_order_no = $1
+        LIMIT 1 FOR UPDATE
+        `,
+        [id],
+      );
+      const 当前 = 当前结果.rows[0];
+      if (!当前) throw new 应用错误("V3_STAGE9_NOT_FOUND", "订单不存在。", 404);
+      if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(当前.status_code)) {
+        throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "订单进入履约或终态后不能申请回退修改。", 409);
+      }
+      if (当前.owner_user_id !== 上下文.userId && !上下文.partnerIds.includes(当前.partner_id || "")) {
+        throw new 应用错误("V3_ORDER_REVISION_SCOPE_FORBIDDEN", "只能申请本人或本渠道商的订单修订。", 403);
+      }
+      const 已有 = await client.query<{ id: string }>(
+        `SELECT id::text AS id FROM crm.order_revision_requests WHERE order_id = $1::uuid AND status_code = 'pending' LIMIT 1`,
+        [当前.id],
+      );
+      if (已有.rows[0]) throw new 应用错误("V3_ORDER_REVISION_PENDING", "该订单已有待处理的修订申请。", 409);
+      const 请求结果 = await client.query<{ id: string }>(
+        `
+        INSERT INTO crm.order_revision_requests (
+          order_id, requested_by_user_id, requested_partner_id, reason, change_snapshot_json
+        )
+        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb)
+        RETURNING id::text AS id
+        `,
+        [
+          当前.id,
+          上下文.userId,
+          当前.partner_id,
+          原因,
+          JSON.stringify({ newAmount: 金额, items: 明细, sourceStatus: 当前.status_code }),
+        ],
+      );
+      const 请求编号 = 请求结果.rows[0]?.id;
+      if (!请求编号) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "订单修订申请写入失败。", 500);
+      await client.query(
+        `UPDATE crm.orders SET status_code = 'revision_requested', updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $2::jsonb WHERE id = $1::uuid`,
+        [当前.id, JSON.stringify({ status: "revision_requested", revisionRequestId: 请求编号, revisionReason: 原因 })],
+      );
+      await 暂停订单审批待办(client, 当前.id, 用户);
+      await client.query(
+        `
+        INSERT INTO ops.approvals (
+          v2_source_id, approval_type_code, target_type, target_id, applicant_user_id,
+          applicant_partner_id, status_code, created_at, updated_at, extra_json
+        )
+        VALUES ($1, 'order_revision', 'order_revision', $2::uuid, $3::uuid, $4::uuid, 'pending', now(), now(), $5::jsonb)
+        `,
+        [
+          `order-revision:${请求编号}`,
+          当前.id,
+          上下文.userId,
+          当前.partner_id,
+          JSON.stringify({
+            status: "pending",
+            type: "order_revision",
+            requestId: 请求编号,
+            targetNo: 当前.order_no || 当前.id,
+            reason: 原因,
+            newAmount: 金额,
+            items: 明细,
+          }),
+        ],
+      );
+      await client.query(
+        `INSERT INTO ops.approval_events (approval_id, event_code, to_status_code, reason, extra_json)
+         SELECT id, 'submit', 'pending', $2, $3::jsonb FROM ops.approvals WHERE v2_source_id = $1`,
+        [
+          `order-revision:${请求编号}`,
+          原因,
+          JSON.stringify({ actorName: 用户?.displayName || "", requestId: 请求编号 }),
+        ],
+      );
+      await 写入审计日志(client, {
+        用户,
+        模块: "orders",
+        动作: "request_revision",
+        对象类型: "order",
+        对象编号: 当前.id,
+        对象名称: 当前.order_no || 当前.id,
+        结果: "success",
+        说明: "已提交订单回退修改申请，等待超级管理员审核。",
+        变更后: { requestId: 请求编号, reason: 原因, newAmount: 金额, items: 明细 },
+      });
+      await 写入订单发件箱事件(client, 当前.id, "crm.order.revision.requested", {
+        revisionRequestId: 请求编号,
+        reason: 原因,
+      });
+      await client.query("COMMIT");
+      return this.查询详情("orders", 当前.id, 用户);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 更新订单修订申请(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    校验超级管理员上下文(上下文);
+    if (!上下文) throw new 应用错误("V3_AUTH_REQUIRED", "请先登录后再审核订单修订。", 401);
+    const action = 读取文本(输入, ["action", "status"], "reject");
+    if (!["approve", "reject"].includes(action)) {
+      throw new 应用错误("V3_ORDER_REVISION_ACTION_INVALID", "订单修订审核动作不正确。", 400);
+    }
+    const 审核原因 = 读取文本(输入, ["reason", "remark", "审核意见"], "");
+    if (action === "reject" && !审核原因) {
+      throw new 应用错误("V3_ORDER_REVISION_REVIEW_REASON_REQUIRED", "驳回订单修订必须填写原因。", 400);
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 请求结果 = await client.query<{
+        id: string;
+        order_id: string;
+        status_code: string;
+        order_status_code: string;
+        reason: string;
+        change_snapshot_json: Record<string, unknown>;
+        order_no: string | null;
+        customer_id: string | null;
+        partner_id: string | null;
+        owner_user_id: string | null;
+        total_amount: string | number;
+        quote_id: string | null;
+        revision_no: number;
+      }>(
+        `
+        SELECT rr.id::text AS id, rr.order_id::text AS order_id, rr.status_code,
+          o.status_code AS order_status_code, rr.reason,
+          rr.change_snapshot_json, o.order_no, o.customer_id::text AS customer_id,
+          o.partner_id::text AS partner_id, o.owner_user_id::text AS owner_user_id,
+          o.total_amount, o.quote_id::text AS quote_id, o.revision_no
+        FROM crm.order_revision_requests rr
+        JOIN crm.orders o ON o.id = rr.order_id
+        WHERE rr.id::text = $1
+        LIMIT 1 FOR UPDATE OF rr, o
+        `,
+        [id],
+      );
+      const 请求 = 请求结果.rows[0];
+      if (!请求) throw new 应用错误("V3_ORDER_REVISION_NOT_FOUND", "订单修订申请不存在。", 404);
+      if (请求.status_code !== "pending") throw new 应用错误("V3_ORDER_REVISION_ALREADY_REVIEWED", "订单修订申请已处理。", 409);
+      const 审批 = action === "approve";
+      if (!审批) {
+        const 原状态 = 读取文本(请求.change_snapshot_json, ["sourceStatus"], "confirmed");
+        await client.query(
+          `UPDATE crm.order_revision_requests SET status_code = 'rejected', reviewed_by_user_id = $2::uuid, reviewed_at = now(), review_reason = $3, updated_at = now(), row_version = row_version + 1 WHERE id = $1::uuid`,
+          [请求.id, 上下文.userId, 审核原因],
+        );
+        await client.query(
+          `UPDATE crm.orders SET status_code = $2, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb WHERE id = $1::uuid AND status_code = 'revision_requested'`,
+          [请求.order_id, 原状态, JSON.stringify({ status: 原状态, revisionReviewReason: 审核原因 })],
+        );
+        await client.query(
+          `UPDATE ops.approvals SET status_code = 'rejected', updated_at = now(), extra_json = extra_json || $2::jsonb WHERE v2_source_id = $1`,
+          [`order-revision:${请求.id}`, JSON.stringify({ status: "rejected", reviewRemark: 审核原因 })],
+        );
+        await client.query(
+          `INSERT INTO ops.approval_events (approval_id, event_code, from_status_code, to_status_code, reason, extra_json)
+           SELECT id, 'reject', 'pending', 'rejected', $2, $3::jsonb FROM ops.approvals WHERE v2_source_id = $1`,
+          [`order-revision:${请求.id}`, 审核原因, JSON.stringify({ actorName: 用户?.displayName || "" })],
+        );
+        await 写入订单状态历史(client, { 订单编号: 请求.order_id, 原状态: "revision_requested", 新状态: 原状态, 原因: 审核原因, 用户 });
+        const 原审批步骤 = 订单状态审批步骤(原状态);
+        if (原审批步骤) {
+          await 写入订单审批待办(client, {
+            订单编号: 请求.order_id,
+            步骤: 原审批步骤,
+            原因: "订单回退修改申请已驳回，恢复原审批节点",
+            用户,
+          });
+        }
+        await 写入审计日志(client, {
+          用户,
+          模块: "orders",
+          动作: "review_revision",
+          对象类型: "order",
+          对象编号: 请求.order_id,
+          对象名称: 请求.order_no || 请求.order_id,
+          结果: "rejected",
+          说明: "超级管理员驳回订单修订申请。",
+          变更后: { requestId: 请求.id, reason: 审核原因 },
+        });
+        await client.query("COMMIT");
+        return this.查询详情("orders", 请求.order_id, 用户);
+      }
+      if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(请求.order_status_code)) {
+        throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "原订单已进入履约或终态，不能生成修订版本。", 409);
+      }
+      const 快照 = 请求.change_snapshot_json || {};
+      if (!请求.quote_id) throw new 应用错误("V3_ORDER_REVISION_QUOTE_REQUIRED", "订单缺少关联报价，不能生成修订版本。", 409);
+      const 明细 = 读取订单修订明细(快照);
+      const 金额 = 读取订单调整金额(快照) ?? (明细.length ? 明细.reduce((sum, item) => sum + item.lineAmount, 0) : Number(请求.total_amount) || 0);
+      const 提报账号 = await 查询业务负责人账号(client, 请求.owner_user_id);
+      const 新报价编号 = await 生成业务编号(client, "quote", 提报账号);
+      const 新报价结果 = await client.query<{ id: string }>(
+        `
+        INSERT INTO crm.quotes (quote_no, opportunity_id, customer_id, partner_id, owner_user_id, status_code, total_amount, discount_amount, created_at, updated_at, extra_json)
+        SELECT $1, opportunity_id, customer_id, partner_id, owner_user_id, 'converted', $2, discount_amount, now(), now(),
+          extra_json || $3::jsonb
+        FROM crm.quotes WHERE id = $4::uuid
+        RETURNING id::text AS id
+        `,
+        [
+          新报价编号,
+          金额,
+          JSON.stringify({ revisionOfQuoteId: 请求.quote_id, revisionRequestId: 请求.id, total: 金额 }),
+          请求.quote_id,
+        ],
+      );
+      const 新报价编号内部 = 新报价结果.rows[0]?.id;
+      if (!新报价编号内部) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "修订报价生成失败。", 500);
+      if (明细.length) {
+        for (const item of 明细) {
+          await client.query(
+            `INSERT INTO crm.quote_items (quote_id, product_ref_type, item_name, quantity, unit_price, line_amount) VALUES ($1::uuid, 'manual', $2, $3, $4, $5)`,
+            [新报价编号内部, item.itemName, item.quantity, item.unitPrice, item.lineAmount],
+          );
+        }
+      } else {
+        await client.query(
+          `INSERT INTO crm.quote_items (quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, discount_rate, line_amount, sort_order) SELECT $1::uuid, product_ref_type, product_ref_id, item_name, quantity, unit_price, discount_rate, line_amount, sort_order FROM crm.quote_items WHERE quote_id = $2::uuid`,
+          [新报价编号内部, 请求.quote_id],
+        );
+      }
+      const 渠道层级 = await client.query<{ partner_level_code: string | null }>(
+        `SELECT partner_level_code FROM channel.partners WHERE id = $1::uuid`,
+        [请求.partner_id],
+      );
+      const 初始状态 = 渠道层级.rows[0]?.partner_level_code === "secondary" ? "pending_primary_confirm" : "primary_confirmed";
+      const 新订单编号 = await 生成业务编号(client, "order", 提报账号);
+      const 新订单结果 = await client.query<{ id: string }>(
+        `
+        INSERT INTO crm.orders (order_no, quote_id, customer_id, partner_id, owner_user_id, status_code, total_amount, replaces_order_id, revision_no, created_at, updated_at, extra_json)
+        SELECT $1, $2::uuid, customer_id, partner_id, owner_user_id, $3, $4, id, revision_no + 1, now(), now(),
+          extra_json || $5::jsonb
+        FROM crm.orders WHERE id = $6::uuid
+        RETURNING id::text AS id
+        `,
+        [
+          新订单编号,
+          新报价编号内部,
+          初始状态,
+          金额,
+          JSON.stringify({
+            revisionOfOrderId: 请求.order_id,
+            revisionRequestId: 请求.id,
+            status: 初始状态,
+            total: 金额,
+            amount: 金额,
+            id: 新订单编号,
+            quoteId: 新报价编号,
+            revisionNo: 请求.revision_no + 1,
+          }),
+          请求.order_id,
+        ],
+      );
+      const 新订单编号内部 = 新订单结果.rows[0]?.id;
+      if (!新订单编号内部) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "修订订单生成失败。", 500);
+      await client.query(
+        `INSERT INTO crm.order_items (order_id, quote_item_id, item_name, quantity, unit_price, line_amount) SELECT $1::uuid, qi.id, qi.item_name, qi.quantity, qi.unit_price, qi.line_amount FROM crm.quote_items qi WHERE qi.quote_id = $2::uuid`,
+        [新订单编号内部, 新报价编号内部],
+      );
+      await client.query(
+        `UPDATE crm.orders SET status_code = 'replaced', superseded_by_order_id = $2::uuid, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb WHERE id = $1::uuid`,
+        [请求.order_id, 新订单编号内部, JSON.stringify({ status: "replaced", supersededByOrderId: 新订单编号内部, replacementReason: 请求.reason })],
+      );
+      await 暂停订单审批待办(client, 请求.order_id, 用户);
+      await client.query(
+        `UPDATE crm.order_revision_requests SET status_code = 'applied', reviewed_by_user_id = $2::uuid, reviewed_at = now(), review_reason = $3, result_order_id = $4::uuid, updated_at = now(), row_version = row_version + 1 WHERE id = $1::uuid`,
+        [请求.id, 上下文.userId, 审核原因 || "超级管理员批准订单修订。", 新订单编号内部],
+      );
+      await client.query(
+        `UPDATE ops.approvals SET status_code = 'approved', updated_at = now(), extra_json = extra_json || $2::jsonb WHERE v2_source_id = $1`,
+        [`order-revision:${请求.id}`, JSON.stringify({ status: "approved", resultOrderId: 新订单编号内部 })],
+      );
+      await client.query(
+        `INSERT INTO ops.approval_events (approval_id, event_code, from_status_code, to_status_code, reason, extra_json)
+         SELECT id, 'approve', 'pending', 'approved', $2, $3::jsonb FROM ops.approvals WHERE v2_source_id = $1`,
+        [
+          `order-revision:${请求.id}`,
+          审核原因 || "超级管理员批准订单修订。",
+          JSON.stringify({ actorName: 用户?.displayName || "", resultOrderId: 新订单编号内部 }),
+        ],
+      );
+      await 写入订单状态历史(client, { 订单编号: 请求.order_id, 原状态: 请求.order_status_code, 新状态: "replaced", 原因: 请求.reason, 用户 });
+      await 写入订单状态历史(client, { 订单编号: 新订单编号内部, 原状态: "", 新状态: 初始状态, 原因: `订单修订版本${请求.revision_no + 1}生成，重新提交审批`, 用户 });
+      await 写入订单审批待办(client, {
+        订单编号: 新订单编号内部,
+        步骤: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+        原因: "订单修订版本已生成，重新进入审批链",
+        用户,
+      });
+      await 写入订单发件箱事件(client, 新订单编号内部, "crm.order.approval.pending", {
+        status: 初始状态,
+        step: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+        revisionRequestId: 请求.id,
+      });
+      await 写入审计日志(client, {
+        用户,
+        模块: "orders",
+        动作: "apply_revision",
+        对象类型: "order",
+        对象编号: 新订单编号内部,
+        对象名称: 新订单编号,
+        结果: "success",
+        说明: "订单修订申请已批准并生成新订单版本，旧订单保留为已替换。",
+        变更后: { replacesOrderId: 请求.order_id, revisionRequestId: 请求.id, amount: 金额 },
+      });
+      await client.query("COMMIT");
+      return this.查询详情("orders", 新订单编号内部, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -2682,6 +3235,12 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 订单 = 当前.rows[0];
       if (!订单) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      if (["replaced"].includes(订单.status_code)) {
+        throw new 应用错误("V3_ORDER_REPLACED_READ_ONLY", "已替换订单仅可查看，不能继续流转。", 409);
+      }
+      if (订单.status_code === "revision_requested") {
+        throw new 应用错误("V3_ORDER_REVISION_PENDING", "订单已有待处理的回退修改申请。", 409);
+      }
       const 请求状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
       const 调价金额 = 读取订单调整金额(输入);
       const 是否调价 = 调价金额 !== null || 读取文本(输入, ["action"], "") === "price_adjust";
@@ -4123,20 +4682,23 @@ async function 写入审计日志(
     对象名称: string;
     结果: string;
     说明: string;
+    操作者编号?: string | undefined;
+    变更前?: unknown;
     变更后?: unknown;
   },
 ): Promise<void> {
   await db.query(
     `
     INSERT INTO audit.audit_logs (
-      created_at, request_id, actor_username, actor_name, actor_role,
+      created_at, request_id, actor_user_id, actor_username, actor_name, actor_role,
       module_code, action_code, target_type, target_id, target_name,
-      result_code, message, after_json, extra_json
+      result_code, message, before_json, after_json, extra_json
     )
-    VALUES (now(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13::jsonb)
+    VALUES (now(), $1, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15::jsonb)
     `,
     [
       输入.用户?.requestId || "stage9.13-" + crypto.randomBytes(8).toString("hex"),
+      输入.操作者编号 || null,
       输入.用户?.username || "system",
       输入.用户?.displayName || "系统",
       输入.用户?.roleName || "system",
@@ -4147,6 +4709,7 @@ async function 写入审计日志(
       输入.对象名称,
       输入.结果,
       输入.说明,
+      JSON.stringify(输入.变更前 || {}),
       JSON.stringify(输入.变更后 || {}),
       JSON.stringify({ source: "stage9.13" }),
     ],
@@ -4600,6 +5163,7 @@ function 订单查询SQL(where: string): string {
         WHEN 'completed' THEN '已完成'
         WHEN 'rejected' THEN '已驳回'
         WHEN 'cancelled' THEN '已取消'
+        WHEN 'replaced' THEN '已替换'
         ELSE '草稿'
       END AS "状态名称",
       o.total_amount AS "金额",
@@ -4610,7 +5174,7 @@ function 订单查询SQL(where: string): string {
         'partnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'partnerId', ''),
         'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, o.partner_id::text, o.extra_json->>'assignedPartnerId', ''),
         'partnerName', COALESCE(p.partner_name, legacy.display_partner_name, o.extra_json->>'partnerName', ''),
-        'assignedPartnerName', COALESCE(parent_rel.parent_partner_name, p.partner_name, legacy.display_partner_name, o.extra_json->>'assignedPartnerName', ''),
+        'assignedPartnerName', COALESCE(p.partner_name, legacy.display_partner_name, o.extra_json->>'partnerName', o.extra_json->>'assignedPartnerName', ''),
         'formalOrderNo', o.order_no,
         'preRegionOrderNo', COALESCE(o.pre_region_order_no, o.extra_json->>'preRegionOrderNo', ''),
         'agreementNo', COALESCE(o.agreement_no_snapshot, o.extra_json->>'agreementNo', ''),
@@ -4638,6 +5202,13 @@ function 订单查询SQL(where: string): string {
         'opportunityNo', COALESCE(related_opportunity.opportunity_no, related_opportunity.v2_source_id, related_opportunity.id::text, ''),
         'registrationUuid', COALESCE(report.id::text, ''),
         'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, ''),
+        'revisionNo', o.revision_no,
+        'replacesOrderId', COALESCE(o.replaces_order_id::text, ''),
+        'supersededByOrderId', COALESCE(o.superseded_by_order_id::text, ''),
+        'revisionRequestId', COALESCE(revision_request.id, ''),
+        'revisionRequestStatus', COALESCE(revision_request.status_code, ''),
+        'revisionRequestReason', COALESCE(revision_request.reason, ''),
+        'revisionResultOrderId', COALESCE(revision_request.result_order_id, ''),
         'statusHistory', COALESCE(order_history.status_history, '[]'::jsonb)
       ) AS "原始数据"
     FROM crm.orders o
@@ -4648,6 +5219,13 @@ function 订单查询SQL(where: string): string {
     LEFT JOIN crm.quotes related_quote ON related_quote.id = o.quote_id
     LEFT JOIN crm.opportunities related_opportunity ON related_opportunity.id = related_quote.opportunity_id
     LEFT JOIN crm.registrations report ON report.id = related_opportunity.registration_id
+    LEFT JOIN LATERAL (
+      SELECT rr.id::text AS id, rr.status_code, rr.reason, rr.result_order_id::text AS result_order_id
+      FROM crm.order_revision_requests rr
+      WHERE rr.order_id = o.id
+      ORDER BY rr.created_at DESC, rr.id DESC
+      LIMIT 1
+    ) revision_request ON true
     LEFT JOIN LATERAL (
       SELECT r.redacted_json
       FROM migration.v2_raw_records r
@@ -4994,6 +5572,7 @@ function 审核查询SQL(where: string): string {
         CASE
           WHEN a.target_type = 'registration' THEN '客户报备'
           WHEN a.target_type = 'order' THEN '订单审批'
+          WHEN a.target_type = 'order_revision' THEN '订单回退修改'
           ELSE '审核任务'
         END AS "类型",
         COALESCE(c.customer_name, oc.customer_name, a.extra_json->>'targetName', a.target_type) AS "标题",
@@ -5003,7 +5582,11 @@ function 审核查询SQL(where: string): string {
         COALESCE(reg.region_name, oreg.region_name, a.extra_json->>'region', '') AS "区域",
         a.status_code AS "状态",
         CASE a.status_code WHEN 'approved' THEN '已通过' WHEN 'rejected' THEN '已驳回' ELSE '待审核' END AS "状态名称",
-        COALESCE(o.total_amount, 0::numeric) AS "金额",
+        CASE
+          WHEN a.target_type = 'order_revision'
+          THEN COALESCE(NULLIF(a.extra_json->>'newAmount', '')::numeric, o.total_amount, 0::numeric)
+          ELSE COALESCE(o.total_amount, 0::numeric)
+        END AS "金额",
         a.created_at AS "创建时间",
         a.updated_at AS "更新时间",
         a.extra_json || jsonb_build_object(
@@ -5016,8 +5599,16 @@ function 审核查询SQL(where: string): string {
           'contact', COALESCE(r.extra_json->>'contact', a.extra_json->>'contact', ''),
           'phone', COALESCE(r.extra_json->>'phone', a.extra_json->>'phone', ''),
           'orderStatus', COALESCE(o.status_code, a.extra_json->>'orderStatus', ''),
-          'amount', COALESCE(o.total_amount, 0::numeric),
-          'total', COALESCE(o.total_amount, 0::numeric),
+          'amount', CASE
+            WHEN a.target_type = 'order_revision'
+            THEN COALESCE(NULLIF(a.extra_json->>'newAmount', '')::numeric, o.total_amount, 0::numeric)
+            ELSE COALESCE(o.total_amount, 0::numeric)
+          END,
+          'total', CASE
+            WHEN a.target_type = 'order_revision'
+            THEN COALESCE(NULLIF(a.extra_json->>'newAmount', '')::numeric, o.total_amount, 0::numeric)
+            ELSE COALESCE(o.total_amount, 0::numeric)
+          END,
           'partnerUuid', COALESCE(r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
           'partnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
           'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
@@ -5030,7 +5621,7 @@ function 审核查询SQL(where: string): string {
       FROM ops.approvals a
       LEFT JOIN crm.registrations r ON a.target_type = 'registration' AND r.id = a.target_id
       LEFT JOIN crm.customers c ON c.id = r.customer_id
-      LEFT JOIN crm.orders o ON a.target_type = 'order' AND o.id = a.target_id
+      LEFT JOIN crm.orders o ON a.target_type IN ('order', 'order_revision') AND o.id = a.target_id
       LEFT JOIN crm.customers oc ON oc.id = o.customer_id
       LEFT JOIN iam.users u ON u.id = a.applicant_user_id
       LEFT JOIN channel.partners p ON p.id = COALESCE(r.partner_id, a.applicant_partner_id)
@@ -5528,6 +6119,53 @@ async function 同步订单审批状态(
   );
 }
 
+async function 暂停订单审批待办(
+  client: PoolClient,
+  订单编号: string,
+  用户: 当前业务用户 | null,
+): Promise<void> {
+  const 原因 = "订单已提交回退修改申请，暂停原审批待办";
+  const result = await client.query<{ id: string; status_code: string; step: string }>(
+    `
+    UPDATE ops.approvals
+    SET status_code = 'cancelled',
+        updated_at = now(),
+        extra_json = extra_json || $2::jsonb
+    WHERE target_type = 'order'
+      AND target_id::text = $1
+      AND status_code = 'pending'
+    RETURNING id::text AS id, status_code, COALESCE(extra_json->>'step', '') AS step
+    `,
+    [
+      订单编号,
+      JSON.stringify({
+        status: "cancelled",
+        reviewRemark: 原因,
+        updatedByName: 用户?.displayName || "阶段9测试账号",
+      }),
+    ],
+  );
+  for (const 审批 of result.rows) {
+    await client.query(
+      `
+      INSERT INTO ops.approval_events (
+        approval_id, event_code, from_status_code, to_status_code, reason, extra_json
+      )
+      VALUES ($1::uuid, 'cancel', 'pending', 'cancelled', $2, $3::jsonb)
+      `,
+      [
+        审批.id,
+        原因,
+        JSON.stringify({
+          actorName: 用户?.displayName || "阶段9测试账号",
+          step: 审批.step,
+          source: "order-revision-request",
+        }),
+      ],
+    );
+  }
+}
+
 async function 关闭V2历史订单审批待办(
   client: PoolClient,
   订单编号: string,
@@ -5888,6 +6526,37 @@ function 读取订单调整金额(输入: Record<string, unknown>): number | nul
     return number;
   }
   return null;
+}
+
+type 订单修订明细项 = {
+  itemName: string;
+  quantity: number;
+  unitPrice: number;
+  lineAmount: number;
+};
+
+function 读取订单修订明细(输入: Record<string, unknown>): 订单修订明细项[] {
+  const 原始明细 = Array.isArray(输入.items)
+    ? 输入.items
+    : Array.isArray(输入.模块明细)
+      ? 输入.模块明细
+      : [];
+  const 明细 = 原始明细.map((项目) => {
+    if (!项目 || typeof 项目 !== "object") {
+      throw new 应用错误("V3_ORDER_REVISION_ITEM_INVALID", "订单修订模块明细格式不正确。", 400);
+    }
+    const 记录 = 项目 as Record<string, unknown>;
+    const itemName = 读取文本(记录, ["itemName", "name", "模块名称"], "");
+    const quantity = 读取数字(记录, ["quantity", "数量"], 1);
+    const unitPrice = 读取数字(记录, ["unitPrice", "单价"], 0);
+    const lineAmount = 读取数字(记录, ["lineAmount", "小计"], quantity * unitPrice);
+    if (!itemName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(lineAmount) || lineAmount < 0) {
+      throw new 应用错误("V3_ORDER_REVISION_ITEM_INVALID", "订单修订模块明细包含无效名称、数量或价格。", 400);
+    }
+    return { itemName, quantity, unitPrice, lineAmount };
+  });
+  if (明细.length > 100) throw new 应用错误("V3_ORDER_REVISION_ITEM_TOO_MANY", "订单修订模块明细不能超过100项。", 400);
+  return 明细;
 }
 
 async function 解析业务归属(
@@ -6588,6 +7257,7 @@ function 规范订单状态(status: string): string {
       "confirmed",
       "rejected",
       "cancelled",
+      "replaced",
       "processing",
       "shipped",
       "completed",

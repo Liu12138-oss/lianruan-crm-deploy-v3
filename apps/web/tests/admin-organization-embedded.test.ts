@@ -62,7 +62,7 @@ describe("正式管理员页组织架构内嵌路由", () => {
   it("正式页面引用内嵌版本资源", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=158"></script>');
+    expect(页面文本).toContain('<script src="admin-app.js?v=159"></script>');
     expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=16" />');
     expect(页面文本).toContain('<script src="libs/xlsx.full.min.js"></script>');
   });
@@ -329,6 +329,14 @@ it("角色管理页支持管理员角色配置与用户角色分配", async () =
   expect(脚本文本).toContain("保存用户管理员角色");
   expect(脚本文本).toContain("系统角色与有效权限");
   expect(脚本文本).toContain("角色调整不修改 IAM、UniSDP");
+  expect(脚本文本).toContain(
+    "仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整",
+  );
+  expect(脚本文本).toContain("旧 CRM 管理会话会立即失效并要求重新登录");
+  expect(脚本文本).toContain(
+    "await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', keepalive: true })",
+  );
+  expect(脚本文本).toContain("window.location.replace('/login?reason=role_changed')");
   expect(脚本文本).toContain("组织查询角色用户");
   expect(脚本文本).toContain("'/api/rbac/roles/' + 组织编码路径参数(roleId) + '/users'");
   expect(脚本文本).toContain("打开角色用户");

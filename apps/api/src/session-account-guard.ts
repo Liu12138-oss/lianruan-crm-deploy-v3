@@ -2,10 +2,15 @@ import { 应用错误 } from "@lianruan/shared";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { Pool } from "pg";
 
-import { 读取移动端会话身份, 读取请求会话用户名 } from "./auth-routes.js";
+import { 读取移动端会话身份, 读取请求会话用户名, 读取请求会话角色 } from "./auth-routes.js";
 
 export interface 会话账号状态服务 {
   查询账号状态(username: string): Promise<{ statusCode: string; offboardingStatus: string } | null>;
+  /**
+   * 查询数据库中的有效系统角色。返回 null 表示数据库中不存在该账号，
+   * 空数组表示账号存在但当前没有有效角色。
+   */
+  查询账号角色?(username: string): Promise<{ roleCodes: string[] } | null>;
   关闭?(): Promise<void>;
 }
 
@@ -23,9 +28,85 @@ export function 创建会话账号状态服务(databaseUrl: string): 会话账�
       );
       return 结果.rows[0] || null;
     },
+    async 查询账号角色(username) {
+      const 结果 = await pool.query<{ roleCodes: string[] }>(
+        `SELECT
+           COALESCE(
+             array_agg(DISTINCT r.role_code ORDER BY r.role_code)
+               FILTER (WHERE r.role_code IS NOT NULL),
+             ARRAY[]::text[]
+           ) AS "roleCodes"
+         FROM iam.users u
+         LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
+         LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
+         WHERE u.username=$1::citext OR u.v2_source_id=$1
+         GROUP BY u.id, u.username
+         ORDER BY CASE WHEN u.username=$1::citext THEN 0 ELSE 1 END
+         LIMIT 1`,
+        [username],
+      );
+      return 结果.rows[0] || null;
+    },
     async 关闭() {
       await pool.end();
     },
+  };
+}
+
+/**
+ * 组织架构和 RBAC 使用 Cookie 中的超级管理员标记作为快速路由判断，
+ * 但角色调整后旧 Cookie 不能继续保留管理权限。因此对这两个高权限域
+ * 额外按请求实时读取数据库角色；查询失败时失效关闭，不放行旧会话。
+ */
+export function 创建会话角色实时防护(参数: {
+  sessionSecret: string;
+  env?: NodeJS.ProcessEnv;
+  service?: 会话账号状态服务;
+}): RequestHandler {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    if (!是高权限角色校验路径(req)) {
+      next();
+      return;
+    }
+    const 会话参数 = {
+      sessionSecret: 参数.sessionSecret,
+      ...(参数.env ? { env: 参数.env } : {}),
+    };
+    const username = 读取请求会话用户名(req, 会话参数);
+    const role = 读取请求会话角色(req, 会话参数);
+    if (!username || role !== "superadmin") {
+      next();
+      return;
+    }
+    if (!参数.service?.查询账号角色) {
+      // 没有数据库角色服务时，组织/RBAC 路由自身仍会执行签名和角色判断；
+      // 交付配置账号可能没有数据库记录，保留其既有登录能力。
+      next();
+      return;
+    }
+    try {
+      const 数据库角色 = await 参数.service.查询账号角色(username);
+      if (!数据库角色) {
+        if (是交付配置账号(username, 参数.env)) {
+          next();
+          return;
+        }
+        throw new 应用错误("V3_AUTH_ROLE_CHANGED", "账号授权已发生变化，请重新登录后重试。", 401);
+      }
+      if (!数据库角色.roleCodes.includes("superadmin"))
+        throw new 应用错误("V3_AUTH_ROLE_CHANGED", "账号授权已发生变化，请重新登录后重试。", 401);
+      next();
+    } catch (error) {
+      next(
+        error instanceof 应用错误
+          ? error
+          : new 应用错误(
+              "V3_AUTH_ROLE_CHECK_UNAVAILABLE",
+              "账号授权检查暂不可用，请稍后重试。",
+              503,
+            ),
+      );
+    }
   };
 }
 
@@ -119,6 +200,10 @@ export function 创建停用账号会话防护(参数: {
 
 function 是开放接口请求(req: Request): boolean {
   return req.path === "/open/v1" || req.path.startsWith("/open/v1/");
+}
+
+function 是高权限角色校验路径(req: Request): boolean {
+  return req.path === "/rbac" || req.path.startsWith("/rbac/") || req.path.startsWith("/org/");
 }
 
 function 存在不可信兼容身份(req: Request): boolean {

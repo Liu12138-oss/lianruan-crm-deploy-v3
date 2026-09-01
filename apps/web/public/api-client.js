@@ -411,6 +411,28 @@ const apiClient = {
     return res.json();
   },
 
+  // 提交订单回退修改申请
+  async requestOrderRevision(orderId, payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${API_BASE}/orders/${orderId}/revision-requests`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withOperatorPayload(payload))
+    });
+    return res.json();
+  },
+
+  // 超级管理员审核订单回退修改申请
+  async reviewOrderRevision(requestId, action, reason = '') {
+    loadUserFromStorage();
+    const res = await apiFetch(`${API_BASE}/order-revision-requests/${requestId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withOperatorPayload({ action, reason }))
+    });
+    return res.json();
+  },
+
   // ?????????????????
   async getPartners(filters = {}) {
     loadUserFromStorage();

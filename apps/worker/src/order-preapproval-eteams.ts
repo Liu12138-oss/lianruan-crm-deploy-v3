@@ -43,8 +43,6 @@ export interface 泛微流程回查条件 {
   所属区域: string;
   产品类型: string;
   采购内容: string;
-  采购订单字段编号: string;
-  报价单字段编号: string;
 }
 
 export class 订单预审外部错误 extends Error {
@@ -55,6 +53,7 @@ export class 订单预审外部错误 extends Error {
       httpStatus?: number | undefined;
       retryable?: boolean;
       manualConfirmationRequired?: boolean;
+      responseSummary?: Record<string, unknown>;
     } = {},
   ) {
     super(message);
@@ -71,6 +70,10 @@ export class 订单预审外部错误 extends Error {
 
   public get manualConfirmationRequired(): boolean {
     return this.options.manualConfirmationRequired === true;
+  }
+
+  public get responseSummary(): Record<string, unknown> {
+    return this.options.responseSummary || {};
   }
 }
 
@@ -99,8 +102,7 @@ export class 泛微订单预审客户端 {
       method: "POST",
       body: 表单,
     });
-    const 文件编号 =
-      读取字符串(响应.json, ["message", "fileid"]) || 读取字符串(响应.json, ["fileid"]);
+    const 文件编号 = 读取泛微附件编号(响应.json);
     if (!文件编号) {
       throw new 订单预审外部错误("ETEAMS_UPLOAD_RESPONSE_INVALID", "泛微附件上传未返回文件编号。", {
         httpStatus: 响应.status,
@@ -224,7 +226,7 @@ export class 泛微订单预审客户端 {
       const json = await 读取响应JSON(响应);
       const 错误码 = 读取错误码(json);
       if (!响应.ok || (错误码 !== undefined && String(错误码) !== "0")) {
-        throw 构建泛微接口错误(动作, 响应.status, 错误码);
+        throw 构建泛微接口错误(动作, 响应.status, 错误码, json);
       }
       return { status: 响应.status, json };
     } catch (错误) {
@@ -334,7 +336,7 @@ export function 校验订单预审字段映射(原始: unknown): 订单预审字
 }
 
 function 构建文本字段(fieldId: string, 值: string): string {
-  return `{"fieldId":${fieldId},"dataOptions":[{"optionId":${JSON.stringify(值)}}]}`;
+  return `{"fieldId":${JSON.stringify(fieldId)},"content":${JSON.stringify(值)}}`;
 }
 
 function 构建附件字段(fieldId: string, 文件: 泛微上传文件): string {
@@ -345,7 +347,6 @@ function 构建附件字段(fieldId: string, 文件: 泛微上传文件): string
 }
 
 function 校验流程回查结果(原始: unknown, 条件: 泛微流程回查条件, httpStatus: number): void {
-  const 结果文本 = JSON.stringify(原始);
   const 状态 = 读取字符串(原始, ["flowRequest", "statusType"]);
   const 当前节点 = 读取字符串(原始, ["flowRequest", "currentNode"]);
   if (!状态 || !["inProcess", "processing", "pending"].includes(状态) || !当前节点) {
@@ -357,15 +358,15 @@ function 校验流程回查结果(原始: unknown, 条件: 泛微流程回查条
       },
     );
   }
-  const 必须存在 = [
-    条件.订单编号,
-    条件.所属区域,
-    条件.产品类型,
-    条件.采购内容,
-    条件.采购订单字段编号,
-    条件.报价单字段编号,
-  ];
-  if (必须存在.some((值) => !结果文本.includes(值))) {
+  const 必须存在 = [条件.订单编号, 条件.所属区域, 条件.产品类型, 条件.采购内容];
+  const 字段值 = 读取未知值(原始, ["formData", "dataDetails"]);
+  const 附件下载地址 = 读取未知值(原始, ["formData", "fileDownload_Urls"]);
+  const 字段完整 = 是记录(字段值) && 必须存在.every((值) => Object.values(字段值).includes(值));
+  const 双附件完整 =
+    是记录(附件下载地址) &&
+    "采购订单上传处" in 附件下载地址 &&
+    "报价单/收益表上传处" in 附件下载地址;
+  if (!字段完整 || !双附件完整) {
     throw new 订单预审外部错误(
       "ETEAMS_VERIFY_FIELD_MISMATCH",
       "泛微回查的关键字段或双附件不完整。",
@@ -380,14 +381,38 @@ function 构建泛微接口错误(
   动作: string,
   httpStatus: number,
   错误码?: number | string,
+  响应正文?: unknown,
 ): 订单预审外部错误 {
   const 可重试 = httpStatus === 429 || httpStatus >= 500 || 错误码 === 45009 || 错误码 === 45011;
   const 错误代码 = 错误码 === undefined ? `HTTP_${httpStatus}` : `ETEAMS_${错误码}`;
+  const 对方提示 = 读取泛微错误提示(响应正文);
   return new 订单预审外部错误(
     错误代码,
-    可重试 ? `泛微${动作}暂时不可用。` : `泛微${动作}被拒绝，请核对模板、字段、发起人或应用权限。`,
-    { httpStatus, retryable: 可重试 },
+    可重试
+      ? `泛微${动作}暂时不可用。`
+      : `泛微${动作}被拒绝，请核对模板、字段、发起人或应用权限。${对方提示 ? ` 对方提示：${对方提示}` : ""}`,
+    {
+      httpStatus,
+      retryable: 可重试,
+      responseSummary: 对方提示 ? { message: 对方提示 } : {},
+    },
   );
+}
+
+function 读取泛微错误提示(原始: unknown): string | undefined {
+  const 路径列表 = [
+    ["message", "errmsg"],
+    ["errmsg"],
+    ["message", "error"],
+    ["error"],
+    ["message", "msg"],
+    ["msg"],
+  ];
+  for (const 路径 of 路径列表) {
+    const 值 = 读取字符串(原始, 路径);
+    if (值) return 值.replace(/[\\r\\n\\t]+/g, " ").slice(0, 300);
+  }
+  return undefined;
 }
 
 async function 读取响应JSON(响应: Response): Promise<unknown> {
@@ -397,7 +422,7 @@ async function 读取响应JSON(响应: Response): Promise<unknown> {
     // 泛微流程与附件编号通常为 19 位整数，超过 JavaScript 安全整数范围。
     // 仅将约定编号字段的超长数字改为字符串，避免 JSON.parse 后发生静默精度丢失。
     const 保留编号精度文本 = 文本.replace(
-      /"(requestId|requestid|fileid|fileId)"\s*:\s*(-?\d{16,})/g,
+      /"(requestId|requestid|fileid|fileId|fileID|file_id|id)"\s*:\s*(-?\d{16,})/g,
       '"$1":"$2"',
     );
     return JSON.parse(保留编号精度文本) as unknown;
@@ -417,6 +442,43 @@ function 读取错误码(原始: unknown): number | string | undefined {
 function 读取字符串(原始: unknown, 路径: string[]): string | undefined {
   const 值 = 读取未知值(原始, 路径);
   return typeof 值 === "string" || typeof 值 === "number" ? String(值) : undefined;
+}
+
+/**
+ * 泛微不同版本可能把附件编号放在 message、data 或 result 中，字段名称也可能存在大小写或下划线差异。
+ * 只接受数字格式的编号，避免将提示文本或其他业务字段误当成附件编号。
+ */
+export function 读取泛微附件编号(原始: unknown): string | undefined {
+  const 读取 = (值: unknown, 路径: string[]): string | undefined => {
+    if (是记录(值)) {
+      for (const [键, 子值] of Object.entries(值)) {
+        const 规范键 = 键.replace(/_/g, "").toLowerCase();
+        if (规范键 === "fileid") {
+          const 文件编号 = 读取有效附件编号(子值);
+          if (文件编号) return 文件编号;
+        }
+        if (规范键 === "id" && ["data", "result"].includes(路径[0] || "")) {
+          const 文件编号 = 读取有效附件编号(子值);
+          if (文件编号) return 文件编号;
+        }
+        const 嵌套编号 = 读取(子值, [...路径, 键]);
+        if (嵌套编号) return 嵌套编号;
+      }
+    } else if (Array.isArray(值)) {
+      for (const 子值 of 值) {
+        const 嵌套编号 = 读取(子值, 路径);
+        if (嵌套编号) return 嵌套编号;
+      }
+    }
+    return undefined;
+  };
+  return 读取(原始, []);
+}
+
+function 读取有效附件编号(值: unknown): string | undefined {
+  if (typeof 值 !== "string" && typeof 值 !== "number") return undefined;
+  const 文件编号 = String(值).trim();
+  return /^\d{1,30}$/.test(文件编号) ? 文件编号 : undefined;
 }
 
 function 读取未知值(原始: unknown, 路径: string[]): unknown {

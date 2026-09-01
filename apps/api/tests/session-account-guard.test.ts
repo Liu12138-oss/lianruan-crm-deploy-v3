@@ -44,6 +44,20 @@ function 创建状态服务(
   return { 查询账号状态: vi.fn(async () => 状态) };
 }
 
+function 创建角色管理假服务() {
+  return {
+    查询角色列表: vi.fn(async () => ({ items: [] })),
+    查询角色用户: vi.fn(async () => ({ items: [], page: 1, pageSize: 20, total: 0 })),
+    查询账号: vi.fn(async () => ({ items: [] })),
+    新建角色: vi.fn(async () => ({})),
+    更新角色: vi.fn(async () => ({})),
+    更新角色状态: vi.fn(async () => ({})),
+    查询权限字典: vi.fn(async () => ({ resources: [] })),
+    查询用户角色: vi.fn(async () => ({ roleIds: [], roles: [] })),
+    覆盖用户角色: vi.fn(async () => ({ roleIds: [], roles: [] })),
+  };
+}
+
 describe("停用账号旧会话防护", () => {
   it("账号状态防护关闭时不查询账号状态且现有登录行为保持不变", async () => {
     const 服务 = 创建状态服务({ statusCode: "disabled", offboardingStatus: "offboarding" });
@@ -145,6 +159,47 @@ describe("停用账号旧会话防护", () => {
 
     const 响应 = await request(app).get("/api/org/status").set("Cookie", 会话.cookie).expect(503);
     expect(响应.body.error.code).toBe("V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE");
+  });
+
+  it("超级管理员角色被数据库移除后，旧 Cookie 访问组织和 RBAC 立即失效", async () => {
+    const 服务 = 创建状态服务({ statusCode: "active", offboardingStatus: "active" });
+    服务.查询账号角色 = vi.fn(async () => ({ roleCodes: [] }));
+    const app = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true" },
+      sessionAccountStatusService: 服务,
+      rbacService: 创建角色管理假服务(),
+      orgService: {
+        查询组织树: vi.fn(async () => ({ items: [] })),
+      } as never,
+    });
+    const 会话 = await 登录(app);
+
+    const 组织响应 = await request(app)
+      .get("/api/org/units/tree")
+      .set("Cookie", 会话.cookie)
+      .expect(401);
+    expect(组织响应.body.error.code).toBe("V3_AUTH_ROLE_CHANGED");
+    const 角色响应 = await request(app)
+      .get("/api/rbac/roles")
+      .set("Cookie", 会话.cookie)
+      .expect(401);
+    expect(角色响应.body.error.code).toBe("V3_AUTH_ROLE_CHANGED");
+  });
+
+  it("角色实时查询异常时拒绝高权限请求并返回503", async () => {
+    const 服务 = 创建状态服务({ statusCode: "active", offboardingStatus: "active" });
+    服务.查询账号角色 = vi.fn(async () => {
+      throw new Error("模拟角色数据库不可用");
+    });
+    const app = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true" },
+      sessionAccountStatusService: 服务,
+      rbacService: 创建角色管理假服务(),
+    });
+    const 会话 = await 登录(app);
+
+    const 响应 = await request(app).get("/api/rbac/roles").set("Cookie", 会话.cookie).expect(503);
+    expect(响应.body.error.code).toBe("V3_AUTH_ROLE_CHECK_UNAVAILABLE");
   });
 
   it("关闭交接执行后账号状态防护仍可独立保持，停用账号旧会话不会恢复", async () => {

@@ -945,20 +945,24 @@ const MainLayout = {
       showNotif.value = false;
       go('/notifications');
     }
-    function logout() {
-      if (confirm('确认退出登录？')) {
-        partnerFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-        // 清理 localStorage 中的登录数据
-        localStorage.removeItem('partner_user_info');
-        localStorage.removeItem('partner_auth_token');
-        localStorage.removeItem('partner_api_user');
-        localStorage.removeItem('api_user');
-        localStorage.removeItem('admin_user_info');
-        localStorage.removeItem('admin_auth_token');
-        localStorage.removeItem('admin_api_user');
-        store.user = null;
-        window.location.href = '/login';
+    async function logout() {
+      if (!confirm('确认退出登录？')) return;
+      try {
+        // 等待服务端清除 HttpOnly 会话 Cookie，避免跳转提前中断退出请求。
+        await partnerFetch('/api/auth/logout', { method: 'POST', keepalive: true });
+      } catch (error) {
+        // 即使服务端响应异常，也清理当前页面缓存并回到登录页。
       }
+      // 清理 localStorage 中的登录数据
+      localStorage.removeItem('partner_user_info');
+      localStorage.removeItem('partner_auth_token');
+      localStorage.removeItem('partner_api_user');
+      localStorage.removeItem('api_user');
+      localStorage.removeItem('admin_user_info');
+      localStorage.removeItem('admin_auth_token');
+      localStorage.removeItem('admin_api_user');
+      store.user = null;
+      window.location.replace('/login');
     }
     function markAllRead() {
       store.notifications.forEach(n => n.unread = false);
@@ -4758,7 +4762,7 @@ const QuoteNew = {
       // 添加硬件ID
       const hardwareIds = [...selectedHardware.value];
       const payloadFeaturePointOverrides = { ...featurePointOverrides };
-      
+
       try {
         if (isEdit) {
           const result = await apiClient.updateQuote(editId, {
@@ -5141,6 +5145,11 @@ const OrderList = {
               </div>
             </div>
           </div>
+          <!-- 回退修改申请 -->
+          <div v-if="detail.revisionRequestId || detail.原始数据?.revisionRequestId" style="margin-top:24px;padding:14px;background:#f6f8fa;border:1px solid #d9d9d9;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:8px">回退修改申请</div>
+            <div style="font-size:12px;color:#666">状态：{{ detail.revisionRequestStatus || detail.原始数据?.revisionRequestStatus }}；原因：{{ detail.revisionRequestReason || detail.原始数据?.revisionRequestReason || '—' }}</div>
+          </div>
           <!-- 状态变更历史（合作伙伴可查看） -->
           <div v-if="detail.statusHistory && detail.statusHistory.length > 0" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
             <div style="font-size:13px;font-weight:700;margin-bottom:14px">订单处理记录</div>
@@ -5168,8 +5177,25 @@ const OrderList = {
             <button class="btn btn-danger" @click="openRejectModal(detail);detail=null">❌ 驳回</button>
             <button class="btn btn-primary" @click="openConfirmModal(detail);detail=null">✅ 确认接受</button>
           </template>
+          <button v-if="canRequestRevision(detail)" class="btn btn-warning" @click="openRevisionModal(detail)">申请回退修改</button>
           <button class="btn btn-default" @click="detail=null">关闭</button>
         </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showRevisionModal" @click.self="showRevisionModal=false">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-header">
+          <div class="modal-title">申请订单回退修改</div>
+          <span class="modal-close" @click="showRevisionModal=false">✕</span>
+        </div>
+        <div class="modal-body">
+          <p style="color:#666;font-size:13px">旧订单会保留为历史版本，审批通过后生成新订单并重新走审批、OA和建群流程。</p>
+          <div class="form-item"><label class="form-label">修改原因 <span style="color:#ff4d4f">*</span></label><textarea class="form-control" v-model="revisionForm.reason" rows="3" placeholder="请说明模块或价格填写错误的原因"></textarea></div>
+          <div class="form-item"><label class="form-label">新订单金额</label><input class="form-control" type="number" min="0" v-model.number="revisionForm.newAmount" placeholder="不改金额可留空"></div>
+          <div class="form-item"><label class="form-label">新模块明细</label><textarea class="form-control" v-model="revisionForm.itemsText" rows="5" placeholder="每行一项：模块名称|数量|单价；不改模块可留空"></textarea><div style="font-size:12px;color:#999;margin-top:5px">例如：终端防护|100|80</div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-default" @click="showRevisionModal=false">取消</button><button class="btn btn-primary" @click="submitRevisionRequest" :disabled="revisionSubmitting">{{ revisionSubmitting ? '提交中...' : '提交申请' }}</button></div>
       </div>
     </div>
   </div>`,
@@ -5178,6 +5204,9 @@ const OrderList = {
     const filterStatus = ref('');
     const detail = ref(null);
     const loading = ref(false);
+    const showRevisionModal = ref(false);
+    const revisionSubmitting = ref(false);
+    const revisionForm = ref({ reason: '', newAmount: null, itemsText: '' });
     
     // 员工隔离（统一使用 id 字段，与后端数据一致）
     const userId = computed(() => store.user?.id || '');
@@ -5380,9 +5409,42 @@ const OrderList = {
     }));
     
     function isPrimaryPendingStatus(status) { return status === 'pending' || status === 'pending_primary_confirm'; }
-    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
+    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'已完成', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
+    function canRequestRevision(order) {
+      const revisionStatus = order?.revisionRequestStatus || order?.原始数据?.revisionRequestStatus;
+      return Boolean(order && !['processing', 'shipped', 'completed', 'cancelled', 'replaced'].includes(order.status) && revisionStatus !== 'pending');
+    }
+    function openRevisionModal(order) {
+      detail.value = order;
+      revisionForm.value = { reason: '', newAmount: null, itemsText: '' };
+      showRevisionModal.value = true;
+    }
+    function parseRevisionItems(text) {
+      return String(text || '').split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+        const [itemName, quantityText, unitPriceText] = line.split('|').map(value => value.trim());
+        return { itemName, quantity: Number(quantityText || 1), unitPrice: Number(unitPriceText || 0), lineAmount: Number(quantityText || 1) * Number(unitPriceText || 0) };
+      });
+    }
+    async function submitRevisionRequest() {
+      if (!revisionForm.value.reason.trim()) { alert('请填写修改原因'); return; }
+      const items = parseRevisionItems(revisionForm.value.itemsText);
+      if (revisionForm.value.newAmount === null && !items.length) { alert('请填写新订单金额或模块明细'); return; }
+      revisionSubmitting.value = true;
+      try {
+        const payload = { reason: revisionForm.value.reason.trim(), items };
+        if (revisionForm.value.newAmount !== null && revisionForm.value.newAmount !== '') payload.newAmount = Number(revisionForm.value.newAmount);
+        const result = await apiClient.requestOrderRevision(detail.value.id, payload);
+        if (!result.success) { alert('提交失败：' + (result.error || '未知错误')); return; }
+        showRevisionModal.value = false;
+        await loadOrders();
+        const updated = store.orders.find(order => order.id === detail.value.id);
+        if (updated) detail.value = updated;
+        alert('回退修改申请已提交，等待超级管理员审核。');
+      } catch (err) { alert('提交失败：' + err.message); }
+      finally { revisionSubmitting.value = false; }
+    }
     
     // 获取发货时间
     function getShippedTime() {
@@ -5396,7 +5458,7 @@ const OrderList = {
       return formatBusinessDateTime(isoString, '');
     }
     
-    return { kw, filterStatus, isStaff, filtered, detail, loading, fmt, oClass, oLabel, view, loadOrders, refreshOrders, getShippedTime, formatTime,
+    return { kw, filterStatus, isStaff, filtered, detail, loading, fmt, oClass, oLabel, view, loadOrders, refreshOrders, getShippedTime, formatTime, canRequestRevision, openRevisionModal, showRevisionModal, revisionSubmitting, revisionForm, submitRevisionRequest,
       isPrimaryPartner, isSecondarySubOrder, pendingSecondaryOrders,
       showConfirmModal, showRejectModal, confirmTargetOrder, rejectTargetOrder,
       confirmRemark, rejectRemark, confirmLoading,
@@ -7579,6 +7641,10 @@ const OpportunityList = {
               <label class="form-label">预计签约</label>
               <input class="form-control" type="date" v-model="editExpectedClose" />
             </div>
+            <div class="form-item" style="margin-bottom:14px">
+              <label class="form-label required">变更原因</label>
+              <textarea class="form-control" v-model.trim="editChangeReason" rows="3" maxlength="500" placeholder="请填写本次编辑商机的原因"></textarea>
+            </div>
             <div class="form-item" style="margin-bottom:14px"><label class="form-label">来源</label><div style="padding-top:4px">{{ detail.source }}</div></div>
             <div class="form-item" style="margin-bottom:14px"><label class="form-label">负责人</label><div style="padding-top:4px">{{ detail.owner }}</div></div>
             <div v-if="detail.tags?.length" class="form-item" style="margin-bottom:14px">
@@ -8199,11 +8265,13 @@ const OpportunityList = {
     const canEditOpportunityName = computed(() => store.user?.role === 'admin' || store.user?.role === 'superadmin');
     const editName = ref('');
     const editExpectedClose = ref('');
+    const editChangeReason = ref('');
     const savingExpectedClose = ref(false);
     function openDetail(o) {
       detail.value = o;
       editName.value = o.name || '';
       editExpectedClose.value = o.expectedClose || '';
+      editChangeReason.value = '';
     }
     async function saveExpectedClose() {
       if (!detail.value) return;
@@ -8211,10 +8279,15 @@ const OpportunityList = {
         alert('商机名称不能为空');
         return;
       }
+      if (!editChangeReason.value.trim()) {
+        alert('请填写变更原因');
+        return;
+      }
       savingExpectedClose.value = true;
       try {
         const updates = {
-          expectedClose: editExpectedClose.value || ''
+          expectedClose: editExpectedClose.value || '',
+          changeReason: editChangeReason.value.trim()
         };
         if (canEditOpportunityName.value) {
           updates.name = editName.value.trim();
@@ -8227,6 +8300,7 @@ const OpportunityList = {
           if (idx !== -1) Object.assign(store.opportunities[idx], updatedOpportunity);
           editName.value = detail.value.name || '';
           editExpectedClose.value = detail.value.expectedClose || '';
+          editChangeReason.value = '';
           alert('保存成功');
         } else {
           alert('保存失败：' + (result.error || '未知错误'));
@@ -8261,7 +8335,8 @@ const OpportunityList = {
         const result = await apiClient.updateOpportunity(followTarget.value.id, {
           followUps: followTarget.value.followUps,
           lastFollowAt: followForm.date,
-          stage: followForm.newStage || followTarget.value.stage
+          stage: followForm.newStage || followTarget.value.stage,
+          changeReason: followForm.newStage ? `记录跟进并推进到${stageLabel(followForm.newStage)}` : '记录跟进'
         });
         if (!result.success) {
           console.error('保存跟进记录失败:', result.error);
@@ -8730,7 +8805,7 @@ const OpportunityList = {
             if (opp.stage === 'qualification') opp.stage = 'proposal';
             // 更新到后端，并使用返回数据确保一致
             try {
-              const updateResult = await apiClient.updateOpportunity(opp.id, { quoteId: opp.quoteId, stage: opp.stage, amount: opp.amount });
+              const updateResult = await apiClient.updateOpportunity(opp.id, { quoteId: opp.quoteId, stage: opp.stage, amount: opp.amount, changeReason: '创建报价单后同步商机' });
               if (updateResult.success) {
                 // 用后端返回数据覆盖，确保数据一致
                 Object.assign(opp, normalizeOpportunityRecord(updateResult.data));
@@ -8755,15 +8830,9 @@ const OpportunityList = {
     }
     
     // 商机阶段变更处理
-    function changeStage(newStage) {
+    async function changeStage(newStage) {
       const oldStage = detail.value.stage;
       if (oldStage === newStage) return;
-      
-      // 已赢单或已输单的商机不允许更改阶段
-      if (['won', 'lost'].includes(oldStage)) {
-        alert('该商机已处于终态（' + stageLabel(oldStage) + '），不允许更改阶段。');
-        return;
-      }
       
       // 如果变更为"方案报价"阶段，且没有报价单，打开内嵌报价单弹窗
       if (newStage === 'proposal' && !detail.value.quoteId) {
@@ -8791,18 +8860,27 @@ const OpportunityList = {
           }
         }
       }
-      
+
+      const changeReason = window.prompt('请输入本次阶段变更原因（必填）：', '阶段调整');
+      if (!changeReason || !changeReason.trim()) return;
+
       // 更新商机阶段
       const d = detail.value;
-      d.stage = newStage;
       // 同步到后端
-      apiClient.updateOpportunity(d.id, { stage: newStage }).then(result => {
+      try {
+        const result = await apiClient.updateOpportunity(d.id, { stage: newStage, changeReason: changeReason.trim() });
         if (result.success) {
+          d.stage = newStage;
           // 同步更新列表数据
           const idx = store.opportunities.findIndex(x => x.id === d.id);
           if (idx !== -1) store.opportunities[idx].stage = newStage;
+        } else {
+          alert('阶段更新失败：' + (result.error || '未知错误'));
         }
-      }).catch(err => console.error('更新商机阶段失败:', err));
+      } catch (err) {
+        console.error('更新商机阶段失败:', err);
+        alert('阶段更新失败，请检查网络连接');
+      }
     }
     
     // 打开赢单确认弹窗（带报价单确认）
@@ -8877,7 +8955,7 @@ const OpportunityList = {
         if (result.success) {
           store.orders.unshift(result.data);
           // 更新商机阶段为已赢单
-          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won' });
+          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won', changeReason: '转订单后标记赢单' });
           if (oppResult.success) {
             const idx = store.opportunities.findIndex(x => x.id === o.id);
             if (idx !== -1) store.opportunities[idx].stage = 'won';
@@ -8942,7 +9020,7 @@ const OpportunityList = {
         if (result.success) {
           store.orders.unshift(result.data);
           // 更新商机阶段为已赢单
-          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won' });
+          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won', changeReason: '转订单后标记赢单' });
           if (oppResult.success) {
             const idx = store.opportunities.findIndex(x => x.id === o.id);
             if (idx !== -1) store.opportunities[idx].stage = 'won';
@@ -8984,7 +9062,7 @@ const OpportunityList = {
     });
 
     return { store, adminRegion, isStaff, filtered, viewMode, kw, stageFilter, customerFilter, approvedRegs, detail, followTarget, followForm, loading,
-      STAGES, byStage, isOverdue, openDetail, canEditOpportunityName, editName, editExpectedClose, savingExpectedClose, saveExpectedClose, openFollow, saveFollow, loadOpportunities, sumOpportunityAmount,
+      STAGES, byStage, isOverdue, openDetail, canEditOpportunityName, editName, editExpectedClose, editChangeReason, savingExpectedClose, saveExpectedClose, openFollow, saveFollow, loadOpportunities, sumOpportunityAmount,
       fmt, stageLabel, stageDot, stageTagClass, probColor,
       // 商机阶段变更
       changeStage,

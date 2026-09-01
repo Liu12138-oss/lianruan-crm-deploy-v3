@@ -142,13 +142,21 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     "${dist_admin_html}" "${dist_admin_app}" "${dist_admin_style}"; do
     [ -f "${required_file}" ] || 失败 "缺少 Web 源码或构建产物：${required_file}"
   done
-  if ! grep -Fq 'admin-app.js?v=156' "${source_admin_html}" ||
-    ! grep -Fq 'admin-app.js?v=156' "${dist_admin_html}"; then
-    失败 "正式 admin.html 未使用 admin-app.js?v=156。"
+  if ! grep -Fq 'admin-app.js?v=159' "${source_admin_html}" ||
+    ! grep -Fq 'admin-app.js?v=159' "${dist_admin_html}"; then
+    失败 "正式 admin.html 未使用 admin-app.js?v=159。"
   fi
   if ! grep -Fq 'style.css?v=16' "${source_admin_html}" ||
     ! grep -Fq 'style.css?v=16' "${dist_admin_html}"; then
     失败 "正式 admin.html 未使用 style.css?v=16。"
+  fi
+  if ! grep -Fq '仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整' "${source_admin_app}" ||
+    ! grep -Fq 'V3_AUTH_ROLE_CHANGED' "${source_admin_app}" ||
+    ! grep -Fq '/api/auth/logout' "${source_admin_app}" ||
+    ! grep -Fq '仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整' "${dist_admin_app}" ||
+    ! grep -Fq 'V3_AUTH_ROLE_CHANGED' "${dist_admin_app}" ||
+    ! grep -Fq '/api/auth/logout' "${dist_admin_app}"; then
+    失败 "Web 源码或构建产物缺少非内置超管角色调整与会话失效保护。"
   fi
   source_workspace_assets=()
   while IFS= read -r workspace_candidate; do
@@ -185,9 +193,9 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
       失败 "目标 Nginx 镜像缺少静态文件：${required_file}"
     fi
   done
-  if ! grep -Fq 'admin-app.js?v=156' "${static_dir}/admin.html"; then
+  if ! grep -Fq 'admin-app.js?v=159' "${static_dir}/admin.html"; then
     清理Web镜像检查
-    失败 "目标 admin.html 未使用 admin-app.js?v=156。"
+    失败 "目标 admin.html 未使用 admin-app.js?v=159。"
   fi
   if ! grep -Fq 'style.css?v=16' "${static_dir}/admin.html"; then
     清理Web镜像检查
@@ -198,6 +206,12 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     ! grep -Fq "{ path: 'organization/units', component: OrganizationWorkspace }" "${static_dir}/admin-app.js"; then
     清理Web镜像检查
     失败 "目标 admin-app.js 缺少组织架构内嵌入口与路由。"
+  fi
+  if ! grep -Fq '仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整' "${static_dir}/admin-app.js" ||
+    ! grep -Fq 'V3_AUTH_ROLE_CHANGED' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/auth/logout' "${static_dir}/admin-app.js"; then
+    清理Web镜像检查
+    失败 "目标 Web 静态资源缺少非内置超管角色调整与会话失效保护。"
   fi
   image_workspace_assets=()
   while IFS= read -r workspace_candidate; do

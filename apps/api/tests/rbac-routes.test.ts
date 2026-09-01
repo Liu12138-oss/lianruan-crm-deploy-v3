@@ -48,6 +48,28 @@ async function 登录Cookie(app: ReturnType<typeof 创建应用>, username: stri
   return cookie;
 }
 
+async function 恢复测试超管角色(原角色Ids: string[]): Promise<void> {
+  const 恢复连接 = await 连接池.connect();
+  let 恢复错误: unknown;
+  try {
+    await 恢复连接.query("BEGIN");
+    await 恢复连接.query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [测试超管Id]);
+    for (const 原角色Id of 原角色Ids) {
+      await 恢复连接.query(
+        "INSERT INTO iam.user_roles(user_id,role_id) VALUES($1::uuid,$2::uuid) ON CONFLICT DO NOTHING",
+        [测试超管Id, 原角色Id],
+      );
+    }
+    await 恢复连接.query("COMMIT");
+  } catch (error) {
+    await 恢复连接.query("ROLLBACK");
+    恢复错误 = error;
+  } finally {
+    恢复连接.release();
+  }
+  if (恢复错误) throw 恢复错误;
+}
+
 beforeAll(async () => {
   const 用户 = await 连接池.query<{ id: string }>(
     `
@@ -199,15 +221,9 @@ describe("RBAC 角色管理接口", () => {
       .expect(403);
   });
 
-  it("用户角色分配：覆盖、清空与超级管理员角色保护", async () => {
+  it("用户角色分配：仅内置 admin 受保护，其他超管包括当前账号均可调整", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const 超管Cookie = await 登录Cookie(app, 测试超管用户名);
-    const 用户 = await 连接池.query<{ id: string }>(
-      "SELECT id::text AS id FROM iam.users WHERE status_code = 'active' ORDER BY created_at LIMIT 1",
-    );
-    if (!用户.rows[0]) throw new Error("测试库未找到可用账号。");
-    const 用户Id = 用户.rows[0].id;
-
     const 名称 = "角色分配测试" + Date.now();
     const 新建 = await request(app)
       .post("/api/rbac/roles")
@@ -217,31 +233,66 @@ describe("RBAC 角色管理接口", () => {
     const 角色Id = 新建.body.data.id as string;
 
     const 原角色 = await request(app)
-      .get("/api/rbac/users/" + 用户Id + "/roles")
+      .get("/api/rbac/users/" + 测试超管Id + "/roles")
       .set("Cookie", 超管Cookie)
       .expect(200);
     const 原角色Ids = (原角色.body.data.roleIds as string[]) || [];
 
     try {
-      const 分配 = await request(app)
-        .put("/api/rbac/users/" + 用户Id + "/roles")
-        .set("Cookie", 超管Cookie)
-        .send({ roleIds: [角色Id] })
-        .expect(200);
-      expect(分配.body.data.roleIds).toContain(角色Id);
+      const 其他超管 = await 连接池.query<{ id: string }>(
+        `INSERT INTO iam.users(username,display_name,status_code)
+         VALUES($1,'可调整的非内置超管','active') RETURNING id::text AS id`,
+        [测试超管用户名 + "_target"],
+      );
+      const 其他超管Id = 其他超管.rows[0]!.id;
+      await 连接池.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE role_code='superadmin'`,
+        [其他超管Id],
+      );
+      try {
+        const 允许调整 = await request(app)
+          .put("/api/rbac/users/" + 其他超管Id + "/roles")
+          .set("Cookie", 超管Cookie)
+          .send({ roleIds: [角色Id] })
+          .expect(200);
+        expect(允许调整.body.data.roleIds).toContain(角色Id);
+        expect(
+          允许调整.body.data.roles.some((项: { roleCode: string }) => 项.roleCode === "superadmin"),
+        ).toBe(false);
+      } finally {
+        await 连接池.query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [其他超管Id]);
+        await 连接池.query("DELETE FROM iam.users WHERE id=$1::uuid", [其他超管Id]);
+      }
 
-      const 超管保护 = await request(app)
-        .put("/api/rbac/users/" + 测试超管Id + "/roles")
+      const 内置账号 = await 连接池.query<{ id: string }>(
+        "SELECT id::text AS id FROM iam.users WHERE lower(username::text)='admin' AND status_code='active' LIMIT 1",
+      );
+      if (!内置账号.rows[0]) throw new Error("测试库未找到内置 admin 账号。");
+      const 内置保护 = await request(app)
+        .put("/api/rbac/users/" + 内置账号.rows[0].id + "/roles")
         .set("Cookie", 超管Cookie)
         .send({ roleIds: [] })
         .expect(409);
-      expect(超管保护.body.error.code).toBe("RBAC_SUPERADMIN_ROLE_PROTECTED");
-    } finally {
-      await request(app)
-        .put("/api/rbac/users/" + 用户Id + "/roles")
+      expect(内置保护.body.error.code).toBe("RBAC_SUPERADMIN_ROLE_PROTECTED");
+
+      const 本人降权 = await request(app)
+        .put("/api/rbac/users/" + 测试超管Id + "/roles")
         .set("Cookie", 超管Cookie)
-        .send({ roleIds: 原角色Ids })
+        .send({ roleIds: [角色Id] })
         .expect(200);
+      expect(本人降权.body.data.roleIds).toEqual([角色Id]);
+      expect(
+        本人降权.body.data.roles.some((项: { roleCode: string }) => 项.roleCode === "superadmin"),
+      ).toBe(false);
+
+      const 旧会话失效 = await request(app)
+        .get("/api/rbac/roles")
+        .set("Cookie", 超管Cookie)
+        .expect(401);
+      expect(旧会话失效.body.error.code).toBe("V3_AUTH_ROLE_CHANGED");
+    } finally {
+      await 恢复测试超管角色(原角色Ids);
     }
   });
 

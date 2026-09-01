@@ -18,6 +18,41 @@ const 最大自动重试次数 = 4;
 const 固定群成员登录名 = ["liangwanqi", "liangguangyao", "shoulong", "liulonghai"] as const;
 const 群主登录名 = "liangguangyao";
 
+export const 订单预审事件领取查询 = `WITH candidate AS (
+           SELECT event.id, request.id AS request_id
+           FROM ops.outbox_events event
+           JOIN integration.order_preapproval_requests request ON request.id=event.aggregate_id::uuid
+           LEFT JOIN integration.order_preapproval_groups group_record ON group_record.request_id=request.id
+           WHERE event.event_type=$1
+             AND event.created_at >= $2::timestamptz
+             AND (
+               event.status_code='pending'
+               OR (event.status_code='failed' AND event.next_retry_at IS NOT NULL AND event.next_retry_at<=now())
+               OR (event.status_code='processing' AND event.next_retry_at IS NOT NULL AND event.next_retry_at<=now())
+             )
+             AND (
+               request.status_code IN ('pending','processing')
+               OR (request.status_code='accepted' AND group_record.status_code IN ('pending','processing'))
+             )
+           ORDER BY event.created_at,event.id
+           FOR UPDATE OF event,request SKIP LOCKED
+           LIMIT 1
+         ), leased AS (
+           UPDATE ops.outbox_events event
+           SET status_code='processing',next_retry_at=now()+interval '5 minutes',
+               payload_json=event.payload_json || jsonb_build_object('leaseToken',gen_random_uuid()::text)
+           FROM candidate
+           WHERE event.id=candidate.id
+           RETURNING event.id::text AS event_id,candidate.request_id AS request_id,
+                     event.retry_count,event.payload_json->>'leaseToken' AS lease_token
+         )
+         UPDATE integration.order_preapproval_requests request
+         SET status_code=CASE WHEN request.status_code='pending' THEN 'processing' ELSE request.status_code END,
+             started_at=COALESCE(request.started_at,now()),updated_at=now(),row_version=row_version+1
+         FROM leased
+         WHERE request.id=leased.request_id
+         RETURNING leased.event_id,leased.request_id,leased.retry_count,leased.lease_token`;
+
 interface 已领取订单预审事件 {
   eventId: string;
   requestId: string;
@@ -114,43 +149,7 @@ export class 订单预审任务存储 {
         request_id: string;
         retry_count: number;
         lease_token: string;
-      }>(
-        `WITH candidate AS (
-           SELECT event.id, request.id AS request_id
-           FROM ops.outbox_events event
-           JOIN integration.order_preapproval_requests request ON request.id=event.aggregate_id
-           LEFT JOIN integration.order_preapproval_groups group_record ON group_record.request_id=request.id
-           WHERE event.event_type=$1
-             AND event.created_at >= $2::timestamptz
-             AND (
-               event.status_code='pending'
-               OR (event.status_code='failed' AND event.next_retry_at IS NOT NULL AND event.next_retry_at<=now())
-               OR (event.status_code='processing' AND event.next_retry_at IS NOT NULL AND event.next_retry_at<=now())
-             )
-             AND (
-               request.status_code IN ('pending','processing')
-               OR (request.status_code='accepted' AND group_record.status_code IN ('pending','processing'))
-             )
-           ORDER BY event.created_at,event.id
-           FOR UPDATE OF event,request SKIP LOCKED
-           LIMIT 1
-         ), leased AS (
-           UPDATE ops.outbox_events event
-           SET status_code='processing',next_retry_at=now()+interval '5 minutes',
-               payload_json=event.payload_json || jsonb_build_object('leaseToken',gen_random_uuid()::text)
-           FROM candidate
-           WHERE event.id=candidate.id
-           RETURNING event.id::text AS event_id,candidate.request_id::text AS request_id,
-                     event.retry_count,event.payload_json->>'leaseToken' AS lease_token
-         )
-         UPDATE integration.order_preapproval_requests request
-         SET status_code=CASE WHEN request.status_code='pending' THEN 'processing' ELSE request.status_code END,
-             started_at=COALESCE(request.started_at,now()),updated_at=now(),row_version=row_version+1
-         FROM leased
-         WHERE request.id=leased.request_id
-         RETURNING leased.event_id,leased.request_id,leased.retry_count,leased.lease_token`,
-        [订单预审事件代码, this.config.orderPreapproval.eventCutoverAt],
-      );
+      }>(订单预审事件领取查询, [订单预审事件代码, this.config.orderPreapproval.eventCutoverAt]);
       await db.query("COMMIT");
       const 行 = 结果.rows[0];
       return 行
@@ -249,8 +248,6 @@ export class 订单预审任务存储 {
       所属区域: 请求.regionValue,
       产品类型: 字段映射.productTypeValue,
       采购内容: 字段映射.purchaseContentValue,
-      采购订单字段编号: 字段映射.fields.purchaseAttachment.fieldId,
-      报价单字段编号: 字段映射.fields.quoteAttachment.fieldId,
     });
     await this.记录调用(请求.requestId, "oa_verify", "accepted", { hasExternalRequestId: true });
     await this.标记泛微已受理(请求);
@@ -489,20 +486,23 @@ export class 订单预审任务存储 {
       const 成员 = await this.读取企微群成员(请求.regionManagerUserId);
       const 凭据 = await this.读取企微应用凭据();
       const 客户端 = this.创建企微客户端(凭据);
-      const 群编号 = `op_${请求.requestId.replace(/-/g, "")}`;
+      // 企微群编号仅允许字母和数字且最长 32 位，使用请求编号摘要保持幂等。
+      const 群编号 = `op${crypto
+        .createHash("sha256")
+        .update(请求.requestId)
+        .digest("hex")
+        .slice(0, 30)}`;
       const 群名称 = `订单预审-${请求.orderNo}`.slice(0, 64);
       await this.标记群处理中(请求.requestId, 成员);
       await this.记录调用(请求.requestId, "wecom_group_create", "started", {
         memberCount: 成员.length,
       });
-      const chatId =
-        (await 客户端.查询群(群编号)) ||
-        (await 客户端.创建群({
-          群编号,
-          群名称,
-          群主企微编号: 成员.find((成员项) => 成员项.username === 群主登录名)?.wecomUserId || "",
-          成员企微编号: [...new Set(成员.map((成员项) => 成员项.wecomUserId))],
-        }));
+      const chatId = await 客户端.创建群({
+        群编号,
+        群名称,
+        群主企微编号: 成员.find((成员项) => 成员项.username === 群主登录名)?.wecomUserId || "",
+        成员企微编号: [...new Set(成员.map((成员项) => 成员项.wecomUserId))],
+      });
       await this.标记群已创建(请求.requestId, chatId, 成员);
       await this.记录调用(请求.requestId, "wecom_group_create", "accepted", {
         memberCount: 成员.length,
@@ -673,13 +673,14 @@ export class 订单预审任务存储 {
     await (db || this.数据库连接池).query(
       `INSERT INTO integration.order_preapproval_invocations(
          request_id,operation_code,outcome_code,http_status,request_summary_json,response_summary_json,error_code,error_summary
-       ) VALUES($1::uuid,$2,$3,$4,$5::jsonb,'{}'::jsonb,$6,$7)`,
+       ) VALUES($1::uuid,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)`,
       [
         requestId,
         operationCode,
         outcomeCode,
         外部错误?.httpStatus || null,
         JSON.stringify(requestSummary),
+        JSON.stringify(外部错误?.responseSummary || {}),
         外部错误?.code || null,
         错误 ? 脱敏错误摘要(错误) : null,
       ],

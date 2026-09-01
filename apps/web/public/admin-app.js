@@ -1190,17 +1190,21 @@ const MainLayout = {
       showNotif.value = false;
       go('/notifications');
     }
-    function logout() {
-      if (confirm('确认退出登录？')) {
-        adminFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-        clearAdminLoginState();
-        localStorage.removeItem('partner_user_info');
-        localStorage.removeItem('partner_auth_token');
-        localStorage.removeItem('partner_api_user');
-        localStorage.removeItem('api_user');
-        store.user = null;
-        window.location.href = '/login';
+    async function logout() {
+      if (!confirm('确认退出登录？')) return;
+      try {
+        // 等待服务端清除 HttpOnly 会话 Cookie，避免跳转提前中断退出请求。
+        await adminFetch('/api/auth/logout', { method: 'POST', keepalive: true });
+      } catch (error) {
+        // 即使服务端响应异常，也清理当前页面缓存并回到登录页。
       }
+      clearAdminLoginState();
+      localStorage.removeItem('partner_user_info');
+      localStorage.removeItem('partner_auth_token');
+      localStorage.removeItem('partner_api_user');
+      localStorage.removeItem('api_user');
+      store.user = null;
+      window.location.replace('/login');
     }
     function markAllRead() {
       store.notifications.forEach(n => n.unread = false);
@@ -5745,7 +5749,14 @@ const OrderList = {
               <button v-else-if="detail.status==='processing'" class="btn btn-primary" @click="shipOrder(detail);detail=null">确认发货</button>
               <button v-else-if="detail.status==='shipped'" class="btn btn-success" @click="completeOrder(detail);detail=null">完成订单</button>
               <button v-if="detail.status!=='cancelled'" class="btn btn-danger" @click="cancelOrder(detail);detail=null">取消订单</button>
+              <button v-if="isSuperAdmin && (detail.revisionRequestId || detail.原始数据?.revisionRequestId) && (detail.revisionRequestStatus || detail.原始数据?.revisionRequestStatus)==='pending'" class="btn btn-primary" @click="reviewOrderRevision(detail, 'approve')">批准回退修改</button>
+              <button v-if="isSuperAdmin && (detail.revisionRequestId || detail.原始数据?.revisionRequestId) && (detail.revisionRequestStatus || detail.原始数据?.revisionRequestStatus)==='pending'" class="btn btn-danger" @click="reviewOrderRevision(detail, 'reject')">驳回回退修改</button>
             </div>
+          </div>
+          <!-- 回退修改申请 -->
+          <div v-if="detail.revisionRequestId || detail.原始数据?.revisionRequestId" style="margin-top:24px;padding:14px;background:#f6f8fa;border:1px solid #d9d9d9;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;margin-bottom:8px">回退修改申请</div>
+            <div style="font-size:12px;color:#666">状态：{{ detail.revisionRequestStatus || detail.原始数据?.revisionRequestStatus }}；原因：{{ detail.revisionRequestReason || detail.原始数据?.revisionRequestReason || '—' }}</div>
           </div>
           <!-- 状态变更历史 -->
           <div v-if="detail.statusHistory && detail.statusHistory.length > 0" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
@@ -5811,21 +5822,20 @@ const OrderList = {
     function goToPage(p) { if (p !== '...' && p >= 1 && p <= totalPages.value) currentPage.value = p; }
     function resetPage() { currentPage.value = 1; }
     
-    // 辅助函数：获取合作伙伴名称（避免模板中复杂表达式）
+    // 辅助函数：订单合作伙伴始终优先使用实际订单渠道商。
     function getPartnerDisplayName(item) {
-      if (item.assignedPartnerName) return item.assignedPartnerName;
-      if (item.assignedPartnerId) {
-        const p = store.partners.find(p => p.id === item.assignedPartnerId);
-        return p ? p.name : null;
-      }
       if (item.partnerName) return item.partnerName;
       if (item.partnerId) {
         const p = store.partners.find(p => p.id === item.partnerId);
         return p ? p.name : null;
       }
+      if (item.assignedPartnerName) return item.assignedPartnerName;
+      if (item.assignedPartnerId) {
+        const p = store.partners.find(p => p.id === item.assignedPartnerId);
+        return p ? p.name : null;
+      }
       return '—';
     }
-    
     // 判断当前用户是否可以管理该订单（超级管理员可以管理所有，区域管理员只能管理本区域）
     function canManageOrder(order) {
       if (!isAdmin.value) return false;
@@ -5898,8 +5908,8 @@ const OrderList = {
     const orderPartners = computed(() => {
       const partnerMap = new Map();
       myOrders.value.forEach(o => {
-        const id = o.assignedPartnerId || o.partnerId;
-        const name = o.assignedPartnerName || o.partnerName;
+        const id = o.partnerId || o.assignedPartnerId;
+        const name = o.partnerName || o.assignedPartnerName;
         if (id) {
           partnerMap.set(id, { id, name: name || id });
         }
@@ -5912,13 +5922,13 @@ const OrderList = {
       return myOrders.value.filter(o => {
         const mK = !kw.value || o.customer.includes(kw.value) || o.id.includes(kw.value);
         const mS = !filterStatus.value || o.status === filterStatus.value;
-        const mP = !partnerFilter.value || o.assignedPartnerId === partnerFilter.value || o.partnerId === partnerFilter.value;
+        const mP = !partnerFilter.value || o.partnerId === partnerFilter.value;
         return mK && mS && mP;
       });
     });
     
-    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-green', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', rejected:'已驳回' }[s]||s; }
+    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-green', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
     
     // 获取发货时间
@@ -6022,6 +6032,29 @@ const OrderList = {
     const showPriceAdjust = ref(false);
     const adjustForm = ref({ newAmount: null, reason: '' });
     const adjustError = ref('');
+
+    async function reviewOrderRevision(order, action) {
+      const requestId = order?.revisionRequestId || order?.原始数据?.revisionRequestId;
+      if (!requestId) return;
+      const reason = action === 'reject' ? prompt('请输入驳回订单修订的原因：', '') : '批准订单回退修改';
+      if (reason === null || (action === 'reject' && !reason.trim())) {
+        if (action === 'reject') alert('驳回必须填写原因');
+        return;
+      }
+      if (!confirm(action === 'approve' ? '批准后将关闭旧订单待办并生成新订单，是否继续？' : '确认驳回该订单回退修改申请？')) return;
+      try {
+        const result = await apiClient.reviewOrderRevision(requestId, action, reason.trim());
+        if (!result.success) {
+          alert('处理失败：' + (result.error || '未知错误'));
+          return;
+        }
+        await loadOrders();
+        detail.value = null;
+        alert(action === 'approve' ? '已批准并生成新订单版本，订单将重新进入审批链。' : '已驳回订单回退修改申请。');
+      } catch (err) {
+        alert('处理失败：' + err.message);
+      }
+    }
     
     async function submitPriceAdjust(order) {
       adjustError.value = '';
@@ -6065,7 +6098,7 @@ const OrderList = {
       }
     }
     
-    return { store, kw, filterStatus, partnerFilter, adminRegion, isStaff, isAdmin, isSuperAdmin, filtered, paginatedData, detail, loading, fmt, oClass, oLabel, view, loadOrders, canManageOrder, confirmOrder, shipOrder, completeOrder, cancelOrder, getShippedTime, formatTime,
+    return { store, kw, filterStatus, partnerFilter, adminRegion, isStaff, isAdmin, isSuperAdmin, filtered, paginatedData, detail, loading, fmt, oClass, oLabel, view, loadOrders, canManageOrder, confirmOrder, shipOrder, completeOrder, cancelOrder, reviewOrderRevision, getShippedTime, formatTime,
       currentPage, totalPages, pageNumbers, prevPage, nextPage, goToPage, getPartnerDisplayName,
       showPriceAdjust, adjustForm, adjustError, submitPriceAdjust, orderPartners };
   }
@@ -13217,6 +13250,10 @@ const OpportunityList = {
               <label class="form-label">预计签约</label>
               <input class="form-control" type="date" v-model="editExpectedClose" />
             </div>
+            <div class="form-item" style="margin-bottom:14px">
+              <label class="form-label required">变更原因</label>
+              <textarea class="form-control" v-model.trim="editChangeReason" rows="3" maxlength="500" placeholder="请填写本次编辑商机的原因"></textarea>
+            </div>
             <div class="form-item" style="margin-bottom:14px"><label class="form-label">来源</label><div style="padding-top:4px">{{ detail.source }}</div></div>
             <div class="form-item" style="margin-bottom:14px"><label class="form-label">负责人</label><div style="padding-top:4px">{{ detail.owner }}</div></div>
             <div class="form-item" style="margin-bottom:14px">
@@ -14249,7 +14286,7 @@ const OpportunityList = {
             if (opp.stage === 'qualification') opp.stage = 'proposal';
             // 更新到后端，并使用返回数据确保一致
             try {
-              const updateResult = await apiClient.updateOpportunity(opp.id, { quoteId: opp.quoteId, stage: opp.stage, amount: opp.amount });
+              const updateResult = await apiClient.updateOpportunity(opp.id, { quoteId: opp.quoteId, stage: opp.stage, amount: opp.amount, changeReason: '创建报价单后同步商机' });
               if (updateResult.success) {
                 // 用后端返回数据覆盖，确保数据一致
                 Object.assign(opp, normalizeOpportunityRecord(updateResult.data));
@@ -14345,7 +14382,7 @@ const OpportunityList = {
         if (result.success) {
           store.orders.unshift(result.data);
           // 更新商机阶段为已赢单
-          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won' });
+          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won', changeReason: '转订单后标记赢单' });
           if (oppResult.success) {
             const idx = store.opportunities.findIndex(x => x.id === o.id);
             if (idx !== -1) store.opportunities[idx].stage = 'won';
@@ -14416,7 +14453,7 @@ const OpportunityList = {
         if (result.success) {
           store.orders.unshift(result.data);
           // 更新商机阶段为已赢单
-          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won' });
+          const oppResult = await apiClient.updateOpportunity(o.id, { stage: 'won', changeReason: '转订单后标记赢单' });
           if (oppResult.success) {
             const idx = store.opportunities.findIndex(x => x.id === o.id);
             if (idx !== -1) store.opportunities[idx].stage = 'won';
@@ -14612,15 +14649,9 @@ const OpportunityList = {
     }
     
     // 商机阶段变更处理
-    function changeStage(newStage) {
+    async function changeStage(newStage) {
       const oldStage = detail.value.stage;
       if (oldStage === newStage) return;
-      
-      // 已赢单或已输单的商机不允许更改阶段
-      if (['won', 'lost'].includes(oldStage)) {
-        alert('该商机已处于终态（' + stageLabel(oldStage) + '），不允许更改阶段。');
-        return;
-      }
       
       // 如果变更为"方案报价"阶段，且没有报价单，打开内嵌报价单弹窗
       if (newStage === 'proposal' && !detail.value.quoteId) {
@@ -14648,18 +14679,27 @@ const OpportunityList = {
           }
         }
       }
-      
+
+      const changeReason = window.prompt('请输入本次阶段变更原因（必填）：', '阶段调整');
+      if (!changeReason || !changeReason.trim()) return;
+
       // 更新商机阶段
       const d = detail.value;
-      d.stage = newStage;
       // 同步到后端
-      apiClient.updateOpportunity(d.id, { stage: newStage }).then(result => {
+      try {
+        const result = await apiClient.updateOpportunity(d.id, { stage: newStage, changeReason: changeReason.trim() });
         if (result.success) {
+          d.stage = newStage;
           // 同步更新列表数据
           const idx = store.opportunities.findIndex(x => x.id === d.id);
           if (idx !== -1) store.opportunities[idx].stage = newStage;
+        } else {
+          alert('阶段更新失败：' + (result.error || '未知错误'));
         }
-      }).catch(err => console.error('更新商机阶段失败:', err));
+      } catch (err) {
+        console.error('更新商机阶段失败:', err);
+        alert('阶段更新失败，请检查网络连接');
+      }
     }
     // ========== 商机详情编辑相关变量 ==========
     const editName = ref('');
@@ -14667,6 +14707,7 @@ const OpportunityList = {
     const editAmount = ref(0);
     const editPartnerId = ref('');
     const editStaffId = ref('');
+    const editChangeReason = ref('');
     const editRegionPartners = ref([]);
     const loadingEditPartners = ref(false);
     const savingOppEdit = ref(false);
@@ -14752,13 +14793,18 @@ const OpportunityList = {
         alert('商机名称不能为空');
         return;
       }
+      if (!editChangeReason.value.trim()) {
+        alert('请填写变更原因');
+        return;
+      }
       savingOppEdit.value = true;
       try {
         const partner = editRegionPartners.value.find(p => p.id === editPartnerId.value);
         const staff = editPartnerStaff.value.find(s => (s.userId || s.id) === editStaffId.value || s.id === editStaffId.value);
         
         const updates = {
-          expectedClose: editExpectedClose.value || ''
+          expectedClose: editExpectedClose.value || '',
+          changeReason: editChangeReason.value.trim()
         };
 
         if (isAdmin.value) {
@@ -14787,6 +14833,7 @@ const OpportunityList = {
           }
           editName.value = detail.value.name || '';
           editExpectedClose.value = detail.value.expectedClose || '';
+          editChangeReason.value = '';
           alert('保存成功');
         } else {
           alert('保存失败：' + (result.error || '未知错误'));
@@ -14807,6 +14854,7 @@ const OpportunityList = {
       editAmount.value = o.amount || 0;
       editPartnerId.value = o.assignedPartnerId || o.partnerId || '';
       editStaffId.value = o.assignedStaffUserId || o.assignedStaffId || '';
+      editChangeReason.value = '';
       // 加载渠道商列表
       loadEditPartners();
     }
@@ -14839,7 +14887,8 @@ const OpportunityList = {
             await apiClient.updateOpportunity(opp.id, {
               followUps: opp.followUps,
               lastFollowAt: followForm.date,
-              stage: targetStage
+              stage: targetStage,
+              changeReason: `记录跟进并推进到${stageLabel(targetStage)}`
             });
           } catch (err) {}
           store.notifications.unshift({ id:Date.now(), title:'跟进记录已保存', desc:`${opp.name} — ${followForm.type}跟进`, time:'刚刚', unread:true });
@@ -14858,7 +14907,8 @@ const OpportunityList = {
             await apiClient.updateOpportunity(opp.id, {
               followUps: opp.followUps,
               lastFollowAt: followForm.date,
-              stage: targetStage
+              stage: targetStage,
+              changeReason: `记录跟进并推进到${stageLabel(targetStage)}`
             });
           } catch (err) {}
           store.notifications.unshift({ id:Date.now(), title:'跟进记录已保存', desc:`${opp.name} — ${followForm.type}跟进`, time:'刚刚', unread:true });
@@ -14878,7 +14928,8 @@ const OpportunityList = {
             await apiClient.updateOpportunity(opp.id, {
               followUps: opp.followUps,
               lastFollowAt: followForm.date,
-              stage: targetStage
+              stage: targetStage,
+              changeReason: `记录跟进并推进到${stageLabel(targetStage)}`
             });
           } catch (err) {}
           store.notifications.unshift({ id:Date.now(), title:'跟进记录已保存', desc:`${opp.name} — ${followForm.type}跟进`, time:'刚刚', unread:true });
@@ -14898,7 +14949,8 @@ const OpportunityList = {
         const result = await apiClient.updateOpportunity(opp.id, {
           followUps: opp.followUps,
           lastFollowAt: followForm.date,
-          stage: targetStage || opp.stage
+          stage: targetStage || opp.stage,
+          changeReason: targetStage ? `记录跟进并推进到${stageLabel(targetStage)}` : '记录跟进'
         });
         if (!result.success) {
           console.error('保存跟进记录失败:', result.error);
@@ -14917,7 +14969,7 @@ const OpportunityList = {
     return { store, adminRegion, isAdmin, isStaff, filtered, paginatedData, viewMode, kw, stageFilter, customerFilter, partnerFilter, oppPartners, approvedRegs, detail, followTarget, followForm, loading,
       STAGES, byStage, isOverdue, openDetail, openFollow, saveFollow, loadOpportunities, sumOpportunityAmount,
       // 商机详情编辑
-      editName, editExpectedClose, editAmount, editPartnerId, editStaffId, editRegionPartners, editPartnerStaff, loadingEditPartners, savingOppEdit, onEditPartnerChange, saveOppEdit,
+      editName, editExpectedClose, editAmount, editPartnerId, editStaffId, editChangeReason, editRegionPartners, editPartnerStaff, loadingEditPartners, savingOppEdit, onEditPartnerChange, saveOppEdit,
       editPartnerKeyword, showEditPartnerDropdown, selectedEditPartner, filteredEditPartners, openEditPartnerDropdown, handleEditPartnerBlur, selectEditPartner, clearEditPartnerSelection,
       fmt, stageLabel, stageDot, stageTagClass, probColor,
       currentPage, totalPages, pageNumbers, prevPage, nextPage, goToPage, changeStage,
@@ -18770,6 +18822,11 @@ async function 组织请求(路径, 初始化 = {}, 选项 = {}) {
   }
 
   if (!响应.ok || !内容?.success || 内容.data === undefined) {
+    if (响应.status === 401 && 内容?.error?.code === 'V3_AUTH_ROLE_CHANGED') {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', keepalive: true }).catch(() => {});
+      clearAdminLoginState();
+      window.location.replace('/login?reason=role_changed');
+    }
     throw new 组织接口错误(
       内容?.error?.code || 'ORG_REQUEST_FAILED',
       内容?.error?.message || '组织架构接口请求失败（HTTP ' + 响应.status + '）。',
@@ -19676,7 +19733,7 @@ const OrganizationWorkspace = {
             </div>
             <div v-if="编辑用户已选角色.length" class="组织抽屉空" style="margin-top:8px">当前角色：{{ 编辑用户已选角色.map(角色 => 角色.roleName).join('、') }}；有效权限 {{ 编辑用户有效权限数 }} 项。</div>
             <div v-else class="组织抽屉空" style="margin-top:8px">未分配系统角色，账号不会通过此处获得额外业务权限。</div>
-            <div class="组织抽屉空" style="margin-top:4px">多角色权限取并集；超级管理员角色受系统保护。角色调整不修改 IAM、UniSDP 的外部身份映射或单点登录会话。</div>
+            <div class="组织抽屉空" style="margin-top:4px">多角色权限取并集；仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整。角色调整不修改 IAM、UniSDP 的外部身份映射；被降权账号的旧 CRM 管理会话会立即失效并要求重新登录。</div>
           </section>
         </div>
       </aside>
@@ -20537,11 +20594,21 @@ const OrganizationWorkspace = {
     }
     async function 保存用户管理员角色() {
       if (!编辑用户.value || !可写.value) return;
-      if (!confirm('确认更新“' + 编辑用户.value.name + '”的系统角色吗？此操作仅改变本系统的角色授权，不修改 IAM、UniSDP 外部身份映射或单点登录会话。')) return;
+      if (!confirm('确认更新“' + 编辑用户.value.name + '”的系统角色吗？此操作仅改变本系统的角色授权，不修改 IAM、UniSDP 外部身份映射；如调整其超级管理员角色，该账号的旧 CRM 管理会话将在下次组织或角色管理请求时失效。')) return;
+      const 是本人降权 = 当前用户名.value
+        && String(编辑用户.value.username || '').toLowerCase() === 当前用户名.value
+        && !编辑用户已选角色.value.some((角色) => 角色.roleCode === 'superadmin');
       提交中.value = true;
       try {
         await 组织覆盖用户角色(编辑用户.value.id, { roleIds: 编辑用户管理员角色Ids.value });
         编辑用户.value.systemRoleCodes = 编辑用户已选角色.value.map((角色) => 角色.roleCode);
+        if (是本人降权) {
+          alert('管理员角色已更新；当前登录权限已变更，请重新登录。');
+          await fetch('/api/auth/logout', { method: 'POST', credentials: 'include', keepalive: true }).catch(() => {});
+          clearAdminLoginState();
+          window.location.replace('/login?reason=role_changed');
+          return;
+        }
         ElementPlus.ElMessage.success('管理员角色已更新。');
         await 加载角色管理数据();
       } catch (error) {

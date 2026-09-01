@@ -1192,14 +1192,22 @@ async function 驳回报备(row: 阶段9记录) {
 }
 
 async function 跟进商机(row: 阶段9记录) {
-  await 更新商机(row.id, { stage: "contacted", followup: "页面记录跟进" });
+  await 更新商机(row.id, {
+    stage: "contacted",
+    followup: "页面记录跟进",
+    changeReason: "页面记录跟进",
+  });
   ElMessage.success("商机跟进已记录。");
   await 加载页面();
 }
 
 async function 推进商机阶段(row: 阶段9记录, stage: (typeof 商机阶段列表)[number]) {
   if (stage.键 === 商机阶段键(row)) return;
-  await 更新商机(row.id, { stage: stage.键, followup: `阶段推进：${stage.名称}` });
+  await 更新商机(row.id, {
+    stage: stage.键,
+    followup: `阶段推进：${stage.名称}`,
+    changeReason: `页面推进到${stage.名称}`,
+  });
   ElMessage.success("商机阶段已更新。");
   await 加载页面();
   if (详情.value?.id === row.id)

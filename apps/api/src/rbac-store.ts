@@ -385,10 +385,11 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
          WHERE ur.user_id=$1::uuid AND r.role_code='superadmin'`,
         [userId],
       );
-      if (现有超级角色.rows[0] && !roleIds.includes(现有超级角色.rows[0].id))
+      const 是内置Admin账号 = 用户.rows[0].username.trim().toLowerCase() === "admin";
+      if (现有超级角色.rows[0] && !roleIds.includes(现有超级角色.rows[0].id) && 是内置Admin账号)
         throw new 应用错误(
           "RBAC_SUPERADMIN_ROLE_PROTECTED",
-          "超级管理员角色不可被移除，以保证系统账号安全。",
+          "内置 admin 超级管理员角色不可被移除，以保证系统账号安全。",
           409,
         );
       const 目标角色 = await db.query<{ id: string }>(

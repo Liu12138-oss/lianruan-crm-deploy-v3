@@ -2,6 +2,7 @@ import { 读取应用配置 } from "@lianruan/config";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  读取泛微附件编号,
   序列化订单预审创建载荷,
   泛微订单预审客户端,
   type 订单预审字段映射,
@@ -9,6 +10,7 @@ import {
 import { 生成订单预审报价单PDF } from "../src/order-preapproval-pdf.js";
 import { 企微订单预审群客户端 } from "../src/order-preapproval-wecom.js";
 import { 启动订单预审任务服务 } from "../src/order-preapproval-worker.js";
+import { 订单预审事件领取查询 } from "../src/order-preapproval-store.js";
 
 const 字段映射: 订单预审字段映射 = {
   productTypeValue: "EPP渠道产品",
@@ -39,6 +41,11 @@ function 创建订单预审配置() {
 }
 
 describe("订单预审外部集成", () => {
+  it("领取订单预审发件箱事件时保持 UUID 字段类型一致", () => {
+    expect(订单预审事件领取查询).toContain("request.id=event.aggregate_id::uuid");
+    expect(订单预审事件领取查询).toContain("candidate.request_id AS request_id");
+  });
+
   it("订单预审任务默认关闭时不建立数据库连接或发送外部请求", async () => {
     const 服务 = await 启动订单预审任务服务(读取应用配置({ APP_ENV: "test" }));
     expect(服务.enabled).toBe(false);
@@ -80,6 +87,11 @@ describe("订单预审外部集成", () => {
     expect(载荷).toContain('"optionId":1308244418466054167');
     expect(载荷).toContain('"fieldId":1150265436892569601');
     expect(载荷).toContain('"optionId":1308244418466054168');
+    expect(载荷).toContain('"fieldId":"4742314689772812364","content":"LS-2026-0001"');
+    expect(载荷).toContain('"fieldId":"4742314689772812365","content":"渠道商甲"');
+    expect(载荷).toContain('"fieldId":"4742314689772812366","content":"客户乙"');
+    expect(载荷).toContain('"fieldId":"4742314689772812367","content":"详见采购订单上传处的报价单"');
+    expect(载荷).not.toContain('"fieldId":"4742314689772812364","dataOptions"');
     expect(载荷).not.toContain("dataIndex");
     expect(载荷).toContain('"isnextflow":1');
     expect(载荷).toContain('"isVerifyFormRequired":true');
@@ -107,6 +119,17 @@ describe("订单预审外部集成", () => {
     expect((表单 as FormData).get("module")).toBe("workflow");
   });
 
+  it("兼容泛微附件编号位于 data、result 及不同命名格式的响应", () => {
+    expect(读取泛微附件编号({ data: { fileId: "1308244418466054167" } })).toBe(
+      "1308244418466054167",
+    );
+    expect(读取泛微附件编号({ result: { id: "1308244418466054168" } })).toBe("1308244418466054168");
+    expect(读取泛微附件编号({ message: { file_id: "1308244418466054169" } })).toBe(
+      "1308244418466054169",
+    );
+    expect(读取泛微附件编号({ data: { fileId: "上传失败" } })).toBeUndefined();
+  });
+
   it("泛微创建成功后会精确保留流程编号，并按已验证字段回查", async () => {
     const 请求 = vi
       .fn()
@@ -123,16 +146,18 @@ describe("订单预审外部集成", () => {
             message: { errcode: 0 },
             flowRequest: { statusType: "inProcess", currentNode: "梁婉琦审批" },
             formData: {
-              dataDetails: [
-                { fieldId: "4742314795739512449", value: "报价单.pdf" },
-                { fieldId: "1150265436892569601", value: "报价单.pdf" },
-              ],
-              fileDownload_Urls: { 采购订单上传处: "hidden", "报价单／收益表上传处": "hidden" },
+              dataDetails: {
+                所属区域: "南区-湖南MBU",
+                订单编号: "LS-2026-0001",
+                合同对方: "渠道商甲",
+                最终用户: "客户乙",
+                产品类型: "EPP渠道产品",
+                采购内容: "详见采购订单上传处的报价单",
+                采购订单上传处: "报价单.pdf",
+                "报价单/收益表上传处": "报价单.pdf",
+              },
+              fileDownload_Urls: { 采购订单上传处: "hidden", "报价单/收益表上传处": "hidden" },
             },
-            orderNo: "LS-2026-0001",
-            region: "南区-湖南MBU",
-            productType: "EPP渠道产品",
-            purchaseContent: "详见采购订单上传处的报价单",
           }),
           { status: 200 },
         ),
@@ -158,8 +183,6 @@ describe("订单预审外部集成", () => {
         所属区域: "南区-湖南MBU",
         产品类型: "EPP渠道产品",
         采购内容: "详见采购订单上传处的报价单",
-        采购订单字段编号: "4742314795739512449",
-        报价单字段编号: "1150265436892569601",
       }),
     ).resolves.toBeUndefined();
     expect(String(请求.mock.calls[2]?.[0])).toContain("/doCreateRequest");
@@ -194,7 +217,38 @@ describe("订单预审外部集成", () => {
     });
   });
 
-  it("企微建群固定群编号：先查不存在，再创建并发送最小通知", async () => {
+  it("泛微业务拒绝时保留脱敏错误提示", async () => {
+    const 请求 = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('{"code":"auth-code"}', { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"accessToken":"eteams-token"}', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('{"message":{"errcode":1200306,"errmsg":"流程无权限或模板不可用"}}', {
+          status: 200,
+        }),
+      );
+    const 客户端 = new 泛微订单预审客户端(创建订单预审配置().orderPreapproval, 请求);
+
+    await expect(
+      客户端.创建并流转流程({
+        workflowId: "7412314682719324051",
+        formId: "7412314682719324051",
+        发起人泛微编号: "2143392393502329170",
+        订单编号: "LS-2026-0001",
+        合同对方: "渠道商甲",
+        最终用户: "客户乙",
+        所属区域: "南区-湖南MBU",
+        字段映射,
+        采购订单附件: { fileId: "1308244418466054167", fileName: "报价单.pdf" },
+        报价单附件: { fileId: "1308244418466054168", fileName: "报价单.pdf" },
+      }),
+    ).rejects.toMatchObject({
+      code: "ETEAMS_1200306",
+      responseSummary: { message: "流程无权限或模板不可用" },
+    });
+  });
+
+  it("企微建群使用固定群编号创建并发送最小通知", async () => {
     const 请求 = vi
       .fn()
       .mockResolvedValueOnce(
@@ -202,7 +256,6 @@ describe("订单预审外部集成", () => {
           status: 200,
         }),
       )
-      .mockResolvedValueOnce(new Response('{"errcode":40003}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"errcode":0,"chatid":"op_test"}', { status: 200 }))
       .mockResolvedValueOnce(new Response('{"errcode":0}', { status: 200 }));
     const 客户端 = new 企微订单预审群客户端(
@@ -210,8 +263,6 @@ describe("订单预审外部集成", () => {
       5_000,
       请求,
     );
-    const 已有 = await 客户端.查询群("op_test");
-    expect(已有).toBeNull();
     await expect(
       客户端.创建群({
         群编号: "op_test",
@@ -221,10 +272,9 @@ describe("订单预审外部集成", () => {
       }),
     ).resolves.toBe("op_test");
     await expect(客户端.发送群通知("op_test")).resolves.toBeUndefined();
-    expect(String(请求.mock.calls[1]?.[0])).toContain("/cgi-bin/appchat/get");
-    expect(String(请求.mock.calls[2]?.[0])).toContain("/cgi-bin/appchat/create");
-    expect(String(请求.mock.calls[3]?.[0])).toContain("/cgi-bin/appchat/send");
-    expect(String(请求.mock.calls[3]?.[1]?.body)).not.toContain("客户");
+    expect(String(请求.mock.calls[1]?.[0])).toContain("/cgi-bin/appchat/create");
+    expect(String(请求.mock.calls[2]?.[0])).toContain("/cgi-bin/appchat/send");
+    expect(String(请求.mock.calls[2]?.[1]?.body)).not.toContain("客户");
   });
 
   it("企微建群出现服务端异常时转人工确认，禁止自动创建第二个群", async () => {
