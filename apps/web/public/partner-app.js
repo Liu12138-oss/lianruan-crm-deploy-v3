@@ -74,6 +74,18 @@ async function apiRequest(method, endpoint, body = null) {
   return res.json();
 }
 
+// 一级渠道商接口属于V3业务路由，不能沿用页面的V2兼容前缀。
+async function v3ApiRequest(method, endpoint, body = null) {
+  const options = {
+    method,
+    headers: { 'Content-Type': 'application/json' }
+  };
+  if (body) options.body = JSON.stringify(body);
+  const apiBase = String(window.API_BASE || '/api').replace(/\/v2\/?$/, '');
+  const res = await partnerFetch(`${apiBase}${endpoint}`, options);
+  return res.json();
+}
+
 // ── 商机阶段配置（全局定义，供所有组件使用）────────────────────
 const STAGES = [
   { key:'contacted',    label:'1% 已联系上客户',   color:'#e6f4ff', dot:'#1677ff' },
@@ -2883,7 +2895,7 @@ const QuoteList = {
     // 打开选择一级渠道商弹窗（支持多个上级渠道商）
     async function openSelectParentPartnerModal(q) {
       try {
-        const res = await apiRequest('GET', `/quotes/${encodeURIComponent(q.id)}/parent-partners`);
+        const res = await v3ApiRequest('GET', `/quotes/${encodeURIComponent(q.id)}/parent-partners`);
         if (!res.success || !Array.isArray(res.data)) {
           alert('获取一级渠道商信息失败，请联系管理员');
           return;
