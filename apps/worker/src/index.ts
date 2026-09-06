@@ -27,7 +27,11 @@ export {
   泛微订单预审客户端,
   订单预审外部错误,
 } from "./order-preapproval-eteams.js";
-export { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
+export {
+  生成正式报价单PDF,
+  生成订单预审报价单PDF,
+  生成订单预审采购内容,
+} from "./order-preapproval-pdf.js";
 export { 订单预审任务存储 } from "./order-preapproval-store.js";
 export { 企微订单预审群客户端, 解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
 export { 启动订单预审任务服务 } from "./order-preapproval-worker.js";

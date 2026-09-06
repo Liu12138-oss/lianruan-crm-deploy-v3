@@ -59,7 +59,8 @@ async function 投递企微自建应用(
   if (!消息.recipientWecomUserId) {
     return 忽略结果("wecom_app", "接收人未绑定企微 UserId，未发起外部请求。");
   }
-  const 内容 = 按字节截断(`${消息.title}\n${消息.body}`.trim(), 2_048);
+  // 自建应用使用企微 Markdown 子集：状态单独强调、业务字段使用引用块逐行展示。
+  const 内容 = 构建企微应用Markdown(消息.title, 消息.body);
   const 发送地址 = (token: string) =>
     `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`;
   const 发送请求 = async (token: string) =>
@@ -68,10 +69,9 @@ async function 投递企微自建应用(
       发送地址(token),
       {
         touser: 消息.recipientWecomUserId,
-        msgtype: "text",
+        msgtype: "markdown",
         agentid: 通道.agentId,
-        text: { content: 内容 },
-        safe: 0,
+        markdown: { content: 内容 },
       },
       config.message.channels.requestTimeoutMs,
     );
@@ -107,6 +107,77 @@ async function 投递企微自建应用(
     企微应用错误摘要(errcode, 读取文本字段(响应.body, "errmsg")),
     响应.status,
   );
+}
+
+function 构建企微应用Markdown(标题: string, 正文: string): string {
+  const 安全标题 = 转义企微Markdown文本(标题.trim() || "统一消息提醒");
+  const 片段 = 正文
+    .replace(/\r\n/g, "\n")
+    .split(/[；;。\n]+/)
+    .map((值) => 值.trim())
+    .filter(Boolean);
+  const 状态 = 提取企微提醒状态(标题, 正文);
+  const 状态颜色 = /驳回|未通过|失败|拒绝|到期/.test(状态)
+    ? "warning"
+    : /通过|确认|成功/.test(状态)
+      ? "info"
+      : "comment";
+  const 行: string[] = [
+    `**${安全标题}**`,
+    `> <font color="${状态颜色}">状态：${转义企微Markdown文本(状态)}</font>`,
+  ];
+  for (const 片段值 of 片段) {
+    const 待解析片段 = 清理既有Markdown字段标记(片段值);
+    const 匹配 = 待解析片段.match(/^([^：:]{1,24})[：:](.*)$/);
+    if (匹配) {
+      const 标签 = 转义企微Markdown文本(匹配[1]?.trim() || "");
+      const 值 = 转义企微Markdown文本(匹配[2]?.trim() || "");
+      if (标签 && 值) 行.push(`> **${标签}：**${值}`);
+    } else if (待解析片段 !== 标题.trim()) {
+      行.push(`> ${转义企微Markdown文本(待解析片段.replace(/[。.!！]$/, ""))}`);
+    }
+  }
+  if (行.length === 2 && 正文.trim()) 行.push(转义企微Markdown文本(正文.trim()));
+  // 企业微信官方“发送应用消息”约束 Markdown 内容最长 2048 字节。
+  return 按字节截断(行.join("\n"), 2_048);
+}
+
+function 清理既有Markdown字段标记(值: string): string {
+  return 值.replace(/\*\*([^*]+?)\*\*/g, "$1").trim();
+}
+
+function 提取企微提醒状态(标题: string, 正文: string): string {
+  const 来源 = `${标题} ${正文}`;
+  if (/驳回|未通过|拒绝/.test(来源)) return "审批驳回";
+  if (/失败/.test(来源)) return "处理失败";
+  if (/即将到期|到期/.test(来源)) {
+    const 剩余 = 来源.match(/剩余\s*([0-9]+)\s*天/);
+    return 剩余 ? `即将到期 · 剩余 ${剩余[1]} 天` : "即将到期";
+  }
+  if (/待审批|待审核|待处理|等待/.test(来源)) return "待处理";
+  if (/通过/.test(来源)) return "审批通过";
+  if (/确认完成|已确认|确认/.test(来源)) return "已确认";
+  if (/状态已变化|状态已更新|状态变更/.test(来源)) return "状态变更";
+  if (/成功/.test(来源)) return "处理成功";
+  return "提醒";
+}
+
+function 转义企微Markdown文本(值: string): string {
+  const 替换: Record<string, string> = {
+    "\\": "＼",
+    "`": "｀",
+    "*": "＊",
+    _: "＿",
+    "#": "＃",
+    "[": "［",
+    "]": "］",
+    "<": "＜",
+    ">": "＞",
+  };
+  return [...值]
+    .map((字符) => 替换[字符] || 字符)
+    .join("")
+    .trim();
 }
 
 async function 获取企微应用令牌(

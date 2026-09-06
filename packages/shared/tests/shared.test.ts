@@ -11,6 +11,8 @@ import {
   判断健康状态,
   到期数据源目录,
   应用错误,
+  生成正式报价单PDF,
+  生成订单预审采购内容,
 } from "../src/index.js";
 
 afterEach(() => {
@@ -139,5 +141,49 @@ describe("统一提醒变量目录", () => {
     expect(事件目录.map((事件) => 事件.code)).toEqual(
       expect.arrayContaining(["iam.account.approval.pending", "channel.partner.approval.pending"]),
     );
+  });
+});
+
+describe("正式报价单 PDF", () => {
+  it("生成 A4 PDF 并固化中文字体、产品分组和金额汇总", () => {
+    const 内容 = 生成正式报价单PDF({
+      订单编号: "LS-2026-0001",
+      报价编号: "BJ-2026-0001",
+      合同对方: "渠道商甲",
+      最终用户: "客户乙",
+      所属区域: "南区-湖南MBU",
+      明细: [
+        { 名称: "终端管理许可", 数量: "200", 单价: "270", 金额: "54000", 类型: "软件产品" },
+        { 名称: "实施服务", 数量: "1", 单价: "0", 金额: "0", 类型: "服务项" },
+      ],
+      合计金额: "54000",
+      生成时间: "2026-08-27T00:00:00.000Z",
+    });
+
+    const 文本 = 内容.toString("binary");
+    expect(内容.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
+    expect(文本).toContain("/STSong-Light");
+    expect(文本).toContain("/Helvetica");
+    expect(文本).toContain("/Helvetica-Bold");
+    expect(文本).toContain("xref");
+    expect(文本).toContain("/MediaBox [0 0 595 842]");
+    expect(文本).toContain(
+      "终端管理许可"
+        .split("")
+        .map((字符) => Buffer.from(字符, "utf16le").swap16().toString("hex").toUpperCase())
+        .join(""),
+    );
+  });
+
+  it("采购内容只输出软件产品和服务项明细", () => {
+    const 内容 = 生成订单预审采购内容([
+      { 名称: "终端管理许可", 数量: "200", 单价: "270", 金额: "54000", 类型: "软件产品" },
+      { 名称: "硬件网关", 数量: "1", 单价: "1000", 金额: "1000", 类型: "硬件设备" },
+    ]);
+    expect(内容).toContain("软件产品：");
+    expect(内容).toContain("授权端点数：200 点");
+    expect(内容).toContain("小计：¥54,000");
+    expect(内容).toContain("服务项：");
+    expect(内容).not.toContain("硬件网关");
   });
 });

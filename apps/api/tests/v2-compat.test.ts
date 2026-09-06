@@ -983,11 +983,17 @@ describe("V2真实页面兼容接口", () => {
     const 渠道商编号 = `PARTNER-PENDING-REMINDER-${序号}`;
 
     try {
+      const 区域查询 = await pool.query<{ region_name: string }>(
+        "SELECT region_name FROM org.regions WHERE status_code = 'active' ORDER BY region_level DESC LIMIT 1",
+      );
+      const 区域名称 = 区域查询.rows[0]?.region_name;
+      if (!区域名称) throw new Error("未找到可用于渠道商审批验收的启用区域。");
       const 创建 = await request(app)
         .post("/api/v2/partners")
         .send({
           id: 渠道商编号,
           name: `渠道商审核提醒验收-${序号}`,
+          region: 区域名称,
           city: "深圳市",
           contact: "验收负责人",
           phone: `136${String(序号).slice(-8)}`,
@@ -995,17 +1001,81 @@ describe("V2真实页面兼容接口", () => {
         })
         .expect(200);
       expect(创建.body.success).toBe(true);
+      expect(创建.body.data.status).toBe("pending");
+
+      const 待审批渠道商导入文件 = 生成Excel([
+        ["渠道商名称*", "合作级别", "所在区域*", "所在城市*", "联系人", "联系电话"],
+        [
+          `渠道商审核提醒验收-${序号}`,
+          "gold",
+          区域名称,
+          "深圳市",
+          "导入更新负责人",
+          `136${String(序号).slice(-8)}`,
+        ],
+      ]);
+      await request(app)
+        .post("/api/v2/import/partners/execute")
+        .attach("file", 待审批渠道商导入文件, {
+          filename: "待审批渠道商导入.xlsx",
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        .expect(200);
+      const 导入后状态 = await pool.query<{ status_code: string }>(
+        "SELECT status_code FROM channel.partners WHERE v2_source_id = $1",
+        [渠道商编号],
+      );
+      expect(导入后状态.rows[0]?.status_code).toBe("pending");
+
+      const 业务创建 = await request(app)
+        .post("/api/registrations")
+        .send({
+          customer: `待审批渠道商不可用客户-${序号}`,
+          partnerId: 渠道商编号,
+          contact: "验收联系人",
+          phone: `135${String(序号).slice(-8)}`,
+        })
+        .expect(400);
+      expect(业务创建.body.error.message).toContain("所选渠道商不存在");
+
+      const 待审批渠道商员工导入文件 = 生成Excel([
+        ["登录账号*", "员工姓名*", "所属渠道商名称*", "密码*", "手机号", "邮箱", "状态"],
+        [
+          `pending_partner_staff_${序号}`,
+          "待审批渠道商员工",
+          `渠道商审核提醒验收-${序号}`,
+          "LrCRM@2026!",
+          `137${String(序号).slice(-8)}`,
+          `pending_partner_staff_${序号}@example.com`,
+          "启用",
+        ],
+      ]);
+      const 待审批渠道商员工导入预览 = await request(app)
+        .post("/api/v2/import/staff/preview")
+        .attach("file", 待审批渠道商员工导入文件, {
+          filename: "待审批渠道商员工导入.xlsx",
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        .expect(200);
+      expect(待审批渠道商员工导入预览.body.errorCount).toBe(1);
+      expect(待审批渠道商员工导入预览.body.preview[0]?.errors).toContain(
+        `渠道商“渠道商审核提醒验收-${序号}”不存在。`,
+      );
 
       const 结果 = await pool.query<{
         event_type: string;
         aggregate_type: string;
         status_code: string;
+        partner_status: string;
+        region_name: string | null;
       }>(
         `
-        SELECT outbox.event_type, outbox.aggregate_type, approval.status_code
+        SELECT outbox.event_type, outbox.aggregate_type, approval.status_code,
+          partner.status_code AS partner_status, region.region_name
         FROM ops.outbox_events outbox
         JOIN ops.approvals approval ON approval.id = outbox.aggregate_id
         JOIN channel.partners partner ON partner.id = approval.target_id
+        LEFT JOIN org.regions region ON region.id = partner.region_id
         WHERE partner.v2_source_id = $1
           AND outbox.event_type = 'channel.partner.approval.pending'
         ORDER BY outbox.created_at DESC
@@ -1017,10 +1087,108 @@ describe("V2真实页面兼容接口", () => {
         event_type: "channel.partner.approval.pending",
         aggregate_type: "approval",
         status_code: "pending",
+        partner_status: "pending",
+        region_name: 区域名称,
       });
+
+      const 待审批列表 = await request(app)
+        .get("/api/v2/pending-approvals?pageSize=100")
+        .expect(200);
+      const 待审批渠道商 = (待审批列表.body.data as Array<Record<string, unknown>>).find(
+        (item) => item.type === "partner" && item.targetPartnerId === 渠道商编号,
+      );
+      expect(待审批渠道商?.status).toBe("pending");
+      expect(待审批渠道商?.region).toBe(区域名称);
+
+      const 审批编号 = String(待审批渠道商?.approvalId || "");
+      expect(审批编号).not.toBe("");
+      await request(app)
+        .put(`/api/v2/pending-approvals/${审批编号}`)
+        .send({ action: "approve", approvedBy: "验收超管" })
+        .expect(200);
+      await request(app)
+        .put(`/api/v2/pending-approvals/${审批编号}`)
+        .send({ action: "approve", approvedBy: "验收超管" })
+        .expect(409);
+
+      const 审批后状态 = await pool.query<{
+        approval_status: string;
+        partner_status: string;
+      }>(
+        `
+        SELECT approval.status_code AS approval_status, partner.status_code AS partner_status
+        FROM ops.approvals approval
+        JOIN channel.partners partner ON partner.id = approval.target_id
+        WHERE approval.id = $1::uuid
+        `,
+        [审批编号],
+      );
+      expect(审批后状态.rows[0]).toEqual({ approval_status: "approved", partner_status: "active" });
     } finally {
       await pool.end();
     }
+  });
+
+  it("区域管理员提交渠道商后，本区域列表和超级管理员审批中心均可见", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 区域管理员 = request.agent(app);
+    const 超级管理员 = request.agent(app);
+    const 序号 = Date.now();
+    const 渠道商编号 = `PARTNER-REGION-VISIBLE-${序号}`;
+
+    const 区管登录 = await 区域管理员
+      .post("/api/v2/auth/login")
+      .send({ username: "admin_sd", password: "LrCRM@2026!" })
+      .expect(200);
+    const 区域名称 = String(区管登录.body.user.region || "");
+    expect(区域名称).not.toBe("");
+
+    const 创建 = await 区域管理员
+      .post("/api/v2/partners")
+      .send({
+        id: 渠道商编号,
+        name: `区域可见渠道商-${序号}`,
+        region: 区域名称,
+        city: "济南市",
+        contact: "验收负责人",
+        phone: `135${String(序号).slice(-8)}`,
+      })
+      .expect(200);
+    expect(创建.body.data.status).toBe("pending");
+
+    const 区管列表 = await 区域管理员.get("/api/v2/partners?pageSize=1000").expect(200);
+    const 区管可见渠道商 = (区管列表.body.data as Array<Record<string, unknown>>).find(
+      (item) => item.id === 渠道商编号,
+    );
+    expect(区管可见渠道商).toMatchObject({ region: 区域名称, status: "pending" });
+
+    await 超级管理员
+      .post("/api/v2/auth/login")
+      .send({ username: "liulonghai", password: "LrCRM@2026!" })
+      .expect(200);
+    const 超管列表 = await 超级管理员.get("/api/v2/partners?pageSize=1000").expect(200);
+    expect(
+      (超管列表.body.data as Array<Record<string, unknown>>).some((item) => item.id === 渠道商编号),
+    ).toBe(true);
+
+    const 审批中心 = await 超级管理员.get("/api/v2/pending-approvals?pageSize=1000").expect(200);
+    const 审批任务 = (审批中心.body.data as Array<Record<string, unknown>>).find(
+      (item) => item.type === "partner" && item.targetPartnerId === 渠道商编号,
+    );
+    const 审批编号 = String(审批任务?.approvalId || "");
+    expect(审批任务).toMatchObject({ status: "pending", region: 区域名称 });
+    expect(审批编号).not.toBe("");
+
+    await 超级管理员
+      .put(`/api/v2/pending-approvals/${审批编号}`)
+      .send({ action: "approve", approvedBy: "验收超管" })
+      .expect(200);
+    const 审批后列表 = await 超级管理员.get("/api/v2/partners?pageSize=1000").expect(200);
+    expect(
+      (审批后列表.body.data as Array<Record<string, unknown>>).find(
+        (item) => item.id === 渠道商编号,
+      ),
+    ).toMatchObject({ status: "active" });
   });
 
   it("渠道商员工禁用后保留在团队中，删除后逻辑归档且保留角色与证书历史", async () => {

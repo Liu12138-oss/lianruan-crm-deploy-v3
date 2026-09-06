@@ -62,8 +62,8 @@ describe("正式管理员页组织架构内嵌路由", () => {
   it("正式页面引用内嵌版本资源", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=159"></script>');
-    expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=16" />');
+    expect(页面文本).toContain('<script src="admin-app.js?v=162"></script>');
+    expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=17" />');
     expect(页面文本).toContain('<script src="libs/xlsx.full.min.js"></script>');
   });
 
@@ -372,6 +372,16 @@ it("账号抽屉将泛微 OA 候选与正式映射隔离，候选不可用于发
   expect(脚本文本).toContain("rowVersion: 待核验泛微候选.value.rowVersion");
   expect(脚本文本).toContain("rowVersion: 泛微OA身份.value.formalIdentity.rowVersion");
   expect(脚本文本).toContain("幂等键: 生成组织幂等键()");
+});
+
+it("账号抽屉只读展示企业微信 userid，且不改变泛微 OA 映射区块", async () => {
+  const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
+
+  expect(脚本文本).toContain("企业微信身份");
+  expect(脚本文本).toContain("泛微OA身份.wecomIdentities");
+  expect(脚本文本).toContain("企业微信 userid");
+  expect(脚本文本).toContain("不影响泛微 OA 发起人映射");
+  expect(脚本文本).toContain("组织读取泛微OA身份(userId)");
 });
 
 it("从角色用户弹窗进入账号授权时先关闭原弹窗，避免账号抽屉被遮挡", async () => {

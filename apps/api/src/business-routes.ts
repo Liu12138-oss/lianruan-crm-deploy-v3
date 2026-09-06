@@ -193,6 +193,22 @@ export function 创建业务路由(参数: 业务路由参数): Router {
 
   router.get("/quotes", 列表处理器(service, 参数.build, "quotes", 读取用户));
   router.get("/quotes/:id", 详情处理器(service, 参数.build, "quotes", 读取用户));
+  router.get("/quotes/:id/pdf", async (req, res, next) => {
+    try {
+      const 文件 = await service.生成正式报价单(读取路由参数(req, "id"), 读取用户(req));
+      res
+        .status(200)
+        .setHeader("Content-Type", "application/pdf")
+        .setHeader("Content-Length", String(文件.内容.length))
+        .setHeader(
+          "Content-Disposition",
+          `attachment; filename*=UTF-8''${encodeURIComponent(文件.文件名)}`,
+        )
+        .send(文件.内容);
+    } catch (error) {
+      next(error);
+    }
+  });
   router.post("/quotes/workload-preview", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.试算报价(req.body)));
@@ -282,11 +298,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新订单修订申请(
-            读取路由参数(req, "id"),
-            req.body,
-            读取用户(req),
-          ),
+          await service.更新订单修订申请(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -300,6 +312,19 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           req,
           参数.build,
           await service.更新订单状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.put("/orders/:id/resubmit", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.重新提交订单(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -348,7 +373,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           参数.build,
           await service.更新订单状态(
             读取路由参数(req, "id"),
-            { ...req.body, status: "primary_rejected" },
+            { ...req.body, status: "returned_to_secondary", returnTarget: "secondary" },
             读取用户(req),
           ),
         ),

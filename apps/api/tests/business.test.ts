@@ -313,6 +313,13 @@ describe("阶段9业务兼容接口", () => {
       .expect(200);
     expect(报价.body.data.状态).toBe("draft");
 
+    const 报价PDF = await request(app)
+      .get(`/api/quotes/${encodeURIComponent(报价.body.data.id)}/pdf`)
+      .expect(200);
+    expect(报价PDF.headers["content-type"]).toMatch(/^application\/pdf/);
+    expect(报价PDF.headers["content-disposition"]).toContain("filename*=UTF-8''");
+    expect(报价PDF.body.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
+
     const 订单 = await request(app)
       .post("/api/orders")
       .send({ quoteId: 报价.body.data.id })
@@ -432,10 +439,7 @@ describe("阶段9业务兼容接口", () => {
         .expect(200);
       商机编号 = 创建.body.data.id;
 
-      await request(app)
-        .put(`/api/opportunities/${商机编号}`)
-        .send({ stage: "lost" })
-        .expect(400);
+      await request(app).put(`/api/opportunities/${商机编号}`).send({ stage: "lost" }).expect(400);
 
       const 输单编辑 = await request(app)
         .put(`/api/opportunities/${商机编号}`)
@@ -446,7 +450,11 @@ describe("阶段9业务兼容接口", () => {
 
       const 赢单编辑 = await request(app)
         .put(`/api/opportunities/${商机编号}`)
-        .send({ stage: "won", name: `${批次}-商机-重新激活`, changeReason: "客户重新启动采购，恢复商机" })
+        .send({
+          stage: "won",
+          name: `${批次}-商机-重新激活`,
+          changeReason: "客户重新启动采购，恢复商机",
+        })
         .expect(200);
       expect(赢单编辑.body.data.状态).toBe("won");
       expect(赢单编辑.body.data.标题).toBe(`${批次}-商机-重新激活`);
@@ -456,7 +464,11 @@ describe("阶段9业务兼容接口", () => {
         .send({ stage: "won", changeReason: "重复保存验收" })
         .expect(200);
 
-      const 审计 = await pool.query<{ message: string; before_json: Record<string, unknown>; after_json: Record<string, unknown> }>(
+      const 审计 = await pool.query<{
+        message: string;
+        before_json: Record<string, unknown>;
+        after_json: Record<string, unknown>;
+      }>(
         `
         SELECT message, before_json, after_json
         FROM audit.audit_logs
@@ -475,7 +487,8 @@ describe("阶段9业务兼容接口", () => {
       expect(赢单审计?.before_json.stage).toBe("lost");
       expect(赢单审计?.after_json.stage).toBe("won");
     } finally {
-      if (商机编号) await pool.query("DELETE FROM crm.opportunities WHERE id::text = $1", [商机编号]);
+      if (商机编号)
+        await pool.query("DELETE FROM crm.opportunities WHERE id::text = $1", [商机编号]);
       await pool.end();
     }
   });
@@ -747,6 +760,15 @@ describe("阶段9业务兼容接口", () => {
         "self",
         区域编号,
       );
+      const 一级管理员 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "primary_admin",
+        "一级管理员",
+        "partner_admin",
+        "partner",
+        区域编号,
+      );
       const 区域管理员 = await 创建渠道范围测试用户(
         pool,
         批次,
@@ -770,6 +792,7 @@ describe("阶段9业务兼容接口", () => {
         [二级分销商.id, `${批次}-协议`],
       );
       await 绑定渠道范围测试成员(pool, 二级分销商.id, 二级员工.id, "staff");
+      await 绑定渠道范围测试成员(pool, 一级分销商.id, 一级管理员.id, "partner_admin");
       const 客户名称 = `${批次}-二级订单审批客户`;
       const 客户编号 = await 创建渠道范围测试客户(pool, 客户名称, 二级员工.id, 二级分销商.id);
       const 报价编号 = await 生成测试业务编号(pool, "quote", 二级员工.username);
@@ -830,6 +853,20 @@ describe("阶段9业务兼容接口", () => {
       expect(订单.body.data.原始数据.parentPartnerName).toBe(一级分销商.partner_name);
       expect(订单.body.data.原始数据.assignedStaffName).toBe(二级员工.display_name);
 
+      const 一级订单列表 = await request(app)
+        .get(`/api/v2/orders?keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
+        .expect(200);
+      expect(一级订单列表.body.data.map((项: { uuid: string }) => 项.uuid)).toContain(
+        订单.body.data.id,
+      );
+
+      const 一级报价列表 = await request(app)
+        .get(`/api/v2/quotes?keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
+        .expect(200);
+      expect(一级报价列表.body.data.map((项: { id: string }) => 项.id)).not.toContain(报价编号);
+
       const 一级待办 = await request(app)
         .get(
           `/api/stage9/approvals?status=pending&keyword=${encodeURIComponent(客户名称)}&pageSize=10`,
@@ -845,6 +882,7 @@ describe("阶段9业务兼容接口", () => {
       const 一级确认 = await request(app)
         .put(`/api/orders/${订单.body.data.id}/primary-confirm`)
         .send({ reason: "一级分销商确认" })
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
         .expect(200);
       expect(一级确认.body.data.状态).toBe("primary_confirmed");
 
@@ -949,6 +987,419 @@ describe("阶段9业务兼容接口", () => {
     }
   });
 
+  it("区管和超管可以按审批节点驳回订单且必须记录原因", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-REJECT-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 渠道 = await 创建渠道范围测试渠道(pool, 批次, "驳回", 区域编号);
+      const 员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "staff",
+        "提报员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      const 区管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "region_manager",
+        "区域管理员",
+        "region_manager",
+        "region",
+        区域编号,
+      );
+      const 超管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "superadmin",
+        "超级管理员",
+        "superadmin",
+        "all",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 渠道.id, 员工.id, "staff");
+      const 第一笔 = await 创建渠道范围测试报价和订单(
+        pool,
+        `${批次}-REGION`,
+        `${批次}-区管驳回客户`,
+        渠道,
+        员工,
+      );
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'primary_confirmed', extra_json = extra_json || '{"status":"primary_confirmed"}'::jsonb WHERE id = $1::uuid`,
+        [第一笔.订单.id],
+      );
+      await 创建渠道范围测试订单审批待办(pool, `${批次}-REGION`, 第一笔.订单, 渠道, 员工);
+
+      const 超管代替区管 = await request(app)
+        .put(`/api/orders/${第一笔.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(超管.username))
+        .send({ status: "confirmed", reason: "不应允许超管代替区管推进" })
+        .expect(403);
+      expect(超管代替区管.body.error?.code).toBe("V3_ORDER_REGION_MANAGER_REQUIRED");
+
+      const 缺少原因 = await request(app)
+        .put(`/api/orders/${第一笔.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({ status: "rejected" })
+        .expect(400);
+      expect(缺少原因.body.error?.code).toBe("V3_ORDER_REJECT_REASON_REQUIRED");
+
+      const 区管驳回 = await request(app)
+        .put(`/api/orders/${第一笔.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({ status: "rejected", reason: "模块明细与客户确认单不一致" })
+        .expect(200);
+      expect(区管驳回.body.data.状态).toBe("rejected");
+      expect(区管驳回.body.data.原始数据.reviewRemark).toBe("模块明细与客户确认单不一致");
+
+      const 第二笔 = await 创建渠道范围测试报价和订单(
+        pool,
+        `${批次}-SUPER`,
+        `${批次}-超管驳回客户`,
+        渠道,
+        员工,
+      );
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'pending_superadmin_confirm', extra_json = extra_json || '{"status":"pending_superadmin_confirm"}'::jsonb WHERE id = $1::uuid`,
+        [第二笔.订单.id],
+      );
+      await pool.query(
+        `UPDATE ops.approvals SET status_code = 'cancelled' WHERE target_type = 'order' AND target_id = $1::uuid;`,
+        [第二笔.订单.id],
+      );
+      await pool.query(
+        `INSERT INTO ops.approvals (v2_source_id, approval_type_code, target_type, target_id, applicant_user_id, applicant_partner_id, status_code, extra_json) VALUES ($1, 'order', 'order', $2::uuid, $3::uuid, $4::uuid, 'pending', '{"step":"superadmin_confirm","status":"pending"}'::jsonb)`,
+        [`order:superadmin_confirm:${第二笔.订单.id}`, 第二笔.订单.id, 员工.id, 渠道.id],
+      );
+      const 超管驳回 = await request(app)
+        .put(`/api/orders/${第二笔.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(超管.username))
+        .send({ status: "rejected", reason: "折扣审批材料不完整" })
+        .expect(200);
+      expect(超管驳回.body.data.状态).toBe("rejected");
+      expect(超管驳回.body.data.原始数据.reviewRemark).toBe("折扣审批材料不完整");
+
+      const 审批事件 = await pool.query<{
+        step: string;
+        status_code: string;
+        review_remark: string;
+      }>(
+        `SELECT extra_json->>'step' AS step, status_code, extra_json->>'reviewRemark' AS review_remark FROM ops.approvals WHERE target_type = 'order' AND target_id IN ($1::uuid, $2::uuid) ORDER BY created_at`,
+        [第一笔.订单.id, 第二笔.订单.id],
+      );
+      expect(审批事件.rows).toEqual([
+        {
+          step: "region_confirm",
+          status_code: "rejected",
+          review_remark: "模块明细与客户确认单不一致",
+        },
+        {
+          step: "superadmin_confirm",
+          status_code: "rejected",
+          review_remark: "折扣审批材料不完整",
+        },
+      ]);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("订单审批可以退回指定层级并由目标人修改后重新提交", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-RETURN-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 一级渠道 = await 创建渠道范围测试渠道(pool, 批次, "PRIMARY", 区域编号, "primary");
+      const 二级渠道 = await 创建渠道范围测试渠道(pool, 批次, "SECONDARY", 区域编号, "secondary");
+      await pool.query(
+        `INSERT INTO channel.partner_relations (parent_partner_id, child_partner_id, relation_code) VALUES ($1::uuid, $2::uuid, 'primary_secondary') ON CONFLICT DO NOTHING`,
+        [一级渠道.id, 二级渠道.id],
+      );
+      const 二级员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "secondary_staff",
+        "二级员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      const 非提交员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "other_staff",
+        "非提交员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      const 一级管理员 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "primary_admin",
+        "一级管理员",
+        "partner_admin",
+        "partner",
+        区域编号,
+      );
+      const 区管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "region_manager",
+        "区管",
+        "region_manager",
+        "region",
+        区域编号,
+      );
+      const 超管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "superadmin",
+        "超管",
+        "superadmin",
+        "all",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 二级渠道.id, 二级员工.id, "staff");
+      await 绑定渠道范围测试成员(pool, 一级渠道.id, 一级管理员.id, "partner_admin");
+      const 业务 = await 创建渠道范围测试报价和订单(pool, 批次, `${批次}-客户`, 二级渠道, 二级员工);
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'pending_primary_confirm', extra_json = extra_json || '{"status":"pending_primary_confirm"}'::jsonb WHERE id = $1::uuid`,
+        [业务.订单.id],
+      );
+      await pool.query(
+        `INSERT INTO ops.approvals (v2_source_id, approval_type_code, target_type, target_id, applicant_user_id, applicant_partner_id, status_code, extra_json) VALUES ($1, 'order', 'order', $2::uuid, $3::uuid, $4::uuid, 'pending', '{"step":"primary_confirm","status":"pending"}'::jsonb) ON CONFLICT (v2_source_id) DO UPDATE SET status_code='pending'`,
+        [`order:primary_confirm:${业务.订单.id}:0`, 业务.订单.id, 二级员工.id, 二级渠道.id],
+      );
+
+      const 一级退回 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/primary-reject`)
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
+        .send({ reason: "模块明细需要修正" })
+        .expect(200);
+      expect(一级退回.body.data.状态).toBe("returned_to_secondary");
+      const 非提交人重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(非提交员工.username))
+        .send({ reason: "非提交人不应修改", items: [{ itemName: "终端防护", quantity: 2 }] })
+        .expect(403);
+      expect(非提交人重提.body.error?.code).toBe("V3_ORDER_RESUBMIT_PERMISSION_DENIED");
+      const 二级重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(二级员工.username))
+        .send({
+          reason: "已按客户确认单修正模块",
+          newAmount: 24000,
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 13000, lineAmount: 26000 }],
+        })
+        .expect(200);
+      expect(二级重提.body.data.状态).toBe("pending_primary_confirm");
+
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'primary_confirmed', extra_json = extra_json || '{"status":"primary_confirmed"}'::jsonb WHERE id = $1::uuid`,
+        [业务.订单.id],
+      );
+      await pool.query(
+        `UPDATE ops.approvals SET status_code='pending', extra_json = jsonb_set(extra_json, '{step}', '"region_confirm"') WHERE target_id = $1::uuid`,
+        [业务.订单.id],
+      );
+      const 区管退回 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({
+          status: "returned_to_primary",
+          returnTarget: "primary",
+          reason: "请一级渠道商补充商务信息",
+        })
+        .expect(200);
+      expect(区管退回.body.data.状态).toBe("returned_to_primary");
+      const 原提交人重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(二级员工.username))
+        .send({
+          reason: "原提交人修正订单",
+          newAmount: 36000,
+          items: [{ itemName: "终端防护", quantity: 3, unitPrice: 13000, lineAmount: 39000 }],
+        })
+        .expect(200);
+      expect(原提交人重提.body.data.状态).toBe("primary_confirmed");
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'primary_confirmed', extra_json = extra_json || '{"status":"primary_confirmed"}'::jsonb WHERE id = $1::uuid`,
+        [业务.订单.id],
+      );
+      const 再次退回一级 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({
+          status: "returned_to_primary",
+          returnTarget: "primary",
+          reason: "再次请一级渠道商核对",
+        })
+        .expect(200);
+      expect(再次退回一级.body.data.状态).toBe("returned_to_primary");
+      const 一级重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
+        .send({
+          reason: "已补充商务信息并修正订单金额",
+          newAmount: 12000,
+          items: [{ itemName: "终端防护", quantity: 1, unitPrice: 13100, lineAmount: 13100 }],
+        })
+        .expect(200);
+      expect(一级重提.body.data.状态).toBe("primary_confirmed");
+
+      const 一级自有业务 = await 创建渠道范围测试报价和订单(
+        pool,
+        `${批次}-PRIMARY`,
+        `${批次}-一级自有客户`,
+        一级渠道,
+        一级管理员,
+      );
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'primary_confirmed', extra_json = extra_json || '{"status":"primary_confirmed"}'::jsonb WHERE id = $1::uuid`,
+        [一级自有业务.订单.id],
+      );
+      const 一级自有退回 = await request(app)
+        .put(`/api/orders/${一级自有业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({
+          status: "returned_to_primary",
+          returnTarget: "primary",
+          reason: "请一级渠道商修正自有订单",
+        })
+        .expect(200);
+      expect(一级自有退回.body.data.状态).toBe("returned_to_primary");
+      const 一级自有重提 = await request(app)
+        .put(`/api/orders/${一级自有业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(一级管理员.username))
+        .send({
+          reason: "已修正一级自有订单",
+          newAmount: 24000,
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 13000, lineAmount: 26000 }],
+        })
+        .expect(200);
+      expect(一级自有重提.body.data.状态).toBe("primary_confirmed");
+
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'pending_superadmin_confirm', extra_json = extra_json || '{"status":"pending_superadmin_confirm"}'::jsonb WHERE id = $1::uuid`,
+        [业务.订单.id],
+      );
+      const 超管退回 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(超管.username))
+        .send({
+          status: "returned_to_region",
+          returnTarget: "region",
+          reason: "请区管核对协议资料",
+        })
+        .expect(200);
+      expect(超管退回.body.data.状态).toBe("returned_to_region");
+      const 区管重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({
+          reason: "已核对协议资料并修正订单金额",
+          newAmount: 24000,
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 13200, lineAmount: 26400 }],
+        })
+        .expect(200);
+      expect(区管重提.body.data.状态).toBe("pending_superadmin_confirm");
+      const 自动预审 = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
+        [业务.订单.id],
+      );
+      expect(自动预审.rows[0]?.count).toBe("0");
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("历史零价手工明细重提时按提交人渠道等级恢复产品并计算区域阶梯价", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-RESUBMIT-PRICE-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 渠道 = await 创建渠道范围测试渠道(pool, 批次, "PRIMARY", 区域编号, "primary");
+      const 员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "staff",
+        "提报员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 渠道.id, 员工.id, "staff");
+      const 产品结果 = await pool.query<{ id: string; feature_name: string }>(
+        `SELECT id::text AS id, feature_name FROM catalog.product_features
+         WHERE status_code = 'active' AND published = true
+           AND extra_json ? 'regionPriceOverrides'
+         ORDER BY feature_name LIMIT 1`,
+      );
+      const 产品 = 产品结果.rows[0];
+      expect(产品).toBeTruthy();
+      const 业务 = await 创建渠道范围测试报价和订单(pool, 批次, `${批次}-客户`, 渠道, 员工);
+      await pool.query(
+        `UPDATE crm.quote_items SET item_name = $2, unit_price = 0, line_amount = 0,
+           product_ref_type = 'manual', product_ref_id = NULL WHERE quote_id = $1::uuid`,
+        [业务.报价.id, 产品?.feature_name],
+      );
+      await pool.query(
+        `UPDATE crm.order_items SET item_name = $2, unit_price = 0, line_amount = 0
+         WHERE order_id = $1::uuid`,
+        [业务.订单.id, 产品?.feature_name],
+      );
+      await pool.query(
+        `UPDATE crm.orders SET status_code = 'returned_to_primary', total_amount = 0,
+           extra_json = extra_json || $2::jsonb WHERE id = $1::uuid`,
+        [
+          业务.订单.id,
+          JSON.stringify({
+            status: "returned_to_primary",
+            submittedByUserId: 员工.id,
+            submittedPartnerLevel: "primary",
+            submittedByRegion: "江苏区",
+          }),
+        ],
+      );
+      const 重提 = await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(员工.username))
+        .send({
+          reason: "恢复历史产品价格",
+          items: [{ itemName: 产品?.feature_name, quantity: 500, unitPrice: 0, lineAmount: 0 }],
+        })
+        .expect(200);
+      expect(重提.body.data.状态).toBe("primary_confirmed");
+      const 明细 = await pool.query<{
+        product_ref_type: string;
+        product_ref_id: string;
+        unit_price: string;
+        line_amount: string;
+      }>(
+        `SELECT qi.product_ref_type, qi.product_ref_id::text AS product_ref_id, qi.unit_price::text AS unit_price, qi.line_amount::text AS line_amount
+         FROM crm.quote_items qi WHERE qi.quote_id = $1::uuid`,
+        [业务.报价.id],
+      );
+      expect(明细.rows[0]?.product_ref_type).toBe("feature");
+      expect(明细.rows[0]?.product_ref_id).toBe(产品?.id);
+      expect(Number(明细.rows[0]?.unit_price)).toBeGreaterThan(0);
+      expect(Number(明细.rows[0]?.line_amount)).toBe(Number(明细.rows[0]?.unit_price) * 500);
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("已取消商机不能创建报价单", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
@@ -1046,12 +1497,11 @@ describe("阶段9业务兼容接口", () => {
     ).toBe(true);
   });
 
-  it("订单回退修改按申请、驳回恢复和批准生成新版本闭环", async () => {
+  it("订单回退修改按申请、驳回恢复和批准同步原报价单与订单闭环", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
     const 批次 = `ORDER-REVISION-${Date.now()}`;
     let 原订单编号 = "";
-    let 新订单编号 = "";
     try {
       const 数据 = await 准备渠道范围测试数据(pool, 批次);
       原订单编号 = 数据.订单.id;
@@ -1077,13 +1527,24 @@ describe("阶段9业务兼容接口", () => {
         })
         .expect(400);
 
+      const 伪造手工模块 = await request(app)
+        .post(`/api/orders/${原订单编号}/revision-requests`)
+        .set("Authorization", 签发测试V2令牌(数据.员工一.username))
+        .send({
+          reason: "不允许伪造新模块",
+          newAmount: 13000,
+          items: [{ itemName: "伪造模块", quantity: 1, unitPrice: 13000, lineAmount: 13000 }],
+        })
+        .expect(400);
+      expect(伪造手工模块.body.error?.code).toBe("V3_ORDER_REVISION_PRODUCT_REQUIRED");
+
       const 首次申请 = await request(app)
         .post(`/api/orders/${原订单编号}/revision-requests`)
         .set("Authorization", 签发测试V2令牌(数据.员工一.username))
         .send({
           reason: "模块价格填写错误，按实际采购数量修正",
-          newAmount: 13000,
-          items: [{ itemName: "终端防护", quantity: 1, unitPrice: 13000, lineAmount: 13000 }],
+          newAmount: 24000,
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 13000, lineAmount: 26000 }],
         })
         .expect(200);
       const 首次申请编号 = 首次申请.body.data.原始数据.revisionRequestId as string;
@@ -1112,7 +1573,9 @@ describe("阶段9业务兼容接口", () => {
       expect(
         待审核列表.body.data.数据.some(
           (项: { 类型: string; 金额: number; 原始数据?: { requestId?: string } }) =>
-            项.类型 === "订单回退修改" && Number(项.金额) === 13000 && 项.原始数据?.requestId === 首次申请编号,
+            项.类型 === "订单回退修改" &&
+            Number(项.金额) === 24000 &&
+            项.原始数据?.requestId === 首次申请编号,
         ),
       ).toBe(true);
 
@@ -1133,7 +1596,7 @@ describe("阶段9业务兼容接口", () => {
         .set("Authorization", 签发测试V2令牌(数据.员工一.username))
         .send({
           reason: "已核对采购清单，修正订单金额和模块",
-          newAmount: 14000,
+          newAmount: 24000,
           items: [{ itemName: "终端防护", quantity: 2, unitPrice: 7000, lineAmount: 14000 }],
         })
         .expect(200);
@@ -1142,73 +1605,89 @@ describe("阶段9业务兼容接口", () => {
       const 批准 = await request(app)
         .put(`/api/order-revision-requests/${再次申请编号}/status`)
         .set("Authorization", 签发测试V2令牌(数据.超级管理员.username))
-        .send({ action: "approve", reason: "审核通过，生成订单新版本" })
+        .send({ action: "approve", reason: "审核通过，同步原报价单与订单" })
         .expect(200);
-      新订单编号 = 批准.body.data.id;
+      expect(批准.body.data.id).toBe(原订单编号);
       expect(批准.body.data.状态).toBe("primary_confirmed");
       expect(批准.body.data.原始数据.revisionNo).toBe(2);
-      expect(批准.body.data.原始数据.replacesOrderId).toBe(原订单编号);
 
-      const 版本关系 = await pool.query<{
-        old_status: string;
-        new_status: string;
+      const 同步结果 = await pool.query<{
+        order_status: string;
         revision_no: number;
-        old_superseded_by: string;
-        new_replaces: string;
+        order_total: string;
+        quote_total: string;
         request_status: string;
         result_order_id: string;
-        new_approval_count: string;
-        new_pending_event_count: string;
+        pending_approval_count: string;
+        pending_event_count: string;
+        quote_snapshot_count: string;
+        quote_item_total: string;
+        order_item_total: string;
       }>(
         `
         SELECT
-          old_order.status_code AS old_status,
-          new_order.status_code AS new_status,
-          new_order.revision_no,
-          old_order.superseded_by_order_id::text AS old_superseded_by,
-          new_order.replaces_order_id::text AS new_replaces,
+          o.status_code AS order_status,
+          o.revision_no,
+          o.total_amount::text AS order_total,
+          q.total_amount::text AS quote_total,
           rr.status_code AS request_status,
           rr.result_order_id::text AS result_order_id,
           (
             SELECT COUNT(*)::text FROM ops.approvals a
-            WHERE a.target_type = 'order' AND a.target_id = new_order.id AND a.status_code = 'pending'
-          ) AS new_approval_count,
+            WHERE a.target_type = 'order' AND a.target_id = o.id AND a.status_code = 'pending'
+          ) AS pending_approval_count,
           (
             SELECT COUNT(*)::text FROM ops.outbox_events e
-            WHERE e.aggregate_id = new_order.id AND e.event_type = 'crm.order.approval.pending'
-          ) AS new_pending_event_count
-        FROM crm.orders old_order
-        JOIN crm.orders new_order ON new_order.replaces_order_id = old_order.id
-        JOIN crm.order_revision_requests rr ON rr.result_order_id = new_order.id
-        WHERE old_order.id = $1::uuid AND rr.id = $2::uuid
+            WHERE e.aggregate_id = o.id AND e.event_type = 'crm.order.approval.pending'
+          ) AS pending_event_count,
+          (
+            SELECT COUNT(*)::text FROM crm.quote_snapshots qs WHERE qs.quote_id = q.id
+          ) AS quote_snapshot_count,
+          (
+            SELECT COALESCE(SUM(line_amount), 0)::text FROM crm.quote_items qi WHERE qi.quote_id = q.id
+          ) AS quote_item_total,
+          (
+            SELECT COALESCE(SUM(line_amount), 0)::text FROM crm.order_items oi WHERE oi.order_id = o.id
+          ) AS order_item_total
+        FROM crm.orders o
+        JOIN crm.quotes q ON q.id = o.quote_id
+        JOIN crm.order_revision_requests rr ON rr.order_id = o.id
+        WHERE o.id = $1::uuid AND rr.id = $2::uuid
         `,
         [原订单编号, 再次申请编号],
       );
-      expect(版本关系.rows).toEqual([
+      expect(同步结果.rows).toEqual([
         {
-          old_status: "replaced",
-          new_status: "primary_confirmed",
+          order_status: "primary_confirmed",
           revision_no: 2,
-          old_superseded_by: 新订单编号,
-          new_replaces: 原订单编号,
+          order_total: "24000.00",
+          quote_total: "24000.00",
           request_status: "applied",
-          result_order_id: 新订单编号,
-          new_approval_count: "1",
-          new_pending_event_count: "1",
+          result_order_id: 原订单编号,
+          pending_approval_count: "1",
+          pending_event_count: "1",
+          quote_snapshot_count: "2",
+          quote_item_total: "24000.00",
+          order_item_total: "24000.00",
         },
       ]);
     } finally {
-      if (新订单编号) {
-        await pool.query("DELETE FROM ops.approval_events WHERE approval_id IN (SELECT id FROM ops.approvals WHERE target_id = $1::uuid)", [新订单编号]);
-        await pool.query("DELETE FROM ops.approvals WHERE target_id = $1::uuid", [新订单编号]);
-        await pool.query("DELETE FROM ops.outbox_events WHERE aggregate_id = $1::uuid", [新订单编号]);
-      }
       if (原订单编号) {
-        await pool.query("DELETE FROM ops.approval_events WHERE approval_id IN (SELECT id FROM ops.approvals WHERE target_id = $1::uuid)", [原订单编号]);
+        await pool.query(
+          "DELETE FROM ops.approval_events WHERE approval_id IN (SELECT id FROM ops.approvals WHERE target_id = $1::uuid)",
+          [原订单编号],
+        );
         await pool.query("DELETE FROM ops.approvals WHERE target_id = $1::uuid", [原订单编号]);
-        await pool.query("DELETE FROM crm.order_revision_requests WHERE order_id = $1::uuid", [原订单编号]);
-        await pool.query("DELETE FROM ops.outbox_events WHERE aggregate_id = $1::uuid", [原订单编号]);
-        await pool.query("DELETE FROM crm.orders WHERE id = $1::uuid OR replaces_order_id = $1::uuid", [原订单编号]);
+        await pool.query("DELETE FROM crm.order_revision_requests WHERE order_id = $1::uuid", [
+          原订单编号,
+        ]);
+        await pool.query("DELETE FROM ops.outbox_events WHERE aggregate_id = $1::uuid", [
+          原订单编号,
+        ]);
+        await pool.query(
+          "DELETE FROM crm.orders WHERE id = $1::uuid OR replaces_order_id = $1::uuid",
+          [原订单编号],
+        );
       }
       await pool.end();
     }
@@ -1862,6 +2341,7 @@ async function 创建渠道范围测试渠道(
   批次: string,
   序号: string,
   区域编号: string,
+  层级: "primary" | "secondary" = "primary",
 ): Promise<渠道范围测试渠道> {
   const 渠道编码 = `${批次}-PARTNER-${序号}`;
   const 渠道名称 = `${批次}-渠道商${序号}`;
@@ -1871,7 +2351,7 @@ async function 创建渠道范围测试渠道(
       v2_source_id, partner_code, partner_name, normalized_name, partner_level_code,
       region_id, status_code, extra_json
     )
-    VALUES ($1, $1, $2, $3, 'primary', $4::uuid, 'active', $5::jsonb)
+    VALUES ($1, $1, $2, $3, $5, $4::uuid, 'active', $6::jsonb)
     ON CONFLICT (partner_code) DO UPDATE
     SET partner_name = EXCLUDED.partner_name,
         normalized_name = EXCLUDED.normalized_name,
@@ -1886,6 +2366,7 @@ async function 创建渠道范围测试渠道(
       渠道名称,
       归一化渠道范围测试名称(渠道名称),
       区域编号,
+      层级,
       JSON.stringify({ id: 渠道编码, partnerId: 渠道编码, name: 渠道名称, partnerName: 渠道名称 }),
     ],
   );
@@ -2151,6 +2632,16 @@ async function 创建渠道范围测试报价和订单(
   const 报价 = 报价行 ? { ...报价行, 编号: 报价编号 } : undefined;
   if (!报价) throw new Error("创建渠道范围测试报价失败。");
 
+  await pool.query(
+    `
+    INSERT INTO crm.quote_items (
+      quote_id, product_ref_type, item_name, quantity, unit_price, line_amount, sort_order
+    )
+    VALUES ($1::uuid, 'manual', '终端防护', 1, 12000, 12000, 0)
+    `,
+    [报价.id],
+  );
+
   const 订单编号 = await 生成测试业务编号(pool, "order", 员工.username);
   const 订单结果 = await pool.query<渠道范围测试业务记录>(
     `
@@ -2193,6 +2684,15 @@ async function 创建渠道范围测试报价和订单(
   const 订单行 = 订单结果.rows[0];
   const 订单 = 订单行 ? { ...订单行, 编号: 订单编号 } : undefined;
   if (!订单) throw new Error("创建渠道范围测试订单失败。");
+  await pool.query(
+    `
+    INSERT INTO crm.order_items (order_id, quote_item_id, item_name, quantity, unit_price, line_amount)
+    SELECT $1::uuid, id, item_name, quantity, unit_price, line_amount
+    FROM crm.quote_items
+    WHERE quote_id = $2::uuid
+    `,
+    [订单.id, 报价.id],
+  );
   return { 报价, 订单 };
 }
 

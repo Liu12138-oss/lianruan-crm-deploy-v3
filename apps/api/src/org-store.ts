@@ -2000,7 +2000,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     });
   }
   async 查询泛微OA身份(userId: string) {
-    const [用户, 正式映射, 候选] = await Promise.all([
+    const [用户, 正式映射, 候选, 企业微信映射] = await Promise.all([
       this.pool.query(
         `SELECT id::text AS id,username::text AS username,display_name AS "displayName",status_code AS "statusCode"
          FROM iam.users WHERE id=$1::uuid`,
@@ -2026,6 +2026,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
          ORDER BY c.created_at DESC`,
         [userId],
       ),
+      this.pool.query(
+        `SELECT id::text AS id,external_subject AS "externalSubject",external_username AS "externalUsername",
+                status_code AS "statusCode",created_at AS "createdAt",updated_at AS "updatedAt",
+                row_version AS "rowVersion"
+         FROM iam.external_identities
+         WHERE user_id=$1::uuid AND provider_code='wecom' AND status_code='active'
+         ORDER BY created_at DESC`,
+        [userId],
+      ),
     ]);
     if (!用户.rows[0]) throw new 应用错误("ORG_USER_NOT_FOUND", "用户不存在。", 404);
     return {
@@ -2033,6 +2042,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       formalIdentity: 正式映射.rows.find((item) => item.statusCode === "active") || null,
       inactiveFormalIdentities: 正式映射.rows.filter((item) => item.statusCode !== "active"),
       candidates: 候选.rows,
+      wecomIdentities: 企业微信映射.rows,
     };
   }
   async 新建泛微OA身份候选(userId: string, input: Record<string, unknown>, actor: 组织操作人) {

@@ -233,6 +233,26 @@ export async function 更新报价状态(id: string, 输入: Record<string, unkn
   });
 }
 
+export async function 下载报价PDF(id: string): Promise<{ 文件名: string; 内容: Blob }> {
+  const 响应 = await fetch(`/api/quotes/${encodeURIComponent(id)}/pdf`, {
+    credentials: "include",
+  });
+  if (!响应.ok) {
+    const 文本 = await 响应.text();
+    try {
+      const 数据 = JSON.parse(文本) as 标准响应<unknown>;
+      throw new Error(数据.error?.message || "报价单 PDF 下载失败，请稍后重试。");
+    } catch (错误) {
+      if (错误 instanceof Error && 错误.message !== "报价单 PDF 下载失败，请稍后重试。") throw 错误;
+      throw new Error("报价单 PDF 下载失败，请稍后重试。");
+    }
+  }
+  const 处置 = 响应.headers.get("content-disposition") || "";
+  const 编码文件名 = 处置.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  const 文件名 = 编码文件名 ? decodeURIComponent(编码文件名) : `报价单-${id}.pdf`;
+  return { 文件名, 内容: await 响应.blob() };
+}
+
 export async function 创建订单(输入: Record<string, unknown>): Promise<阶段9记录> {
   return 请求<阶段9记录>("/api/orders", {
     method: "POST",

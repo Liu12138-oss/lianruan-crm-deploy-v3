@@ -159,7 +159,13 @@ describe("外部消息投递器", () => {
     });
     const 结果 = await 投递外部消息(
       配置,
-      { ...消息, channelCode: "wecom_app", recipientWecomUserId: "test_user" },
+      {
+        ...消息,
+        channelCode: "wecom_app",
+        title: "订单待审批",
+        body: "订单待审批。订单号：ORD-001；**订单名称：**演示项目；订单渠道商：联软渠道商；提交人：张三。请及时审批。",
+        recipientWecomUserId: "test_user",
+      },
       请求,
     );
 
@@ -167,6 +173,54 @@ describe("外部消息投递器", () => {
     expect(请求).toHaveBeenCalledTimes(2);
     expect(String(请求.mock.calls[0]?.[0])).toContain("/cgi-bin/gettoken");
     expect(String(请求.mock.calls[1]?.[0])).toContain("/cgi-bin/message/send");
+    const 请求参数 = 请求.mock.calls[1]?.[1] as RequestInit;
+    const 请求体 = JSON.parse(String(请求参数.body)) as Record<string, unknown>;
+    expect(请求体.msgtype).toBe("markdown");
+    expect(请求体.markdown).toMatchObject({
+      content: expect.stringContaining("状态：待处理"),
+    });
+    const 内容 = (请求体.markdown as { content: string }).content;
+    expect(内容).toContain("> **订单号：**ORD-001");
+    expect(内容).toContain("> **订单名称：**演示项目");
+    expect(内容).not.toContain("\\*\\*订单名称");
+    expect(Buffer.byteLength(内容, "utf8")).toBeLessThanOrEqual(2_048);
+  });
+
+  it("企微自建应用将待审核提醒标为待处理并清理模板中的旧加粗标记", async () => {
+    const 请求 = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ errcode: 0, access_token: "test-token", expires_in: 7200 }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode: 0 }), { status: 200 }));
+    const 配置 = 读取应用配置({
+      APP_ENV: "test",
+      MESSAGE_WECOM_APP_ENABLED: "true",
+      MESSAGE_WECOM_APP_CORP_ID: "wwffffffffffffffff",
+      MESSAGE_WECOM_APP_AGENT_ID: "1000003",
+      MESSAGE_WECOM_APP_SECRET: "test-secret-at-least-16-diff-2",
+    });
+
+    await 投递外部消息(
+      配置,
+      {
+        ...消息,
+        channelCode: "wecom_app",
+        title: "员工账号待审核",
+        body: "员工姓名：**张三**；渠道商名称：联软渠道商；提交人：李四。",
+        recipientWecomUserId: "test_user",
+      },
+      请求,
+    );
+
+    const 请求体 = JSON.parse(String((请求.mock.calls[1]?.[1] as RequestInit).body)) as {
+      markdown: { content: string };
+    };
+    expect(请求体.markdown.content).toContain("状态：待处理");
+    expect(请求体.markdown.content).toContain("> **员工姓名：**张三");
+    expect(请求体.markdown.content).not.toContain("\\*\\*");
   });
 
   it("企微自建应用被拒时摘要包含企微返回的错误码和脱敏错误文本", async () => {

@@ -3721,67 +3721,21 @@ const QuoteList = {
         alert('创建订单失败，请检查网络连接');
       }
     }
-    function downloadPdf(q) {
-      // 获取报价单内容区 HTML
-      const area = document.getElementById('quote-print-area');
-      if (!area) return;
-      // 收集依赖样式
-      const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-        .map(l => `<link rel="stylesheet" href="${l.href}">`)
-        .join('');
-      const styleTags = Array.from(document.querySelectorAll('style'))
-        .map(s => `<style>${s.innerHTML}</style>`)
-        .join('');
-      const html = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>报价单 — ${q.id} — ${q.customer}</title>
-  ${styleLinks}
-  ${styleTags}
-  <style>
-    @page { size: A4; margin: 12mm 10mm; }
-    body { background:#f5f7fb !important; margin:0; padding:18px; font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif; color:#1f1f1f; }
-    #quote-print-area { max-width: 1120px; margin: 0 auto; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 8px 24px rgba(15,23,42,.08); }
-    .print-only { display: block !important; }
-    .modal, .modal-overlay, .modal-header, .modal-footer { all: unset; display: block; }
-    .sidebar, .header, .search-bar, .btn { display: none !important; }
-    table { width: 100%; border-collapse: collapse; page-break-inside: auto; }
-    tr { page-break-inside: avoid; }
-    th, td { border: 1px solid #e0e0e0; padding: 8px 10px; font-size: 12px; }
-    thead { background: #f5f7fb; color: #1f1f1f; }
-    .quote-header { background: linear-gradient(135deg, #0a1f3d 0%, #0b3470 55%, #0d47a1 100%); color:#fff; border-radius:18px 18px 0 0; padding:34px 32px 26px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); position:relative; overflow:hidden; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .quote-header::before { content:''; position:absolute; inset:0; background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0)); pointer-events:none; }
-    .quote-header h2 { font-size:24px; font-weight:800; letter-spacing:-0.6px; position:relative; z-index:1; }
-    .quote-header p { opacity:.82; font-size:14px; margin-top:8px; position:relative; z-index:1; }
-    .quote-meta { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:22px; position:relative; z-index:1; }
-    .quote-meta-item { background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 14px; backdrop-filter: blur(3px); }
-    .quote-meta-item label { font-size:12px; opacity:.72; display:block; margin-bottom:6px; letter-spacing:.2px; }
-    .quote-meta-item span { font-size:15px; font-weight:700; line-height:1.35; word-break:break-word; }
-    .quote-body { border:1px solid #e5e7eb; border-top:none; border-radius:0 0 18px 18px; padding:32px 36px; background:#fff; }
-    .quote-section-title { font-size:14px; font-weight:700; color:#1f1f1f; margin:24px 0 16px; display:flex; align-items:center; gap:12px; letter-spacing:-0.2px; }
-    .quote-section-title::after { content:''; flex:1; height:1px; background:#e5e7eb; }
-    .quote-total { display:flex; justify-content:flex-end; margin-top:20px; }
-    .quote-total-box { background:rgba(0,122,255,0.04); border:1px solid rgba(0,122,255,0.15); border-radius:14px; padding:20px 28px; min-width:300px; }
-    .total-row { display:flex; justify-content:space-between; font-size:14px; color:#6b7280; margin-bottom:10px; border-bottom:none; padding:0; }
-    .total-row.grand { font-size:20px; font-weight:700; color:#1677ff; border-top:1px solid rgba(0,122,255,0.15); padding-top:14px; margin-top:14px; margin-bottom:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  </style>
-</head>
-<body>
-  ${area.innerHTML}
-  <script>
-    // 显示打印专用元素
-    document.querySelectorAll('.print-only').forEach(el => el.style.display = '');
-    window.onload = function() { window.print(); window.onafterprint = function(){ window.close(); }; };
-  <\/script>
-</body>
-</html>`;
-      const win = window.open('', '_blank', 'width=900,height=700');
-      if (!win) { alert('请允许弹出窗口后重试'); return; }
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
+    async function downloadPdf(q) {
+      try {
+        const file = await apiClient.downloadQuotePdf(q.id);
+        const url = URL.createObjectURL(file.content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('下载报价单 PDF 失败：', err);
+        alert(err instanceof Error ? err.message : '报价单 PDF 下载失败，请稍后重试。');
+      }
     }
     return { store, kw, detail, adminRegion, isStaff, isAdmin, partnerFilter, detailItems, detailSoftwareItems, detailHardwareItems, detailServiceItems, filtered, paginatedData, loading, fmt, qClass, qLabel, view, downloadPdf, PRODUCT_DATA, getOppName, getQuoteDisplayEndpoints, loadQuotes, allFeaturesForDetail,
       currentPage, totalPages, pageNumbers, prevPage, nextPage, goToPage,
@@ -5560,6 +5514,9 @@ const OrderList = {
         <option value="pending_primary_confirm">待一级确认</option>
         <option value="primary_confirmed">一级已确认</option>
         <option value="pending_superadmin_confirm">待超管确认</option>
+        <option value="returned_to_region">已退回区管修改</option>
+        <option value="returned_to_primary">已退回一级渠道商修改</option>
+        <option value="returned_to_secondary">已退回二级渠道商修改</option>
         <option value="confirmed">已确认</option>
         <option value="processing">处理中</option>
         <option value="shipped">已发货</option>
@@ -5597,8 +5554,14 @@ const OrderList = {
                 <template v-if="canManageOrder(o)">
                   <button v-if="o.legacyV2Order && o.status==='pending'" class="btn btn-primary btn-sm" @click="confirmOrder(o)">确认订单</button>
                   <span v-else-if="o.status==='pending_primary_confirm'" class="tag tag-orange">待一级确认</span>
-                  <button v-else-if="o.status==='primary_confirmed'" class="btn btn-primary btn-sm" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(o)">区管确认</button>
-                  <button v-else-if="o.status==='pending_superadmin_confirm' && isSuperAdmin" class="btn btn-primary btn-sm" @click="confirmOrder(o)">超管确认</button>
+                  <template v-else-if="o.status==='primary_confirmed' && !isSuperAdmin">
+                    <button class="btn btn-primary btn-sm" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(o)">区管确认</button>
+                    <button class="btn btn-danger btn-sm" style="margin-left:6px" @click="rejectOrder(o)">驳回订单</button>
+                  </template>
+                  <template v-else-if="o.status==='pending_superadmin_confirm' && isSuperAdmin">
+                    <button class="btn btn-primary btn-sm" @click="confirmOrder(o)">超管确认</button>
+                    <button class="btn btn-danger btn-sm" style="margin-left:6px" @click="rejectOrder(o)">驳回订单</button>
+                  </template>
                   <span v-else-if="o.status==='pending_superadmin_confirm'" class="tag tag-blue">待超管确认</span>
                   <span v-else-if="o.status==='confirmed'" class="tag tag-green">已确认</span>
                   <button v-else-if="o.status==='processing'" class="btn btn-primary btn-sm" @click="shipOrder(o)">确认发货</button>
@@ -5744,8 +5707,15 @@ const OrderList = {
             <div style="display:flex;gap:10px;flex-wrap:wrap">
               <button v-if="detail.legacyV2Order && detail.status==='pending'" class="btn btn-primary" @click="confirmOrder(detail);detail=null">确认订单</button>
               <span v-else-if="detail.status==='pending_primary_confirm'" class="tag tag-orange">待一级分销商确认</span>
-              <button v-else-if="detail.status==='primary_confirmed'" class="btn btn-primary" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(detail);detail=null">区管确认（一级已确认）</button>
-              <button v-else-if="detail.status==='pending_superadmin_confirm' && isSuperAdmin" class="btn btn-primary" @click="confirmOrder(detail);detail=null">超管确认</button>
+              <template v-else-if="detail.status==='primary_confirmed' && !isSuperAdmin">
+                <button class="btn btn-primary" style="background:#52c41a;border-color:#52c41a" @click="confirmOrder(detail);detail=null">区管确认（一级已确认）</button>
+                <button class="btn btn-danger" @click="rejectOrder(detail)">驳回订单</button>
+              </template>
+              <template v-else-if="detail.status==='pending_superadmin_confirm' && isSuperAdmin">
+                <button class="btn btn-primary" @click="confirmOrder(detail);detail=null">超管确认</button>
+                <button class="btn btn-danger" @click="rejectOrder(detail)">驳回订单</button>
+              </template>
+              <button v-else-if="canResubmit(detail)" class="btn btn-primary" @click="openResubmitModal(detail)">修改并重新提交</button>
               <button v-else-if="detail.status==='processing'" class="btn btn-primary" @click="shipOrder(detail);detail=null">确认发货</button>
               <button v-else-if="detail.status==='shipped'" class="btn btn-success" @click="completeOrder(detail);detail=null">完成订单</button>
               <button v-if="detail.status!=='cancelled'" class="btn btn-danger" @click="cancelOrder(detail);detail=null">取消订单</button>
@@ -5776,6 +5746,72 @@ const OrderList = {
         </div>
       </div>
     </div>
+
+    <div class="modal-overlay" v-if="showResubmitModal" @click.self="showResubmitModal=false">
+      <div class="modal order-edit-modal">
+        <div class="modal-header"><div class="modal-title">修改订单并重新提交</div><span class="modal-close" @click="showResubmitModal=false">✕</span></div>
+        <div class="modal-body">
+          <p class="order-edit-tip">订单已退回区管修改。客户、渠道商、负责人和协议归属保持不变，仅可调整模块、数量和单价。</p>
+          <div class="order-readonly-grid"><div><span>客户</span><b>{{ detail && detail.customer }}</b></div><div><span>渠道商</span><b>{{ detail && getPartnerDisplayName(detail) }}</b></div><div><span>协议编号</span><b>{{ detail && (detail.agreementNo || detail.原始数据?.agreementNo || '—') }}</b></div></div>
+          <div class="form-item"><label class="form-label">模块明细 <span class="required-mark">*</span></label>
+            <div class="module-editor"><div class="module-editor-head"><span>产品/模块</span><span>数量</span><span>单价</span><span>小计</span><span></span></div>
+              <div class="module-editor-row" v-for="(item, index) in resubmitForm.items" :key="item.key || index"><select class="form-control" v-model="item.productRefKey" @change="selectRevisionProduct(index)"><option value="">请选择产品或模块</option><option v-for="product in revisionProducts" :key="product.key" :value="product.key">{{ product.label }}</option><option v-if="item.productRefKey && !revisionProducts.some(product => product.key === item.productRefKey)" :value="item.productRefKey">{{ item.itemName }}（历史明细）</option></select><input class="form-control" type="number" min="0.01" step="0.01" v-model.number="item.quantity" @input="syncResubmitTotal"><input class="form-control" type="number" min="0" step="0.01" v-model.number="item.unitPrice" @input="syncResubmitTotal"><span class="module-line-total">¥{{ fmt(moduleLineTotal(item)) }}</span><button class="icon-button" type="button" @click="removeResubmitItem(index)" :disabled="resubmitForm.items.length === 1">×</button></div>
+              <button class="add-module-button" type="button" @click="addResubmitItem">＋ 新增产品/模块</button>
+            </div>
+            <div class="field-hint">新增产品/模块必须从产品目录选择，产品名称不可手工修改。</div>
+          </div>
+          <div class="order-total-bar"><span>订单总额</span><strong>¥{{ fmt(resubmitTotal) }}</strong></div>
+          <div class="form-item"><label class="form-label">处理说明 <span class="required-mark">*</span></label><textarea class="form-control" v-model="resubmitForm.reason" rows="3" maxlength="500" placeholder="请说明已如何处理驳回问题"></textarea><div class="field-hint">{{ resubmitForm.reason.length }}/500</div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-default" @click="showResubmitModal=false">取消</button><button class="btn btn-primary" @click="submitResubmit" :disabled="resubmitSubmitting">{{ resubmitSubmitting ? '提交中...' : '确认重新提交' }}</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showRejectOrderModal" @click.self="closeRejectOrderModal">
+      <div class="modal order-action-modal">
+        <div class="modal-header">
+          <div><div class="modal-title">驳回并退回修改</div><div class="order-action-subtitle">请明确退回层级，原因将记录到订单处理历史。</div></div>
+          <span class="modal-close" @click="closeRejectOrderModal">✕</span>
+        </div>
+        <div class="modal-body">
+          <div class="order-action-summary">
+            <div><span>订单</span><strong>{{ rejectOrderTarget && rejectOrderTarget.id }}</strong></div>
+            <div><span>客户</span><strong>{{ rejectOrderTarget && rejectOrderTarget.customer }}</strong></div>
+            <div><span>当前节点</span><strong>{{ rejectOrderTarget && oLabel(rejectOrderTarget.status) }}</strong></div>
+          </div>
+          <div class="form-item">
+            <label class="form-label">退回目标 <span class="required-mark">*</span></label>
+            <div class="return-target-grid">
+              <button v-for="target in getReturnTargets(rejectOrderTarget)" :key="target.value" type="button" class="return-target-card" :class="{selected: rejectOrderForm.target === target.value}" @click="rejectOrderForm.target = target.value">
+                <span class="return-target-icon">{{ target.icon }}</span><span><b>{{ target.label }}</b><small>{{ target.description }}</small></span><span class="return-target-radio"></span>
+              </button>
+            </div>
+          </div>
+          <div class="form-item">
+            <label class="form-label">驳回原因 <span class="required-mark">*</span></label>
+            <textarea class="form-control" v-model="rejectOrderForm.reason" rows="4" maxlength="500" placeholder="请说明需要修改的模块、数量、单价或其他问题"></textarea>
+            <div class="field-hint">{{ rejectOrderForm.reason.length }}/500</div>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-default" @click="closeRejectOrderModal">取消</button><button class="btn btn-danger" @click="submitRejectOrder" :disabled="rejectOrderSubmitting">{{ rejectOrderSubmitting ? '提交中...' : '确认驳回并退回' }}</button></div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" v-if="showRevisionReviewModal" @click.self="closeRevisionReviewModal">
+      <div class="modal order-action-modal">
+        <div class="modal-header">
+          <div><div class="modal-title">{{ revisionReviewForm.action === 'approve' ? '批准回退修改' : '驳回回退修改' }}</div><div class="order-action-subtitle">{{ revisionReviewForm.action === 'approve' ? '批准后将同步更新原报价单和原订单，并重新进入审批链。' : '驳回后恢复原审批节点。' }}</div></div>
+          <span class="modal-close" @click="closeRevisionReviewModal">✕</span>
+        </div>
+        <div class="modal-body">
+          <div class="order-action-summary" v-if="revisionReviewTarget">
+            <div><span>订单</span><strong>{{ revisionReviewTarget.id }}</strong></div><div><span>客户</span><strong>{{ revisionReviewTarget.customer }}</strong></div><div><span>申请原因</span><strong>{{ revisionReviewTarget.revisionRequestReason || revisionReviewTarget.原始数据?.revisionRequestReason || '—' }}</strong></div>
+          </div>
+          <div class="form-item"><label class="form-label">审核意见 <span v-if="revisionReviewForm.action === 'reject'" class="required-mark">*</span></label><textarea class="form-control" v-model="revisionReviewForm.reason" rows="4" maxlength="500" :placeholder="revisionReviewForm.action === 'reject' ? '请填写驳回原因' : '可填写审核意见'"></textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-default" @click="closeRevisionReviewModal">取消</button><button :class="revisionReviewForm.action === 'approve' ? 'btn btn-primary' : 'btn btn-danger'" @click="submitRevisionReview" :disabled="revisionReviewSubmitting">{{ revisionReviewSubmitting ? '提交中...' : (revisionReviewForm.action === 'approve' ? '批准并重新进入审批' : '确认驳回') }}</button></div>
+      </div>
+    </div>
   </div>`,
   setup() {
     const kw = ref('');
@@ -5785,6 +5821,18 @@ const OrderList = {
     const currentPage = ref(1);
     const pageSize = ref(10);
     const partnerFilter = ref('');
+    const showResubmitModal = ref(false);
+    const resubmitSubmitting = ref(false);
+    const resubmitForm = ref({ reason: '', newAmount: null, items: [] });
+    const revisionProducts = ref([]);
+    const showRejectOrderModal = ref(false);
+    const rejectOrderSubmitting = ref(false);
+    const rejectOrderTarget = ref(null);
+    const rejectOrderForm = ref({ target: '', reason: '' });
+    const showRevisionReviewModal = ref(false);
+    const revisionReviewSubmitting = ref(false);
+    const revisionReviewTarget = ref(null);
+    const revisionReviewForm = ref({ action: 'reject', reason: '' });
     
     // 区域管理员隔离
     const adminRegion = computed(() => store.user?.role === 'admin' ? store.user.region : '');
@@ -5880,6 +5928,7 @@ const OrderList = {
     // 页面加载时获取订单列表
     onMounted(() => {
       loadOrders();
+      loadRevisionCatalog();
     });
     
     // 本区域订单（管理员）或本人的订单（员工）
@@ -5927,9 +5976,59 @@ const OrderList = {
       });
     });
     
-    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-green', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
+    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-green', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', returned_to_region:'tag-orange', returned_to_primary:'tag-orange', returned_to_secondary:'tag-orange', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'tag-green', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', returned_to_region:'已退回区管修改', returned_to_primary:'已退回一级渠道商修改', returned_to_secondary:'已退回二级渠道商修改', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
+    function canResubmit(order) { return Boolean(order && order.status === 'returned_to_region' && !isSuperAdmin.value && canManageOrder(order)); }
+    function getOrderItems(order) {
+      const items = order?.items || order?.原始数据?.items || order?.原始数据?.resubmission?.items;
+      return Array.isArray(items) && items.length ? items.map((item, index) => { const itemName = item.itemName || item.name || ''; const productRefType = item.productRefType || 'manual'; const productRefId = item.productRefId || ''; return { key: `${Date.now()}-${index}`, itemName, productRefType, productRefId, productRefKey: productRefId ? `${productRefType}:${productRefId}` : `manual:${itemName}`, quantity: Number(item.quantity) || 1, unitPrice: Number(item.unitPrice) || 0 }; }) : [{ key: `${Date.now()}-0`, itemName: '', productRefType: '', productRefId: '', productRefKey: '', quantity: 1, unitPrice: 0 }];
+    }
+    const resubmitTotal = computed(() => resubmitForm.value.items.reduce((sum, item) => sum + moduleLineTotal(item), 0));
+    function moduleLineTotal(item) { return Math.round((Number(item?.quantity) || 0) * (Number(item?.unitPrice) || 0) * 100) / 100; }
+    function syncResubmitTotal() { resubmitForm.value.newAmount = resubmitTotal.value; }
+    function addResubmitItem() { resubmitForm.value.items.push({ key: `${Date.now()}-${resubmitForm.value.items.length}`, itemName: '', productRefType: '', productRefId: '', productRefKey: '', quantity: 1, unitPrice: 0 }); }
+    function removeResubmitItem(index) { if (resubmitForm.value.items.length > 1) resubmitForm.value.items.splice(index, 1); syncResubmitTotal(); }
+    function openResubmitModal(order) {
+      detail.value = order;
+      resubmitForm.value = { reason: '', newAmount: Number(order.total || 0), items: getOrderItems(order) };
+      syncResubmitTotal();
+      showResubmitModal.value = true;
+    }
+    async function loadRevisionCatalog() {
+      try {
+        const [features, hardware, packages] = await Promise.all([
+          adminFetch(`${window.API_BASE}/features?published=true`).then(response => response.json()),
+          adminFetch(`${window.API_BASE}/hardware?published=true`).then(response => response.json()),
+          adminFetch(`${window.API_BASE}/packages?published=true`).then(response => response.json())
+        ]);
+        const products = [];
+        const append = (result, type, label) => (result.data || []).forEach(product => { const name = product.name || product.title || product.标题 || product.原始数据?.name || ''; products.push({ key: `${type}:${product.id}`, type, id: product.id, name, label: `${label}：${name || product.id}`, price: Number(product.priceFixed ?? product.listPrice ?? product.price ?? product.金额 ?? 0) }); });
+        append(features, 'feature', '功能模块');
+        append(hardware, 'hardware', '硬件产品');
+        append(packages, 'package', '产品套餐');
+        revisionProducts.value = products;
+      } catch (error) {
+        console.error('加载订单修订产品目录失败:', error);
+      }
+    }
+    function selectRevisionProduct(index) {
+      const item = resubmitForm.value.items[index];
+      const product = revisionProducts.value.find(option => option.key === item.productRefKey);
+      if (!product) { item.productRefType = ''; item.productRefId = ''; item.itemName = ''; return; }
+      item.productRefType = product.type;
+      item.productRefId = product.id;
+      item.itemName = product.name;
+      if (!Number(item.unitPrice)) item.unitPrice = product.price;
+      if (!Number(item.quantity)) item.quantity = 1;
+      syncResubmitTotal();
+    }
+    function parseResubmitItems(text) {
+      return String(text || '').split('\n').map(line => line.trim()).filter(Boolean).map(line => {
+        const [itemName, quantityText, unitPriceText] = line.split('|').map(value => value.trim());
+        return { itemName, quantity: Number(quantityText || 1), unitPrice: Number(unitPriceText || 0), lineAmount: Number(quantityText || 1) * Number(unitPriceText || 0) };
+      });
+    }
     
     // 获取发货时间
     function getShippedTime() {
@@ -6033,27 +6132,103 @@ const OrderList = {
     const adjustForm = ref({ newAmount: null, reason: '' });
     const adjustError = ref('');
 
+    function getReturnTargets(order) {
+      if (!order) return [];
+      const isRegionReject = order.status === 'primary_confirmed';
+      return isRegionReject
+        ? [
+            { value: 'primary', label: '一级渠道商', description: '由一级渠道商修改并重新提交', icon: '一' },
+            { value: 'secondary', label: '二级渠道商', description: '由二级渠道商修改并重新提交', icon: '二' },
+          ]
+        : [
+            { value: 'region', label: '区管', description: '退回区域管理员核对后重提', icon: '区' },
+            { value: 'primary', label: '一级渠道商', description: '退回一级渠道商修改并重提', icon: '一' },
+            { value: 'secondary', label: '二级渠道商', description: '退回二级渠道商修改并重提', icon: '二' },
+          ];
+    }
+
+    function openRejectOrderModal(order) {
+      rejectOrderTarget.value = order;
+      rejectOrderForm.value = { target: order?.status === 'primary_confirmed' ? 'secondary' : 'region', reason: '' };
+      showRejectOrderModal.value = true;
+    }
+    function closeRejectOrderModal() {
+      showRejectOrderModal.value = false;
+      rejectOrderTarget.value = null;
+    }
+    async function submitRejectOrder() {
+      const order = rejectOrderTarget.value;
+      const reason = rejectOrderForm.value.reason.trim();
+      if (!order || !rejectOrderForm.value.target) { alert('请选择退回目标'); return; }
+      if (!reason) { alert('请填写驳回原因'); return; }
+      rejectOrderSubmitting.value = true;
+      try {
+        const result = await apiClient.updateOrderStatus(order.id, `returned_to_${rejectOrderForm.value.target}`, reason, { returnTarget: rejectOrderForm.value.target });
+        if (!result.success) { alert('操作失败：' + (result.error || '未知错误')); return; }
+        const idx = store.orders.findIndex(item => item.id === order.id);
+        if (idx !== -1) store.orders[idx] = result.data;
+        if (detail.value?.id === order.id) detail.value = result.data;
+        closeRejectOrderModal();
+        alert('订单已退回，原因已记录。');
+      } catch (err) { alert('操作失败：' + err.message); }
+      finally { rejectOrderSubmitting.value = false; }
+    }
+
+    function openRevisionReviewModal(order, action) {
+      revisionReviewTarget.value = order;
+      revisionReviewForm.value = { action, reason: action === 'approve' ? '批准订单回退修改' : '' };
+      showRevisionReviewModal.value = true;
+    }
+    function closeRevisionReviewModal() {
+      showRevisionReviewModal.value = false;
+      revisionReviewTarget.value = null;
+    }
+    async function submitRevisionReview() {
+      const order = revisionReviewTarget.value;
+      const requestId = order?.revisionRequestId || order?.原始数据?.revisionRequestId;
+      const reason = revisionReviewForm.value.reason.trim();
+      if (!requestId) return;
+      if (revisionReviewForm.value.action === 'reject' && !reason) { alert('驳回必须填写原因'); return; }
+      revisionReviewSubmitting.value = true;
+      try {
+        const result = await apiClient.reviewOrderRevision(requestId, revisionReviewForm.value.action, reason);
+        if (!result.success) { alert('处理失败：' + (result.error || '未知错误')); return; }
+        await loadOrders();
+        closeRevisionReviewModal();
+        detail.value = null;
+        alert(revisionReviewForm.value.action === 'approve' ? '已同步更新原报价单和原订单，订单将重新进入审批链。' : '已驳回订单回退修改申请。');
+      } catch (err) { alert('处理失败：' + err.message); }
+      finally { revisionReviewSubmitting.value = false; }
+    }
+
     async function reviewOrderRevision(order, action) {
       const requestId = order?.revisionRequestId || order?.原始数据?.revisionRequestId;
       if (!requestId) return;
-      const reason = action === 'reject' ? prompt('请输入驳回订单修订的原因：', '') : '批准订单回退修改';
-      if (reason === null || (action === 'reject' && !reason.trim())) {
-        if (action === 'reject') alert('驳回必须填写原因');
-        return;
-      }
-      if (!confirm(action === 'approve' ? '批准后将关闭旧订单待办并生成新订单，是否继续？' : '确认驳回该订单回退修改申请？')) return;
+      openRevisionReviewModal(order, action);
+    }
+
+    async function rejectOrder(order) {
+      openRejectOrderModal(order);
+    }
+
+    async function submitResubmit() {
+      if (!resubmitForm.value.reason.trim()) { alert('请填写处理说明'); return; }
+      if (resubmitForm.value.reason.trim().length > 500) { alert('处理说明不能超过500个字符'); return; }
+      const items = resubmitForm.value.items.map(item => ({ itemName: String(item.itemName || '').trim(), productRefType: item.productRefType, productRefId: item.productRefId, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), lineAmount: moduleLineTotal(item) }));
+      if (!items.length || items.some(item => (!item.productRefType || (item.productRefType !== 'manual' && !item.productRefId)) || !Number.isFinite(item.quantity) || item.quantity <= 0 || !Number.isFinite(item.unitPrice) || item.unitPrice < 0)) { alert('请从产品目录选择完整的产品或模块，并填写数量和单价'); return; }
+      const amount = Number(resubmitTotal.value);
+      if (!Number.isFinite(amount) || amount < 0) { alert('请输入有效的新订单金额'); return; }
+      resubmitSubmitting.value = true;
       try {
-        const result = await apiClient.reviewOrderRevision(requestId, action, reason.trim());
-        if (!result.success) {
-          alert('处理失败：' + (result.error || '未知错误'));
-          return;
-        }
+        const result = await apiClient.resubmitOrder(detail.value.id, { reason: resubmitForm.value.reason.trim(), newAmount: amount, items });
+        if (!result.success) { alert('重新提交失败：' + (result.error || '未知错误')); return; }
+        showResubmitModal.value = false;
         await loadOrders();
-        detail.value = null;
-        alert(action === 'approve' ? '已批准并生成新订单版本，订单将重新进入审批链。' : '已驳回订单回退修改申请。');
-      } catch (err) {
-        alert('处理失败：' + err.message);
-      }
+        const updated = store.orders.find(order => order.id === detail.value.id);
+        if (updated) detail.value = updated;
+        alert('订单已修改并重新提交，已进入超管审批。');
+      } catch (err) { alert('重新提交失败：' + err.message); }
+      finally { resubmitSubmitting.value = false; }
     }
     
     async function submitPriceAdjust(order) {
@@ -6098,7 +6273,7 @@ const OrderList = {
       }
     }
     
-    return { store, kw, filterStatus, partnerFilter, adminRegion, isStaff, isAdmin, isSuperAdmin, filtered, paginatedData, detail, loading, fmt, oClass, oLabel, view, loadOrders, canManageOrder, confirmOrder, shipOrder, completeOrder, cancelOrder, reviewOrderRevision, getShippedTime, formatTime,
+    return { store, kw, filterStatus, partnerFilter, adminRegion, isStaff, isAdmin, isSuperAdmin, filtered, paginatedData, detail, loading, fmt, oClass, oLabel, view, loadOrders, canManageOrder, confirmOrder, rejectOrder, shipOrder, completeOrder, cancelOrder, reviewOrderRevision, getReturnTargets, showRejectOrderModal, rejectOrderTarget, rejectOrderForm, rejectOrderSubmitting, closeRejectOrderModal, submitRejectOrder, showRevisionReviewModal, revisionReviewTarget, revisionReviewForm, revisionReviewSubmitting, closeRevisionReviewModal, submitRevisionReview, getShippedTime, formatTime, canResubmit, openResubmitModal, showResubmitModal, resubmitSubmitting, resubmitForm, resubmitTotal, moduleLineTotal, syncResubmitTotal, addResubmitItem, removeResubmitItem, submitResubmit, revisionProducts, selectRevisionProduct,
       currentPage, totalPages, pageNumbers, prevPage, nextPage, goToPage, getPartnerDisplayName,
       showPriceAdjust, adjustForm, adjustError, submitPriceAdjust, orderPartners };
   }
@@ -10511,6 +10686,7 @@ const Partners = {
             level: form.level,
             region: form.region,
             city: form.city,
+            status: newStatus,
             bigRegion: store.user?.bigRegion || '',
             contact: form.contact,
             phone: form.phone,
@@ -12853,10 +13029,11 @@ const AdminReview = {
       const partnerApprovals = pendingApprovals.value.filter(a => a.type === 'partner');
       // 从 partners 中找到对应的渠道商，合并待审批数据中的信息
       return partnerApprovals.map(a => {
-        const partner = store.partners.find(p => p.id === a.targetId);
+        const partner = store.partners.find(p => p.id === (a.targetPartnerId || a.targetId));
         // 合并 partner 数据和 approval 数据，优先使用 partner 中的字段
         return {
-          id: a.targetId,
+          id: a.targetPartnerId || a.targetId,
+          approvalId: a.approvalId || a.原始数据?.approvalId || a.id,
           name: a.targetName,
           region: a.region,
           status: a.status,
@@ -12952,9 +13129,9 @@ const AdminReview = {
     // 渠道商审核
     async function approvePartner(p) {
       try {
-        const res = await apiRequest('PUT', `/partners/${p.id}/status`, { 
-          status: 'active', 
-          approvedBy: store.user?.id 
+        const res = await apiRequest('PUT', `/pending-approvals/${encodeApiPathValue(p.approvalId || p.id)}`, {
+          action: 'approve',
+          approvedBy: store.user?.id
         });
         if (res.success) {
           p.status = 'active';
@@ -12968,11 +13145,11 @@ const AdminReview = {
         alert('审批失败：' + err.message);
       }
     }
-    async function rejectPartner(p) { 
+    async function rejectPartner(p) {
       try {
-        const res = await apiRequest('PUT', `/partners/${p.id}/status`, { 
-          status: 'rejected', 
-          approvedBy: store.user?.id 
+        const res = await apiRequest('PUT', `/pending-approvals/${encodeApiPathValue(p.approvalId || p.id)}`, {
+          action: 'reject',
+          approvedBy: store.user?.id
         });
         if (res.success) {
           p.status = 'rejected';
@@ -19645,6 +19822,18 @@ const OrganizationWorkspace = {
               <el-button v-if="可写 && 待核验泛微候选" size="small" type="danger" text :loading="提交中" @click="驳回当前泛微候选">驳回</el-button>
             </div>
             <p v-if="!可写" class="组织抽屉空" style="margin-top:10px">当前为只读观察模式，不能维护候选或确认映射。</p>
+          </section>
+          <section class="组织抽屉区块">
+            <h4>企业微信身份</h4>
+            <p class="组织说明文字">仅展示当前账号已维护的企业微信 userid，不影响泛微 OA 发起人映射。</p>
+            <div v-if="泛微OA身份?.wecomIdentities?.length" class="组织抽屉小卡">
+              <div v-for="身份 in 泛微OA身份.wecomIdentities" :key="身份.id" class="组织抽屉小卡主">
+                <b>{{ 身份.externalUsername || 编辑用户?.name || '企业微信成员' }}</b>
+                <span>userid：{{ 身份.externalSubject }}</span>
+                <el-tag size="small" type="success">已启用</el-tag>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">未记录已确认的企业微信 userid。</div>
           </section>
           <section v-if="编辑模式 === 'internal'" class="组织抽屉区块">
             <h4>任职信息</h4>

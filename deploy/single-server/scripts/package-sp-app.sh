@@ -129,6 +129,7 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
 验证Web镜像静态资源() {
   local container_id static_dir workspace_asset source_workspace_asset workspace_candidate
   local source_admin_html source_admin_app source_admin_style
+  local source_admin_app_ref source_admin_style_ref
   local dist_admin_html dist_admin_app dist_admin_style
   local -a source_workspace_assets image_workspace_assets
   source_admin_html="${project_root}/apps/web/public/admin.html"
@@ -142,14 +143,14 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     "${dist_admin_html}" "${dist_admin_app}" "${dist_admin_style}"; do
     [ -f "${required_file}" ] || 失败 "缺少 Web 源码或构建产物：${required_file}"
   done
-  if ! grep -Fq 'admin-app.js?v=159' "${source_admin_html}" ||
-    ! grep -Fq 'admin-app.js?v=159' "${dist_admin_html}"; then
-    失败 "正式 admin.html 未使用 admin-app.js?v=159。"
-  fi
-  if ! grep -Fq 'style.css?v=16' "${source_admin_html}" ||
-    ! grep -Fq 'style.css?v=16' "${dist_admin_html}"; then
-    失败 "正式 admin.html 未使用 style.css?v=16。"
-  fi
+  source_admin_app_ref="$(sed -n 's/.*src="\([^\"]*admin-app\.js?v=[^\"]*\)".*/\1/p' "${source_admin_html}")"
+  source_admin_style_ref="$(sed -n 's/.*href="\([^\"]*style\.css?v=[^\"]*\)".*/\1/p' "${source_admin_html}")"
+  [ -n "${source_admin_app_ref}" ] || 失败 "正式 admin.html 未找到带版本号的 admin-app.js 引用。"
+  [ -n "${source_admin_style_ref}" ] || 失败 "正式 admin.html 未找到带版本号的 style.css 引用。"
+  grep -Fq "${source_admin_app_ref}" "${dist_admin_html}" ||
+    失败 "Web 构建产物未使用源码中的 admin-app.js 版本引用：${source_admin_app_ref}。"
+  grep -Fq "${source_admin_style_ref}" "${dist_admin_html}" ||
+    失败 "Web 构建产物未使用源码中的 style.css 版本引用：${source_admin_style_ref}。"
   if ! grep -Fq '仅内置 admin 的超级管理员角色受保护，其他账号包括当前登录账号均可调整' "${source_admin_app}" ||
     ! grep -Fq 'V3_AUTH_ROLE_CHANGED' "${source_admin_app}" ||
     ! grep -Fq '/api/auth/logout' "${source_admin_app}" ||
@@ -193,13 +194,13 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
       失败 "目标 Nginx 镜像缺少静态文件：${required_file}"
     fi
   done
-  if ! grep -Fq 'admin-app.js?v=159' "${static_dir}/admin.html"; then
+  if ! grep -Fq "${source_admin_app_ref}" "${static_dir}/admin.html"; then
     清理Web镜像检查
-    失败 "目标 admin.html 未使用 admin-app.js?v=159。"
+    失败 "目标 admin.html 未使用源码中的 admin-app.js 版本引用：${source_admin_app_ref}。"
   fi
-  if ! grep -Fq 'style.css?v=16' "${static_dir}/admin.html"; then
+  if ! grep -Fq "${source_admin_style_ref}" "${static_dir}/admin.html"; then
     清理Web镜像检查
-    失败 "目标 admin.html 未使用 style.css?v=16。"
+    失败 "目标 admin.html 未使用源码中的 style.css 版本引用：${source_admin_style_ref}。"
   fi
   if ! grep -Fq '组织架构' "${static_dir}/admin-app.js" ||
     ! grep -Fq "router.push('/organization/units')" "${static_dir}/admin-app.js" ||

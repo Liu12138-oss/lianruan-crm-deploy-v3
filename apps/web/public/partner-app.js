@@ -343,9 +343,9 @@ function regionOverrideMatches(override, region) {
   if (override.region === region) return true;
   return Array.isArray(override.regions) && override.regions.includes(region);
 }
-function resolveFeaturePriceConfig(feat) {
+function resolveFeaturePriceConfig(feat, specifiedRegion = getCurrentRegion()) {
   if (!feat) return null;
-  const region = getCurrentRegion();
+  const region = specifiedRegion;
 
   // 默认使用全国价格
   let config = {
@@ -3050,55 +3050,21 @@ const QuoteList = {
       // 打开选择一级渠道商弹窗（内部会检查是否为二级渠道商）
       await openSelectParentPartnerModal(q);
     }
-    function downloadPdf(q) {
-      // 获取报价单内容区 HTML
-      const area = document.getElementById('quote-print-area');
-      if (!area) return;
-      // 收集依赖样式
-      const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-        .map(l => '<link rel="stylesheet" href="' + l.href + '">')
-        .join('');
-      const styleTags = Array.from(document.querySelectorAll('style'))
-        .map(s => '<style>' + s.innerHTML + '</style>')
-        .join('');
-      // 构建打印页面 HTML（避免在模板字符串中使用 <\/script> 导致 Vue 解析错误）
-      var printHtml = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"/>';
-      printHtml += '<meta name="viewport" content="width=device-width,initial-scale=1"/>';
-      printHtml += '<title>报价单 — ' + q.id + ' — ' + q.customer + '</title>';
-      printHtml += styleLinks + styleTags;
-      printHtml += '<style>@page { size: A4; margin: 12mm 10mm; }';
-      printHtml += 'body { background:#f5f7fb !important; margin:0; padding:18px; font-family:-apple-system, PingFang SC, Microsoft YaHei, sans-serif; color:#1f1f1f; }';
-      printHtml += '#quote-print-area { max-width:1120px; margin:0 auto; background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 8px 24px rgba(15,23,42,.08); }';
-      printHtml += '.print-only { display: block !important; }';
-      printHtml += '.modal, .modal-overlay, .modal-header, .modal-footer { all: unset; display: block; }';
-      printHtml += '.sidebar, .header, .search-bar, .btn { display: none !important; }';
-      printHtml += 'table { width: 100%; border-collapse: collapse; page-break-inside: auto; }';
-      printHtml += 'tr { page-break-inside: avoid; }';
-      printHtml += 'th, td { border: 1px solid #e0e0e0; padding: 8px 10px; font-size: 12px; }';
-      printHtml += 'thead { background: #f5f7fb; color: #1f1f1f; }';
-      printHtml += '.quote-header { background: linear-gradient(135deg,#0a1f3d 0%, #0b3470 55%, #0d47a1 100%); color:#fff; border-radius:18px 18px 0 0; padding:34px 32px 26px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); position:relative; overflow:hidden; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
-      printHtml += '.quote-header::before { content:\"\"; position:absolute; inset:0; background: linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0)); pointer-events:none; }';
-      printHtml += '.quote-header h2 { font-size:24px; font-weight:800; letter-spacing:-0.6px; position:relative; z-index:1; }';
-      printHtml += '.quote-header p { opacity:.82; font-size:14px; margin-top:8px; position:relative; z-index:1; }';
-      printHtml += '.quote-meta { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:22px; position:relative; z-index:1; }';
-      printHtml += '.quote-meta-item { background: rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:10px 14px; backdrop-filter: blur(3px); }';
-      printHtml += '.quote-meta-item label { font-size:12px; opacity:.72; display:block; margin-bottom:6px; letter-spacing:.2px; }';
-      printHtml += '.quote-meta-item span { font-size:15px; font-weight:700; line-height:1.35; word-break:break-word; }';
-      printHtml += '.quote-body { border:1px solid #e5e7eb; border-top:none; border-radius:0 0 18px 18px; padding:32px 36px; background:#fff; }';
-      printHtml += '.quote-total { display:flex; justify-content:flex-end; margin-top:20px; }';
-      printHtml += '.quote-total-box { background:rgba(0,122,255,0.04); border:1px solid rgba(0,122,255,0.15); border-radius:14px; padding:20px 28px; min-width:300px; }';
-      printHtml += '.total-row { display:flex; justify-content:space-between; font-size:14px; color:#6b7280; margin-bottom:10px; padding:0; border-bottom:none; }';
-      printHtml += '.total-row.grand { font-size:20px; font-weight:700; color:#1677ff; border-top:1px solid rgba(0,122,255,0.15); padding-top:14px; margin-top:14px; margin-bottom:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }';
-      printHtml += '</style></head><body>';
-      printHtml += area.innerHTML;
-      printHtml += '<' + 'script>document.querySelectorAll(".print-only").forEach(el => el.style.display = "");';
-      printHtml += 'window.onload = function() { window.print(); window.onafterprint = function(){ window.close(); }; };<' + '/script>';
-      printHtml += '</body></html>';
-      const win = window.open('', '_blank', 'width=900,height=700');
-      if (!win) { alert('请允许弹出窗口后重试'); return; }
-      win.document.open();
-      win.document.write(printHtml);
-      win.document.close();
+    async function downloadPdf(q) {
+      try {
+        const file = await apiClient.downloadQuotePdf(q.id);
+        const url = URL.createObjectURL(file.content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('下载报价单 PDF 失败：', err);
+        alert(err instanceof Error ? err.message : '报价单 PDF 下载失败，请稍后重试。');
+      }
     }
     
     // 修改报价单（导航到编辑页面，携带报价单ID）
@@ -4955,6 +4921,9 @@ const OrderList = {
         <option value="pending_primary_confirm">待一级确认</option>
         <option value="primary_confirmed">一级已确认</option>
         <option value="pending_superadmin_confirm">待超管确认</option>
+        <option value="returned_to_region">已退回区管修改</option>
+        <option value="returned_to_primary">已退回一级渠道商修改</option>
+        <option value="returned_to_secondary">已退回二级渠道商修改</option>
         <option value="confirmed">已确认</option>
         <option value="primary_rejected">已驳回</option>
         <option value="processing">处理中</option>
@@ -5160,24 +5129,39 @@ const OrderList = {
             <button class="btn btn-primary" @click="openConfirmModal(detail);detail=null">✅ 确认接受</button>
           </template>
           <button v-if="canRequestRevision(detail)" class="btn btn-warning" @click="openRevisionModal(detail)">申请回退修改</button>
+          <button v-if="canResubmit(detail)" class="btn btn-primary" @click="openResubmitModal(detail)">修改并重新提交</button>
           <button class="btn btn-default" @click="detail=null">关闭</button>
         </div>
       </div>
     </div>
 
     <div class="modal-overlay" v-if="showRevisionModal" @click.self="showRevisionModal=false">
-      <div class="modal" style="max-width:560px">
+      <div class="modal order-edit-modal">
         <div class="modal-header">
           <div class="modal-title">申请订单回退修改</div>
           <span class="modal-close" @click="showRevisionModal=false">✕</span>
         </div>
         <div class="modal-body">
-          <p style="color:#666;font-size:13px">旧订单会保留为历史版本，审批通过后生成新订单并重新走审批、OA和建群流程。</p>
-          <div class="form-item"><label class="form-label">修改原因 <span style="color:#ff4d4f">*</span></label><textarea class="form-control" v-model="revisionForm.reason" rows="3" placeholder="请说明模块或价格填写错误的原因"></textarea></div>
-          <div class="form-item"><label class="form-label">新订单金额</label><input class="form-control" type="number" min="0" v-model.number="revisionForm.newAmount" placeholder="不改金额可留空"></div>
-          <div class="form-item"><label class="form-label">新模块明细</label><textarea class="form-control" v-model="revisionForm.itemsText" rows="5" placeholder="每行一项：模块名称|数量|单价；不改模块可留空"></textarea><div style="font-size:12px;color:#999;margin-top:5px">例如：终端防护|100|80</div></div>
+          <p class="order-edit-tip">提交后由超级管理员审核。客户、渠道商、负责人和协议归属保持不变，仅提交模块、数量、单价和金额变更。</p>
+          <div class="order-readonly-grid"><div><span>客户</span><b>{{ detail && detail.customer }}</b></div><div><span>渠道商</span><b>{{ detail && detail.partnerName }}</b></div><div><span>协议编号</span><b>{{ detail && (detail.agreementNo || detail.原始数据?.agreementNo || '—') }}</b></div></div>
+          <div class="form-item"><label class="form-label">模块明细 <span class="required-mark">*</span></label><div class="module-editor"><div class="module-editor-head"><span>产品/模块</span><span>数量</span><span>系统单价</span><span>小计</span><span></span></div><div class="module-editor-row" v-for="(item, index) in revisionForm.items" :key="item.key || index"><button class="module-product-picker" type="button" @click="openRevisionProductPicker(revisionForm, index)"><span v-if="item.itemName">{{ item.itemName }}</span><span v-else class="module-placeholder">请选择产品或模块</span><span>⌄</span></button><input class="form-control" type="number" min="0.01" step="0.01" v-model.number="item.quantity" @input="syncRevisionTotal"><div class="module-price-readonly"><span v-if="Number.isFinite(Number(item.unitPrice)) && Number(item.unitPrice) > 0">¥{{ fmt(item.unitPrice) }}</span><span v-else class="module-price-pending">选择后自动计算</span><small>系统规则计算</small></div><span class="module-line-total">¥{{ fmt(moduleLineTotal(item)) }}</span><button class="icon-button" type="button" @click="removeRevisionItem(index)" :disabled="revisionForm.items.length === 1">×</button></div><button class="add-module-button" type="button" @click="addRevisionItem">＋ 从产品目录新增模块</button><div class="module-catalog-panel" v-if="revisionPickerForm === revisionForm"><div class="module-catalog-sidebar"><button type="button" :class="{active: revisionCatalogType === ''}" @click="revisionCatalogType = ''">全部模块 <span>{{ revisionProducts.length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'feature'}" @click="revisionCatalogType = 'feature'">功能模块 <span>{{ revisionProducts.filter(product => product.type === 'feature').length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'hardware'}" @click="revisionCatalogType = 'hardware'">硬件产品 <span>{{ revisionProducts.filter(product => product.type === 'hardware').length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'package'}" @click="revisionCatalogType = 'package'">产品套餐 <span>{{ revisionProducts.filter(product => product.type === 'package').length }}</span></button></div><div class="module-catalog-content"><div class="module-catalog-title"><strong>从产品目录选择模块</strong><button type="button" @click="closeRevisionProductPicker">×</button></div><div class="module-catalog-search"><span>⌕</span><input class="form-control" v-model="revisionCatalogKeyword" placeholder="检索产品或模块名称，例如：终端、防泄漏"/><em>共 {{ filteredRevisionProducts.length }} 个模块</em></div><div class="module-catalog-grid"><button v-for="product in filteredRevisionProducts" :key="product.key" type="button" class="module-catalog-card" :class="{selected: revisionForm.items.some(item => item.productRefKey === product.key)}" @click="chooseRevisionProduct(product)"><span class="module-catalog-check">{{ revisionForm.items.some(item => item.productRefKey === product.key) ? '✓' : '+' }}</span><strong>{{ product.name }}</strong><small>{{ revisionForm.items.some(item => item.productRefKey === product.key) ? '已在报价单中 · 系统计价' : '系统计价 · 选择后自动带入' }}</small></button><div v-if="!filteredRevisionProducts.length" class="module-catalog-empty">未找到匹配模块，请更换关键词或切换产品分类。</div></div></div></div></div><div class="field-hint">新增、替换模块必须从产品目录选择；数量可以调整，单价由系统按报价规则自动计算。</div></div>
+          <div class="order-total-bar"><span>订单总额</span><strong>¥{{ fmt(revisionTotal) }}</strong></div>
+          <div class="form-item"><label class="form-label">修改原因 <span class="required-mark">*</span></label><textarea class="form-control" v-model="revisionForm.reason" rows="3" maxlength="500" placeholder="请说明模块、数量或价格填写错误的原因"></textarea><div class="field-hint">{{ revisionForm.reason.length }}/500</div></div>
         </div>
         <div class="modal-footer"><button class="btn btn-default" @click="showRevisionModal=false">取消</button><button class="btn btn-primary" @click="submitRevisionRequest" :disabled="revisionSubmitting">{{ revisionSubmitting ? '提交中...' : '提交申请' }}</button></div>
+      </div>
+    </div>
+    <div class="modal-overlay" v-if="showResubmitModal" @click.self="showResubmitModal=false">
+      <div class="modal order-edit-modal">
+        <div class="modal-header"><div class="modal-title">修改订单并重新提交</div><span class="modal-close" @click="showResubmitModal=false">✕</span></div>
+        <div class="modal-body">
+          <p class="order-edit-tip">当前订单已退回至{{ resubmitTargetLabel }}。请按报价单方式修正模块、数量和单价后重新提交。</p>
+          <div class="order-readonly-grid"><div><span>客户</span><b>{{ detail && detail.customer }}</b></div><div><span>渠道商</span><b>{{ detail && detail.partnerName }}</b></div><div><span>退回节点</span><b>{{ resubmitTargetLabel }}</b></div></div>
+          <div class="form-item"><label class="form-label">模块明细 <span class="required-mark">*</span></label><div class="module-editor"><div class="module-editor-head"><span>产品/模块</span><span>数量</span><span>系统单价</span><span>小计</span><span></span></div><div class="module-editor-row" v-for="(item, index) in resubmitForm.items" :key="item.key || index"><button class="module-product-picker" type="button" @click="openRevisionProductPicker(resubmitForm, index)"><span v-if="item.itemName">{{ item.itemName }}</span><span v-else class="module-placeholder">请选择产品或模块</span><span>⌄</span></button><input class="form-control" type="number" min="0.01" step="0.01" v-model.number="item.quantity" @input="syncResubmitTotal"><div class="module-price-readonly"><span v-if="Number.isFinite(Number(item.unitPrice)) && Number(item.unitPrice) > 0">¥{{ fmt(item.unitPrice) }}</span><span v-else class="module-price-pending">选择后自动计算</span><small>系统规则计算</small></div><span class="module-line-total">¥{{ fmt(moduleLineTotal(item)) }}</span><button class="icon-button" type="button" @click="removeResubmitItem(index)" :disabled="resubmitForm.items.length === 1">×</button></div><button class="add-module-button" type="button" @click="addResubmitItem">＋ 从产品目录新增模块</button><div class="module-catalog-panel" v-if="revisionPickerForm === resubmitForm"><div class="module-catalog-sidebar"><button type="button" :class="{active: revisionCatalogType === ''}" @click="revisionCatalogType = ''">全部模块 <span>{{ revisionProducts.length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'feature'}" @click="revisionCatalogType = 'feature'">功能模块 <span>{{ revisionProducts.filter(product => product.type === 'feature').length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'hardware'}" @click="revisionCatalogType = 'hardware'">硬件产品 <span>{{ revisionProducts.filter(product => product.type === 'hardware').length }}</span></button><button type="button" :class="{active: revisionCatalogType === 'package'}" @click="revisionCatalogType = 'package'">产品套餐 <span>{{ revisionProducts.filter(product => product.type === 'package').length }}</span></button></div><div class="module-catalog-content"><div class="module-catalog-title"><strong>从产品目录选择模块</strong><button type="button" @click="closeRevisionProductPicker">×</button></div><div class="module-catalog-search"><span>⌕</span><input class="form-control" v-model="revisionCatalogKeyword" placeholder="检索产品或模块名称，例如：终端、防泄漏"/><em>共 {{ filteredRevisionProducts.length }} 个模块</em></div><div class="module-catalog-grid"><button v-for="product in filteredRevisionProducts" :key="product.key" type="button" class="module-catalog-card" :class="{selected: resubmitForm.items.some(item => item.productRefKey === product.key)}" @click="chooseRevisionProduct(product)"><span class="module-catalog-check">{{ resubmitForm.items.some(item => item.productRefKey === product.key) ? '✓' : '+' }}</span><strong>{{ product.name }}</strong><small>{{ resubmitForm.items.some(item => item.productRefKey === product.key) ? '已在报价单中 · 系统计价' : '系统计价 · 选择后自动带入' }}</small></button><div v-if="!filteredRevisionProducts.length" class="module-catalog-empty">未找到匹配模块，请更换关键词或切换产品分类。</div></div></div></div></div><div class="field-hint">新增、替换模块必须从产品目录选择；数量可以调整，单价由系统按报价规则自动计算。</div></div>
+          <div class="order-total-bar"><span>订单总额</span><strong>¥{{ fmt(resubmitTotal) }}</strong></div>
+          <div class="form-item"><label class="form-label">处理说明 <span class="required-mark">*</span></label><textarea class="form-control" v-model="resubmitForm.reason" rows="3" maxlength="500" placeholder="请说明已如何处理驳回问题"></textarea><div class="field-hint">{{ resubmitForm.reason.length }}/500</div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-default" @click="showResubmitModal=false">取消</button><button class="btn btn-primary" @click="submitResubmit" :disabled="resubmitSubmitting">{{ resubmitSubmitting ? '提交中...' : '确认重新提交' }}</button></div>
       </div>
     </div>
   </div>`,
@@ -5188,7 +5172,22 @@ const OrderList = {
     const loading = ref(false);
     const showRevisionModal = ref(false);
     const revisionSubmitting = ref(false);
-    const revisionForm = ref({ reason: '', newAmount: null, itemsText: '' });
+    const revisionForm = ref({ reason: '', newAmount: null, items: [] });
+    const showResubmitModal = ref(false);
+    const resubmitSubmitting = ref(false);
+    const resubmitForm = ref({ reason: '', newAmount: null, items: [] });
+    const revisionProducts = ref([]);
+    const revisionPickerForm = ref(null);
+    const revisionPickerIndex = ref(-1);
+    const revisionCatalogKeyword = ref('');
+    const revisionCatalogType = ref('');
+    const filteredRevisionProducts = computed(() => {
+      const keyword = revisionCatalogKeyword.value.trim().toLowerCase();
+      return revisionProducts.value.filter(product =>
+        (!revisionCatalogType.value || product.type === revisionCatalogType.value) &&
+        (!keyword || `${product.name} ${product.label}`.toLowerCase().includes(keyword))
+      );
+    });
     
     // 员工隔离（统一使用 id 字段，与后端数据一致）
     const userId = computed(() => store.user?.id || '');
@@ -5348,6 +5347,7 @@ const OrderList = {
     // 页面加载时获取订单列表
     onMounted(() => {
       loadOrders();
+      loadRevisionCatalog();
     });
     
     // 本人的订单（员工）
@@ -5391,8 +5391,8 @@ const OrderList = {
     }));
     
     function isPrimaryPendingStatus(status) { return status === 'pending' || status === 'pending_primary_confirm'; }
-    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'已完成', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
-    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
+    function oClass(s) { return { pending:'tag-orange', pending_primary_confirm:'tag-orange', primary_confirmed:'tag-blue', primary_rejected:'tag-red', pending_superadmin_confirm:'tag-blue', returned_to_region:'tag-orange', returned_to_primary:'tag-orange', returned_to_secondary:'tag-orange', revision_requested:'tag-orange', confirmed:'tag-green', processing:'tag-blue', shipped:'tag-purple', completed:'已完成', cancelled:'tag-gray', replaced:'tag-gray', rejected:'tag-red' }[s]||'tag-gray'; }
+    function oLabel(s) { return { pending:'待确认', pending_primary_confirm:'待一级确认', primary_confirmed:'一级已确认', primary_rejected:'一级已驳回', pending_superadmin_confirm:'待超管确认', returned_to_region:'已退回区管修改', returned_to_primary:'已退回一级渠道商修改', returned_to_secondary:'已退回二级渠道商修改', revision_requested:'待回退修改审核', confirmed:'已确认', processing:'处理中', shipped:'已发货', completed:'已完成', cancelled:'已取消', replaced:'已替换', rejected:'已驳回' }[s]||s; }
     function view(o) { detail.value = o; }
     function canRequestRevision(order) {
       const revisionStatus = order?.revisionRequestStatus || order?.原始数据?.revisionRequestStatus;
@@ -5400,23 +5400,174 @@ const OrderList = {
     }
     function openRevisionModal(order) {
       detail.value = order;
-      revisionForm.value = { reason: '', newAmount: null, itemsText: '' };
+      revisionForm.value = { reason: '', newAmount: Number(order.total || 0), items: getOrderItems(order) };
+      closeRevisionProductPicker();
+      syncRevisionTotal();
       showRevisionModal.value = true;
     }
-    function parseRevisionItems(text) {
-      return String(text || '').split('\n').map(line => line.trim()).filter(Boolean).map(line => {
-        const [itemName, quantityText, unitPriceText] = line.split('|').map(value => value.trim());
-        return { itemName, quantity: Number(quantityText || 1), unitPrice: Number(unitPriceText || 0), lineAmount: Number(quantityText || 1) * Number(unitPriceText || 0) };
+    const resubmitTargetLabel = computed(() => ({ returned_to_region: '区管', returned_to_primary: '一级渠道商', returned_to_secondary: '二级渠道商' }[detail.value?.status] || '当前审批层级'));
+    function canResubmit(order) { return Boolean(order && ['returned_to_region', 'returned_to_primary', 'returned_to_secondary'].includes(order.status)); }
+    function get订单提交定价信息(order) {
+      const raw = order?.原始数据 || order || {};
+      return {
+        partnerLevel: raw.submittedPartnerLevel || raw.partnerLevel || 'none',
+        region: raw.submittedByRegion || raw.region || ''
+      };
+    }
+    function 计算重提系统单价(product, quantity, order) {
+      if (!product) return 0;
+      const pricing = get订单提交定价信息(order);
+      const config = resolveFeaturePriceConfig(product, pricing.region);
+      if (!config) return 0;
+      const levelPrice = pricing.partnerLevel === 'primary'
+        ? config.priceForPrimary
+        : pricing.partnerLevel === 'secondary'
+          ? config.priceForSecondary
+          : null;
+      if (typeof levelPrice === 'number') return levelPrice;
+      const tiers = Array.isArray(levelPrice) ? levelPrice : config.tiers;
+      if (Array.isArray(tiers) && tiers.length) {
+        const tier = tiers.find(item => quantity >= Number(item.min || 0) && quantity <= Number(item.max ?? Number.MAX_SAFE_INTEGER)) || tiers[tiers.length - 1];
+        return Number(tier?.price) || 0;
+      }
+      return Number(config.priceFixed) || 0;
+    }
+    function 查找重提目录产品(item) {
+      const reference = item?.productRefId ? `${item.productRefType}:${item.productRefId}` : '';
+      const itemName = String(item?.itemName || item?.name || '').trim();
+      return revisionProducts.value.find(product => product.key === reference) ||
+        revisionProducts.value.find(product => product.name === itemName) || null;
+    }
+    function getOrderItems(order, 按提交人价格计算 = false) {
+      const items = order?.items || order?.原始数据?.items || order?.原始数据?.resubmission?.items;
+      return Array.isArray(items) && items.length ? items.map((item, index) => {
+        const product = 查找重提目录产品(item);
+        const itemName = product?.name || item.itemName || item.name || '';
+        const productRefType = product?.type || item.productRefType || 'manual';
+        const productRefId = product?.id || item.productRefId || '';
+        const quantity = Number(item.quantity) || 1;
+        return {
+          key: `${Date.now()}-${index}`,
+          itemName,
+          productRefType,
+          productRefId,
+          productRefKey: productRefId ? `${productRefType}:${productRefId}` : `manual:${itemName}`,
+          quantity,
+          unitPrice: 按提交人价格计算 && product
+            ? 计算重提系统单价(product, quantity, order)
+            : Number(item.unitPrice) || 0
+        };
+      }) : [{ key: `${Date.now()}-0`, itemName: '', productRefType: '', productRefId: '', productRefKey: '', quantity: 1, unitPrice: 0 }];
+    }
+    function moduleLineTotal(item) { return Math.round((Number(item?.quantity) || 0) * (Number(item?.unitPrice) || 0) * 100) / 100; }
+    const revisionTotal = computed(() => revisionForm.value.items.reduce((sum, item) => sum + moduleLineTotal(item), 0));
+    const resubmitTotal = computed(() => resubmitForm.value.items.reduce((sum, item) => sum + moduleLineTotal(item), 0));
+    function syncRevisionTotal() { revisionForm.value.newAmount = revisionTotal.value; }
+    function syncResubmitTotal() {
+      resubmitForm.value.items.forEach(item => {
+        const product = 查找重提目录产品(item);
+        if (product) item.unitPrice = 计算重提系统单价(product, Number(item.quantity) || 1, detail.value);
       });
+      resubmitForm.value.newAmount = resubmitTotal.value;
+    }
+    function addRevisionItem() { revisionForm.value.items.push({ key: `${Date.now()}-${revisionForm.value.items.length}`, itemName: '', productRefType: '', productRefId: '', productRefKey: '', quantity: 1, unitPrice: 0 }); openRevisionProductPicker(revisionForm.value, revisionForm.value.items.length - 1); }
+    function removeRevisionItem(index) { if (revisionForm.value.items.length > 1) revisionForm.value.items.splice(index, 1); syncRevisionTotal(); }
+    function addResubmitItem() { resubmitForm.value.items.push({ key: `${Date.now()}-${resubmitForm.value.items.length}`, itemName: '', productRefType: '', productRefId: '', productRefKey: '', quantity: 1, unitPrice: 0 }); openRevisionProductPicker(resubmitForm.value, resubmitForm.value.items.length - 1); }
+    function removeResubmitItem(index) { if (resubmitForm.value.items.length > 1) resubmitForm.value.items.splice(index, 1); syncResubmitTotal(); }
+    async function openResubmitModal(order) {
+      if (!revisionProducts.value.length) await loadRevisionCatalog();
+      detail.value = order;
+      resubmitForm.value = { reason: '', newAmount: Number(order.total || 0), items: getOrderItems(order, true) };
+      closeRevisionProductPicker();
+      syncResubmitTotal();
+      showResubmitModal.value = true;
+    }
+    async function loadRevisionCatalog() {
+      try {
+        const [features, hardware, packages] = await Promise.all([
+          partnerFetch(`${window.API_BASE}/features?published=true`).then(response => response.json()),
+          partnerFetch(`${window.API_BASE}/hardware?published=true`).then(response => response.json()),
+          partnerFetch(`${window.API_BASE}/packages?published=true`).then(response => response.json())
+        ]);
+        const products = [];
+        const append = (result, type, label) => (result.data || []).forEach(product => {
+          const source = { ...(product.原始数据 || {}), ...product };
+          const name = source.name || source.title || source.标题 || '';
+          products.push({
+            ...source,
+            key: `${type}:${source.id}`,
+            type,
+            id: source.id,
+            name,
+            label: `${label}：${name || source.id}`,
+            price: Number(source.priceFixed ?? source.listPrice ?? source.price ?? source.金额 ?? 0)
+          });
+        });
+        append(features, 'feature', '功能模块');
+        append(hardware, 'hardware', '硬件产品');
+        append(packages, 'package', '产品套餐');
+        revisionProducts.value = products;
+      } catch (error) {
+        console.error('加载订单修订产品目录失败:', error);
+      }
+    }
+    function selectRevisionProduct(form, index) {
+      const item = form.items[index];
+      const product = revisionProducts.value.find(option => option.key === item.productRefKey);
+      if (!product) {
+        item.productRefType = '';
+        item.productRefId = '';
+        item.itemName = '';
+        return;
+      }
+      item.productRefType = product.type;
+      item.productRefId = product.id;
+      item.itemName = product.name;
+      if (!Number(item.unitPrice)) item.unitPrice = product.price;
+      if (!Number(item.quantity)) item.quantity = 1;
+      if (form === revisionForm.value) syncRevisionTotal(); else syncResubmitTotal();
+    }
+    function openRevisionProductPicker(form, index) {
+      revisionPickerForm.value = form;
+      revisionPickerIndex.value = index;
+      revisionCatalogKeyword.value = '';
+      revisionCatalogType.value = '';
+    }
+    function closeRevisionProductPicker() {
+      revisionPickerForm.value = null;
+      revisionPickerIndex.value = -1;
+      revisionCatalogKeyword.value = '';
+      revisionCatalogType.value = '';
+    }
+    function chooseRevisionProduct(product) {
+      const form = revisionPickerForm.value;
+      const index = revisionPickerIndex.value;
+      if (!form || index < 0 || !form.items[index]) return;
+      if (form.items.some((item, itemIndex) => itemIndex !== index && item.productRefKey === product.key)) {
+        alert('同一产品不能重复添加');
+        return;
+      }
+      const item = form.items[index];
+      item.productRefKey = product.key;
+      item.productRefType = product.type;
+      item.productRefId = product.id;
+      item.itemName = product.name;
+      item.unitPrice = form === resubmitForm.value
+        ? 计算重提系统单价(product, Number(item.quantity) || 1, detail.value)
+        : Number(product.price) || 0;
+      if (!Number(item.quantity)) item.quantity = 1;
+      if (form === revisionForm.value) syncRevisionTotal(); else syncResubmitTotal();
+      closeRevisionProductPicker();
     }
     async function submitRevisionRequest() {
       if (!revisionForm.value.reason.trim()) { alert('请填写修改原因'); return; }
-      const items = parseRevisionItems(revisionForm.value.itemsText);
-      if (revisionForm.value.newAmount === null && !items.length) { alert('请填写新订单金额或模块明细'); return; }
+      const items = revisionForm.value.items.map(item => ({ itemName: String(item.itemName || '').trim(), productRefType: item.productRefType, productRefId: item.productRefId, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), lineAmount: moduleLineTotal(item) }));
+      if (!items.length || items.some(item => (!item.productRefType || (item.productRefType !== 'manual' && !item.productRefId)) || !Number.isFinite(item.quantity) || item.quantity <= 0)) { alert('请从产品目录选择完整的产品或模块，并填写有效数量'); return; }
+      const amount = Number(revisionTotal.value);
       revisionSubmitting.value = true;
       try {
         const payload = { reason: revisionForm.value.reason.trim(), items };
-        if (revisionForm.value.newAmount !== null && revisionForm.value.newAmount !== '') payload.newAmount = Number(revisionForm.value.newAmount);
+        payload.newAmount = amount;
         const result = await apiClient.requestOrderRevision(detail.value.id, payload);
         if (!result.success) { alert('提交失败：' + (result.error || '未知错误')); return; }
         showRevisionModal.value = false;
@@ -5426,6 +5577,24 @@ const OrderList = {
         alert('回退修改申请已提交，等待超级管理员审核。');
       } catch (err) { alert('提交失败：' + err.message); }
       finally { revisionSubmitting.value = false; }
+    }
+    async function submitResubmit() {
+      if (!resubmitForm.value.reason.trim()) { alert('请填写处理说明'); return; }
+      const items = resubmitForm.value.items.map(item => ({ itemName: String(item.itemName || '').trim(), productRefType: item.productRefType, productRefId: item.productRefId, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), lineAmount: moduleLineTotal(item) }));
+      if (!items.length || items.some(item => (!item.productRefType || (item.productRefType !== 'manual' && !item.productRefId)) || !Number.isFinite(item.quantity) || item.quantity <= 0)) { alert('请从产品目录选择完整的产品或模块，并填写有效数量'); return; }
+      const amount = Number(resubmitTotal.value);
+      if (!Number.isFinite(amount) || amount < 0) { alert('系统暂未计算出有效订单金额，请重新选择产品或模块'); return; }
+      resubmitSubmitting.value = true;
+      try {
+        const result = await apiClient.resubmitOrder(detail.value.id, { reason: resubmitForm.value.reason.trim(), newAmount: amount, items });
+        if (!result.success) { alert('重新提交失败：' + (result.error || '未知错误')); return; }
+        showResubmitModal.value = false;
+        await loadOrders();
+        const updated = store.orders.find(order => order.id === detail.value.id);
+        if (updated) detail.value = updated;
+        alert('订单已修改并重新提交，已进入下一审批节点。');
+      } catch (err) { alert('重新提交失败：' + err.message); }
+      finally { resubmitSubmitting.value = false; }
     }
     
     // 获取发货时间
@@ -5440,7 +5609,7 @@ const OrderList = {
       return formatBusinessDateTime(isoString, '');
     }
     
-    return { kw, filterStatus, isStaff, filtered, detail, loading, fmt, oClass, oLabel, view, loadOrders, refreshOrders, getShippedTime, formatTime, canRequestRevision, openRevisionModal, showRevisionModal, revisionSubmitting, revisionForm, submitRevisionRequest,
+    return { kw, filterStatus, isStaff, filtered, detail, loading, fmt, oClass, oLabel, view, loadOrders, refreshOrders, getShippedTime, formatTime, canRequestRevision, openRevisionModal, showRevisionModal, revisionSubmitting, revisionForm, revisionTotal, addRevisionItem, removeRevisionItem, syncRevisionTotal, moduleLineTotal, submitRevisionRequest, canResubmit, openResubmitModal, showResubmitModal, resubmitSubmitting, resubmitForm, resubmitTotal, addResubmitItem, removeResubmitItem, syncResubmitTotal, resubmitTargetLabel, submitResubmit, revisionProducts, revisionPickerForm, revisionCatalogKeyword, revisionCatalogType, filteredRevisionProducts, openRevisionProductPicker, closeRevisionProductPicker, chooseRevisionProduct,
       isPrimaryPartner, isSecondarySubOrder, pendingSecondaryOrders,
       showConfirmModal, showRejectModal, confirmTargetOrder, rejectTargetOrder,
       confirmRemark, rejectRemark, confirmLoading,

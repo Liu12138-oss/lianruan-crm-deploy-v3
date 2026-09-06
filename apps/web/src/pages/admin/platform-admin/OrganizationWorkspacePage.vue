@@ -2417,6 +2417,20 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             <p v-if="!可写" class="组织说明文字">当前为只读观察模式，不能维护候选或确认映射。</p>
           </section>
           <section class="组织抽屉区块">
+            <h4>企业微信身份</h4>
+            <p class="组织说明文字">
+              仅展示当前账号已维护的企业微信 userid，不影响泛微 OA 发起人映射。
+            </p>
+            <div v-if="泛微OA身份?.wecomIdentities?.length" class="组织抽屉小卡">
+              <div v-for="身份 in 泛微OA身份.wecomIdentities" :key="身份.id" class="组织抽屉小卡主">
+                <b>{{ 身份.externalUsername || 编辑用户?.name || "企业微信成员" }}</b>
+                <span>userid：{{ 身份.externalSubject }}</span>
+                <el-tag size="small" type="success">已启用</el-tag>
+              </div>
+            </div>
+            <div v-else class="组织抽屉空">未记录已确认的企业微信 userid。</div>
+          </section>
+          <section class="组织抽屉区块">
             <h4>任职信息</h4>
             <div v-if="编辑用户任职.length">
               <div v-for="任职 in 编辑用户任职" :key="任职.id" class="组织抽屉小卡">

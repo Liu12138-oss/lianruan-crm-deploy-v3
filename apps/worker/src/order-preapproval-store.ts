@@ -10,7 +10,11 @@ import {
   泛微订单预审客户端,
   订单预审外部错误,
 } from "./order-preapproval-eteams.js";
-import { 生成订单预审报价单PDF } from "./order-preapproval-pdf.js";
+import {
+  type 正式报价单明细,
+  生成正式报价单PDF,
+  生成订单预审采购内容,
+} from "./order-preapproval-pdf.js";
 import { 企微订单预审群客户端, 解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
 
 const 订单预审事件代码 = "crm.order.preapproval.requested";
@@ -69,6 +73,10 @@ interface 订单预审请求详情 {
   orderNo: string;
   orderStatus: string;
   quoteNo: string;
+  quoteCreatedAt: string;
+  quoteValidDays: string | null;
+  quoteEndpoints: string | null;
+  quoteProjectName: string | null;
   contractPartner: string;
   endUser: string;
   regionId: string;
@@ -81,8 +89,17 @@ interface 订单预审请求详情 {
   formId: string | null;
   fieldMapping: unknown;
   externalRequestId: string | null;
-  items: Array<{ name: string; quantity: string; unitPrice: string; lineAmount: string }>;
+  items: Array<{
+    name: string;
+    quantity: string;
+    unitPrice: string;
+    lineAmount: string;
+    type?: "软件产品" | "硬件设备" | "服务项";
+    quantityLabel?: string;
+  }>;
   totalAmount: string;
+  workloadSummary: string | null;
+  standardPersonDays: string | null;
 }
 
 interface 泛微身份 {
@@ -187,6 +204,7 @@ export class 订单预审任务存储 {
     }
     this.校验订单仍可发起(请求);
     const 字段映射 = 校验订单预审字段映射(请求.fieldMapping);
+    const 采购内容 = 生成订单预审采购内容(转换为正式报价单明细(请求.items));
     const 发起人 = await this.读取唯一泛微身份(请求.regionManagerUserId);
     if (!请求.regionValue) {
       throw new 订单预审外部错误(
@@ -223,6 +241,7 @@ export class 订单预审任务存储 {
       最终用户: 请求.endUser,
       所属区域: 请求.regionValue,
       字段映射,
+      采购内容,
       采购订单附件,
       报价单附件: 报价附件,
     });
@@ -247,7 +266,7 @@ export class 订单预审任务存储 {
       订单编号: 请求.orderNo,
       所属区域: 请求.regionValue,
       产品类型: 字段映射.productTypeValue,
-      采购内容: 字段映射.purchaseContentValue,
+      采购内容: 生成订单预审采购内容(转换为正式报价单明细(请求.items)),
     });
     await this.记录调用(请求.requestId, "oa_verify", "accepted", { hasExternalRequestId: true });
     await this.标记泛微已受理(请求);
@@ -290,6 +309,10 @@ export class 订单预审任务存储 {
       order_no: string;
       order_status: string;
       quote_no: string | null;
+      quote_created_at: string | null;
+      quote_valid_days: string | null;
+      quote_endpoints: string | null;
+      quote_project_name: string | null;
       contract_partner: string | null;
       end_user: string | null;
       region_id: string | null;
@@ -304,10 +327,16 @@ export class 订单预审任务存储 {
       external_request_id: string | null;
       items: unknown;
       total_amount: string;
+      workload_summary: string | null;
+      standard_person_days: string | null;
     }>(
       `SELECT request.id::text AS request_id,request.status_code AS request_status,request.trigger_code,
               order_record.id::text AS order_id,COALESCE(order_record.order_no,order_record.id::text) AS order_no,
               order_record.status_code AS order_status,COALESCE(quote.quote_no,quote.id::text) AS quote_no,
+              to_char(quote.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS quote_created_at,
+              COALESCE(quote.extra_json->>'validDays',quote.extra_json->>'validityDays') AS quote_valid_days,
+              COALESCE(quote.extra_json->'workloadSnapshot'->>'endpoints',quote.extra_json->>'endpoints') AS quote_endpoints,
+              COALESCE(quote.extra_json->>'projectName',quote.extra_json->>'project') AS quote_project_name,
               partner.partner_name AS contract_partner,customer.customer_name AS end_user,
               region.id::text AS region_id,region_mapping.external_value AS region_value,
               request.region_manager_user_id::text,request.template_id::text,template.status_code AS template_status,request.template_version,
@@ -315,7 +344,9 @@ export class 订单预审任务存储 {
               request.template_snapshot_json->>'formId' AS form_id,
               request.template_snapshot_json->'fieldMapping' AS field_mapping,
               request.external_request_id,
-              COALESCE(items.items,'[]'::jsonb) AS items,order_record.total_amount::text AS total_amount
+              COALESCE(items.items,'[]'::jsonb) AS items,COALESCE(quote.total_amount,order_record.total_amount)::text AS total_amount,
+              quote.extra_json->'workloadSnapshot'->>'workloadSummary' AS workload_summary,
+              quote.extra_json->'workloadSnapshot'->>'workloadDays' AS standard_person_days
        FROM integration.order_preapproval_requests request
        JOIN crm.orders order_record ON order_record.id=request.order_id
        LEFT JOIN integration.order_preapproval_templates template ON template.id=request.template_id
@@ -328,10 +359,28 @@ export class 订单预审任务存储 {
         AND region_mapping.status_code='active'
        LEFT JOIN LATERAL (
          SELECT jsonb_agg(jsonb_build_object(
-           'name',item.item_name,'quantity',item.quantity::text,
-           'unitPrice',item.unit_price::text,'lineAmount',item.line_amount::text
-         ) ORDER BY item.id) AS items
-         FROM crm.order_items item WHERE item.order_id=order_record.id
+           'name',quote_item.item_name,'quantity',quote_item.quantity::text,
+           'unitPrice',quote_item.unit_price::text,'lineAmount',quote_item.line_amount::text,
+           'type',CASE
+             WHEN quote_item.product_ref_type='hardware'
+               OR quote_item.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN '硬件设备'
+             WHEN COALESCE(category.product_type_code,'')='service'
+               OR quote_item.item_name ~ '(质保|维护|服务|实施|培训|部署|安装|售后)' THEN '服务项'
+             ELSE '软件产品'
+           END,
+           'quantityLabel',CASE
+             WHEN quote_item.item_name ~ '(质保|年)' THEN quote_item.quantity::text || ' 年'
+             WHEN quote_item.product_ref_type='hardware'
+               OR quote_item.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN quote_item.quantity::text || ' 台'
+             ELSE quote_item.quantity::text || ' 点'
+           END
+         ) ORDER BY quote_item.sort_order,quote_item.id) AS items
+         FROM crm.quote_items quote_item
+         LEFT JOIN catalog.product_features feature
+           ON quote_item.product_ref_type='feature' AND feature.id=quote_item.product_ref_id
+         LEFT JOIN catalog.product_modules module ON module.id=feature.module_id
+         LEFT JOIN catalog.product_categories category ON category.id=module.category_id
+         WHERE quote_item.quote_id=quote.id
        ) items ON true
        WHERE request.id=$1::uuid`,
       [requestId],
@@ -349,6 +398,10 @@ export class 订单预审任务存储 {
       orderNo: 行.order_no,
       orderStatus: 行.order_status,
       quoteNo: 行.quote_no || "",
+      quoteCreatedAt: 行.quote_created_at || "",
+      quoteValidDays: 行.quote_valid_days,
+      quoteEndpoints: 行.quote_endpoints,
+      quoteProjectName: 行.quote_project_name,
       contractPartner: 行.contract_partner || "",
       endUser: 行.end_user || "",
       regionId: 行.region_id,
@@ -363,6 +416,8 @@ export class 订单预审任务存储 {
       externalRequestId: 行.external_request_id,
       items: 解析订单明细(行.items),
       totalAmount: 行.total_amount,
+      workloadSummary: 行.workload_summary,
+      standardPersonDays: 行.standard_person_days,
     };
   }
 
@@ -394,7 +449,8 @@ export class 订单预审任务存储 {
   private async 读取或生成报价单(
     请求: 订单预审请求详情,
   ): Promise<{ fileName: string; content: Buffer }> {
-    const fileKey = `order-preapproval-quote-pdf:${请求.requestId}`;
+    // 文件键升级为正式报价单版本，避免复用历史简化版 PDF。
+    const fileKey = `order-preapproval-formal-quote-pdf:${请求.requestId}`;
     const 已有 = await this.数据库连接池.query<{ original_name: string; storage_path: string }>(
       "SELECT original_name,storage_path FROM ops.files WHERE file_key=$1",
       [fileKey],
@@ -405,20 +461,21 @@ export class 订单预审任务存储 {
       return { fileName: 已有文件.original_name, content: await fs.readFile(路径) };
     }
     const fileName = `渠道产品订单预审报价单-${规范文件片段(请求.orderNo)}.pdf`;
-    const content = 生成订单预审报价单PDF({
+    const 明细 = 转换为正式报价单明细(请求.items);
+    const content = 生成正式报价单PDF({
       订单编号: 请求.orderNo,
       报价编号: 请求.quoteNo,
       合同对方: 请求.contractPartner,
       最终用户: 请求.endUser,
       所属区域: 请求.regionValue || "",
-      明细: 请求.items.map((项目) => ({
-        名称: 项目.name,
-        数量: 项目.quantity,
-        单价: 项目.unitPrice,
-        金额: 项目.lineAmount,
-      })),
+      明细,
       合计金额: 请求.totalAmount,
-      生成时间: new Date().toISOString(),
+      生成时间: 请求.quoteCreatedAt || new Date().toISOString(),
+      ...(请求.workloadSummary ? { 工作量说明: 请求.workloadSummary } : {}),
+      ...(请求.standardPersonDays ? { 标准人天: 请求.standardPersonDays } : {}),
+      ...(请求.quoteProjectName ? { 项目名称: 请求.quoteProjectName } : {}),
+      ...(请求.quoteValidDays ? { 有效期: 请求.quoteValidDays } : {}),
+      ...(请求.quoteEndpoints ? { 端点数量: 请求.quoteEndpoints } : {}),
     });
     const 目录 = this.报价单目录();
     const 存储路径 = path.join(目录, 请求.requestId, fileName);
@@ -865,8 +922,28 @@ function 解析订单明细(原始: unknown): 订单预审请求详情["items"] 
         {},
       );
     }
-    return { name, quantity, unitPrice, lineAmount };
+    const type = 取文本(项目.type);
+    const quantityLabel = 取文本(项目.quantityLabel);
+    return {
+      name,
+      quantity,
+      unitPrice,
+      lineAmount,
+      ...(type === "软件产品" || type === "硬件设备" || type === "服务项" ? { type } : {}),
+      ...(quantityLabel ? { quantityLabel } : {}),
+    };
   });
+}
+
+function 转换为正式报价单明细(明细: 订单预审请求详情["items"]): 正式报价单明细[] {
+  return 明细.map((项目) => ({
+    名称: 项目.name,
+    数量: 项目.quantity,
+    单价: 项目.unitPrice,
+    金额: 项目.lineAmount,
+    ...(项目.type ? { 类型: 项目.type } : {}),
+    ...(项目.quantityLabel ? { 数量标签: 项目.quantityLabel } : {}),
+  }));
 }
 
 function 规范文件片段(值: string): string {

@@ -98,7 +98,19 @@ fi
 current_version="$(读取配置值 "${install_root}/compose/.env" V3_IMAGE_TAG)"
 [ -n "${current_version}" ] || 失败 "无法读取当前 V3_IMAGE_TAG。"
 deploy_version="$(读取配置值 "${install_root}/config/deploy.env" V3_IMAGE_TAG)"
-[ "${deploy_version}" = "${current_version}" ] || 失败 "Compose 与部署变量版本不一致：${current_version} / ${deploy_version:-未设置}。"
+if [ "${deploy_version}" != "${current_version}" ]; then
+  提示 "检测到 Compose 与部署变量版本漂移：${current_version} / ${deploy_version:-未设置}；将以运行中容器的真实镜像为准，并在升级时统一收口。"
+fi
+runtime_version=""
+runtime_container="$(run_compose ps -q api-1 2>/dev/null || true)"
+if [ -n "${runtime_container}" ]; then
+  runtime_image="$(docker inspect -f '{{.Config.Image}}' "${runtime_container}" 2>/dev/null || true)"
+  runtime_version="${runtime_image##*:}"
+fi
+if [ -n "${runtime_version}" ] && [ "${runtime_version}" != "${current_version}" ]; then
+  提示 "Compose 配置版本 ${current_version} 与 API 实际运行版本 ${runtime_version} 不一致；后续按实际运行版本校验。"
+  current_version="${runtime_version}"
+fi
 if [ "${current_version}" != "${SOURCE_VERSION}" ] && [ "${current_version}" != "${TARGET_VERSION}" ]; then
   失败 "当前版本 ${current_version} 不允许升级；仅允许从 ${SOURCE_VERSION} 升级或复核 ${TARGET_VERSION}。"
 fi

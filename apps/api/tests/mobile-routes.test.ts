@@ -1,5 +1,6 @@
-import { 创建测试环境变量 } from "@lianruan/testing";
 import { randomUUID } from "node:crypto";
+
+import { 创建测试环境变量 } from "@lianruan/testing";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 
@@ -93,7 +94,9 @@ describe("移动端业务接口", () => {
       .get("/api/mobile/registrations?page=1&pageSize=100&keyword=" + encodeURIComponent(客户名称))
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
-    expect(列表.body.data.数据.filter((项: { 标题: string }) => 项.标题 === 客户名称)).toHaveLength(1);
+    expect(列表.body.data.数据.filter((项: { 标题: string }) => 项.标题 === 客户名称)).toHaveLength(
+      1,
+    );
   });
 
   it("同一幂等键不能用于不同请求", async () => {

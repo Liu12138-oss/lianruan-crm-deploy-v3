@@ -202,6 +202,18 @@ export interface 泛微OA身份详情 {
   formalIdentity: 泛微OA正式身份 | null;
   inactiveFormalIdentities: 泛微OA正式身份[];
   candidates: 泛微OA身份候选[];
+  wecomIdentities?: 企业微信身份[];
+}
+
+/** 企业微信正式身份；仅用于组织架构账号详情只读展示。 */
+export interface 企业微信身份 {
+  id: string;
+  externalSubject: string;
+  externalUsername: string | null;
+  statusCode: "active" | "disabled";
+  createdAt?: string;
+  updatedAt?: string;
+  rowVersion: number;
 }
 
 export interface 企业微信同步状态 extends 接口对象 {

@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/web",
-  "version": "3.0.0-stage10.03.20260824-kb024",
+  "version": "3.0.0-stage10.20260906-prod1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
-    "@lianruan/contracts": "3.0.0-stage10.03.20260824-kb024",
+    "@lianruan/contracts": "3.0.0-stage10.20260906-prod1",
     "@playwright/test": "^1.54.2",
     "@vitejs/plugin-vue": "^5.2.4",
     "@vue/test-utils": "^2.4.6",

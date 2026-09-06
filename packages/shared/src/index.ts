@@ -6,6 +6,14 @@ import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
 export {
+  type 正式报价单数据,
+  type 正式报价单明细,
+  type 正式报价单明细类型,
+  生成正式报价单PDF,
+  生成订单预审采购内容,
+  type 订单预审报价单,
+} from "./formal-quote-pdf.js";
+export {
   事件代码集合,
   事件目录,
   到期数据源代码集合,

@@ -325,6 +325,33 @@ const apiClient = {
     const res = await apiFetch(`${API_BASE}/quotes?${params}`);
     return res.json();
   },
+
+  // 下载服务端生成的正式报价单，页面下载与 OA 附件使用同一份 PDF 产物
+  async downloadQuotePdf(quoteId) {
+    const res = await apiFetch(`${API_BASE}/quotes/${encodeURIComponent(quoteId)}/pdf`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      let message = `报价单 PDF 下载失败（HTTP ${res.status}）。`;
+      try {
+        const data = text ? JSON.parse(text) : null;
+        message = data?.error?.message || data?.error || data?.message || message;
+      } catch (error) {
+        if (text) message = text;
+      }
+      throw new Error(message);
+    }
+    const disposition = res.headers.get('content-disposition') || '';
+    const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+    let fileName = `报价单-${quoteId}.pdf`;
+    if (encodedName) {
+      try {
+        fileName = decodeURIComponent(encodedName);
+      } catch (error) {
+        fileName = encodedName;
+      }
+    }
+    return { fileName, content: await res.blob() };
+  },
   
   // 删除报价单
   async deleteQuote(quoteId) {
@@ -395,7 +422,7 @@ const apiClient = {
   },
 
   // ???????????/?????
-  async updateOrderStatus(orderId, status, remark = '') {
+  async updateOrderStatus(orderId, status, remark = '', extra = {}) {
     loadUserFromStorage();
     const res = await apiFetch(`${API_BASE}/orders/${orderId}/status`, {
       method: 'PUT',
@@ -403,10 +430,22 @@ const apiClient = {
       body: JSON.stringify({
         status,
         remark,
+        ...(extra || {}),
         operatorId: currentUser?.id,
         operatorName: currentUser?.name,
         operatorRole: currentUser?.role
       })
+    });
+    return res.json();
+  },
+
+  // 订单审批退回后的修改与重新提交
+  async resubmitOrder(orderId, payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${API_BASE}/orders/${orderId}/resubmit`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withOperatorPayload(payload))
     });
     return res.json();
   },

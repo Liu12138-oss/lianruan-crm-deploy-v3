@@ -3,7 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { 应用错误, 清理日志字段 } from "@lianruan/shared";
+import {
+  应用错误,
+  type 正式报价单数据,
+  type 正式报价单明细,
+  清理日志字段,
+  生成正式报价单PDF,
+} from "@lianruan/shared";
 import { Pool, type PoolClient } from "pg";
 
 export type 阶段9模块 =
@@ -123,6 +129,7 @@ export interface 报价试算结果 {
     id: string;
     名称: string;
     类型: string;
+    产品引用类型?: "feature" | "hardware" | "package";
     数量: number;
     单价: number;
     小计: number;
@@ -130,6 +137,11 @@ export interface 报价试算结果 {
   total: number;
   workloadDays: number;
   workloadSummary: string;
+}
+
+export interface 正式报价单文件 {
+  文件名: string;
+  内容: Buffer;
 }
 
 export interface 报价一级渠道商 {
@@ -237,6 +249,7 @@ export interface 业务数据服务 {
   ): Promise<阶段9列表结果>;
   查询到期提醒(用户: 当前业务用户 | null): Promise<到期提醒项[]>;
   查询详情(模块: 阶段9模块, id: string, 用户?: 当前业务用户 | null): Promise<阶段9记录>;
+  生成正式报价单(id: string, 用户?: 当前业务用户 | null): Promise<正式报价单文件>;
   创建报备(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
   更新报备(
     id: string,
@@ -285,6 +298,11 @@ export interface 业务数据服务 {
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录>;
   更新订单状态(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录>;
+  重新提交订单(
     id: string,
     输入: Record<string, unknown>,
     用户: 当前业务用户 | null,
@@ -377,6 +395,9 @@ const 状态中文: Record<string, string> = {
   primary_confirmed: "一级已确认",
   primary_rejected: "一级已驳回",
   pending_superadmin_confirm: "待超管确认",
+  returned_to_region: "已退回区管修改",
+  returned_to_primary: "已退回一级渠道商修改",
+  returned_to_secondary: "已退回二级渠道商修改",
   revision_requested: "待回退修改审核",
   confirmed: "已确认",
   processing: "处理中",
@@ -409,9 +430,11 @@ function 校验移动端审核管理员(用户: 当前业务用户): void {
   }
 }
 
-function 规范渠道审核状态(value: string): "active" | "disabled" {
+function 规范渠道审核状态(value: string): "active" | "pending" | "rejected" | "disabled" {
   if (value === "active") return "active";
-  if (value === "rejected" || value === "disabled") return "disabled";
+  if (value === "pending") return "pending";
+  if (value === "rejected") return "rejected";
+  if (value === "disabled") return "disabled";
   throw new 应用错误("V3_PARTNER_STATUS_INVALID", "渠道商审核状态不正确。", 400);
 }
 
@@ -502,6 +525,15 @@ class 内存业务数据服务 implements 业务数据服务 {
     const 记录 = this.取记录集合(模块).find((项) => 项.id === id || 项.编号 === id);
     if (!记录) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
     return 记录;
+  }
+
+  public async 生成正式报价单(id: string, 用户?: 当前业务用户 | null): Promise<正式报价单文件> {
+    const 记录 = await this.查询详情("quotes", id, 用户);
+    const 报价单 = 构建正式报价单数据(记录);
+    return {
+      文件名: `报价单-${安全文件名(报价单.报价编号)}.pdf`,
+      内容: 生成正式报价单PDF(报价单),
+    };
   }
 
   public async 创建报备(
@@ -660,6 +692,26 @@ class 内存业务数据服务 implements 业务数据服务 {
       reviewedAt: now,
       updatedAt: now,
     };
+    const 审批记录 = this.取记录集合("approvals").find((项) => {
+      const 原始 = 项.原始数据 || {};
+      const 目标编号 = 读取文本(原始, ["targetId", "targetPartnerId", "partnerId"]);
+      return (
+        读取文本(原始, ["targetType", "type"]) === "partner" &&
+        (目标编号 === 记录.id || 目标编号 === 读取文本(记录.原始数据, ["id"]))
+      );
+    });
+    if (审批记录 && 审批记录.状态 === "pending" && ["active", "rejected"].includes(状态)) {
+      审批记录.状态 = 状态 === "active" ? "approved" : "rejected";
+      审批记录.状态名称 = 状态中文[审批记录.状态] || 审批记录.状态;
+      审批记录.更新时间 = now;
+      审批记录.原始数据 = {
+        ...审批记录.原始数据,
+        status: 审批记录.状态,
+        reviewRemark: 读取文本(输入, ["remark", "reason"], ""),
+        reviewedByName: 用户?.displayName || "",
+        reviewedAt: now,
+      };
+    }
     return 记录;
   }
 
@@ -670,6 +722,13 @@ class 内存业务数据服务 implements 业务数据服务 {
   ): Promise<阶段9记录> {
     校验超级管理员(用户);
     const 记录 = await this.查询详情("approvals", id);
+    if (记录.状态 !== "pending") {
+      throw new 应用错误(
+        "V3_APPROVAL_ALREADY_PROCESSED",
+        "该审批事项已处理，请刷新列表后重试。",
+        409,
+      );
+    }
     const 状态 = 读取文本(输入, ["action"], "approve") === "reject" ? "rejected" : "approved";
     const now = new Date().toISOString();
     记录.状态 = 状态;
@@ -683,6 +742,24 @@ class 内存业务数据服务 implements 业务数据服务 {
       reviewedAt: now,
       updatedAt: now,
     };
+    if (读取文本(记录.原始数据, ["targetType", "type"]) === "partner") {
+      const 渠道商 = this.取记录集合("partners").find(
+        (项) => 项.id === 读取文本(记录.原始数据, ["targetId", "targetPartnerId"]),
+      );
+      if (渠道商) {
+        渠道商.状态 = 状态 === "approved" ? "active" : "rejected";
+        渠道商.状态名称 = 状态中文[渠道商.状态] || 渠道商.状态;
+        渠道商.更新时间 = now;
+        渠道商.原始数据 = {
+          ...渠道商.原始数据,
+          status: 渠道商.状态,
+          reviewRemark: 读取文本(输入, ["remark", "reason"], ""),
+          reviewedByName: 用户?.displayName || "",
+          reviewedAt: now,
+          updatedAt: now,
+        };
+      }
+    }
     return 记录;
   }
 
@@ -818,6 +895,18 @@ class 内存业务数据服务 implements 业务数据服务 {
       createdByName: 用户?.displayName || "阶段9测试账号",
       createdAt: now,
       updatedAt: now,
+      items: 试算.items.map((项) => ({
+        name: 项.名称,
+        quantity: String(项.数量),
+        unitPrice: String(项.单价),
+        lineAmount: String(项.小计),
+        type: 项.类型.includes("硬件")
+          ? "硬件设备"
+          : 项.类型.includes("服务")
+            ? "服务项"
+            : "软件产品",
+        quantityLabel: `${项.数量}${项.类型.includes("硬件") ? " 台" : " 点"}`,
+      })),
       workloadSummary: 试算.workloadSummary,
       workloadSnapshot: 试算,
     };
@@ -917,14 +1006,39 @@ class 内存业务数据服务 implements 业务数据服务 {
   ): Promise<阶段9记录> {
     const 订单 = await this.查询详情("orders", id, 用户);
     const 原因 = 读取文本(输入, ["reason", "修改原因", "remark"], "");
-    if (!原因) throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
+    if (!原因)
+      throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
+    if (原因.length > 500)
+      throw new 应用错误(
+        "V3_ORDER_REVISION_REASON_INVALID",
+        "订单修订原因不能超过500个字符。",
+        400,
+      );
     if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(订单.状态)) {
-      throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "订单进入履约或终态后不能申请回退修改。", 409);
+      throw new 应用错误(
+        "V3_ORDER_REVISION_STATUS_FORBIDDEN",
+        "订单进入履约或终态后不能申请回退修改。",
+        409,
+      );
     }
     const 金额 = 读取订单调整金额(输入);
-    const 明细 = 读取订单修订明细(输入);
-    if (金额 === null && !明细.length) {
-      throw new 应用错误("V3_ORDER_REVISION_CHANGE_REQUIRED", "请至少填写新的订单金额或模块明细。", 400);
+    const 输入明细 = 读取订单修订明细(输入);
+    if (金额 === null && !输入明细.length) {
+      throw new 应用错误(
+        "V3_ORDER_REVISION_CHANGE_REQUIRED",
+        "请至少填写新的订单金额或模块明细。",
+        400,
+      );
+    }
+    if (金额 !== null && 输入明细.length) {
+      const 明细金额 = 输入明细.reduce((合计, 项目) => 合计 + 项目.lineAmount, 0);
+      if (Math.abs(金额 - 明细金额) > 0.01) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_AMOUNT_MISMATCH",
+          "订单金额必须与模块明细合计一致。",
+          400,
+        );
+      }
     }
     const now = new Date().toISOString();
     const 原始数据 = {
@@ -932,7 +1046,7 @@ class 内存业务数据服务 implements 业务数据服务 {
       orderRevisionRequest: {
         reason: 原因,
         newAmount: 金额,
-        items: 明细,
+        items: 输入明细,
         requestedByName: 用户?.displayName || "阶段9测试账号",
         createdAt: now,
       },
@@ -944,7 +1058,7 @@ class 内存业务数据服务 implements 业务数据服务 {
       orderId: 订单.id,
       reason: 原因,
       newAmount: 金额,
-      items: 明细,
+      items: 输入明细,
     };
     订单.原始数据 = { ...原始数据, revisionRequest: 请求 };
     return 订单;
@@ -959,9 +1073,18 @@ class 内存业务数据服务 implements 业务数据服务 {
     const action = 读取文本(输入, ["action", "status"], "reject");
     if (action === "reject") {
       const 原因 = 读取文本(输入, ["reason", "remark"], "");
-      if (!原因) throw new 应用错误("V3_ORDER_REVISION_REVIEW_REASON_REQUIRED", "驳回订单修订必须填写原因。", 400);
+      if (!原因)
+        throw new 应用错误(
+          "V3_ORDER_REVISION_REVIEW_REASON_REQUIRED",
+          "驳回订单修订必须填写原因。",
+          400,
+        );
     }
-    throw new 应用错误("V3_ORDER_REVISION_NOT_SUPPORTED", "内存模式不支持订单修订审批，请使用 PostgreSQL 数据库。", 501);
+    throw new 应用错误(
+      "V3_ORDER_REVISION_NOT_SUPPORTED",
+      "内存模式不支持订单修订审批，请使用 PostgreSQL 数据库。",
+      501,
+    );
   }
 
   public async 更新订单状态(
@@ -982,6 +1105,53 @@ class 内存业务数据服务 implements 业务数据服务 {
       status: 状态,
       updatedAt: 记录.更新时间,
       lastOperatorName: 用户?.displayName || "阶段9测试账号",
+    };
+    return 记录;
+  }
+
+  public async 重新提交订单(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 记录 = await this.查询详情("orders", id);
+    const 目标状态 = 退回修改状态对应审批状态(记录.状态);
+    const 原因 = 读取文本(输入, ["reason", "remark", "修改原因"], "");
+    if (!目标状态)
+      throw new 应用错误(
+        "V3_ORDER_RESUBMIT_STATUS_INVALID",
+        "当前订单不在退回修改状态，不能重新提交。",
+        409,
+      );
+    if (!原因)
+      throw new 应用错误(
+        "V3_ORDER_RESUBMIT_REASON_REQUIRED",
+        "重新提交订单必须填写修改原因。",
+        400,
+      );
+    const 新金额 = 读取订单调整金额(输入);
+    const 明细 = 读取订单修订明细(输入);
+    if (新金额 === null && !明细.length)
+      throw new 应用错误(
+        "V3_ORDER_RESUBMIT_CHANGE_REQUIRED",
+        "请至少修改订单金额或模块明细后再提交。",
+        400,
+      );
+    记录.状态 = 目标状态;
+    记录.状态名称 = 状态中文[目标状态] || 目标状态;
+    记录.更新时间 = new Date().toISOString();
+    记录.金额 = 新金额 ?? 记录.金额;
+    记录.原始数据 = {
+      ...记录.原始数据,
+      status: 目标状态,
+      total: 记录.金额,
+      reviewRemark: 原因,
+      resubmission: {
+        reason: 原因,
+        items: 明细,
+        operatorName: 用户?.displayName || "阶段9测试账号",
+      },
+      updatedAt: 记录.更新时间,
     };
     return 记录;
   }
@@ -1375,7 +1545,30 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     if (用户.roleCode === "partner_admin" || 用户.dataScopeCode === "partner") {
       if (!用户.partnerIds.length) return "false";
       参数.push(用户.partnerIds);
-      return `${alias}.partner_id = ANY($${参数.length}::uuid[])`;
+      const 本渠道参数 = 参数.length;
+      if (模块 !== "orders") return `${alias}.partner_id = ANY($${本渠道参数}::uuid[])`;
+      参数.push(用户.partnerIds);
+      const 一级渠道参数 = 参数.length;
+      return `(
+        ${alias}.partner_id = ANY($${本渠道参数}::uuid[])
+        OR (
+          ${alias}.status_code IN ('pending_primary_confirm', 'returned_to_primary')
+          AND (
+            ${alias}.extra_json->>'parentPartnerUuid' = ANY($${一级渠道参数}::text[])
+            OR (
+              NULLIF(${alias}.extra_json->>'parentPartnerUuid', '') IS NULL
+              AND EXISTS (
+                SELECT 1
+                FROM channel.partner_relations primary_relation
+                WHERE primary_relation.child_partner_id = ${alias}.partner_id
+                  AND primary_relation.parent_partner_id = ANY($${一级渠道参数}::uuid[])
+                  AND primary_relation.relation_code = 'primary_secondary'
+                  AND primary_relation.ended_at IS NULL
+              )
+            )
+          )
+        )
+      )`;
     }
 
     if (用户.roleCode === "staff" || 用户.dataScopeCode === "self") {
@@ -1575,6 +1768,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     const 记录 = 列表.数据[0];
     if (!记录) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
     return 记录;
+  }
+
+  public async 生成正式报价单(id: string, 用户?: 当前业务用户 | null): Promise<正式报价单文件> {
+    const 记录 = await this.查询详情("quotes", id, 用户);
+    const 报价单 = 构建正式报价单数据(记录);
+    return {
+      文件名: `报价单-${安全文件名(报价单.报价编号)}.pdf`,
+      内容: 生成正式报价单PDF(报价单),
+    };
   }
 
   public async 创建报备(
@@ -1940,6 +2142,13 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 审批 = 当前.rows[0];
       if (!审批) throw new 应用错误("V3_APPROVAL_NOT_FOUND", "待审批事项不存在。", 404);
+      if (审批.status_code !== "pending") {
+        throw new 应用错误(
+          "V3_APPROVAL_ALREADY_PROCESSED",
+          "该审批事项已处理，请刷新列表后重试。",
+          409,
+        );
+      }
       if (审批.target_type === "order_revision") {
         const 修订申请编号 = 审批.v2_source_id?.startsWith("order-revision:")
           ? 审批.v2_source_id.slice("order-revision:".length)
@@ -2022,6 +2231,28 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             [审批.target_id, 目标状态, 审批.applicant_partner_id],
           );
         }
+      }
+      if (审批.target_type === "partner" && 审批.target_id) {
+        await client.query(
+          `
+          UPDATE channel.partners
+          SET status_code = $2,
+              updated_at = now(),
+              row_version = row_version + 1,
+              extra_json = extra_json || $3::jsonb
+          WHERE id = $1::uuid
+          `,
+          [
+            审批.target_id,
+            状态 === "approved" ? "active" : "rejected",
+            JSON.stringify({
+              status: 状态 === "approved" ? "active" : "rejected",
+              reviewRemark: 原因,
+              reviewedByName: 用户?.displayName || "",
+              reviewedAt: new Date().toISOString(),
+            }),
+          ],
+        );
       }
       await 写入审计日志(client, {
         用户,
@@ -2363,7 +2594,9 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             ? 读取数字(输入, ["amount", "预计金额"], 变更前.amount)
             : 变更前.amount,
         expectedClose:
-          输入.expectedClose !== undefined ? 读取文本(输入, ["expectedClose"], "") : 变更前.expectedClose,
+          输入.expectedClose !== undefined
+            ? 读取文本(输入, ["expectedClose"], "")
+            : 变更前.expectedClose,
         stage: 阶段,
         partnerId: 归属.partnerId || "",
         ownerUserId: 归属.ownerUserId || "",
@@ -2469,19 +2702,20 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             id: string;
             名称: string;
             类型: string;
+            产品引用类型: "feature" | "hardware" | "package";
             单价: string | number;
             unit_name: string | null;
           }>(
             `
-            SELECT id::text, feature_name AS "名称", '功能模块' AS "类型", list_price AS "单价", unit_name
+            SELECT id::text, feature_name AS "名称", '功能模块' AS "类型", 'feature'::text AS "产品引用类型", list_price AS "单价", unit_name
             FROM catalog.product_features
             WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR feature_code = ANY($1)
             UNION ALL
-            SELECT id::text, hardware_name AS "名称", '硬件产品' AS "类型", list_price AS "单价", unit_name
+            SELECT id::text, hardware_name AS "名称", '硬件产品' AS "类型", 'hardware'::text AS "产品引用类型", list_price AS "单价", unit_name
             FROM catalog.hardware_products
             WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR hardware_code = ANY($1)
             UNION ALL
-            SELECT id::text, package_name AS "名称", '产品套餐' AS "类型", list_price AS "单价", NULL AS unit_name
+            SELECT id::text, package_name AS "名称", '产品套餐' AS "类型", 'package'::text AS "产品引用类型", list_price AS "单价", NULL AS unit_name
             FROM catalog.product_packages
             WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR package_code = ANY($1)
             `,
@@ -2491,7 +2725,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     const items = rows.rows.map((项) => {
       const 单价 = Number(项.单价) || 0;
       const 数量 = String(项.unit_name || "").includes("端点") ? endpoints : 1;
-      return { id: 项.id, 名称: 项.名称, 类型: 项.类型, 数量, 单价, 小计: 单价 * 数量 };
+      return {
+        id: 项.id,
+        名称: 项.名称,
+        类型: 项.类型,
+        产品引用类型: 项.产品引用类型,
+        数量,
+        单价,
+        小计: 单价 * 数量,
+      };
     });
     const total =
       读取数字(输入, ["total", "金额"], 0) || items.reduce((合计, 项) => 合计 + 项.小计, 0);
@@ -2544,6 +2786,51 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         );
       }
       const 试算 = await this.试算报价(输入);
+      if (商机?.partner_id && 试算.items.length) {
+        const 渠道结果 = await client.query<{
+          partner_level_code: string | null;
+          extra_json: Record<string, unknown> | null;
+          region_name: string | null;
+        }>(
+          `SELECT p.partner_level_code, p.extra_json,
+             COALESCE(reg.region_name, p.extra_json->>'region', '') AS region_name
+           FROM channel.partners p
+           LEFT JOIN org.regions reg ON reg.id = p.region_id
+           WHERE p.id = $1::uuid LIMIT 1`,
+          [商机.partner_id],
+        );
+        const 渠道 = 渠道结果.rows[0];
+        const 渠道扩展 = 渠道?.extra_json || {};
+        const 定价上下文: 订单重提定价上下文 = {
+          partnerLevel:
+            渠道?.partner_level_code && 渠道.partner_level_code !== "none"
+              ? 渠道.partner_level_code
+              : 读取文本(渠道扩展, ["partnerLevel", "level"], ""),
+          region: 读取文本(输入, ["region", "区域"], "") || 渠道?.region_name || "",
+        };
+        for (const 项目 of 试算.items) {
+          if (!项目.产品引用类型) continue;
+          项目.单价 = await 查询修订产品单价(
+            client,
+            项目.产品引用类型,
+            项目.id,
+            项目.数量,
+            定价上下文,
+          );
+          项目.小计 = Math.round(项目.单价 * 项目.数量 * 100) / 100;
+        }
+        const 计算总额 = 计算订单修订金额(
+          试算.items.map((项目) => ({
+            itemName: 项目.名称,
+            quantity: 项目.数量,
+            unitPrice: 项目.单价,
+            lineAmount: 项目.小计,
+            productRefType: 项目.产品引用类型 || "manual",
+            productRefId: 项目.id,
+          })),
+        );
+        if (计算总额 > 0) 试算.total = 计算总额;
+      }
       const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 商机?.owner_username);
       const 报价编号 = await 生成业务编号(client, "quote", 提报账号);
       const result = await client.query<{ id: string }>(
@@ -2579,9 +2866,17 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           INSERT INTO crm.quote_items (
             quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount
           )
-          VALUES ($1, 'manual', NULL, $2, $3, $4, $5)
+          VALUES ($1, $2, $3::uuid, $4, $5, $6, $7)
           `,
-          [id, item.名称, item.数量, item.单价, item.小计],
+          [
+            id,
+            item.产品引用类型 || "manual",
+            item.id || null,
+            item.名称,
+            item.数量,
+            item.单价,
+            item.小计,
+          ],
         );
       }
       await client.query("COMMIT");
@@ -2736,11 +3031,11 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           q.partner_id::text AS partner_id,
           COALESCE(p.v2_source_id, p.partner_code, p.id::text) AS partner_external_id,
           p.partner_name,
-          p.partner_level_code,
+        COALESCE(NULLIF(NULLIF(p.partner_level_code, 'none'), ''), p.extra_json->>'partnerLevel', p.extra_json->>'level', '') AS partner_level_code,
           q.owner_user_id::text AS owner_user_id,
           u.display_name AS owner_user_name,
           u.username::text AS owner_username,
-          COALESCE(q.extra_json->>'region', '') AS region_name,
+          COALESCE(q.extra_json->>'region', reg.region_name, p.extra_json->>'region', '') AS region_name,
           q.total_amount,
           q.extra_json,
           parent_rel.parent_partner_id,
@@ -2749,6 +3044,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         FROM crm.quotes q
         LEFT JOIN crm.customers c ON c.id = q.customer_id
         LEFT JOIN channel.partners p ON p.id = q.partner_id
+        LEFT JOIN org.regions reg ON reg.id = p.region_id
         LEFT JOIN iam.users u ON u.id = q.owner_user_id
         LEFT JOIN LATERAL (
           SELECT
@@ -2827,6 +3123,10 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             amount: 金额,
             status: 初始状态,
             submittedByUsername: 提报账号,
+            submittedByUserId: 当前用户上下文?.userId || 报价.owner_user_id || "",
+            submittedPartnerId: 报价.partner_id || "",
+            submittedPartnerLevel: 报价.partner_level_code || "",
+            submittedByRegion: 报价.region_name || "",
             createdByName: 操作人,
             createdAt: now,
             updatedAt: now,
@@ -2884,20 +3184,21 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
     const 上下文 = await this.解析当前用户上下文(用户);
-    const 原因 = 读取文本(输入, ["reason", "修改原因", "remark"], "");
-    if (!原因) throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
-    const 金额 = 读取订单调整金额(输入);
-    const 明细 = 读取订单修订明细(输入);
-    if (金额 === null && !明细.length) {
-      throw new 应用错误("V3_ORDER_REVISION_CHANGE_REQUIRED", "请至少填写新的订单金额或模块明细。", 400);
-    }
-    if (金额 !== null && 明细.length && Math.abs(金额 - 明细.reduce((sum, item) => sum + item.lineAmount, 0)) > 0.01) {
-      throw new 应用错误("V3_ORDER_REVISION_AMOUNT_MISMATCH", "订单金额必须与模块明细小计一致。", 400);
-    }
     if (!上下文?.userId) throw new 应用错误("V3_AUTH_REQUIRED", "请先登录后再申请订单修订。", 401);
     if (!["partner_admin", "staff"].includes(上下文.roleCode)) {
-      throw new 应用错误("V3_ORDER_REVISION_PARTNER_REQUIRED", "只有渠道商企业管理员或员工可以申请订单回退修改。", 403);
+      throw new 应用错误(
+        "V3_ORDER_REVISION_PARTNER_REQUIRED",
+        "只有渠道商企业管理员或员工可以申请订单回退修改。",
+        403,
+      );
     }
+    const 原因 = 读取文本(输入, ["reason", "修改原因", "remark"], "");
+    if (!原因)
+      throw new 应用错误("V3_ORDER_REVISION_REASON_REQUIRED", "订单修订必须填写修改原因。", 400);
+    const 输入明细 = 读取订单修订明细(输入);
+    if (!输入明细.length)
+      throw new 应用错误("V3_ORDER_REVISION_CHANGE_REQUIRED", "请至少保留一项报价模块明细。", 400);
+    const 提交金额 = 读取订单调整金额(输入);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -2923,17 +3224,47 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 当前 = 当前结果.rows[0];
       if (!当前) throw new 应用错误("V3_STAGE9_NOT_FOUND", "订单不存在。", 404);
-      if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(当前.status_code)) {
-        throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "订单进入履约或终态后不能申请回退修改。", 409);
+      if (
+        ["processing", "shipped", "completed", "cancelled", "replaced"].includes(当前.status_code)
+      ) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_STATUS_FORBIDDEN",
+          "订单进入履约或终态后不能申请回退修改。",
+          409,
+        );
       }
-      if (当前.owner_user_id !== 上下文.userId && !上下文.partnerIds.includes(当前.partner_id || "")) {
-        throw new 应用错误("V3_ORDER_REVISION_SCOPE_FORBIDDEN", "只能申请本人或本渠道商的订单修订。", 403);
+      if (
+        当前.owner_user_id !== 上下文.userId &&
+        !上下文.partnerIds.includes(当前.partner_id || "")
+      ) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_SCOPE_FORBIDDEN",
+          "只能申请本人或本渠道商的订单修订。",
+          403,
+        );
+      }
+      const 明细 = 输入明细.length
+        ? await 规范订单修订明细(
+            client,
+            输入明细,
+            当前.quote_id,
+            await 查询订单重提定价上下文(client, 当前.id),
+          )
+        : [];
+      const 金额 = 计算订单修订金额(明细);
+      if (提交金额 !== null && Math.abs(提交金额 - 金额) > 0.01) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_AMOUNT_MISMATCH",
+          "订单金额必须与服务端计算的模块明细合计一致。",
+          400,
+        );
       }
       const 已有 = await client.query<{ id: string }>(
         `SELECT id::text AS id FROM crm.order_revision_requests WHERE order_id = $1::uuid AND status_code = 'pending' LIMIT 1`,
         [当前.id],
       );
-      if (已有.rows[0]) throw new 应用错误("V3_ORDER_REVISION_PENDING", "该订单已有待处理的修订申请。", 409);
+      if (已有.rows[0])
+        throw new 应用错误("V3_ORDER_REVISION_PENDING", "该订单已有待处理的修订申请。", 409);
       const 请求结果 = await client.query<{ id: string }>(
         `
         INSERT INTO crm.order_revision_requests (
@@ -2947,14 +3278,27 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           上下文.userId,
           当前.partner_id,
           原因,
-          JSON.stringify({ newAmount: 金额, items: 明细, sourceStatus: 当前.status_code }),
+          JSON.stringify({
+            newAmount: 金额,
+            items: 明细,
+            sourceStatus: 当前.status_code,
+            priceSource: "server_quote_rule",
+          }),
         ],
       );
       const 请求编号 = 请求结果.rows[0]?.id;
-      if (!请求编号) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "订单修订申请写入失败。", 500);
+      if (!请求编号)
+        throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "订单修订申请写入失败。", 500);
       await client.query(
         `UPDATE crm.orders SET status_code = 'revision_requested', updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $2::jsonb WHERE id = $1::uuid`,
-        [当前.id, JSON.stringify({ status: "revision_requested", revisionRequestId: 请求编号, revisionReason: 原因 })],
+        [
+          当前.id,
+          JSON.stringify({
+            status: "revision_requested",
+            revisionRequestId: 请求编号,
+            revisionReason: 原因,
+          }),
+        ],
       );
       await 暂停订单审批待办(client, 当前.id, 用户);
       await client.query(
@@ -3029,7 +3373,11 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     }
     const 审核原因 = 读取文本(输入, ["reason", "remark", "审核意见"], "");
     if (action === "reject" && !审核原因) {
-      throw new 应用错误("V3_ORDER_REVISION_REVIEW_REASON_REQUIRED", "驳回订单修订必须填写原因。", 400);
+      throw new 应用错误(
+        "V3_ORDER_REVISION_REVIEW_REASON_REQUIRED",
+        "驳回订单修订必须填写原因。",
+        400,
+      );
     }
     const client = await this.pool.connect();
     try {
@@ -3064,7 +3412,8 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 请求 = 请求结果.rows[0];
       if (!请求) throw new 应用错误("V3_ORDER_REVISION_NOT_FOUND", "订单修订申请不存在。", 404);
-      if (请求.status_code !== "pending") throw new 应用错误("V3_ORDER_REVISION_ALREADY_REVIEWED", "订单修订申请已处理。", 409);
+      if (请求.status_code !== "pending")
+        throw new 应用错误("V3_ORDER_REVISION_ALREADY_REVIEWED", "订单修订申请已处理。", 409);
       const 审批 = action === "approve";
       if (!审批) {
         const 原状态 = 读取文本(请求.change_snapshot_json, ["sourceStatus"], "confirmed");
@@ -3074,18 +3423,35 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         );
         await client.query(
           `UPDATE crm.orders SET status_code = $2, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb WHERE id = $1::uuid AND status_code = 'revision_requested'`,
-          [请求.order_id, 原状态, JSON.stringify({ status: 原状态, revisionReviewReason: 审核原因 })],
+          [
+            请求.order_id,
+            原状态,
+            JSON.stringify({ status: 原状态, revisionReviewReason: 审核原因 }),
+          ],
         );
         await client.query(
           `UPDATE ops.approvals SET status_code = 'rejected', updated_at = now(), extra_json = extra_json || $2::jsonb WHERE v2_source_id = $1`,
-          [`order-revision:${请求.id}`, JSON.stringify({ status: "rejected", reviewRemark: 审核原因 })],
+          [
+            `order-revision:${请求.id}`,
+            JSON.stringify({ status: "rejected", reviewRemark: 审核原因 }),
+          ],
         );
         await client.query(
           `INSERT INTO ops.approval_events (approval_id, event_code, from_status_code, to_status_code, reason, extra_json)
            SELECT id, 'reject', 'pending', 'rejected', $2, $3::jsonb FROM ops.approvals WHERE v2_source_id = $1`,
-          [`order-revision:${请求.id}`, 审核原因, JSON.stringify({ actorName: 用户?.displayName || "" })],
+          [
+            `order-revision:${请求.id}`,
+            审核原因,
+            JSON.stringify({ actorName: 用户?.displayName || "" }),
+          ],
         );
-        await 写入订单状态历史(client, { 订单编号: 请求.order_id, 原状态: "revision_requested", 新状态: 原状态, 原因: 审核原因, 用户 });
+        await 写入订单状态历史(client, {
+          订单编号: 请求.order_id,
+          原状态: "revision_requested",
+          新状态: 原状态,
+          原因: 审核原因,
+          用户,
+        });
         const 原审批步骤 = 订单状态审批步骤(原状态);
         if (原审批步骤) {
           await 写入订单审批待办(client, {
@@ -3109,95 +3475,78 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         await client.query("COMMIT");
         return this.查询详情("orders", 请求.order_id, 用户);
       }
-      if (["processing", "shipped", "completed", "cancelled", "replaced"].includes(请求.order_status_code)) {
-        throw new 应用错误("V3_ORDER_REVISION_STATUS_FORBIDDEN", "原订单已进入履约或终态，不能生成修订版本。", 409);
-      }
-      const 快照 = 请求.change_snapshot_json || {};
-      if (!请求.quote_id) throw new 应用错误("V3_ORDER_REVISION_QUOTE_REQUIRED", "订单缺少关联报价，不能生成修订版本。", 409);
-      const 明细 = 读取订单修订明细(快照);
-      const 金额 = 读取订单调整金额(快照) ?? (明细.length ? 明细.reduce((sum, item) => sum + item.lineAmount, 0) : Number(请求.total_amount) || 0);
-      const 提报账号 = await 查询业务负责人账号(client, 请求.owner_user_id);
-      const 新报价编号 = await 生成业务编号(client, "quote", 提报账号);
-      const 新报价结果 = await client.query<{ id: string }>(
-        `
-        INSERT INTO crm.quotes (quote_no, opportunity_id, customer_id, partner_id, owner_user_id, status_code, total_amount, discount_amount, created_at, updated_at, extra_json)
-        SELECT $1, opportunity_id, customer_id, partner_id, owner_user_id, 'converted', $2, discount_amount, now(), now(),
-          extra_json || $3::jsonb
-        FROM crm.quotes WHERE id = $4::uuid
-        RETURNING id::text AS id
-        `,
-        [
-          新报价编号,
-          金额,
-          JSON.stringify({ revisionOfQuoteId: 请求.quote_id, revisionRequestId: 请求.id, total: 金额 }),
-          请求.quote_id,
-        ],
-      );
-      const 新报价编号内部 = 新报价结果.rows[0]?.id;
-      if (!新报价编号内部) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "修订报价生成失败。", 500);
-      if (明细.length) {
-        for (const item of 明细) {
-          await client.query(
-            `INSERT INTO crm.quote_items (quote_id, product_ref_type, item_name, quantity, unit_price, line_amount) VALUES ($1::uuid, 'manual', $2, $3, $4, $5)`,
-            [新报价编号内部, item.itemName, item.quantity, item.unitPrice, item.lineAmount],
-          );
-        }
-      } else {
-        await client.query(
-          `INSERT INTO crm.quote_items (quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, discount_rate, line_amount, sort_order) SELECT $1::uuid, product_ref_type, product_ref_id, item_name, quantity, unit_price, discount_rate, line_amount, sort_order FROM crm.quote_items WHERE quote_id = $2::uuid`,
-          [新报价编号内部, 请求.quote_id],
+      if (
+        ["processing", "shipped", "completed", "cancelled", "replaced"].includes(
+          请求.order_status_code,
+        )
+      ) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_STATUS_FORBIDDEN",
+          "原订单已进入履约或终态，不能生成修订版本。",
+          409,
         );
       }
+      const 快照 = 请求.change_snapshot_json || {};
+      if (!请求.quote_id)
+        throw new 应用错误(
+          "V3_ORDER_REVISION_QUOTE_REQUIRED",
+          "订单缺少关联报价，不能修改报价单。",
+          409,
+        );
+      const 明细 = 读取订单修订明细(快照);
+      const 规范明细 = 明细.length
+        ? await 规范订单修订明细(
+            client,
+            明细,
+            请求.quote_id,
+            await 查询订单重提定价上下文(client, 请求.order_id),
+          )
+        : null;
+      const 金额 = 计算订单修订金额(规范明细 || []);
+      await 同步订单关联报价(client, {
+        订单编号: 请求.order_id,
+        报价编号: 请求.quote_id,
+        明细: 规范明细,
+        金额,
+        原因: 请求.reason,
+        用户,
+        快照前编号: `order-revision-before:${请求.id}`,
+        快照后编号: `order-revision-after:${请求.id}`,
+      });
       const 渠道层级 = await client.query<{ partner_level_code: string | null }>(
         `SELECT partner_level_code FROM channel.partners WHERE id = $1::uuid`,
         [请求.partner_id],
       );
-      const 初始状态 = 渠道层级.rows[0]?.partner_level_code === "secondary" ? "pending_primary_confirm" : "primary_confirmed";
-      const 新订单编号 = await 生成业务编号(client, "order", 提报账号);
-      const 新订单结果 = await client.query<{ id: string }>(
-        `
-        INSERT INTO crm.orders (order_no, quote_id, customer_id, partner_id, owner_user_id, status_code, total_amount, replaces_order_id, revision_no, created_at, updated_at, extra_json)
-        SELECT $1, $2::uuid, customer_id, partner_id, owner_user_id, $3, $4, id, revision_no + 1, now(), now(),
-          extra_json || $5::jsonb
-        FROM crm.orders WHERE id = $6::uuid
-        RETURNING id::text AS id
-        `,
+      const 初始状态 =
+        渠道层级.rows[0]?.partner_level_code === "secondary"
+          ? "pending_primary_confirm"
+          : "primary_confirmed";
+      await client.query(
+        `UPDATE crm.orders SET status_code = $2, total_amount = $3, revision_no = revision_no + 1, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $4::jsonb WHERE id = $1::uuid`,
         [
-          新订单编号,
-          新报价编号内部,
+          请求.order_id,
           初始状态,
           金额,
           JSON.stringify({
-            revisionOfOrderId: 请求.order_id,
-            revisionRequestId: 请求.id,
             status: 初始状态,
             total: 金额,
             amount: 金额,
-            id: 新订单编号,
-            quoteId: 新报价编号,
+            revisionRequestId: 请求.id,
             revisionNo: 请求.revision_no + 1,
+            reviewRemark: 审核原因 || "超级管理员批准订单修订。",
           }),
-          请求.order_id,
         ],
       );
-      const 新订单编号内部 = 新订单结果.rows[0]?.id;
-      if (!新订单编号内部) throw new 应用错误("V3_ORDER_REVISION_WRITE_FAILED", "修订订单生成失败。", 500);
-      await client.query(
-        `INSERT INTO crm.order_items (order_id, quote_item_id, item_name, quantity, unit_price, line_amount) SELECT $1::uuid, qi.id, qi.item_name, qi.quantity, qi.unit_price, qi.line_amount FROM crm.quote_items qi WHERE qi.quote_id = $2::uuid`,
-        [新订单编号内部, 新报价编号内部],
-      );
-      await client.query(
-        `UPDATE crm.orders SET status_code = 'replaced', superseded_by_order_id = $2::uuid, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb WHERE id = $1::uuid`,
-        [请求.order_id, 新订单编号内部, JSON.stringify({ status: "replaced", supersededByOrderId: 新订单编号内部, replacementReason: 请求.reason })],
-      );
-      await 暂停订单审批待办(client, 请求.order_id, 用户);
       await client.query(
         `UPDATE crm.order_revision_requests SET status_code = 'applied', reviewed_by_user_id = $2::uuid, reviewed_at = now(), review_reason = $3, result_order_id = $4::uuid, updated_at = now(), row_version = row_version + 1 WHERE id = $1::uuid`,
-        [请求.id, 上下文.userId, 审核原因 || "超级管理员批准订单修订。", 新订单编号内部],
+        [请求.id, 上下文.userId, 审核原因 || "超级管理员批准订单修订。", 请求.order_id],
       );
       await client.query(
         `UPDATE ops.approvals SET status_code = 'approved', updated_at = now(), extra_json = extra_json || $2::jsonb WHERE v2_source_id = $1`,
-        [`order-revision:${请求.id}`, JSON.stringify({ status: "approved", resultOrderId: 新订单编号内部 })],
+        [
+          `order-revision:${请求.id}`,
+          JSON.stringify({ status: "approved", resultOrderId: 请求.order_id }),
+        ],
       );
       await client.query(
         `INSERT INTO ops.approval_events (approval_id, event_code, from_status_code, to_status_code, reason, extra_json)
@@ -3205,18 +3554,23 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         [
           `order-revision:${请求.id}`,
           审核原因 || "超级管理员批准订单修订。",
-          JSON.stringify({ actorName: 用户?.displayName || "", resultOrderId: 新订单编号内部 }),
+          JSON.stringify({ actorName: 用户?.displayName || "", resultOrderId: 请求.order_id }),
         ],
       );
-      await 写入订单状态历史(client, { 订单编号: 请求.order_id, 原状态: 请求.order_status_code, 新状态: "replaced", 原因: 请求.reason, 用户 });
-      await 写入订单状态历史(client, { 订单编号: 新订单编号内部, 原状态: "", 新状态: 初始状态, 原因: `订单修订版本${请求.revision_no + 1}生成，重新提交审批`, 用户 });
-      await 写入订单审批待办(client, {
-        订单编号: 新订单编号内部,
-        步骤: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
-        原因: "订单修订版本已生成，重新进入审批链",
+      await 写入订单状态历史(client, {
+        订单编号: 请求.order_id,
+        原状态: 请求.order_status_code,
+        新状态: 初始状态,
+        原因: `订单修订已批准，按原编号重新进入审批链：${请求.reason}`,
         用户,
       });
-      await 写入订单发件箱事件(client, 新订单编号内部, "crm.order.approval.pending", {
+      await 写入订单审批待办(client, {
+        订单编号: 请求.order_id,
+        步骤: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+        原因: "订单修订已批准，原订单重新进入审批链",
+        用户,
+      });
+      await 写入订单发件箱事件(client, 请求.order_id, "crm.order.approval.pending", {
         status: 初始状态,
         step: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
         revisionRequestId: 请求.id,
@@ -3226,14 +3580,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         模块: "orders",
         动作: "apply_revision",
         对象类型: "order",
-        对象编号: 新订单编号内部,
-        对象名称: 新订单编号,
+        对象编号: 请求.order_id,
+        对象名称: 请求.order_no || 请求.order_id,
         结果: "success",
-        说明: "订单修订申请已批准并生成新订单版本，旧订单保留为已替换。",
-        变更后: { replacesOrderId: 请求.order_id, revisionRequestId: 请求.id, amount: 金额 },
+        说明: "订单修订申请已批准，原报价单和原订单按同一编号更新。",
+        变更后: { revisionRequestId: 请求.id, quoteId: 请求.quote_id, amount: 金额 },
       });
       await client.query("COMMIT");
-      return this.查询详情("orders", 新订单编号内部, 用户);
+      return this.查询详情("orders", 请求.order_id, 用户);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -3304,12 +3658,92 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 订单 = 当前.rows[0];
       if (!订单) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
       if (["replaced"].includes(订单.status_code)) {
-        throw new 应用错误("V3_ORDER_REPLACED_READ_ONLY", "已替换订单仅可查看，不能继续流转。", 409);
+        throw new 应用错误(
+          "V3_ORDER_REPLACED_READ_ONLY",
+          "已替换订单仅可查看，不能继续流转。",
+          409,
+        );
       }
       if (订单.status_code === "revision_requested") {
         throw new 应用错误("V3_ORDER_REVISION_PENDING", "订单已有待处理的回退修改申请。", 409);
       }
       const 请求状态 = 规范订单状态(读取文本(输入, ["status", "状态"], "confirmed"));
+      const 原因 = 读取文本(输入, ["reason", "remark", "adjustmentReason", "审核意见"], "");
+      const 是审批驳回 = ["primary_rejected", "rejected"].includes(请求状态);
+      const 退回目标 = 读取文本(输入, ["returnTarget", "退回目标"], "");
+      const 是审批退回 = [
+        "returned_to_region",
+        "returned_to_primary",
+        "returned_to_secondary",
+      ].includes(请求状态);
+      if (是审批驳回 && !原因) {
+        throw new 应用错误("V3_ORDER_REJECT_REASON_REQUIRED", "驳回订单必须填写驳回原因。", 400);
+      }
+      if (是审批驳回 && 原因.length > 500) {
+        throw new 应用错误("V3_ORDER_REJECT_REASON_INVALID", "驳回原因不能超过500个字符。", 400);
+      }
+      if (
+        订单.status_code === "pending_primary_confirm" &&
+        ["confirmed", "primary_rejected", "returned_to_secondary"].includes(请求状态)
+      ) {
+        await 校验订单所属一级渠道(client, 订单.id, 当前用户上下文);
+      }
+      if (是审批驳回) {
+        if (订单.status_code === "primary_confirmed" && 请求状态 === "rejected") {
+          await 校验订单所属区域区管(client, 订单.id, 当前用户上下文);
+        } else if (订单.status_code === "pending_superadmin_confirm" && 请求状态 === "rejected") {
+          校验超级管理员上下文(当前用户上下文);
+        } else if (!(
+          订单.status_code === "pending_primary_confirm" && 请求状态 === "primary_rejected"
+        )) {
+          throw new 应用错误(
+            "V3_ORDER_REJECT_STATUS_INVALID",
+            "当前订单不在可驳回的审批节点。",
+            409,
+          );
+        }
+      }
+      if (是审批退回 && !原因) {
+        throw new 应用错误("V3_ORDER_REJECT_REASON_REQUIRED", "退回订单必须填写原因。", 400);
+      }
+      if (是审批退回 && 原因.length > 500) {
+        throw new 应用错误("V3_ORDER_REJECT_REASON_INVALID", "退回原因不能超过500个字符。", 400);
+      }
+      if (是审批退回) {
+        if (订单.status_code === "primary_confirmed") {
+          await 校验订单所属区域区管(client, 订单.id, 当前用户上下文);
+          if (!["returned_to_primary", "returned_to_secondary"].includes(请求状态)) {
+            throw new 应用错误(
+              "V3_ORDER_RETURN_TARGET_INVALID",
+              "区管只能退回一级或二级渠道商。",
+              400,
+            );
+          }
+        } else if (
+          订单.status_code === "pending_primary_confirm" &&
+          请求状态 === "returned_to_secondary"
+        ) {
+          await 校验订单所属一级渠道(client, 订单.id, 当前用户上下文);
+        } else if (订单.status_code === "pending_superadmin_confirm") {
+          校验超级管理员上下文(当前用户上下文);
+          if (
+            !["returned_to_region", "returned_to_primary", "returned_to_secondary"].includes(
+              请求状态,
+            )
+          ) {
+            throw new 应用错误("V3_ORDER_RETURN_TARGET_INVALID", "超管退回目标不正确。", 400);
+          }
+        } else {
+          throw new 应用错误(
+            "V3_ORDER_RETURN_STATUS_INVALID",
+            "当前订单不在可退回的审批节点。",
+            409,
+          );
+        }
+        if (退回目标 && 退回目标 !== 请求状态.replace("returned_to_", "")) {
+          throw new 应用错误("V3_ORDER_RETURN_TARGET_INVALID", "退回目标与订单状态不一致。", 400);
+        }
+      }
       const 调价金额 = 读取订单调整金额(输入);
       const 是否调价 = 调价金额 !== null || 读取文本(输入, ["action"], "") === "price_adjust";
       if (是否调价) {
@@ -3324,10 +3758,16 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         : 是否调价
           ? "pending_superadmin_confirm"
           : 推导订单下一状态(订单.status_code, 请求状态);
+      if (
+        !按V2历史流程 &&
+        订单.status_code === "primary_confirmed" &&
+        状态 === "pending_superadmin_confirm"
+      ) {
+        await 校验订单所属区域区管(client, 订单.id, 当前用户上下文);
+      }
       if (!是否调价 && 订单.status_code === "pending_superadmin_confirm" && 状态 === "confirmed") {
         校验超级管理员上下文(当前用户上下文);
       }
-      const 原因 = 读取文本(输入, ["reason", "remark", "adjustmentReason", "审核意见"], "");
       const 操作人 = 用户?.displayName || 读取文本(输入, ["operatorName"], "阶段9测试账号");
       const 旧金额 = Number(订单.total_amount) || 0;
       const extra = 订单.extra_json || {};
@@ -3347,6 +3787,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 需要生成正式编号 =
         !按V2历史流程 &&
         !订单.region_confirmed_at &&
+        !是审批退回 &&
         (是否调价 ||
           (订单.status_code === "primary_confirmed" && 状态 === "pending_superadmin_confirm"));
       const 正式编号结果 = 需要生成正式编号
@@ -3381,6 +3822,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             total: 调价金额 ?? undefined,
             priceAdjustments: 调价记录,
             reviewRemark: 原因,
+            returnTarget: 是审批退回 ? 请求状态.replace("returned_to_", "") : undefined,
             lastOperatorName: 操作人,
             updatedByName: 操作人,
             id: 正式编号结果?.订单编号,
@@ -3447,7 +3889,221 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         priceAdjusted: 是否调价,
       });
       await client.query("COMMIT");
-      return this.查询详情("orders", 订单.id, 用户);
+      return this.查询详情("orders", 订单.id);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async 重新提交订单(
+    id: string,
+    输入: Record<string, unknown>,
+    用户: 当前业务用户 | null,
+  ): Promise<阶段9记录> {
+    const 当前用户上下文 = await this.解析当前用户上下文(用户);
+    const 原因 = 读取文本(输入, ["reason", "remark", "修改原因"], "");
+    if (!原因)
+      throw new 应用错误(
+        "V3_ORDER_RESUBMIT_REASON_REQUIRED",
+        "重新提交订单必须填写修改原因。",
+        400,
+      );
+    if (原因.length > 500) {
+      throw new 应用错误(
+        "V3_ORDER_RESUBMIT_REASON_INVALID",
+        "重新提交原因不能超过500个字符。",
+        400,
+      );
+    }
+    const 输入明细 = 读取订单修订明细(输入);
+    if (!输入明细.length)
+      throw new 应用错误("V3_ORDER_RESUBMIT_CHANGE_REQUIRED", "请至少保留一项报价模块明细。", 400);
+    const 提交金额 = 读取订单调整金额(输入);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 结果 = await client.query<{
+        id: string;
+        status_code: string;
+        partner_id: string | null;
+        owner_user_id: string | null;
+        quote_id: string | null;
+        total_amount: string | number;
+        order_no: string | null;
+        extra_json: Record<string, unknown> | null;
+      }>(
+        `
+        SELECT id::text AS id, status_code, partner_id::text AS partner_id,
+          owner_user_id::text AS owner_user_id, quote_id::text AS quote_id,
+          total_amount, order_no, extra_json
+        FROM crm.orders
+        WHERE id::text = $1 OR order_no = $1 OR pre_region_order_no = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [id],
+      );
+      const 订单 = 结果.rows[0];
+      if (!订单) throw new 应用错误("V3_STAGE9_NOT_FOUND", "订单不存在。", 404);
+      const 新状态 = 退回修改状态对应审批状态(订单.status_code);
+      if (!新状态) {
+        throw new 应用错误(
+          "V3_ORDER_RESUBMIT_STATUS_INVALID",
+          "当前订单不在退回修改状态，不能重新提交。",
+          409,
+        );
+      }
+      await 校验订单重提权限(client, 订单.id, 当前用户上下文);
+      if (输入明细.length && !订单.quote_id) {
+        throw new 应用错误(
+          "V3_ORDER_RESUBMIT_QUOTE_REQUIRED",
+          "订单缺少关联报价，不能修改模块明细。",
+          409,
+        );
+      }
+      const 定价上下文 = await 查询订单重提定价上下文(client, 订单.id);
+      const 当前明细结果 = await client.query<订单修订明细项>(
+        `SELECT oi.item_name AS "itemName", qi.product_ref_type AS "productRefType", qi.product_ref_id::text AS "productRefId",
+           oi.quantity, oi.unit_price AS "unitPrice", oi.line_amount AS "lineAmount"
+         FROM crm.order_items oi
+         LEFT JOIN crm.quote_items qi ON qi.id = oi.quote_item_id
+         WHERE oi.order_id = $1::uuid ORDER BY oi.id`,
+        [订单.id],
+      );
+      const 当前明细 = 当前明细结果.rows.map((项目) => ({
+        itemName: 项目.itemName,
+        quantity: Number(项目.quantity),
+        unitPrice: Number(项目.unitPrice),
+        lineAmount: Number(项目.lineAmount),
+        ...(项目.productRefType ? { productRefType: 项目.productRefType } : {}),
+        ...(项目.productRefId ? { productRefId: 项目.productRefId } : {}),
+      }));
+      const 明细 = 输入明细.length
+        ? await 规范订单修订明细(client, 输入明细, 订单.quote_id, 定价上下文)
+        : [];
+      const 新金额 = 计算订单修订金额(明细);
+      if (提交金额 !== null && Math.abs(提交金额 - 新金额) > 0.01) {
+        throw new 应用错误(
+          "V3_ORDER_RESUBMIT_AMOUNT_MISMATCH",
+          "订单金额必须与服务端计算的模块明细合计一致。",
+          400,
+        );
+      }
+      if (
+        Math.abs(新金额 - (Number(订单.total_amount) || 0)) <= 0.01 &&
+        (!明细.length || 订单修订明细相同(明细, 当前明细))
+      ) {
+        throw new 应用错误(
+          "V3_ORDER_RESUBMIT_NO_EFFECTIVE_CHANGE",
+          "请实际修改模块、数量、单价或订单金额后再提交。",
+          400,
+        );
+      }
+      const 轮次 = Number(订单.extra_json?.approvalRound || 0) + 1;
+      const 修改记录 = {
+        reason: 原因,
+        amount: 新金额,
+        items: 明细,
+        operatorName: 用户?.displayName || "阶段9测试账号",
+        submittedAt: new Date().toISOString(),
+        fromStatus: 订单.status_code,
+        toStatus: 新状态,
+      };
+      if (订单.quote_id) {
+        await 同步订单关联报价(client, {
+          订单编号: 订单.id,
+          报价编号: 订单.quote_id,
+          明细: 明细.length ? 明细 : null,
+          金额: 新金额,
+          原因,
+          用户,
+          快照前编号: `order-resubmit-before:${crypto.randomBytes(8).toString("hex")}`,
+          快照后编号: `order-resubmit-after:${crypto.randomBytes(8).toString("hex")}`,
+        });
+      }
+      await client.query(
+        `
+        UPDATE crm.orders
+        SET status_code = $2, total_amount = $3, updated_at = now(), row_version = row_version + 1,
+            extra_json = extra_json || $4::jsonb
+        WHERE id = $1::uuid
+        `,
+        [
+          订单.id,
+          新状态,
+          新金额,
+          JSON.stringify({
+            status: 新状态,
+            approvalRound: 轮次,
+            returnTarget: undefined,
+            resubmission: 修改记录,
+            submittedByUserId: 定价上下文.submittedByUserId || 订单.owner_user_id || "",
+            submittedPartnerId: 定价上下文.partnerId || 订单.partner_id || "",
+            submittedPartnerLevel: 定价上下文.partnerLevel || "",
+            submittedByRegion: 定价上下文.region || "",
+            reviewRemark: 原因,
+            lastOperatorName: 用户?.displayName || "阶段9测试账号",
+          }),
+        ],
+      );
+      await 写入订单状态历史(client, {
+        订单编号: 订单.id,
+        原状态: 订单.status_code,
+        新状态,
+        原因: `退回修改后重新提交：${原因}`,
+        用户,
+      });
+      const 步骤 = 订单状态审批步骤(新状态);
+      if (!步骤)
+        throw new 应用错误("V3_ORDER_RESUBMIT_STEP_INVALID", "无法确定重新提交后的审批节点。", 500);
+      if (新状态 === "primary_confirmed") {
+        await 写入订单审批待办(client, {
+          订单编号: 订单.id,
+          步骤: "primary_confirm",
+          原因: `退回修改后重新提交：${原因}`,
+          用户,
+        });
+        await 同步订单审批状态(client, {
+          订单编号: 订单.id,
+          步骤: "primary_confirm",
+          状态: "approved",
+          原因: `退回修改后一级渠道商重新提交：${原因}`,
+          用户,
+        });
+      }
+      await 写入订单审批待办(client, {
+        订单编号: 订单.id,
+        步骤,
+        原因: `退回修改后重新提交：${原因}`,
+        用户,
+      });
+      await 写入订单发件箱事件(client, 订单.id, "crm.order.approval.pending", {
+        status: 新状态,
+        step: 步骤,
+        resubmitted: true,
+      });
+      await 写入订单发件箱事件(client, 订单.id, "crm.order.status.changed", {
+        fromStatus: 订单.status_code,
+        toStatus: 新状态,
+        resubmitted: true,
+      });
+      await 写入审计日志(client, {
+        用户,
+        模块: "orders",
+        动作: "resubmit_after_return",
+        对象类型: "order",
+        对象编号: 订单.id,
+        对象名称: 订单.order_no || 订单.id,
+        结果: "success",
+        说明: "订单已按退回目标修改并重新提交审批。",
+        变更后: 修改记录,
+      });
+      await client.query("COMMIT");
+      // 重新提交前已完成目标层级权限校验；这里按订单编号返回本次操作结果，避免状态恢复后被普通列表范围过滤为404。
+      return this.查询详情("orders", 订单.id);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -4711,6 +5367,404 @@ async function 查询工作量产品(
   return row ? { id: row.id, itemType: row.item_type, name: row.name } : null;
 }
 
+async function 规范订单修订明细(
+  client: PoolClient,
+  明细: 订单修订明细项[],
+  报价编号: string | null,
+  定价上下文: 订单重提定价上下文 = {},
+): Promise<订单修订明细项[]> {
+  if (!报价编号) {
+    throw new 应用错误(
+      "V3_ORDER_REVISION_QUOTE_REQUIRED",
+      "订单缺少关联报价，不能修改模块明细。",
+      409,
+    );
+  }
+  const 原报价明细 = await client.query<{
+    product_ref_type: "feature" | "hardware" | "package" | "manual";
+    product_ref_id: string | null;
+    item_name: string;
+    quantity: string | number;
+    unit_price: string | number;
+    line_amount: string | number;
+  }>(
+    `SELECT item_name, product_ref_type, product_ref_id::text AS product_ref_id,
+       quantity, unit_price, line_amount
+     FROM crm.quote_items WHERE quote_id = $1::uuid ORDER BY sort_order, id`,
+    [报价编号],
+  );
+  const 已有名称 = new Map(原报价明细.rows.map((项目) => [项目.item_name.trim(), 项目]));
+  const 已有产品 = new Map(
+    原报价明细.rows
+      .filter((项目) => 项目.product_ref_id)
+      .map((项目) => [`${项目.product_ref_type}:${项目.product_ref_id}`, 项目]),
+  );
+  const 已选产品 = new Set<string>();
+  const 规范明细: 订单修订明细项[] = [];
+  for (const 项目 of 明细) {
+    let 类型 = 项目.productRefType;
+    let 编号 = 项目.productRefId;
+    let 名称 = 项目.itemName;
+    if (
+      类型 &&
+      类型 !== "feature" &&
+      类型 !== "hardware" &&
+      类型 !== "package" &&
+      类型 !== "manual"
+    ) {
+      throw new 应用错误("V3_ORDER_REVISION_PRODUCT_INVALID", "订单模块的产品类型不正确。", 400);
+    }
+    if (类型 && 类型 !== "manual" && 编号) {
+      const 产品 = await 查询修订产品(client, 类型, 编号);
+      if (!产品)
+        throw new 应用错误(
+          "V3_ORDER_REVISION_PRODUCT_NOT_FOUND",
+          "所选产品不存在或已下架，请重新选择。",
+          400,
+        );
+      类型 = 产品.type;
+      编号 = 产品.id;
+      名称 = 产品.name;
+    } else if (!类型 || !编号 || 类型 === "manual") {
+      const 历史项目 = 已有名称.get(名称.trim());
+      if (!历史项目) {
+        throw new 应用错误(
+          "V3_ORDER_REVISION_PRODUCT_REQUIRED",
+          "新增模块必须从产品目录选择，不能手工输入模块名称。",
+          400,
+        );
+      }
+      类型 = 历史项目.product_ref_type;
+      编号 = 历史项目.product_ref_id || undefined;
+      名称 = 历史项目.item_name;
+      if ((!编号 || 类型 === "manual") && 类型 === "manual") {
+        const 目录产品 = await 查询修订产品按名称(client, 名称);
+        if (目录产品) {
+          类型 = 目录产品.type;
+          编号 = 目录产品.id;
+          名称 = 目录产品.name;
+        }
+      }
+    }
+    const 产品键 = `${类型}:${编号 || 名称}`;
+    if (已选产品.has(产品键)) {
+      throw new 应用错误("V3_ORDER_REVISION_PRODUCT_DUPLICATED", "同一产品不能重复添加。", 400);
+    }
+    已选产品.add(产品键);
+    const 历史项目 = 已有产品.get(产品键) || 已有名称.get(名称.trim());
+    const 单价 =
+      编号 && 类型 !== "manual"
+        ? await 查询修订产品单价(client, 类型, 编号, 项目.quantity, 定价上下文)
+        : 历史项目
+          ? Number(历史项目.unit_price)
+          : 0;
+    if (!Number.isFinite(单价) || 单价 <= 0) {
+      throw new 应用错误(
+        "V3_ORDER_REVISION_PRODUCT_PRICE_UNAVAILABLE",
+        "所选产品暂无有效报价，请联系管理员维护产品价格。",
+        400,
+      );
+    }
+    const 数量 = Number(项目.quantity);
+    const 小计 = Math.round(数量 * 单价 * 100) / 100;
+    规范明细.push({
+      itemName: 名称,
+      quantity: 数量,
+      unitPrice: 单价,
+      lineAmount: 小计,
+      productRefType: 类型,
+      ...(编号 ? { productRefId: 编号 } : {}),
+    });
+  }
+  return 规范明细;
+}
+
+function 计算订单修订金额(明细: 订单修订明细项[]): number {
+  return Math.round(明细.reduce((合计, 项目) => 合计 + 项目.lineAmount, 0) * 100) / 100;
+}
+
+async function 查询修订产品单价(
+  client: PoolClient,
+  类型: "feature" | "hardware" | "package" | "manual",
+  编号: string,
+  数量: number,
+  定价上下文: 订单重提定价上下文 = {},
+): Promise<number> {
+  if (类型 === "manual" || !编号) return 0;
+  const 表 =
+    类型 === "feature"
+      ? "catalog.product_features"
+      : 类型 === "hardware"
+        ? "catalog.hardware_products"
+        : "catalog.product_packages";
+  const 编号列 =
+    类型 === "feature" ? "feature_code" : 类型 === "hardware" ? "hardware_code" : "package_code";
+  const result = await client.query<{
+    list_price: string | number;
+    extra_json: Record<string, unknown> | null;
+  }>(
+    `SELECT list_price, extra_json FROM ${表}
+     WHERE (id::text = $1 OR v2_source_id = $1 OR ${编号列} = $1)
+       AND status_code = 'active' AND published = true
+     LIMIT 1`,
+    [编号],
+  );
+  const 产品 = result.rows[0];
+  if (!产品) return 0;
+  const 扩展 = 产品.extra_json || {};
+  const 区域覆盖 = Array.isArray(扩展.regionPriceOverrides)
+    ? (扩展.regionPriceOverrides.find((项) => {
+        if (!项 || typeof 项 !== "object" || !定价上下文.region) return false;
+        const 记录 = 项 as Record<string, unknown>;
+        if (记录.enabled === false) return false;
+        return (
+          记录.region === 定价上下文.region ||
+          (Array.isArray(记录.regions) && 记录.regions.includes(定价上下文.region))
+        );
+      }) as Record<string, unknown> | undefined)
+    : undefined;
+  const 配置 = 区域覆盖 || {};
+  const 固定价原始 = 配置.priceFixed ?? 扩展.priceFixed ?? 产品.list_price;
+  const 固定价 = Number(固定价原始) || 0;
+  const 基础阶梯 =
+    Array.isArray(配置.tiers) && 配置.tiers.length
+      ? 配置.tiers
+      : Array.isArray(扩展.tiers)
+        ? 扩展.tiers
+        : [];
+  const 等级 =
+    定价上下文.partnerLevel === "secondary"
+      ? "secondary"
+      : 定价上下文.partnerLevel === "primary"
+        ? "primary"
+        : "";
+  const 等级价格原始 =
+    等级 === "primary"
+      ? (配置.priceForPrimary ?? 扩展.priceForPrimary)
+      : 等级 === "secondary"
+        ? (配置.priceForSecondary ?? 扩展.priceForSecondary)
+        : undefined;
+  const 比例原始 =
+    等级 === "primary"
+      ? (配置.priceRatioPrimary ?? 扩展.priceRatioPrimary ?? 100)
+      : 等级 === "secondary"
+        ? (配置.priceRatioSecondary ?? 扩展.priceRatioSecondary ?? 110)
+        : null;
+  const 按比例阶梯 =
+    Array.isArray(基础阶梯) && Number.isFinite(Number(比例原始))
+      ? 基础阶梯.map((项) => {
+          const 记录 = 项 as Record<string, unknown>;
+          return { ...记录, price: (Number(记录.price || 0) * Number(比例原始)) / 100 };
+        })
+      : [];
+  const 等级价格 =
+    等级价格原始 !== undefined && 等级价格原始 !== null
+      ? 等级价格原始
+      : 按比例阶梯.length
+        ? 按比例阶梯
+        : 等级 && Number.isFinite(Number(比例原始))
+          ? (固定价 * Number(比例原始)) / 100
+          : undefined;
+  const 取阶梯价格 = (阶梯: unknown): number | null => {
+    if (!Array.isArray(阶梯)) return null;
+    const 命中 = 阶梯.find((项) => {
+      if (!项 || typeof 项 !== "object") return false;
+      const 记录 = 项 as Record<string, unknown>;
+      const 最小值 = Number(记录.min ?? 0);
+      const 最大值 = Number(记录.max ?? Number.MAX_SAFE_INTEGER);
+      return 数量 >= 最小值 && 数量 <= 最大值;
+    }) as Record<string, unknown> | undefined;
+    return 命中 ? Number(命中.price) || 0 : null;
+  };
+  if (Array.isArray(等级价格)) return 取阶梯价格(等级价格) ?? 0;
+  if (等级价格 !== undefined && 等级价格 !== null && Number.isFinite(Number(等级价格))) {
+    return Number(等级价格) || 0;
+  }
+  return 取阶梯价格(基础阶梯) ?? 固定价;
+}
+
+async function 查询修订产品按名称(
+  client: PoolClient,
+  名称: string,
+): Promise<{ id: string; type: "feature" | "hardware" | "package"; name: string } | null> {
+  const result = await client.query<{
+    id: string;
+    type: "feature" | "hardware" | "package";
+    name: string;
+  }>(
+    `
+    SELECT id::text AS id, 'feature'::text AS type, feature_name AS name
+    FROM catalog.product_features
+    WHERE lower(trim(feature_name)) = lower(trim($1)) AND status_code = 'active' AND published = true
+    UNION ALL
+    SELECT id::text AS id, 'hardware'::text AS type, hardware_name AS name
+    FROM catalog.hardware_products
+    WHERE lower(trim(hardware_name)) = lower(trim($1)) AND status_code = 'active' AND published = true
+    UNION ALL
+    SELECT id::text AS id, 'package'::text AS type, package_name AS name
+    FROM catalog.product_packages
+    WHERE lower(trim(package_name)) = lower(trim($1)) AND status_code = 'active' AND published = true
+    LIMIT 1
+    `,
+    [名称],
+  );
+  return result.rows[0] || null;
+}
+
+async function 查询修订产品(
+  client: PoolClient,
+  类型: "feature" | "hardware" | "package",
+  编号: string,
+): Promise<{ id: string; type: "feature" | "hardware" | "package"; name: string } | null> {
+  const 条件 = `id::text = $1 OR v2_source_id = $1 OR ${类型 === "feature" ? "feature_code" : 类型 === "hardware" ? "hardware_code" : "package_code"} = $1`;
+  const 表 =
+    类型 === "feature"
+      ? "catalog.product_features"
+      : 类型 === "hardware"
+        ? "catalog.hardware_products"
+        : "catalog.product_packages";
+  const 名称列 =
+    类型 === "feature" ? "feature_name" : 类型 === "hardware" ? "hardware_name" : "package_name";
+  const result = await client.query<{ id: string; name: string }>(
+    `SELECT id::text AS id, ${名称列} AS name FROM ${表}
+     WHERE (${条件}) AND status_code = 'active' AND published = true LIMIT 1`,
+    [编号],
+  );
+  const row = result.rows[0];
+  return row ? { id: row.id, type: 类型, name: row.name } : null;
+}
+
+async function 同步订单关联报价(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    报价编号: string;
+    明细: 订单修订明细项[] | null;
+    金额: number;
+    原因: string;
+    用户: 当前业务用户 | null;
+    快照前编号: string;
+    快照后编号: string;
+  },
+): Promise<void> {
+  const 报价结果 = await client.query<{
+    id: string;
+    quote_no: string | null;
+    total_amount: string | number;
+    status_code: string;
+    extra_json: Record<string, unknown> | null;
+  }>(
+    `SELECT id::text AS id, quote_no, total_amount, status_code, extra_json
+     FROM crm.quotes WHERE id::text = $1 OR quote_no = $1 OR v2_source_id = $1
+     LIMIT 1 FOR UPDATE`,
+    [参数.报价编号],
+  );
+  const 报价 = 报价结果.rows[0];
+  if (!报价) throw new 应用错误("V3_ORDER_REVISION_QUOTE_NOT_FOUND", "关联报价单不存在。", 404);
+  const 旧明细结果 = await client.query<{
+    id: string;
+    product_ref_type: "feature" | "hardware" | "package" | "manual";
+    product_ref_id: string | null;
+    item_name: string;
+    quantity: string | number;
+    unit_price: string | number;
+    discount_rate: string | number;
+    line_amount: string | number;
+    sort_order: number;
+  }>(
+    `SELECT id::text AS id, product_ref_type, product_ref_id::text AS product_ref_id, item_name,
+       quantity, unit_price, discount_rate, line_amount, sort_order
+     FROM crm.quote_items WHERE quote_id = $1::uuid ORDER BY sort_order, id`,
+    [报价.id],
+  );
+  const 旧明细 = 旧明细结果.rows.map((项目) => ({
+    productRefType: 项目.product_ref_type,
+    ...(项目.product_ref_id ? { productRefId: 项目.product_ref_id } : {}),
+    itemName: 项目.item_name,
+    quantity: Number(项目.quantity),
+    unitPrice: Number(项目.unit_price),
+    lineAmount: Number(项目.line_amount),
+  }));
+  const 新明细 = 参数.明细 || 旧明细;
+  const 明细金额 = 新明细.reduce((合计, 项目) => 合计 + 项目.lineAmount, 0);
+  if (Math.abs(参数.金额 - 明细金额) > 0.01) {
+    throw new 应用错误(
+      "V3_ORDER_REVISION_AMOUNT_MISMATCH",
+      "报价单金额必须与模块明细合计一致。",
+      400,
+    );
+  }
+  await client.query(
+    `INSERT INTO crm.quote_snapshots (quote_id, snapshot_code, snapshot_json)
+     VALUES ($1::uuid, $2, $3::jsonb)
+     ON CONFLICT (quote_id, snapshot_code) DO UPDATE SET snapshot_json = EXCLUDED.snapshot_json`,
+    [报价.id, 参数.快照前编号, JSON.stringify({ quote: 报价, items: 旧明细, reason: 参数.原因 })],
+  );
+  await client.query(
+    `INSERT INTO crm.quote_status_history (quote_id, from_status_code, to_status_code, actor_user_id, reason)
+     VALUES ($1::uuid, $2, $2, $3::uuid, $4)`,
+    [
+      报价.id,
+      报价.status_code,
+      await 查询操作人编号(client, 参数.用户),
+      `订单回退修改同步报价单：${参数.原因}`,
+    ],
+  );
+  await client.query(`DELETE FROM crm.quote_items WHERE quote_id = $1::uuid`, [报价.id]);
+  for (const [索引, 项目] of 新明细.entries()) {
+    await client.query(
+      `INSERT INTO crm.quote_items (quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount, sort_order)
+       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8)`,
+      [
+        报价.id,
+        项目.productRefType || "manual",
+        项目.productRefId || null,
+        项目.itemName,
+        项目.quantity,
+        项目.unitPrice,
+        项目.lineAmount,
+        索引,
+      ],
+    );
+  }
+  await client.query(
+    `UPDATE crm.quotes SET total_amount = $2, updated_at = now(), row_version = row_version + 1,
+       extra_json = extra_json || $3::jsonb WHERE id = $1::uuid`,
+    [
+      报价.id,
+      参数.金额,
+      JSON.stringify({
+        total: 参数.金额,
+        revisionReason: 参数.原因,
+        updatedByName: 参数.用户?.displayName || "系统",
+      }),
+    ],
+  );
+  await client.query(`DELETE FROM crm.order_items WHERE order_id = $1::uuid`, [参数.订单编号]);
+  await client.query(
+    `INSERT INTO crm.order_items (order_id, quote_item_id, item_name, quantity, unit_price, line_amount)
+     SELECT $1::uuid, qi.id, qi.item_name, qi.quantity, qi.unit_price, qi.line_amount
+     FROM crm.quote_items qi WHERE qi.quote_id = $2::uuid`,
+    [参数.订单编号, 报价.id],
+  );
+  await client.query(
+    `INSERT INTO crm.quote_snapshots (quote_id, snapshot_code, snapshot_json)
+     VALUES ($1::uuid, $2, $3::jsonb)
+     ON CONFLICT (quote_id, snapshot_code) DO UPDATE SET snapshot_json = EXCLUDED.snapshot_json`,
+    [
+      报价.id,
+      参数.快照后编号,
+      JSON.stringify({
+        quoteId: 报价.id,
+        quoteNo: 报价.quote_no,
+        total: 参数.金额,
+        items: 新明细,
+        reason: 参数.原因,
+      }),
+    ],
+  );
+}
+
 async function 查询或创建工作量分类(client: PoolClient, tag: string): Promise<string> {
   const result = await client.query<{ id: string }>(
     `
@@ -4827,6 +5881,87 @@ function 读取对象布尔(来源: Record<string, unknown>, key: string, fallba
   return fallback;
 }
 
+function 构建正式报价单数据(记录: 阶段9记录): 正式报价单数据 {
+  const 原始 = 记录.原始数据 || {};
+  const 工作量快照 = 是对象(原始.workloadSnapshot) ? 原始.workloadSnapshot : {};
+  const 原始明细 = Array.isArray(原始.items)
+    ? 原始.items
+    : Array.isArray(工作量快照.items)
+      ? 工作量快照.items
+      : [];
+  const 明细: 正式报价单明细[] = 原始明细.flatMap((项目) => {
+    if (!是对象(项目)) return [];
+    const 名称 = 读取对象文本(项目, "name") || 读取对象文本(项目, "itemName");
+    if (!名称) return [];
+    const 数量 = 读取对象文本(项目, "quantity") || 读取对象文本(项目, "qty") || "1";
+    const 单价 = 读取对象文本(项目, "unitPrice") || 读取对象文本(项目, "price") || "0";
+    const 金额 =
+      读取对象文本(项目, "lineAmount") ||
+      读取对象文本(项目, "subtotal") ||
+      读取对象文本(项目, "amount") ||
+      "0";
+    const 类型 = 读取对象文本(项目, "type");
+    const productRefType = 读取对象文本(项目, "productRefType");
+    const 数量标签 = 读取对象文本(项目, "quantityLabel") || 读取对象文本(项目, "qtyLabel");
+    return [
+      {
+        名称,
+        数量,
+        单价,
+        金额,
+        ...(类型 === "软件产品" || 类型 === "硬件设备" || 类型 === "服务项" ? { 类型 } : {}),
+        ...(productRefType === "hardware" ? { 类型: "硬件设备" as const } : {}),
+        ...(数量标签 ? { 数量标签 } : {}),
+      },
+    ];
+  });
+  const 端点数量 =
+    读取对象文本(原始, "endpoints") ||
+    读取对象文本(工作量快照, "endpoints") ||
+    String(
+      Math.max(
+        ...明细.filter((项) => 项.类型 === "软件产品").map((项) => Number(项.数量) || 0),
+        0,
+      ) || "",
+    );
+  const 报价单: 正式报价单数据 = {
+    报价编号: 记录.编号,
+    合同对方: 记录.渠道名称,
+    最终用户: 记录.客户名称,
+    所属区域: 记录.区域,
+    明细,
+    合计金额: String(记录.金额),
+    生成时间: 记录.创建时间,
+    ...(端点数量 ? { 端点数量 } : {}),
+    ...(读取对象文本(原始, "projectName") || 读取对象文本(原始, "project")
+      ? { 项目名称: 读取对象文本(原始, "projectName") || 读取对象文本(原始, "project") }
+      : {}),
+    ...(读取对象文本(原始, "validDays") ? { 有效期: 读取对象文本(原始, "validDays") } : {}),
+    报价状态: 记录.状态名称,
+    ...(读取对象文本(原始, "workloadSummary") || 读取对象文本(工作量快照, "workloadSummary")
+      ? {
+          工作量说明:
+            读取对象文本(原始, "workloadSummary") || 读取对象文本(工作量快照, "workloadSummary"),
+        }
+      : {}),
+    ...(读取对象文本(原始, "standardPersonDays") || 读取对象文本(工作量快照, "workloadDays")
+      ? {
+          标准人天:
+            读取对象文本(原始, "standardPersonDays") || 读取对象文本(工作量快照, "workloadDays"),
+        }
+      : {}),
+  };
+  return 报价单;
+}
+
+function 安全文件名(值: string): string {
+  return (值 || "quote").replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 80) || "quote";
+}
+
+function 是对象(值: unknown): 值 is Record<string, unknown> {
+  return Boolean(值) && typeof 值 === "object" && !Array.isArray(值);
+}
+
 function 读取可空数字(
   来源: Record<string, unknown>,
   keys: string[],
@@ -4874,7 +6009,12 @@ function 构建渠道商数据范围条件(用户: 业务用户上下文, 参数
   if (用户.roleCode === "region_manager" || 用户.dataScopeCode === "region") {
     if (用户.regionId) {
       参数.push(用户.regionId);
-      return `p.region_id = $${参数.length}::uuid`;
+      const 区域编号参数 = 参数.length;
+      if (用户.regionName) {
+        参数.push(用户.regionName);
+        return `(p.region_id = $${区域编号参数}::uuid OR p.extra_json->>'region' = $${参数.length})`;
+      }
+      return `p.region_id = $${区域编号参数}::uuid`;
     }
     if (用户.regionName) {
       参数.push("%" + 用户.regionName + "%");
@@ -5194,7 +6334,11 @@ function 报价查询SQL(where: string): string {
         'opportunityUuid', COALESCE(related_opportunity.id::text, ''),
         'opportunityNo', COALESCE(related_opportunity.opportunity_no, related_opportunity.v2_source_id, related_opportunity.id::text, ''),
         'registrationUuid', COALESCE(report.id::text, ''),
-        'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, '')
+        'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, ''),
+        'quoteNo', COALESCE(q.quote_no, q.v2_source_id, q.id::text, ''),
+        'items', COALESCE(quote_items.items, '[]'::jsonb),
+        'workloadSummary', COALESCE(q.extra_json->'workloadSnapshot'->>'workloadSummary', q.extra_json->>'workloadSummary', ''),
+        'standardPersonDays', COALESCE(q.extra_json->'workloadSnapshot'->>'workloadDays', q.extra_json->>'standardPersonDays', '')
       ) AS "原始数据"
     FROM crm.quotes q
     LEFT JOIN crm.customers c ON c.id = q.customer_id
@@ -5203,6 +6347,35 @@ function 报价查询SQL(where: string): string {
     LEFT JOIN org.regions reg ON reg.id = p.region_id
     LEFT JOIN crm.opportunities related_opportunity ON related_opportunity.id = q.opportunity_id
     LEFT JOIN crm.registrations report ON report.id = related_opportunity.registration_id
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'name', qi.item_name,
+          'quantity', qi.quantity::text,
+          'unitPrice', qi.unit_price::text,
+          'lineAmount', qi.line_amount::text,
+          'type', CASE
+            WHEN qi.product_ref_type = 'hardware'
+              OR qi.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN '硬件设备'
+            WHEN COALESCE(category.product_type_code, '') = 'service'
+              OR qi.item_name ~ '(质保|维护|服务|实施|培训|部署|安装|售后)' THEN '服务项'
+            ELSE '软件产品'
+          END,
+          'quantityLabel', CASE
+            WHEN qi.item_name ~ '(质保|年)' THEN qi.quantity::text || ' 年'
+            WHEN qi.product_ref_type = 'hardware'
+              OR qi.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN qi.quantity::text || ' 台'
+            ELSE qi.quantity::text || ' 点'
+          END
+        ) ORDER BY qi.sort_order, qi.id
+      ) AS items
+      FROM crm.quote_items qi
+      LEFT JOIN catalog.product_features feature
+        ON qi.product_ref_type = 'feature' AND feature.id = qi.product_ref_id
+      LEFT JOIN catalog.product_modules module ON module.id = feature.module_id
+      LEFT JOIN catalog.product_categories category ON category.id = module.category_id
+      WHERE qi.quote_id = q.id
+    ) quote_items ON true
     WHERE ${where}
   `;
 }
@@ -5225,6 +6398,9 @@ function 订单查询SQL(where: string): string {
         WHEN 'primary_confirmed' THEN '一级已确认'
         WHEN 'primary_rejected' THEN '一级已驳回'
         WHEN 'pending_superadmin_confirm' THEN '待超管确认'
+        WHEN 'returned_to_region' THEN '已退回区管修改'
+        WHEN 'returned_to_primary' THEN '已退回一级渠道商修改'
+        WHEN 'returned_to_secondary' THEN '已退回二级渠道商修改'
         WHEN 'confirmed' THEN '已确认'
         WHEN 'processing' THEN '处理中'
         WHEN 'shipped' THEN '已发货'
@@ -5254,7 +6430,7 @@ function 订单查询SQL(where: string): string {
         'legacyV2Order', legacy.is_v2_order,
         'legacyV2InitialStatus', legacy.source_status,
         'legacyV2PartnerName', legacy.display_partner_name,
-        'partnerLevel', COALESCE(p.partner_level_code, o.extra_json->>'partnerLevel', ''),
+        'partnerLevel', COALESCE(NULLIF(NULLIF(p.partner_level_code, 'none'), ''), o.extra_json->>'submittedPartnerLevel', o.extra_json->>'partnerLevel', p.extra_json->>'partnerLevel', p.extra_json->>'level', ''),
         'parentPartnerId', COALESCE(o.extra_json->>'parentPartnerId', parent_rel.parent_partner_external_id, ''),
         'parentPartnerUuid', COALESCE(o.extra_json->>'parentPartnerUuid', parent_rel.parent_partner_id, ''),
         'parentPartnerName', COALESCE(o.extra_json->>'parentPartnerName', parent_rel.parent_partner_name, ''),
@@ -5277,6 +6453,7 @@ function 订单查询SQL(where: string): string {
         'revisionRequestStatus', COALESCE(revision_request.status_code, ''),
         'revisionRequestReason', COALESCE(revision_request.reason, ''),
         'revisionResultOrderId', COALESCE(revision_request.result_order_id, ''),
+        'items', COALESCE(order_items.items, '[]'::jsonb),
         'statusHistory', COALESCE(order_history.status_history, '[]'::jsonb)
       ) AS "原始数据"
     FROM crm.orders o
@@ -5294,6 +6471,21 @@ function 订单查询SQL(where: string): string {
       ORDER BY rr.created_at DESC, rr.id DESC
       LIMIT 1
     ) revision_request ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'itemName', oi.item_name,
+          'productRefType', qi.product_ref_type,
+          'productRefId', COALESCE(qi.product_ref_id::text, ''),
+          'quantity', oi.quantity,
+          'unitPrice', oi.unit_price,
+          'lineAmount', oi.line_amount
+        ) ORDER BY oi.id
+      ) AS items
+      FROM crm.order_items oi
+      LEFT JOIN crm.quote_items qi ON qi.id = oi.quote_item_id
+      WHERE oi.order_id = o.id
+    ) order_items ON true
     LEFT JOIN LATERAL (
       SELECT r.redacted_json
       FROM migration.v2_raw_records r
@@ -5385,7 +6577,13 @@ function 渠道查询SQL(where: string): string {
       COALESCE(p.contact_name, '') AS "负责人",
       COALESCE(r.region_name, p.extra_json->>'region') AS "区域",
       p.status_code AS "状态",
-      CASE p.status_code WHEN 'active' THEN '启用' WHEN 'disabled' THEN '停用' ELSE '归档' END AS "状态名称",
+      CASE p.status_code
+        WHEN 'pending' THEN '待审批'
+        WHEN 'active' THEN '启用'
+        WHEN 'rejected' THEN '已驳回'
+        WHEN 'disabled' THEN '停用'
+        ELSE '归档'
+      END AS "状态名称",
       0::numeric AS "金额",
       p.created_at AS "创建时间",
       p.updated_at AS "更新时间",
@@ -5639,15 +6837,16 @@ function 审核查询SQL(where: string): string {
         COALESCE(r.registration_no, o.order_no, a.v2_source_id, a.id::text) AS "编号",
         CASE
           WHEN a.target_type = 'registration' THEN '客户报备'
+          WHEN a.target_type = 'partner' THEN '渠道商审核'
           WHEN a.target_type = 'order' THEN '订单审批'
           WHEN a.target_type = 'order_revision' THEN '订单回退修改'
           ELSE '审核任务'
         END AS "类型",
-        COALESCE(c.customer_name, oc.customer_name, a.extra_json->>'targetName', a.target_type) AS "标题",
+        COALESCE(c.customer_name, oc.customer_name, target_partner.partner_name, a.extra_json->>'targetName', a.target_type) AS "标题",
         COALESCE(c.customer_name, oc.customer_name, a.extra_json->>'customerName', '') AS "客户名称",
-        COALESCE(p.partner_name, op.partner_name, a.extra_json->>'targetPartnerName') AS "渠道名称",
+        COALESCE(target_partner.partner_name, p.partner_name, op.partner_name, a.extra_json->>'targetPartnerName') AS "渠道名称",
         COALESCE(u.display_name, a.extra_json->>'createdBy') AS "负责人",
-        COALESCE(reg.region_name, oreg.region_name, a.extra_json->>'region', '') AS "区域",
+        COALESCE(target_region.region_name, reg.region_name, oreg.region_name, preg.region_name, a.extra_json->>'region', '') AS "区域",
         a.status_code AS "状态",
         CASE a.status_code WHEN 'approved' THEN '已通过' WHEN 'rejected' THEN '已驳回' ELSE '待审核' END AS "状态名称",
         CASE
@@ -5677,14 +6876,14 @@ function 审核查询SQL(where: string): string {
             THEN COALESCE(NULLIF(a.extra_json->>'newAmount', '')::numeric, o.total_amount, 0::numeric)
             ELSE COALESCE(o.total_amount, 0::numeric)
           END,
-          'partnerUuid', COALESCE(r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
-          'partnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
-          'assignedPartnerId', COALESCE(p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'partnerUuid', COALESCE(target_partner.id::text, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'partnerId', COALESCE(target_partner.v2_source_id, target_partner.partner_code, p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
+          'assignedPartnerId', COALESCE(target_partner.v2_source_id, target_partner.partner_code, p.v2_source_id, p.partner_code, op.v2_source_id, op.partner_code, r.partner_id::text, o.partner_id::text, a.applicant_partner_id::text, ''),
           'ownerUserUuid', COALESCE(r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
           'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
           'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, r.owner_user_id::text, o.owner_user_id::text, a.applicant_user_id::text, ''),
-          'regionId', COALESCE(r.region_id::text, op.region_id::text, p.region_id::text, a.extra_json->>'regionId', ''),
-          'region', COALESCE(reg.region_name, oreg.region_name, a.extra_json->>'region', '')
+          'regionId', COALESCE(target_partner.region_id::text, r.region_id::text, op.region_id::text, p.region_id::text, a.extra_json->>'regionId', ''),
+          'region', COALESCE(target_region.region_name, reg.region_name, oreg.region_name, preg.region_name, a.extra_json->>'region', '')
         ) AS "原始数据"
       FROM ops.approvals a
       LEFT JOIN crm.registrations r ON a.target_type = 'registration' AND r.id = a.target_id
@@ -5694,8 +6893,11 @@ function 审核查询SQL(where: string): string {
       LEFT JOIN iam.users u ON u.id = a.applicant_user_id
       LEFT JOIN channel.partners p ON p.id = COALESCE(r.partner_id, a.applicant_partner_id)
       LEFT JOIN channel.partners op ON op.id = o.partner_id
+      LEFT JOIN channel.partners target_partner ON a.target_type = 'partner' AND target_partner.id = a.target_id
       LEFT JOIN org.regions reg ON reg.id = r.region_id
       LEFT JOIN org.regions oreg ON oreg.id = op.region_id
+      LEFT JOIN org.regions preg ON preg.id = p.region_id
+      LEFT JOIN org.regions target_region ON target_region.id = target_partner.region_id
       UNION ALL
       SELECT
         r.id::text AS "id",
@@ -6048,6 +7250,7 @@ async function 写入订单审批待办(
     total_amount: string | number;
     owner_user_id: string | null;
     partner_id: string | null;
+    extra_json: Record<string, unknown> | null;
   }>(
     `
     SELECT
@@ -6060,7 +7263,8 @@ async function 写入订单审批待办(
       o.status_code,
       o.total_amount,
       o.owner_user_id::text AS owner_user_id,
-      o.partner_id::text AS partner_id
+      o.partner_id::text AS partner_id,
+      o.extra_json
     FROM crm.orders o
     LEFT JOIN crm.customers c ON c.id = o.customer_id
     LEFT JOIN channel.partners p ON p.id = o.partner_id
@@ -6086,7 +7290,7 @@ async function 写入订单审批待办(
     RETURNING id::text AS id
     `,
     [
-      `order:${参数.步骤}:${row.id}`,
+      `order:${参数.步骤}:${row.id}:${Number(row.extra_json?.approvalRound || 0)}`,
       row.id,
       row.owner_user_id,
       row.partner_id,
@@ -6349,7 +7553,16 @@ async function 同步订单审批链路(
     });
     return;
   }
-  if (["primary_rejected", "rejected", "cancelled"].includes(参数.新状态)) {
+  if (
+    [
+      "primary_rejected",
+      "rejected",
+      "cancelled",
+      "returned_to_region",
+      "returned_to_primary",
+      "returned_to_secondary",
+    ].includes(参数.新状态)
+  ) {
     const 步骤 = 订单状态审批步骤(参数.原状态) || "region_confirm";
     await 同步订单审批状态(client, {
       订单编号: 参数.订单编号,
@@ -6571,12 +7784,22 @@ function 订单状态审批步骤(status: string): 订单审批步骤 | null {
   return null;
 }
 
+function 退回修改状态对应审批状态(status: string): string | null {
+  if (status === "returned_to_secondary") return "pending_primary_confirm";
+  if (status === "returned_to_primary") return "primary_confirmed";
+  if (status === "returned_to_region") return "pending_superadmin_confirm";
+  return null;
+}
+
 function 订单状态默认原因(status: string, 是否调价: boolean): string {
   if (status === "primary_confirmed") return "一级分销商确认通过";
   if (status === "pending_superadmin_confirm")
     return 是否调价 ? "区管调价后提交超管确认" : "区管确认通过";
   if (status === "confirmed") return "超管确认通过";
   if (status === "primary_rejected") return "一级分销商驳回";
+  if (status === "returned_to_region") return "超管退回区管修改";
+  if (status === "returned_to_primary") return "审批退回一级渠道商修改";
+  if (status === "returned_to_secondary") return "审批退回二级渠道商修改";
   if (status === "rejected") return "订单驳回";
   if (status === "cancelled") return "订单取消";
   return "订单状态流转";
@@ -6601,6 +7824,14 @@ type 订单修订明细项 = {
   quantity: number;
   unitPrice: number;
   lineAmount: number;
+  productRefType?: "feature" | "hardware" | "package" | "manual";
+  productRefId?: string;
+};
+
+type 订单重提定价上下文 = {
+  partnerId?: string | null;
+  partnerLevel?: string | null;
+  region?: string | null;
 };
 
 function 读取订单修订明细(输入: Record<string, unknown>): 订单修订明细项[] {
@@ -6615,16 +7846,46 @@ function 读取订单修订明细(输入: Record<string, unknown>): 订单修订
     }
     const 记录 = 项目 as Record<string, unknown>;
     const itemName = 读取文本(记录, ["itemName", "name", "模块名称"], "");
+    const productRefType = 读取文本(
+      记录,
+      ["productRefType", "product_ref_type", "产品类型"],
+      "",
+    ) as 订单修订明细项["productRefType"];
+    const productRefId = 读取文本(记录, ["productRefId", "product_ref_id", "产品编号"], "");
     const quantity = 读取数字(记录, ["quantity", "数量"], 1);
-    const unitPrice = 读取数字(记录, ["unitPrice", "单价"], 0);
-    const lineAmount = 读取数字(记录, ["lineAmount", "小计"], quantity * unitPrice);
-    if (!itemName || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0 || !Number.isFinite(lineAmount) || lineAmount < 0) {
-      throw new 应用错误("V3_ORDER_REVISION_ITEM_INVALID", "订单修订模块明细包含无效名称、数量或价格。", 400);
+    if (!itemName || !Number.isFinite(quantity) || quantity <= 0) {
+      throw new 应用错误(
+        "V3_ORDER_REVISION_ITEM_INVALID",
+        "订单修订模块明细包含无效名称或数量。",
+        400,
+      );
     }
-    return { itemName, quantity, unitPrice, lineAmount };
+    return {
+      itemName,
+      quantity,
+      unitPrice: 0,
+      lineAmount: 0,
+      ...(productRefType ? { productRefType } : {}),
+      ...(productRefId ? { productRefId } : {}),
+    };
   });
-  if (明细.length > 100) throw new 应用错误("V3_ORDER_REVISION_ITEM_TOO_MANY", "订单修订模块明细不能超过100项。", 400);
+  if (明细.length > 100)
+    throw new 应用错误("V3_ORDER_REVISION_ITEM_TOO_MANY", "订单修订模块明细不能超过100项。", 400);
   return 明细;
+}
+
+function 订单修订明细相同(左侧: 订单修订明细项[], 右侧: 订单修订明细项[]): boolean {
+  if (左侧.length !== 右侧.length) return false;
+  return 左侧.every((项目, 索引) => {
+    const 对应 = 右侧[索引];
+    return Boolean(
+      对应 &&
+      项目.itemName === 对应.itemName &&
+      Math.abs(项目.quantity - 对应.quantity) <= 0.000001 &&
+      Math.abs(项目.unitPrice - 对应.unitPrice) <= 0.01 &&
+      Math.abs(项目.lineAmount - 对应.lineAmount) <= 0.01,
+    );
+  });
 }
 
 async function 解析业务归属(
@@ -6755,12 +8016,15 @@ async function 查询渠道编号(client: PoolClient, 输入编号: string): Pro
     `
     SELECT id::text AS id
     FROM channel.partners
-    WHERE id::text = $1
+    WHERE status_code = 'active'
+      AND (
+        id::text = $1
        OR v2_source_id = $1
        OR partner_code = $1
        OR partner_name = $1
        OR extra_json->>'id' = $1
        OR extra_json->>'partnerId' = $1
+      )
     ORDER BY created_at
     LIMIT 1
     `,
@@ -7322,6 +8586,9 @@ function 规范订单状态(status: string): string {
       "primary_confirmed",
       "primary_rejected",
       "pending_superadmin_confirm",
+      "returned_to_region",
+      "returned_to_primary",
+      "returned_to_secondary",
       "confirmed",
       "rejected",
       "cancelled",
@@ -7619,6 +8886,140 @@ async function 校验订单所属区域区管(
       403,
     );
   }
+}
+
+async function 校验订单所属一级渠道(
+  client: PoolClient,
+  订单编号: string,
+  当前用户: 业务用户上下文 | null,
+): Promise<void> {
+  if (当前用户?.roleCode === "superadmin" || 当前用户?.roleCode === "admin") return;
+  if (当前用户?.roleCode !== "partner_admin" || !当前用户.partnerIds.length) {
+    throw new 应用错误(
+      "V3_ORDER_PRIMARY_PARTNER_REQUIRED",
+      "仅订单指定的一级渠道商管理员可以确认或驳回订单。",
+      403,
+    );
+  }
+  const result = await client.query<{ allowed: boolean }>(
+    `
+    SELECT true AS allowed
+    FROM crm.orders o
+    JOIN channel.partners p ON p.id = o.partner_id
+    WHERE o.id = $1::uuid
+      AND (
+        (COALESCE(NULLIF(NULLIF(p.partner_level_code, 'none'), ''), p.extra_json->>'partnerLevel', p.extra_json->>'level', '') = 'primary' AND o.partner_id = ANY($2::uuid[]))
+        OR EXISTS (
+          SELECT 1
+          FROM channel.partner_relations rel
+          WHERE rel.child_partner_id = o.partner_id
+            AND rel.parent_partner_id = ANY($2::uuid[])
+            AND rel.relation_code = 'primary_secondary'
+            AND rel.ended_at IS NULL
+            AND (
+              o.extra_json->>'parentPartnerUuid' = ANY($3::text[])
+              OR NULLIF(o.extra_json->>'parentPartnerUuid', '') IS NULL
+            )
+        )
+      )
+    LIMIT 1
+    `,
+    [订单编号, 当前用户.partnerIds, 当前用户.partnerIds],
+  );
+  if (!result.rows[0]?.allowed) {
+    throw new 应用错误(
+      "V3_ORDER_PRIMARY_PARTNER_REQUIRED",
+      "仅订单指定的一级渠道商管理员可以确认或驳回订单。",
+      403,
+    );
+  }
+}
+
+async function 校验订单重提权限(
+  client: PoolClient,
+  订单编号: string,
+  当前用户: 业务用户上下文 | null,
+): Promise<void> {
+  if (!当前用户?.userId) {
+    throw new 应用错误("V3_ORDER_RESUBMIT_PERMISSION_DENIED", "请先登录后再重新提交订单。", 403);
+  }
+  const result = await client.query<{ allowed: boolean }>(
+    `
+    SELECT true AS allowed
+    FROM crm.orders o
+    WHERE o.id = $1::uuid
+      AND (
+        COALESCE(NULLIF(o.extra_json->>'submittedByUserId', ''), o.owner_user_id::text) = $2::text
+        OR $3::text IN ('superadmin', 'admin', 'region_manager')
+        OR (
+          $3::text = 'partner_admin'
+          AND (
+            o.partner_id = ANY($4::uuid[])
+            OR EXISTS (
+              SELECT 1
+              FROM channel.partner_relations rel
+              WHERE rel.child_partner_id = o.partner_id
+                AND rel.parent_partner_id = ANY($4::uuid[])
+                AND rel.relation_code = 'primary_secondary'
+                AND rel.ended_at IS NULL
+            )
+          )
+        )
+      )
+    LIMIT 1
+    `,
+    [订单编号, 当前用户.userId, 当前用户.roleCode, 当前用户.partnerIds],
+  );
+  if (!result.rows[0]?.allowed) {
+    throw new 应用错误(
+      "V3_ORDER_RESUBMIT_PERMISSION_DENIED",
+      "仅订单提交人本人或管理员可以重新提交订单。",
+      403,
+    );
+  }
+}
+
+async function 查询订单重提定价上下文(
+  client: PoolClient,
+  订单编号: string,
+): Promise<订单重提定价上下文 & { submittedByUserId: string | null }> {
+  const result = await client.query<{
+    owner_user_id: string | null;
+    partner_id: string | null;
+    partner_level_code: string | null;
+    partner_extra_json: Record<string, unknown> | null;
+    partner_region: string | null;
+    order_extra_json: Record<string, unknown> | null;
+  }>(
+    `
+    SELECT o.owner_user_id::text AS owner_user_id, o.partner_id::text AS partner_id,
+      p.partner_level_code, p.extra_json AS partner_extra_json,
+      COALESCE(reg.region_name, p.extra_json->>'region', '') AS partner_region,
+      o.extra_json AS order_extra_json
+    FROM crm.orders o
+    LEFT JOIN channel.partners p ON p.id = o.partner_id
+    LEFT JOIN org.regions reg ON reg.id = p.region_id
+    WHERE o.id = $1::uuid
+    LIMIT 1
+    `,
+    [订单编号],
+  );
+  const row = result.rows[0];
+  if (!row) return { partnerId: null, partnerLevel: null, region: null, submittedByUserId: null };
+  const orderExtra = row.order_extra_json || {};
+  const partnerExtra = row.partner_extra_json || {};
+  const partnerLevel =
+    读取文本(orderExtra, ["submittedPartnerLevel", "partnerLevel"], "") ||
+    (row.partner_level_code && row.partner_level_code !== "none" ? row.partner_level_code : "") ||
+    读取文本(partnerExtra, ["partnerLevel", "level"], "");
+  const region =
+    读取文本(orderExtra, ["submittedByRegion", "region"], "") || row.partner_region || "";
+  return {
+    partnerId: row.partner_id,
+    partnerLevel,
+    region,
+    submittedByUserId: row.owner_user_id,
+  };
 }
 
 async function 查询业务负责人账号(client: PoolClient, userId: string | null): Promise<string> {

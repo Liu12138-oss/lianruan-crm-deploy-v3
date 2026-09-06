@@ -89,6 +89,7 @@ interface V2渠道商引用 {
   region: string;
   city: string;
   bigRegion: string;
+  statusCode?: string;
 }
 
 interface V2用户引用 {
@@ -606,6 +607,25 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
     );
   }
 
+  router.get(
+    "/quotes/:id/pdf",
+    捕获(async (req, res) => {
+      const 文件 = await 需要服务(service).生成正式报价单(
+        读取路由参数(req, "id"),
+        读取当前V2业务用户(req, 参数),
+      );
+      res
+        .status(200)
+        .setHeader("Content-Type", "application/pdf")
+        .setHeader("Content-Length", String(文件.内容.length))
+        .setHeader(
+          "Content-Disposition",
+          `attachment; filename*=UTF-8''${encodeURIComponent(文件.文件名)}`,
+        )
+        .send(文件.内容);
+    }),
+  );
+
   router.post(
     "/registrations",
     捕获(async (req, res) => {
@@ -756,6 +776,17 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       res.json(成功(转V2业务记录("orders", 记录)));
     }),
   );
+  router.put(
+    "/orders/:id/resubmit",
+    捕获(async (req, res) => {
+      const 记录 = await 需要服务(service).重新提交订单(
+        读取路由参数(req, "id"),
+        读取正文(req),
+        读取当前V2业务用户(req, 参数),
+      );
+      res.json(成功(转V2业务记录("orders", 记录)));
+    }),
+  );
   router.delete(
     "/orders/:id",
     捕获(async (req, res) => {
@@ -792,7 +823,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
     捕获(async (req, res) => {
       const 记录 = await 需要服务(service).更新订单状态(
         读取路由参数(req, "id"),
-        { ...读取正文(req), status: "primary_rejected" },
+        { ...读取正文(req), status: "returned_to_secondary", returnTarget: "secondary" },
         读取当前V2业务用户(req, 参数),
       );
       res.json(成功(转V2业务记录("orders", 记录)));
@@ -2800,6 +2831,18 @@ async function 保存V2渠道商(
   if (!name) throw Object.assign(new Error("请输入渠道商名称。"), { statusCode: 400 });
   const code = id || 读取正文文本(输入, ["id", "partnerId", "code"], `PARTNER-V3-${Date.now()}`);
   const level = 读取正文文本(输入, ["partnerLevel", "level"], "none");
+  const 状态已提供 = ["status", "状态"].some((key) =>
+    Object.prototype.hasOwnProperty.call(输入, key),
+  );
+  const 输入状态 = 读取正文文本(输入, ["status", "状态"], "");
+  const 已登录账号 = 当前用户?.username ? await 查询V2用户(pool, 当前用户.username, true) : null;
+  const 是否新建 = !id;
+  const 目标状态 =
+    是否新建 && 已登录账号?.role === "admin"
+      ? "pending"
+      : 是否新建 && 已登录账号?.role === "superadmin"
+        ? "active"
+        : 输入状态 || "active";
   const 协议编号已提供 = ["agreementNo", "agreement_no", "协议编号"].some((key) =>
     Object.prototype.hasOwnProperty.call(输入, key),
   );
@@ -2839,9 +2882,18 @@ async function 保存V2渠道商(
       name,
       partnerName: name,
       level,
+      ...(是否新建 ? { status: 目标状态 } : {}),
       agreementNo,
       countryCallingCode: countryCallingCode || "",
     };
+    const regionName = 读取正文文本(输入, ["region", "区域"], "").trim();
+    const regionResult = regionName
+      ? await client.query<{ id: string }>(
+          `SELECT id::text AS id FROM org.regions WHERE region_name = $1 OR region_code = $1 LIMIT 1`,
+          [regionName],
+        )
+      : { rows: [] as Array<{ id: string }> };
+    const regionUuid = regionResult.rows[0]?.id || null;
     const params = [
       code,
       name,
@@ -2851,17 +2903,20 @@ async function 保存V2渠道商(
       读取正文文本(输入, ["contact", "contactName"], ""),
       读取正文文本(输入, ["phone", "contactPhone"], ""),
       读取正文文本(输入, ["email", "contactEmail"], ""),
-      转V3伙伴状态(读取正文文本(输入, ["status"], "active")),
+      转V3伙伴状态(目标状态),
       JSON.stringify(extra),
       agreementNo,
       countryCallingCode,
       协议编号已提供,
       国家电话区号已提供,
+      regionUuid,
+      状态已提供,
     ];
 
     let 渠道UUID = "";
+    let 当前状态 = 目标状态;
     if (id) {
-      const result = await client.query<{ id: string }>(
+      const result = await client.query<{ id: string; status_code: string }>(
         `
       UPDATE channel.partners
       SET partner_name = $2,
@@ -2871,27 +2926,30 @@ async function 保存V2渠道商(
           contact_name = NULLIF($6, ''),
           contact_phone = NULLIF($7, ''),
           contact_email = NULLIF($8, '')::citext,
-          status_code = $9,
+          status_code = CASE WHEN $16 THEN $9 ELSE status_code END,
+          region_id = COALESCE($15::uuid, region_id),
           agreement_no = CASE WHEN $13 THEN NULLIF($11, '') ELSE agreement_no END,
           country_calling_code = CASE WHEN $14 THEN NULLIF($12, '') ELSE country_calling_code END,
           updated_at = now(),
           extra_json = extra_json || $10::jsonb
       WHERE id::text = $1 OR v2_source_id = $1 OR partner_code = $1
-      RETURNING id::text AS id
+      RETURNING id::text AS id, status_code
       `,
         params,
       );
       if (!result.rows[0]) throw Object.assign(new Error("渠道商不存在。"), { statusCode: 404 });
       渠道UUID = result.rows[0].id;
+      当前状态 = result.rows[0].status_code;
     } else {
-      const result = await client.query<{ id: string }>(
+      const 新建参数 = [...params.slice(0, 12), regionUuid, 状态已提供];
+      const result = await client.query<{ id: string; status_code: string }>(
         `
       INSERT INTO channel.partners (
         v2_source_id, partner_code, partner_name, normalized_name, partner_level_code,
-        city_name, contact_name, contact_phone, contact_email, status_code, extra_json,
+        city_name, contact_name, contact_phone, contact_email, status_code, region_id, extra_json,
         agreement_no, country_calling_code
       )
-      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $10::jsonb, NULLIF($11, ''), NULLIF($12, ''))
+      VALUES ($1, $1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $9, $13::uuid, $10::jsonb, NULLIF($11, ''), NULLIF($12, ''))
       ON CONFLICT (v2_source_id) DO UPDATE
       SET partner_name = EXCLUDED.partner_name,
           normalized_name = EXCLUDED.normalized_name,
@@ -2900,19 +2958,23 @@ async function 保存V2渠道商(
           contact_name = EXCLUDED.contact_name,
           contact_phone = EXCLUDED.contact_phone,
           contact_email = EXCLUDED.contact_email,
-          status_code = EXCLUDED.status_code,
+          status_code = CASE WHEN $14 THEN EXCLUDED.status_code ELSE channel.partners.status_code END,
+          region_id = COALESCE(EXCLUDED.region_id, channel.partners.region_id),
           agreement_no = EXCLUDED.agreement_no,
           country_calling_code = EXCLUDED.country_calling_code,
           updated_at = now(),
           extra_json = channel.partners.extra_json || EXCLUDED.extra_json
-      RETURNING id::text AS id
+      RETURNING id::text AS id, status_code
       `,
-        params.slice(0, 12),
+        新建参数,
       );
       渠道UUID = result.rows[0]?.id || "";
+      当前状态 = result.rows[0]?.status_code || 当前状态;
     }
 
-    if (读取正文文本(输入, ["status"], "active") === "pending" && 渠道UUID) {
+    const 需要创建审批待办 =
+      (是否新建 && 当前状态 === "pending") || (!是否新建 && 输入状态 === "pending");
+    if (需要创建审批待办 && 渠道UUID) {
       const 申请人UUID = 当前用户?.username ? await 查找用户UUID(client, 当前用户.username) : null;
       await 写入渠道商审批待办(client, {
         渠道UUID,
@@ -2924,7 +2986,7 @@ async function 保存V2渠道商(
     }
 
     await client.query("COMMIT");
-    return { ...extra, status: 读取正文文本(输入, ["status"], "active") };
+    return { ...extra, status: 当前状态 };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -2965,6 +3027,53 @@ async function 更新渠道商状态(
         输入,
         当前用户,
       });
+    } else if (status === "active" || status === "rejected") {
+      const 审批 = await client.query<{ id: string; status_code: string }>(
+        `
+        SELECT id::text AS id, status_code
+        FROM ops.approvals
+        WHERE target_type = 'partner' AND target_id = $1::uuid
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [row.id],
+      );
+      const 审批记录 = 审批.rows[0];
+      if (审批记录 && 审批记录.status_code === "pending") {
+        const 审批状态 = status === "active" ? "approved" : "rejected";
+        const 原因 = 读取对象文本(输入, "remark") || 读取对象文本(输入, "reason");
+        await client.query(
+          `
+          UPDATE ops.approvals
+          SET status_code = $2, updated_at = now(), extra_json = extra_json || $3::jsonb
+          WHERE id = $1::uuid
+          `,
+          [
+            审批记录.id,
+            审批状态,
+            JSON.stringify({
+              status: 审批状态,
+              reviewRemark: 原因,
+              reviewedByName: 当前用户?.displayName || "",
+            }),
+          ],
+        );
+        await client.query(
+          `
+          INSERT INTO ops.approval_events (approval_id, event_code, from_status_code, to_status_code, reason, extra_json)
+          VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb)
+          `,
+          [
+            审批记录.id,
+            审批状态 === "approved" ? "approve" : "reject",
+            审批记录.status_code,
+            审批状态,
+            原因,
+            JSON.stringify({ actorName: 当前用户?.displayName || "" }),
+          ],
+        );
+      }
     }
     await client.query("COMMIT");
     return { id: row.external_id, name: row.partner_name, partnerName: row.partner_name, status };
@@ -3227,6 +3336,21 @@ async function 写入渠道商审批待办(
     当前用户: 当前业务用户 | null;
   },
 ): Promise<void> {
+  const 渠道快照 = await db.query<{
+    partner_name: string;
+    region_id: string | null;
+    region_name: string | null;
+  }>(
+    `
+    SELECT p.partner_name, p.region_id::text AS region_id, r.region_name
+    FROM channel.partners p
+    LEFT JOIN org.regions r ON r.id = p.region_id
+    WHERE p.id = $1::uuid
+    LIMIT 1
+    `,
+    [参数.渠道UUID],
+  );
+  const 渠道 = 渠道快照.rows[0];
   const result = await db.query<{ id: string }>(
     `
     INSERT INTO ops.approvals (
@@ -3250,7 +3374,11 @@ async function 写入渠道商审批待办(
         type: "partner",
         targetType: "partner",
         targetPartnerId: 参数.渠道编号,
-        targetPartnerName: 读取正文文本(参数.输入, ["name", "partnerName"], ""),
+        targetName: 渠道?.partner_name || 读取正文文本(参数.输入, ["name", "partnerName"], ""),
+        targetPartnerName:
+          渠道?.partner_name || 读取正文文本(参数.输入, ["name", "partnerName"], ""),
+        regionId: 渠道?.region_id || "",
+        region: 渠道?.region_name || 读取正文文本(参数.输入, ["region", "区域"], ""),
         createdBy: 参数.当前用户?.displayName || 读取正文文本(参数.输入, ["createdBy"], ""),
       }),
     ],
@@ -3770,7 +3898,7 @@ async function 更新待审批状态(pool: Pool, id: string, status: string, 输
       if (row.target_type === "partner") {
         await client.query(
           "UPDATE channel.partners SET status_code = $2, updated_at = now() WHERE id = $1::uuid",
-          [row.target_id, status === "approved" ? "active" : "disabled"],
+          [row.target_id, status === "approved" ? "active" : "rejected"],
         );
       }
       if (row.target_type === "registration") {
@@ -4919,7 +5047,7 @@ async function 校验导入行(pool: Pool, type: V2导入类型, item: 字典) {
   }
 
   const partnerName = 读取对象文本(item, "partnerName");
-  const partner = partnerName ? await 查询渠道商按名称(pool, partnerName) : null;
+  const partner = partnerName ? await 查询渠道商按名称(pool, partnerName, { 仅生效: true }) : null;
   if (partnerName && !partner) errors.push(`渠道商“${partnerName}”不存在。`);
   if (type === "staff") {
     item.status = 规范导入员工状态(读取对象文本(item, "status"));
@@ -4961,6 +5089,10 @@ async function 写入导入渠道商(
   const name = 读取对象文本(item, "name");
   const existing = await 查询渠道商按名称(pool, name);
   const code = existing?.id || 生成导入编号("P");
+  const 保留状态 =
+    existing && ["pending", "rejected"].includes(existing.statusCode || "")
+      ? existing.statusCode
+      : "active";
   const regionId = await 确保区域(pool, 读取对象文本(item, "region"));
   const extra = {
     ...item,
@@ -4969,7 +5101,7 @@ async function 写入导入渠道商(
     partnerName: name,
     level: 读取对象文本(item, "level"),
     partnerLevel: 读取对象文本(item, "partnerLevel") || "none",
-    status: "active",
+    status: 保留状态,
     joinDate: new Date().toISOString().slice(0, 10),
     isTechService: 读取对象文本(item, "techServiceType") === "full",
   };
@@ -4984,7 +5116,7 @@ async function 写入导入渠道商(
           contact_name = NULLIF($6, ''),
           contact_phone = NULLIF($7, ''),
           contact_email = NULLIF($8, '')::citext,
-          status_code = 'active',
+          status_code = $10,
           updated_at = now(),
           extra_json = extra_json || $9::jsonb
       WHERE id = $1::uuid
@@ -4999,6 +5131,7 @@ async function 写入导入渠道商(
         读取对象文本(item, "phone"),
         读取对象文本(item, "email"),
         JSON.stringify(extra),
+        保留状态,
       ],
     );
   } else {
@@ -5009,7 +5142,7 @@ async function 写入导入渠道商(
         region_id, city_name, contact_name, contact_phone, contact_email, status_code,
         joined_on, extra_json
       )
-      VALUES ($1, $1, $2, $3, 'none', $4::uuid, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, 'active', now()::date, $9::jsonb)
+      VALUES ($1, $1, $2, $3, 'none', $4::uuid, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''), NULLIF($8, '')::citext, $10, now()::date, $9::jsonb)
       `,
       [
         code,
@@ -5021,6 +5154,7 @@ async function 写入导入渠道商(
         读取对象文本(item, "phone"),
         读取对象文本(item, "email"),
         JSON.stringify(extra),
+        保留状态,
       ],
     );
   }
@@ -5034,7 +5168,9 @@ async function 写入导入渠道商(
 }
 
 async function 写入导入员工(pool: Pool, item: 字典): Promise<"created" | "updated"> {
-  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"));
+  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"), {
+    仅生效: true,
+  });
   if (!partner) throw new Error("渠道商不存在。");
   const existing = await 查询V2用户(pool, 读取对象文本(item, "username"));
   await 保存渠道商员工(pool, partner.id, existing?.id || "", {
@@ -5050,7 +5186,9 @@ async function 写入导入员工(pool: Pool, item: 字典): Promise<"created" |
 }
 
 async function 写入导入报备(pool: Pool, item: 字典): Promise<"created" | "updated"> {
-  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"));
+  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"), {
+    仅生效: true,
+  });
   if (!partner) throw new Error("渠道商不存在。");
   const staff = await 查询员工按姓名和渠道(
     pool,
@@ -5121,7 +5259,9 @@ async function 写入导入报备(pool: Pool, item: 字典): Promise<"created" |
 }
 
 async function 写入导入商机(pool: Pool, item: 字典): Promise<"created" | "updated"> {
-  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"));
+  const partner = await 查询渠道商按名称(pool, 读取对象文本(item, "partnerName"), {
+    仅生效: true,
+  });
   if (!partner) throw new Error("渠道商不存在。");
   const staff = await 查询员工按姓名和渠道(
     pool,
@@ -5243,7 +5383,11 @@ function 构建导入渠道简介(item: 字典): 字典 {
   return profile;
 }
 
-async function 查询渠道商按名称(pool: Pool, name: string): Promise<V2渠道商引用 | null> {
+async function 查询渠道商按名称(
+  pool: Pool,
+  name: string,
+  选项: { 仅生效?: boolean } = {},
+): Promise<V2渠道商引用 | null> {
   if (!name) return null;
   const result = await pool.query<V2渠道商引用>(
     `
@@ -5253,16 +5397,18 @@ async function 查询渠道商按名称(pool: Pool, name: string): Promise<V2渠
       p.partner_name AS name,
       COALESCE(r.region_name, p.extra_json->>'region', '') AS region,
       COALESCE(p.city_name, p.extra_json->>'city', '') AS city,
-      COALESCE(big.region_name, p.extra_json->>'bigRegion', '') AS "bigRegion"
+      COALESCE(big.region_name, p.extra_json->>'bigRegion', '') AS "bigRegion",
+      p.status_code AS "statusCode"
     FROM channel.partners p
     LEFT JOIN org.regions r ON r.id = p.region_id
     LEFT JOIN org.regions big ON big.id = r.parent_region_id
     WHERE p.status_code <> 'archived'
+      AND (NOT $3::boolean OR p.status_code = 'active')
       AND (p.normalized_name = $1 OR p.partner_name = $2 OR p.extra_json->>'name' = $2)
     ORDER BY p.updated_at DESC
     LIMIT 1
     `,
-    [migrationNormalizedName(name), name],
+    [migrationNormalizedName(name), name, Boolean(选项.仅生效)],
   );
   return result.rows[0] || null;
 }
@@ -5733,7 +5879,9 @@ function 转V3渠道级别(level: string): string {
 
 function 转V3伙伴状态(status: string): string {
   if (status === "archived") return "archived";
-  if (["disabled", "rejected", "cancelled"].includes(status)) return "disabled";
+  if (["pending", "rejected", "disabled", "cancelled"].includes(status)) {
+    return status === "cancelled" ? "disabled" : status;
+  }
   return "active";
 }
 

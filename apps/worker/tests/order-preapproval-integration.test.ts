@@ -2,15 +2,15 @@ import { 读取应用配置 } from "@lianruan/config";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  读取泛微附件编号,
   序列化订单预审创建载荷,
   泛微订单预审客户端,
   type 订单预审字段映射,
+  读取泛微附件编号,
 } from "../src/order-preapproval-eteams.js";
-import { 生成订单预审报价单PDF } from "../src/order-preapproval-pdf.js";
+import { 生成订单预审报价单PDF, 生成订单预审采购内容 } from "../src/order-preapproval-pdf.js";
+import { 订单预审事件领取查询 } from "../src/order-preapproval-store.js";
 import { 企微订单预审群客户端 } from "../src/order-preapproval-wecom.js";
 import { 启动订单预审任务服务 } from "../src/order-preapproval-worker.js";
-import { 订单预审事件领取查询 } from "../src/order-preapproval-store.js";
 
 const 字段映射: 订单预审字段映射 = {
   productTypeValue: "EPP渠道产品",
@@ -52,7 +52,7 @@ describe("订单预审外部集成", () => {
     await expect(服务.close()).resolves.toBeUndefined();
   });
 
-  it("报价单 PDF 使用中文标准字体并包含订单明细", () => {
+  it("正式报价单 PDF 使用中文标准字体并包含页面正式结构", () => {
     const PDF = 生成订单预审报价单PDF({
       订单编号: "LS-2026-0001",
       报价编号: "BJ-2026-0001",
@@ -67,6 +67,36 @@ describe("订单预审外部集成", () => {
     expect(PDF.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
     expect(PDF.toString("binary")).toContain("/STSong-Light");
     expect(PDF.toString("binary")).toContain("xref");
+    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("联软安全产品报价单"));
+    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("软件产品"));
+    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("服务项"));
+  });
+
+  it("采购内容只列软件产品和服务项并包含数量与小计", () => {
+    const 内容 = 生成订单预审采购内容([
+      {
+        名称: "敏感内容识别模块",
+        数量: "200",
+        数量标签: "200 点",
+        单价: "270",
+        金额: "54000",
+        类型: "软件产品",
+      },
+      {
+        名称: "硬件网关",
+        数量: "1",
+        数量标签: "1 台",
+        单价: "1000",
+        金额: "1000",
+        类型: "硬件设备",
+      },
+    ]);
+    expect(内容).toContain("软件产品：");
+    expect(内容).toContain("授权端点数：200 点");
+    expect(内容).toContain("小计：¥54,000");
+    expect(内容).toContain("服务项：");
+    expect(内容).toContain("标准质保服务（赠送1年）");
+    expect(内容).not.toContain("硬件网关");
   });
 
   it("创建载荷保持超长字段与附件编号精度，且附件作为主表字段提交", () => {
@@ -90,11 +120,31 @@ describe("订单预审外部集成", () => {
     expect(载荷).toContain('"fieldId":"4742314689772812364","content":"LS-2026-0001"');
     expect(载荷).toContain('"fieldId":"4742314689772812365","content":"渠道商甲"');
     expect(载荷).toContain('"fieldId":"4742314689772812366","content":"客户乙"');
-    expect(载荷).toContain('"fieldId":"4742314689772812367","content":"详见采购订单上传处的报价单"');
+    expect(载荷).toContain(
+      '"fieldId":"4742314689772812367","content":"详见采购订单上传处的报价单"',
+    );
     expect(载荷).not.toContain('"fieldId":"4742314689772812364","dataOptions"');
     expect(载荷).not.toContain("dataIndex");
     expect(载荷).toContain('"isnextflow":1');
     expect(载荷).toContain('"isVerifyFormRequired":true');
+  });
+
+  it("采购内容可覆盖模板中的旧固定文案", () => {
+    const 载荷 = 序列化订单预审创建载荷({
+      workflowId: "7412314682719324051",
+      formId: "7412314682719324051",
+      发起人泛微编号: "2143392393502329170",
+      订单编号: "LS-2026-0001",
+      合同对方: "渠道商甲",
+      最终用户: "客户乙",
+      所属区域: "南区-湖南MBU",
+      字段映射,
+      采购内容: "软件产品：\n1. 敏感内容识别模块，授权端点数：200 点，小计：¥54,000",
+      采购订单附件: { fileId: "1308244418466054167", fileName: "报价单.pdf" },
+      报价单附件: { fileId: "1308244418466054168", fileName: "报价单.pdf" },
+    });
+    expect(载荷).toContain("授权端点数：200 点");
+    expect(载荷).not.toContain("详见采购订单上传处的报价单");
   });
 
   it("泛微附件上传使用服务端授权、multipart 和发起人 userid", async () => {
@@ -306,3 +356,13 @@ describe("订单预审外部集成", () => {
     });
   });
 });
+
+function 转换为PDF中文十六进制(文本: string): string {
+  const 缓冲区 = Buffer.from(文本, "utf16le");
+  for (let 下标 = 0; 下标 < 缓冲区.length; 下标 += 2) {
+    const 临时 = 缓冲区[下标] || 0;
+    缓冲区[下标] = 缓冲区[下标 + 1] || 0;
+    缓冲区[下标 + 1] = 临时;
+  }
+  return 缓冲区.toString("hex").toUpperCase();
+}

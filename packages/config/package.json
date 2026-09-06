@@ -1,6 +1,6 @@
 {
   "name": "@lianruan/config",
-  "version": "3.0.0-stage10.03.20260824-kb024",
+  "version": "3.0.0-stage10.20260906-prod1",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@lianruan/shared": "3.0.0-stage10.03.20260824-kb024",
+    "@lianruan/shared": "3.0.0-stage10.20260906-prod1",
     "zod": "^3.25.76"
   }
 }

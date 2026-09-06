@@ -141,7 +141,7 @@ function 创建服务(): 组织数据服务 {
       partnerLinked: 0,
       details: [{ partnerCode: "P-NEW", regionCode: "P-NEW", action: "create" }],
     }),
-    查询泛微OA身份: async () => ({ formalIdentity: null, candidates: [] }),
+    查询泛微OA身份: async () => ({ formalIdentity: null, candidates: [], wecomIdentities: [] }),
     新建泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     更新泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     确认泛微OA身份候选: async () => ({
@@ -406,7 +406,19 @@ describe("组织架构路由", () => {
   it("泛微 OA 身份候选仅由超管读取，确认、驳回和停用均走组织写入门禁", async () => {
     const 标识 = "00000000-0000-0000-0000-000000000051";
     const 服务 = 创建服务();
-    const 查询调用 = vi.fn(async () => ({ formalIdentity: null, candidates: [] }));
+    const 查询调用 = vi.fn(async () => ({
+      formalIdentity: null,
+      candidates: [],
+      wecomIdentities: [
+        {
+          id: "wecom-identity-1",
+          externalSubject: "wecom-userid-001",
+          externalUsername: "企微人员",
+          statusCode: "active",
+          rowVersion: 1,
+        },
+      ],
+    }));
     const 新建调用 = vi.fn(async () => ({ id: 标识, statusCode: "pending" }));
     const 确认调用 = vi.fn(async () => ({ formalIdentity: { statusCode: "active" } }));
     服务.查询泛微OA身份 = 查询调用;
@@ -422,11 +434,14 @@ describe("组织架构路由", () => {
     });
     const cookie = await 登录Cookie(app, "org_admin");
 
-    await request(app)
+    const 企业微信身份响应 = await request(app)
       .get(`/api/org/users/${标识}/eteams-identity`)
       .set("Cookie", cookie)
       .expect(200);
     expect(查询调用).toHaveBeenCalledWith(标识);
+    expect(企业微信身份响应.body.data.wecomIdentities).toEqual([
+      expect.objectContaining({ externalSubject: "wecom-userid-001", statusCode: "active" }),
+    ]);
 
     const 候选内容 = {
       externalSubject: "fanwei-userid-001",

@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  下载报价PDF,
   type 交付工作量规则项,
   保存交付工作量规则,
   保存工作量映射,
@@ -1219,9 +1220,20 @@ async function 修改报价(row: 阶段9记录) {
   await 路由器.push(修改报价路径(row));
 }
 
-function 下载报价PDF() {
-  ElMessage.info("请在打印窗口选择另存为 PDF。");
-  window.setTimeout(() => window.print(), 80);
+async function 下载报价PDF文件() {
+  if (!详情.value) return;
+  try {
+    const 文件 = await 下载报价PDF(详情.value.编号 || 详情.value.id);
+    const 地址 = URL.createObjectURL(文件.内容);
+    const 链接 = document.createElement("a");
+    链接.href = 地址;
+    链接.download = 文件.文件名;
+    链接.click();
+    URL.revokeObjectURL(地址);
+    ElMessage.success("正式报价单 PDF 已下载，可直接上传泛微 OA。");
+  } catch (错误) {
+    ElMessage.error(错误 instanceof Error ? 错误.message : "报价单 PDF 下载失败，请稍后重试。");
+  }
 }
 
 async function 商机赢单转订单(row: 阶段9记录) {
@@ -4049,7 +4061,9 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
         </div>
         <footer class="modal-footer">
           <button class="btn btn-default" type="button" @click="关闭详情">关闭</button>
-          <button class="btn btn-default" type="button" @click="下载报价PDF">📄 下载 PDF</button>
+          <button class="btn btn-default" type="button" @click="下载报价PDF文件">
+            📄 下载 PDF
+          </button>
           <button class="btn btn-primary" type="button" @click="修改报价(详情)">✏️ 修改报价</button>
           <button class="btn btn-primary quote-order-btn" type="button" @click="转订单(详情)">
             📦 转订单

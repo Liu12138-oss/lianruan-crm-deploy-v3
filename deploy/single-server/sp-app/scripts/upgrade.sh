@@ -113,6 +113,15 @@ trap '失败处理 $?' ERR
 echo "开始 SP-APP 升级：${PACKAGE_ID}，目标版本：${TARGET_VERSION}。"
 bash "${script_dir}/precheck.sh" "${install_root}"
 current_version="$(awk -F= '$1 == "V3_IMAGE_TAG" { value=$2 } END { print value }' "${install_root}/compose/.env" | tr -d '\r')"
+runtime_container="$(run_compose ps -q api-1 2>/dev/null || true)"
+if [ -n "${runtime_container}" ]; then
+  runtime_image="$(docker inspect -f '{{.Config.Image}}' "${runtime_container}" 2>/dev/null || true)"
+  runtime_version="${runtime_image##*:}"
+  if [ -n "${runtime_version}" ] && [ "${runtime_version}" != "${current_version}" ]; then
+    echo "检测到 Compose 配置版本 ${current_version} 与 API 实际运行版本 ${runtime_version} 不一致，按实际运行版本执行升级。"
+    current_version="${runtime_version}"
+  fi
+fi
 if [ "${current_version}" = "${TARGET_VERSION}" ]; then
   echo "目标版本已部署，执行重复复核。"
   bash "${script_dir}/verify.sh" "${install_root}"
