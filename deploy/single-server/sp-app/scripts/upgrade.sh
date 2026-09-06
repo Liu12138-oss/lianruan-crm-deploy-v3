@@ -31,6 +31,11 @@ run_compose() {
     "$@"
 }
 
+message_services=()
+if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+  message_services=(worker-message-critical worker-message-maintenance worker-message-integration)
+fi
+
 记录运行镜像() {
   local service_name="$1"
   local container_id running_image running_image_id running_state
@@ -60,7 +65,7 @@ target_runtime_is_healthy() {
     health_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container_id}" 2>/dev/null)"
     [ "${health_status}" = "healthy" ] || return 1
   done
-  for service_name in worker worker-message-critical worker-message-maintenance worker-message-integration; do
+  for service_name in worker "${message_services[@]}"; do
     target_image="lianruan-crm-v3-worker:${TARGET_VERSION}"
     target_image_id="$(docker image inspect -f '{{.Id}}' "${target_image}" 2>/dev/null)" || return 1
     container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}" 2>/dev/null)" || return 1
@@ -145,7 +150,7 @@ cp "${install_root}/config/deploy.env" "${release_dir}/config/deploy.env"
 cp "${install_root}/config/nginx/default.conf" "${release_dir}/config/nginx/default.conf"
 cp "${install_root}/scripts/"*.sh "${release_dir}/scripts/"
 printf 'services:\n' > "${release_dir}/runtime/rollback-images.yml"
-for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration; do
+for service_name in api-1 api-2 worker nginx "${message_services[@]}"; do
   记录运行镜像 "${service_name}"
 done
 
@@ -156,7 +161,7 @@ done
 
 echo "停止应用写入服务。"
 app_switch_started=true
-run_compose --profile message --profile message-external stop nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration
+run_compose --profile message --profile message-external stop nginx api-1 api-2 worker "${message_services[@]}"
 
 echo "同步应用编排、Nginx、运维脚本与数据库迁移。"
 cp "${package_root}/files/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
@@ -194,7 +199,7 @@ env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${inst
 
 echo "启动升级后的应用服务。"
 env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${install_root}" bash "${install_root}/scripts/start.sh"
-run_compose --profile message --profile message-external up -d --force-recreate api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration
+run_compose --profile message --profile message-external up -d --force-recreate api-1 api-2 worker nginx "${message_services[@]}"
 bash "${script_dir}/verify.sh" "${install_root}"
 trap - ERR
 
