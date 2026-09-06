@@ -6,7 +6,8 @@ ALTER TABLE crm.business_number_counters
 
 ALTER TABLE crm.business_number_counters
   ADD CONSTRAINT business_number_counters_document_type_check
-  CHECK (document_type IN ('quote', 'order', 'opportunity'));
+  -- 生产环境可能已存在历史客户报备计数器；先保留该类型，后续 S9.26 统一收口。
+  CHECK (document_type IN ('registration', 'quote', 'order', 'opportunity'));
 
 CREATE OR REPLACE FUNCTION crm.next_business_number(
   p_document_type text,
