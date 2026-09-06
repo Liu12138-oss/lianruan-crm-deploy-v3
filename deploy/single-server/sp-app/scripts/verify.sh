@@ -91,6 +91,7 @@ verify_target_service() {
     container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
     for key in "${switches[@]}"; do
       value="$(printf '%s\n' "${container_env}" | awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' | tr -d '\r')"
+      [ -n "${value}" ] || value=false
       [ "${value}" = "false" ] || {
         echo "验证失败：${service_name} 的 ${key} 实际值为 ${value:-未设置}，升级验证期间必须为 false。" >&2
         exit 1
