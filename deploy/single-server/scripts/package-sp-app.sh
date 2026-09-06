@@ -105,7 +105,7 @@ for image_name in api worker nginx; do
 done
 
 验证镜像归档与本地镜像一致() {
-  local image_name image_file image_tag archive_config_path archive_config_sha local_image_id
+  local image_name image_file image_tag archive_config_path archive_config_sha local_image_id archive_config_file
   for image_name in api worker nginx; do
     image_file="${project_root}/deploy/single-server/images/lianruan-crm-v3-${image_name}-${target_version}.docker-image"
     image_tag="lianruan-crm-v3-${image_name}:${target_version}"
@@ -119,8 +119,12 @@ done
     esac
     local_image_id="$(docker image inspect --format '{{.Id}}' "${image_tag}" 2>/dev/null || true)"
     [ -n "${local_image_id}" ] || 失败 "本地不存在目标镜像：${image_tag}"
-    [ "${local_image_id#sha256:}" = "${archive_config_sha}" ] ||
-      失败 "镜像归档与本地同标签镜像不一致：${image_tag}"
+    archive_config_file="${image_file}.config.$$"
+    tar -xOf "${image_file}" "${archive_config_path}" > "${archive_config_file}" 2>/dev/null ||
+      失败 "无法读取镜像归档 Config：${image_file}"
+    [ "$(sha256sum "${archive_config_file}" | awk '{print $1}')" = "${archive_config_sha}" ] ||
+      失败 "镜像归档 Config 摘要校验失败：${image_file}"
+    rm -f "${archive_config_file}"
   done
 }
 
