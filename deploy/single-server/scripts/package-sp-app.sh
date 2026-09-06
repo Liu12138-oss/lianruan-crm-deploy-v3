@@ -80,6 +80,7 @@ done
       equal_at = index(text, "=")
       if (equal_at > 1) {
         name = substr(text, 1, equal_at - 1)
+        sub(/\+$/, "", name)
         if (name ~ /[[:space:].\/?*"(){}$]/) next
         if (name !~ /^[A-Za-z_][A-Za-z0-9_]*$/) print NR ":" $0
       }
