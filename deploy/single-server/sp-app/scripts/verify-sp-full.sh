@@ -279,8 +279,16 @@ case "${admin_script_text}" in
   *) echo "验证失败：正式 admin-app.js 缺少组织状态与只读观察逻辑。" >&2; exit 1 ;;
 esac
 case "${admin_script_text}" in
-  *"企业微信账号映射导入"*"/api/org/wecom-identities/import-preview"*"/api/org/wecom-identities/import-confirm"*) ;;
-  *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射受控导入入口。" >&2; exit 1 ;;
+  *"企业微信账号映射导入"*) ;;
+  *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射导入页面。" >&2; exit 1 ;;
+esac
+case "${admin_script_text}" in
+  *"/api/org/wecom-identities/import-preview"*) ;;
+  *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射预览接口。" >&2; exit 1 ;;
+esac
+case "${admin_script_text}" in
+  *"/api/org/wecom-identities/import-confirm"*) ;;
+  *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射确认接口。" >&2; exit 1 ;;
 esac
 wait_for_http "组织架构工作区" http://127.0.0.1/workspace/admin/platform-admin/organization/units
 case "${response_body}" in
