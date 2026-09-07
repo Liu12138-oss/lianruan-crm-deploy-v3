@@ -158,6 +158,12 @@ if [ -d "${install_root}" ]; then
               失败 "商机业务编号历史差异未被客户报备编号迁移覆盖，拒绝升级。"
             提示 "历史迁移 ${migration_version} 已由后续客户报备编号迁移覆盖。"
             ;;
+          "20260811_S9_021_商机业务编号|9aedbb3ef4d4f8c117336bb05bac05ce3368b4302a65608813ec5aab1609a4b1|3cdc220200e7d3ea629af8d93789577cfd9da35b902f24a16f6a5344d094db02")
+            business_number_counter_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "SELECT EXISTS (SELECT 1 FROM migration.schema_migrations WHERE version = '20260812_S9_023_客户报备业务编号统一') AND EXISTS (SELECT 1 FROM migration.schema_migrations WHERE version = '20260825_S9_026_业务编号计数器兼容修正')")"
+            [ "${business_number_counter_ready}" = "t" ] ||
+              失败 "商机业务编号历史差异未被后续业务编号兼容迁移覆盖，拒绝升级。"
+            提示 "历史迁移 ${migration_version} 已由后续客户报备编号和计数器兼容迁移覆盖。"
+            ;;
           "20260820_S10_006_组织架构导入导出与自动编码|bb332cf01bec38b96ec7c5a3503656e9e831aa8f76a9999bad85d1dc14b0b308|b123929993e9412999a0e532853aad9f776fbc0a34f63eab6279ed78b3fc8039")
             [ -f "${package_root}/database/migrations/20260825_S10_007_组织架构导入导出补齐.sql" ] ||
               失败 "缺少组织架构正向补齐迁移，拒绝绕过历史迁移校验。"
