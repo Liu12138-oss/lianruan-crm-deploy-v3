@@ -185,6 +185,12 @@ if [ -d "${install_root}" ]; then
         "20260727_S8_001|由阶段8.3交付脚本和代码审查确认"|"20260727_S8_004|由阶段9交付脚本执行并记录")
           提示 "历史迁移 ${migration_version} 使用受控确认记录，已完成谱系存在性校验。"
           ;;
+        "20260817_S9_025_V2区域管理员账号恢复|由KB-20260817-024执行并记录")
+          v2_region_manager_repair_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "SELECT to_regclass('migration.v2_region_manager_account_repairs') IS NOT NULL AND (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'migration' AND table_name = 'v2_region_manager_account_repairs') = 14 AND EXISTS (SELECT 1 FROM iam.roles WHERE role_code = 'region_manager' AND status_code = 'active') AND NOT EXISTS (SELECT 1 FROM migration.v2_region_manager_account_repairs WHERE action_code NOT IN ('restored', 'skipped_username_conflict'))")"
+          [ "${v2_region_manager_repair_ready}" = "t" ] ||
+            失败 "V2区域管理员账号恢复的受控确认记录缺少完整结构或存在非法动作，拒绝升级。"
+          提示 "历史迁移 ${migration_version} 使用受控确认记录，已完成恢复审计结构校验。"
+          ;;
         *)
           失败 "迁移摘要格式不受支持：${migration_version}。拒绝绕过未知迁移校验。"
           ;;
