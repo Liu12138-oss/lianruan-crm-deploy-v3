@@ -18981,7 +18981,7 @@ function 组织编码路径参数(值) {
 
 async function 组织请求(路径, 初始化 = {}, 选项 = {}) {
   const headers = { ...(初始化.headers || {}) };
-  if (初始化.body && !headers['content-type']) headers['content-type'] = 'application/json';
+  if (初始化.body && !(初始化.body instanceof FormData) && !headers['content-type']) headers['content-type'] = 'application/json';
   if (选项.幂等键) headers['Idempotency-Key'] = 选项.幂等键;
 
   let 响应;
@@ -19033,6 +19033,13 @@ function 组织更新泛微OA身份候选(userId, candidateId, 内容, 选项 = 
 function 组织确认泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/confirm', 'POST', 内容, 选项); }
 function 组织驳回泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/reject', 'POST', 内容, 选项); }
 function 组织停用泛微OA身份(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity/disable', 'POST', 内容, 选项); }
+function 组织上传企业微信映射文件(路径, file, 选项 = {}) {
+  const 表单 = new FormData();
+  表单.append('file', file, file.name);
+  return 组织请求(路径, { method: 'POST', body: 表单 }, 选项);
+}
+function 组织预览企业微信身份导入(file) { return 组织上传企业微信映射文件('/api/org/wecom-identities/import-preview', file); }
+function 组织确认企业微信身份导入(file, 选项 = {}) { return 组织上传企业微信映射文件('/api/org/wecom-identities/import-confirm', file, 选项); }
 function 组织导出部门() { return 组织读取('/api/org/units/export'); }
 function 组织导出成员() { return 组织读取('/api/org/staff/export'); }
 function 组织导入部门(rows, 选项 = {}) { return 组织写入('/api/org/units/import', 'POST', { rows }, 选项); }
@@ -19488,6 +19495,28 @@ const OrganizationWorkspace = {
       </article>
 
       <article v-else class="组织卡片">
+        <section class="组织抽屉区块" style="margin-bottom:18px">
+          <div class="组织卡片标题">
+            <div>
+              <h2>企业微信账号映射导入</h2>
+              <p>上传“姓名、账号”文件，服务端严格匹配 V3 姓名后预览；账号列就是企业微信 UserId。</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <el-button v-if="可写" :loading="企微映射导入中" @click="触发企微映射文件选择">上传并预览</el-button>
+              <el-button v-if="企微映射预览" type="primary" :loading="企微映射导入中" :disabled="企微映射预览.summary.blocked > 0 || !企微映射预览.summary.ready" @click="确认企微映射导入">确认导入</el-button>
+            </div>
+          </div>
+          <input ref="企微映射文件输入" type="file" accept=".xlsx,.csv" hidden @change="处理企微映射文件" />
+          <el-alert title="导入边界" type="info" :closable="false" show-icon description="不会修改角色、区域、订单、泛微 OA 映射或自动拉群成员规则；文件未包含的旧企微映射不会自动停用。" />
+          <template v-if="企微映射预览">
+            <div class="同步状态" style="margin-top:12px">
+              <span>文件：<b>{{ 企微映射预览.fileName }}</b></span><span>总行数：<b>{{ 企微映射预览.summary.total }}</b></span><span>待新增：<b>{{ 企微映射预览.summary.ready }}</b></span><span>已一致：<b>{{ 企微映射预览.summary.unchanged }}</b></span><span>等待账号：<b>{{ 企微映射预览.summary.waitingForUser }}</b></span><span>阻断：<b>{{ 企微映射预览.summary.blocked }}</b></span>
+            </div>
+            <el-table :data="企微映射预览.rows" max-height="360" size="small" empty-text="暂无数据行">
+              <el-table-column prop="rowNumber" label="源行" width="75" /><el-table-column prop="displayName" label="姓名" min-width="120" /><el-table-column prop="wecomUserId" label="企业微信 UserId" min-width="180" /><el-table-column label="结果" width="130"><template #default="{ row }"><el-tag :type="企微映射状态类型(row.status)" size="small">{{ 企微映射状态中文(row.status) }}</el-tag></template></el-table-column><el-table-column prop="message" label="说明" min-width="280" />
+            </el-table>
+          </template>
+        </section>
         <el-alert
           title="企微组织同步仅支持只读预览"
           type="warning"
@@ -20010,6 +20039,10 @@ const OrganizationWorkspace = {
     const 离职影响预览 = ref(null);
     const 离职确认表单 = reactive({ replacementUserId: '', reason: '', confirmationUsername: '' });
     const 企微同步状态 = ref(null);
+    const 企微映射文件输入 = ref(null);
+    const 企微映射文件 = ref(null);
+    const 企微映射预览 = ref(null);
+    const 企微映射导入中 = ref(false);
     const 同步批次列表 = ref([]);
     const 同步差异列表 = ref([]);
     const 渠道同步预览摘要 = ref(null);
@@ -20522,6 +20555,58 @@ const OrganizationWorkspace = {
     function 触发文件选择(类型) {
       const 输入 = 类型 === '部门' ? 部门文件输入.value : 成员文件输入.value;
       if (输入) 输入.click();
+    }
+
+    function 触发企微映射文件选择() {
+      if (企微映射文件输入.value) 企微映射文件输入.value.click();
+    }
+
+    async function 处理企微映射文件(event) {
+      const 输入 = event.target;
+      const file = 输入?.files?.[0] || null;
+      if (输入) 输入.value = '';
+      if (!file || !可写.value) return;
+      if (!/\.(xlsx|csv)$/i.test(file.name)) {
+        ElementPlus.ElMessage.warning('仅支持 .xlsx 或 .csv 文件。');
+        return;
+      }
+      企微映射文件.value = file;
+      企微映射预览.value = null;
+      企微映射导入中.value = true;
+      try {
+        企微映射预览.value = await 组织预览企业微信身份导入(file);
+        ElementPlus.ElMessage.success('文件预览完成，请核对阻断项后再确认导入。');
+      } catch (error) {
+        企微映射文件.value = null;
+        ElementPlus.ElMessage.error('企微映射预览失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        企微映射导入中.value = false;
+      }
+    }
+
+    function 企微映射状态中文(status) {
+      return { ready: '待新增', unchanged: '已一致', waiting_for_user: '等待 V3 账号', blocked: '阻断' }[status] || status;
+    }
+
+    function 企微映射状态类型(status) {
+      return status === 'ready' ? 'success' : status === 'unchanged' ? 'info' : status === 'waiting_for_user' ? 'warning' : 'danger';
+    }
+
+    async function 确认企微映射导入() {
+      const file = 企微映射文件.value;
+      const preview = 企微映射预览.value;
+      if (!file || !preview || !可写.value || preview.summary.blocked > 0) return;
+      if (!window.confirm(`确认导入 ${preview.summary.ready} 条新的企业微信身份映射？已有映射不会被停用。`)) return;
+      企微映射导入中.value = true;
+      try {
+        const result = await 组织确认企业微信身份导入(file, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success(`企微映射导入完成，新增 ${result.imported} 条，已一致 ${result.unchanged} 条。`);
+        企微映射预览.value = await 组织预览企业微信身份导入(file);
+      } catch (error) {
+        ElementPlus.ElMessage.error('企微映射导入失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        企微映射导入中.value = false;
+      }
     }
 
     function 解析Excel工作簿(file) {
@@ -21551,7 +21636,15 @@ const OrganizationWorkspace = {
       平铺渠道组织列表,
       部门文件输入,
       成员文件输入,
+      企微映射文件输入,
       触发文件选择,
+      触发企微映射文件选择,
+      处理企微映射文件,
+      确认企微映射导入,
+      企微映射状态中文,
+      企微映射状态类型,
+      企微映射预览,
+      企微映射导入中,
       导出部门Excel,
       导出成员Excel,
       部门树引用,

@@ -216,6 +216,29 @@ export interface 企业微信身份 {
   rowVersion: number;
 }
 
+export type 企业微信映射导入状态 = "ready" | "unchanged" | "waiting_for_user" | "blocked";
+export interface 企业微信映射导入预览行 {
+  rowNumber: number;
+  displayName: string;
+  wecomUserId: string;
+  status: 企业微信映射导入状态;
+  message: string;
+  user?: { id: string; username: string; displayName: string };
+}
+export interface 企业微信映射导入预览 {
+  fileName: string;
+  sourceSha256: string;
+  rows: 企业微信映射导入预览行[];
+  summary: {
+    total: number;
+    ready: number;
+    unchanged: number;
+    waitingForUser: number;
+    blocked: number;
+  };
+  canConfirm: boolean;
+}
+
 export interface 企业微信同步状态 extends 接口对象 {
   enabled: boolean;
   applyEnabled: false;
@@ -301,7 +324,8 @@ async function 发送请求<T>(
   选项: Pick<写入选项, "幂等键"> = {},
 ): Promise<T> {
   const headers = new Headers(初始化.headers);
-  if (初始化.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+  if (初始化.body && !(初始化.body instanceof FormData) && !headers.has("content-type"))
+    headers.set("content-type", "application/json");
   if (选项.幂等键) headers.set("Idempotency-Key", 选项.幂等键);
 
   let 响应: Response;
@@ -348,6 +372,12 @@ function 写入<T>(
   选项: 写入选项 = {},
 ): Promise<T> {
   return 发送请求<T>(路径, { method, body: JSON.stringify(构建写入内容(内容, 选项)) }, 选项);
+}
+
+async function 上传企业微信映射文件<T>(路径: string, file: File, 选项: 写入选项 = {}): Promise<T> {
+  const 表单 = new FormData();
+  表单.append("file", file, file.name);
+  return 发送请求<T>(路径, { method: "POST", body: 表单 }, 选项);
 }
 
 export function 读取组织状态(): Promise<组织状态> {
@@ -633,6 +663,27 @@ export function 暂停企微同步批次(
 
 export function 读取泛微OA身份(userId: string): Promise<泛微OA身份详情> {
   return 读取<泛微OA身份详情>(`/api/org/users/${编码路径参数(userId)}/eteams-identity`);
+}
+
+export function 预览企业微信身份导入(file: File): Promise<企业微信映射导入预览> {
+  return 上传企业微信映射文件<企业微信映射导入预览>(
+    "/api/org/wecom-identities/import-preview",
+    file,
+  );
+}
+
+export function 确认企业微信身份导入(
+  file: File,
+  选项: 写入选项,
+): Promise<{
+  imported: number;
+  unchanged: number;
+  waitingForUser: number;
+  blocked: number;
+  sourceSha256: string;
+  identities: Array<{ id: string; username: string; displayName: string; wecomUserId: string }>;
+}> {
+  return 上传企业微信映射文件("/api/org/wecom-identities/import-confirm", file, 选项);
 }
 
 export function 创建泛微OA身份候选(

@@ -12,6 +12,7 @@ info:
     停用归档交接额外受 V3_ORGANIZATION_OFFBOARDING_ENABLED 控制，且开启前必须先开启账号状态防护；
     企微目录同步额外受 V3_DIRECTORY_SYNC_ENABLED 控制。以上开关默认均为 false。
     企微目录同步首期仅创建和读取 integration 域预览数据，绝不改写组织、账号、渠道或 CRM 主体数据。
+    企业微信身份映射导入仅写入 iam.external_identities，必须由超级管理员上传、预览并确认；不改变企微目录同步、泛微 OA、订单或自动拉群规则。
 servers:
   - url: /
     description: V3 同源服务入口
@@ -26,6 +27,8 @@ tags:
     description: 企业微信目录的只读连接、预览、批次和差异查询。
   - name: 泛微 OA 身份
     description: 泛微 OA／eteams 发起人身份的候选核验与正式映射维护；候选不具备流程发起资格。
+  - name: 企业微信身份映射
+    description: 企业微信 UserId 与 V3 用户的受控文件导入；仅新增有效映射并保留审计。
 paths:
   /api/org/status:
     get:
@@ -209,6 +212,41 @@ paths:
         "403": { $ref: "#/components/responses/组织写入关闭" }
         "404": { $ref: "#/components/responses/组织不存在" }
         "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/wecom-identities/import-preview:
+    post:
+      tags: [企业微信身份映射]
+      operationId: 预览企业微信身份映射导入
+      summary: 上传并预览企业微信 UserId 映射文件
+      description: 仅超级管理员且组织写入开关开启时可调用。支持 UTF-8 CSV 和 XLSX；服务端按姓名严格匹配启用 V3 用户，不写入数据库。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/企业微信身份映射文件上传" }
+      responses:
+        "200": { $ref: "#/components/responses/企业微信身份映射预览成功" }
+        "400": { $ref: "#/components/responses/企业微信身份映射请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/wecom-identities/import-confirm:
+    post:
+      tags: [企业微信身份映射]
+      operationId: 确认企业微信身份映射导入
+      summary: 在串行化事务内确认企业微信 UserId 映射导入
+      description: 必须重新上传文件并携带 Idempotency-Key。服务端重新校验数据库现状；存在任何阻断项时整批拒绝，成功后逐条写入审计。
+      parameters: [{ $ref: "#/components/parameters/幂等键必填" }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/企业微信身份映射文件上传" }
+      responses:
+        "200": { $ref: "#/components/responses/企业微信身份映射导入成功" }
+        "400": { $ref: "#/components/responses/企业微信身份映射请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/企业微信身份映射冲突" }
   /api/org/channel-members/{id}/profile:
     get:
       tags: [组织架构]
@@ -1010,11 +1048,6 @@ components:
       in: path
       required: true
       schema: { $ref: "#/components/schemas/UUID" }
-    用户编号:
-      name: userId
-      in: path
-      required: true
-      schema: { $ref: "#/components/schemas/UUID" }
     同步批次编号:
       name: id
       in: path
@@ -1035,6 +1068,12 @@ components:
       in: header
       required: false
       description: 当前已接入组织写入服务的接口支持该键；长度不得超过 200。相同操作、相同主体和相同请求摘要会返回原结果；同键不同摘要返回 ORG_IDEMPOTENCY_CONFLICT。
+      schema: { type: string, minLength: 1, maxLength: 200 }
+    幂等键必填:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 企业微信身份映射确认导入必须提供；网络超时重试时必须复用原值。
       schema: { type: string, minLength: 1, maxLength: 200 }
   requestBodies:
     行版本请求:
@@ -1059,6 +1098,12 @@ components:
     组织树成功:
       description: 组织树读取成功。
       content: { application/json: { schema: { $ref: "#/components/schemas/组织树成功响应" } } }
+    企业微信身份映射预览成功:
+      description: 企业微信身份映射文件已解析并完成只读预览。
+      content: { application/json: { schema: { $ref: "#/components/schemas/企业微信身份映射预览成功响应" } } }
+    企业微信身份映射导入成功:
+      description: 企业微信身份映射已在事务内导入并完成审计。
+      content: { application/json: { schema: { $ref: "#/components/schemas/企业微信身份映射导入成功响应" } } }
     企微状态成功:
       description: 企微同步状态读取成功。
       content: { application/json: { schema: { $ref: "#/components/schemas/企微状态成功响应" } } }
@@ -1080,11 +1125,17 @@ components:
     组织请求不合法:
       description: ORG_REQUEST_INVALID 或 ORG_IDEMPOTENCY_KEY_INVALID
       content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企业微信身份映射请求不合法:
+      description: ORG_WECOM_IMPORT_FILE_MISSING、ORG_WECOM_IMPORT_FILE_TYPE_INVALID、ORG_WECOM_IMPORT_FILE_EMPTY、ORG_WECOM_IMPORT_FILE_PARSE_FAILED、ORG_WECOM_IMPORT_HEADER_MISSING、ORG_WECOM_IMPORT_HEADER_INVALID、ORG_WECOM_IMPORT_ROW_EMPTY、ORG_WECOM_IMPORT_ROW_LIMIT_EXCEEDED、ORG_WECOM_IMPORT_UPLOAD_FAILED 或 ORG_IDEMPOTENCY_KEY_REQUIRED
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
     组织不存在:
       description: ORG_NOT_FOUND
       content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
     组织并发或约束冲突:
       description: ORG_VERSION_CONFLICT、ORG_CONFLICT、ORG_IDEMPOTENCY_CONFLICT 或 ORG_IDEMPOTENCY_PROCESSING
+      content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
+    企业微信身份映射冲突:
+      description: ORG_WECOM_IMPORT_BLOCKED、ORG_WECOM_IMPORT_NOTHING_TO_IMPORT、ORG_CONFLICT、ORG_IDEMPOTENCY_CONFLICT 或 ORG_IDEMPOTENCY_PROCESSING
       content: { application/json: { schema: { $ref: "#/components/schemas/错误响应" } } }
     组织物理删除禁止:
       description: ORG_PHYSICAL_DELETE_DISABLED
@@ -1226,6 +1277,80 @@ components:
                 enabled: { type: boolean }
                 applyEnabled: { const: false, description: 当前版本固定为 false。 }
                 mode: { type: string, enum: [disabled, readonly_preview] }
+    企业微信身份映射文件上传:
+      type: object
+      required: [file]
+      properties:
+        file:
+          type: string
+          format: binary
+          description: UTF-8 CSV 或 XLSX 文件，最大 5MB，表头必须为“姓名”和“账号”。账号列为企业微信 UserId。
+    企业微信身份映射预览成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [fileName, sourceSha256, rows, summary, canConfirm]
+              properties:
+                fileName: { type: string }
+                sourceSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+                rows:
+                  type: array
+                  items: { $ref: "#/components/schemas/企业微信身份映射预览行" }
+                summary: { $ref: "#/components/schemas/企业微信身份映射汇总" }
+                canConfirm: { type: boolean }
+    企业微信身份映射导入成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [imported, unchanged, waitingForUser, blocked, sourceSha256, identities]
+              properties:
+                imported: { type: integer, minimum: 0 }
+                unchanged: { type: integer, minimum: 0 }
+                waitingForUser: { type: integer, minimum: 0 }
+                blocked: { const: 0 }
+                sourceSha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+                identities:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, userId, username, displayName, wecomUserId, rowNumber]
+                    properties:
+                      id: { $ref: "#/components/schemas/UUID" }
+                      userId: { $ref: "#/components/schemas/UUID" }
+                      username: { type: string }
+                      displayName: { type: string }
+                      wecomUserId: { type: string }
+                      rowNumber: { type: integer, minimum: 2 }
+    企业微信身份映射预览行:
+      type: object
+      required: [rowNumber, displayName, wecomUserId, status, message]
+      properties:
+        rowNumber: { type: integer, minimum: 2 }
+        displayName: { type: string }
+        wecomUserId: { type: string }
+        status: { type: string, enum: [ready, unchanged, waiting_for_user, blocked] }
+        message: { type: string }
+        user:
+          type: object
+          properties:
+            id: { $ref: "#/components/schemas/UUID" }
+            username: { type: string }
+            displayName: { type: string }
+    企业微信身份映射汇总:
+      type: object
+      required: [total, ready, unchanged, waitingForUser, blocked]
+      properties:
+        total: { type: integer, minimum: 0 }
+        ready: { type: integer, minimum: 0 }
+        unchanged: { type: integer, minimum: 0 }
+        waitingForUser: { type: integer, minimum: 0 }
+        blocked: { type: integer, minimum: 0 }
     错误响应:
       type: object
       required: [success, error, meta]

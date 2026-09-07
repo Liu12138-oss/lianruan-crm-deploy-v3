@@ -2,11 +2,13 @@ import crypto from "node:crypto";
 
 import type { 构建信息 } from "@lianruan/shared";
 import { 创建成功响应, 应用错误 } from "@lianruan/shared";
-import type { Request, Router } from "express";
+import type { Request, RequestHandler, Router } from "express";
 import { Router as 创建路由器 } from "express";
+import multer from "multer";
 
 import { 读取请求会话用户名, 读取请求会话角色 } from "./auth-routes.js";
 import { 创建组织数据服务, type 组织操作人, type 组织数据服务 } from "./org-store.js";
+import { 解析企业微信映射文件 } from "./wecom-identity-import.js";
 
 export interface 组织路由参数 {
   build: 构建信息;
@@ -22,6 +24,10 @@ export interface 组织路由参数 {
  */
 export function 创建组织路由(参数: 组织路由参数): Router {
   const router = 创建路由器();
+  const 上传企微映射文件 = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 },
+  }).single("file");
   let service = 参数.service;
   const 获取服务 = (): 组织数据服务 => {
     if (!service)
@@ -367,6 +373,26 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     "/channel-sync/execute",
     执行写入((req, 主体) => 获取服务().执行渠道商同步(读取对象(req), 主体)),
   );
+  router.post(
+    "/wecom-identities/import-preview",
+    校验企微导入权限(参数),
+    解析企微上传文件(上传企微映射文件),
+    执行(async (req) => {
+      return 获取服务().预览企业微信身份导入(读取企微映射文件(req));
+    }),
+  );
+  router.post(
+    "/wecom-identities/import-confirm",
+    校验企微导入权限(参数),
+    解析企微上传文件(上传企微映射文件),
+    执行(async (req) => {
+      const 主体 = 读取可写主体(req, 参数);
+      const file = 读取企微映射文件(req);
+      return 执行企微导入幂等写入(req, 获取服务(), 主体, file.sourceSha256, () =>
+        获取服务().确认企业微信身份导入(file, 主体),
+      );
+    }),
+  );
   router.get(
     "/users/:userId/eteams-identity",
     执行(async (req) => {
@@ -567,6 +593,43 @@ function 读取对象(req: Request): Record<string, unknown> {
     throw new 应用错误("ORG_REQUEST_INVALID", "请求内容必须是对象。", 400);
   return req.body as Record<string, unknown>;
 }
+
+function 解析企微上传文件(上传: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    上传(req, res, (error: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+      if (error instanceof multer.MulterError) {
+        const message =
+          error.code === "LIMIT_FILE_SIZE"
+            ? "企业微信映射文件不能超过5MB。"
+            : "企业微信映射文件上传失败。";
+        next(new 应用错误("ORG_WECOM_IMPORT_UPLOAD_FAILED", message, 400));
+        return;
+      }
+      next(new 应用错误("ORG_WECOM_IMPORT_UPLOAD_FAILED", "企业微信映射文件上传失败。", 400));
+    });
+  };
+}
+
+function 校验企微导入权限(参数: 组织路由参数): RequestHandler {
+  return (req, _res, next) => {
+    try {
+      读取可写主体(req, 参数);
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+function 读取企微映射文件(req: Request) {
+  const file = req.file;
+  if (!file) throw new 应用错误("ORG_WECOM_IMPORT_FILE_MISSING", "请上传企业微信映射文件。", 400);
+  return 解析企业微信映射文件(file.originalname, file.buffer);
+}
 async function 执行组织幂等写入<T>(
   req: Request,
   服务: 组织数据服务,
@@ -588,6 +651,32 @@ async function 执行组织幂等写入<T>(
           JSON.stringify({ method: req.method, path: req.path, body: req.body || null }),
           "utf8",
         )
+        .digest("hex"),
+    },
+    操作,
+  );
+}
+
+async function 执行企微导入幂等写入<T>(
+  req: Request,
+  服务: 组织数据服务,
+  主体: 组织操作人,
+  sourceSha256: string,
+  操作: () => Promise<T>,
+): Promise<T> {
+  const value = req.headers["idempotency-key"];
+  if (typeof value !== "string" || !value.trim())
+    throw new 应用错误("ORG_IDEMPOTENCY_KEY_REQUIRED", "确认导入必须提供幂等键。", 400);
+  const key = value.trim();
+  if (key.length > 200)
+    throw new 应用错误("ORG_IDEMPOTENCY_KEY_INVALID", "幂等键长度不能超过200个字符。", 400);
+  return 服务.执行幂等(
+    {
+      作用域: `org:${主体.username}:${req.method}:${req.path}`,
+      幂等键: key,
+      请求哈希: crypto
+        .createHash("sha256")
+        .update(JSON.stringify({ method: req.method, path: req.path, sourceSha256 }), "utf8")
         .digest("hex"),
     },
     操作,

@@ -55,6 +55,10 @@ case "${admin_script}" in *"router.push('/organization/units')"*) ;; *) echo "�
 case "${admin_script}" in *"{ path: 'organization/units', component: OrganizationWorkspace }"*) ;; *) echo "冒烟失败：管理员页面缺少组织架构内嵌路由。" >&2; exit 1 ;; esac
 case "${admin_script}" in *"/api/org/status"*) ;; *) echo "冒烟失败：管理员页面缺少组织状态读取逻辑。" >&2; exit 1 ;; esac
 case "${admin_script}" in *"只读观察"*) ;; *) echo "冒烟失败：管理员页面缺少组织只读观察状态。" >&2; exit 1 ;; esac
+case "${admin_script}" in
+  *"企业微信账号映射导入"*"/api/org/wecom-identities/import-preview"*"/api/org/wecom-identities/import-confirm"*) ;;
+  *) echo "冒烟失败：管理员页面缺少企业微信身份映射受控导入入口。" >&2; exit 1 ;;
+esac
 wait_for_http "组织架构工作区" "${base_url}/workspace/admin/platform-admin/organization/units"
 case "${response_body}" in *'id="app"'*) ;; *) echo "冒烟失败：组织架构工作区未由当前静态产物提供。" >&2; exit 1 ;; esac
 case "${admin_script}" in *"统一消息"*|*"企业微信"*) ;; *) echo "冒烟失败：管理员页面缺少统一消息管理能力。" >&2; exit 1 ;; esac

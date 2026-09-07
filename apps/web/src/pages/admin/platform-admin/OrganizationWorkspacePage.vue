@@ -7,6 +7,7 @@ import {
   type 业务角色,
   type 任职,
   type 企业微信同步状态,
+  type 企业微信映射导入预览,
   停用泛微OA身份,
   创建业务角色,
   创建任职,
@@ -41,6 +42,7 @@ import {
   type 泛微OA身份候选,
   type 泛微OA身份详情,
   生成组织幂等键,
+  确认企业微信身份导入,
   确认泛微OA身份候选,
   type 离职交接单,
   type 组织单元,
@@ -59,6 +61,7 @@ import {
   type 账号台账行,
   重置用户密码,
   颁发证书 as 颁发证书API,
+  预览企业微信身份导入,
   驳回泛微OA身份候选,
 } from "../../../api/organization-client.js";
 
@@ -140,6 +143,10 @@ const 证书模板列表 = ref<证书模板[]>([]);
 const 成员证书列表 = ref<成员证书[]>([]);
 const 离职交接列表 = ref<离职交接单[]>([]);
 const 企微同步状态 = ref<企业微信同步状态 | null>(null);
+const 企微映射文件输入 = ref<HTMLInputElement | null>(null);
+const 企微映射文件 = ref<File | null>(null);
+const 企微映射预览 = ref<企业微信映射导入预览 | null>(null);
+const 企微映射导入中 = ref(false);
 const 同步批次列表 = ref<同步批次[]>([]);
 const 同步差异列表 = ref<同步差异[]>([]);
 const 部门文件输入 = ref<HTMLInputElement | null>(null);
@@ -575,6 +582,78 @@ async function 加载页面() {
 function 触发文件选择(类型: "部门" | "成员") {
   const 输入 = 类型 === "部门" ? 部门文件输入.value : 成员文件输入.value;
   输入?.click();
+}
+
+function 触发企微映射文件选择(): void {
+  企微映射文件输入.value?.click();
+}
+
+async function 处理企微映射文件(event: Event): Promise<void> {
+  const 输入 = event.target as HTMLInputElement | null;
+  const file = 输入?.files?.[0] || null;
+  if (输入) 输入.value = "";
+  if (!file || !可写.value) return;
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    ElMessage.warning("仅支持 .xlsx 或 .csv 文件。");
+    return;
+  }
+  企微映射文件.value = file;
+  企微映射预览.value = null;
+  企微映射导入中.value = true;
+  try {
+    企微映射预览.value = await 预览企业微信身份导入(file);
+    ElMessage.success("文件预览完成，请核对阻断项后再确认导入。");
+  } catch (error) {
+    企微映射文件.value = null;
+    ElMessage.error("企微映射预览失败：" + 读取错误信息(error, "未知错误"));
+  } finally {
+    企微映射导入中.value = false;
+  }
+}
+
+function 企微映射状态中文(status: string): string {
+  return (
+    {
+      ready: "待新增",
+      unchanged: "已一致",
+      waiting_for_user: "等待 V3 账号",
+      blocked: "阻断",
+    }[status] || status
+  );
+}
+
+function 企微映射状态类型(status: string): "success" | "info" | "warning" | "danger" {
+  return status === "ready"
+    ? "success"
+    : status === "unchanged"
+      ? "info"
+      : status === "waiting_for_user"
+        ? "warning"
+        : "danger";
+}
+
+async function 确认企微映射导入(): Promise<void> {
+  const file = 企微映射文件.value;
+  const preview = 企微映射预览.value;
+  if (!file || !preview || !可写.value || preview.summary.blocked > 0) return;
+  if (
+    !window.confirm(
+      `确认导入 ${preview.summary.ready} 条新的企业微信身份映射？已有映射不会被停用。`,
+    )
+  )
+    return;
+  企微映射导入中.value = true;
+  try {
+    const result = await 确认企业微信身份导入(file, { 幂等键: 生成组织幂等键() });
+    ElMessage.success(
+      `企微映射导入完成，新增 ${result.imported} 条，已一致 ${result.unchanged} 条。`,
+    );
+    企微映射预览.value = await 预览企业微信身份导入(file);
+  } catch (error) {
+    ElMessage.error("企微映射导入失败：" + 读取错误信息(error, "未知错误"));
+  } finally {
+    企微映射导入中.value = false;
+  }
 }
 
 function 解析Excel工作簿(file: File): Promise<Record<string, unknown>[]> {
@@ -1975,6 +2054,83 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
         </article>
 
         <article v-else class="组织卡片">
+          <section class="组织抽屉区块" style="margin-bottom: 18px">
+            <div class="组织卡片标题">
+              <div>
+                <h2>企业微信账号映射导入</h2>
+                <p>
+                  上传“姓名、账号”文件，服务端严格匹配 V3 姓名后预览；账号列就是企业微信 UserId。
+                </p>
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <el-button v-if="可写" :loading="企微映射导入中" @click="触发企微映射文件选择"
+                  >上传并预览</el-button
+                >
+                <el-button
+                  v-if="企微映射预览"
+                  type="primary"
+                  :loading="企微映射导入中"
+                  :disabled="企微映射预览.summary.blocked > 0 || !企微映射预览.summary.ready"
+                  @click="确认企微映射导入"
+                  >确认导入</el-button
+                >
+              </div>
+            </div>
+            <input
+              ref="企微映射文件输入"
+              type="file"
+              accept=".xlsx,.csv"
+              hidden
+              @change="处理企微映射文件"
+            />
+            <el-alert
+              title="导入边界"
+              type="info"
+              :closable="false"
+              show-icon
+              description="不会修改角色、区域、订单、泛微 OA 映射或自动拉群成员规则；文件未包含的旧企微映射不会自动停用。"
+            />
+            <template v-if="企微映射预览">
+              <div class="同步状态" style="margin-top: 12px">
+                <span
+                  >文件：<b>{{ 企微映射预览.fileName }}</b></span
+                >
+                <span
+                  >总行数：<b>{{ 企微映射预览.summary.total }}</b></span
+                >
+                <span
+                  >待新增：<b>{{ 企微映射预览.summary.ready }}</b></span
+                >
+                <span
+                  >已一致：<b>{{ 企微映射预览.summary.unchanged }}</b></span
+                >
+                <span
+                  >等待账号：<b>{{ 企微映射预览.summary.waitingForUser }}</b></span
+                >
+                <span
+                  >阻断：<b>{{ 企微映射预览.summary.blocked }}</b></span
+                >
+              </div>
+              <el-table
+                :data="企微映射预览.rows"
+                max-height="360"
+                size="small"
+                empty-text="暂无数据行"
+              >
+                <el-table-column prop="rowNumber" label="源行" width="75" />
+                <el-table-column prop="displayName" label="姓名" min-width="120" />
+                <el-table-column prop="wecomUserId" label="企业微信 UserId" min-width="180" />
+                <el-table-column label="结果" width="130">
+                  <template #default="{ row }"
+                    ><el-tag :type="企微映射状态类型(row.status)" size="small">{{
+                      企微映射状态中文(row.status)
+                    }}</el-tag></template
+                  >
+                </el-table-column>
+                <el-table-column prop="message" label="说明" min-width="280" />
+              </el-table>
+            </template>
+          </section>
           <el-alert
             title="企微组织同步仅支持只读预览"
             type="warning"

@@ -205,6 +205,12 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     清理Web镜像检查
     失败 "目标 admin-app.js 缺少组织架构内嵌入口与路由。"
   fi
+  if ! grep -Fq '企业微信账号映射导入' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/org/wecom-identities/import-preview' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/org/wecom-identities/import-confirm' "${static_dir}/admin-app.js"; then
+    清理Web镜像检查
+    失败 "目标 Web 静态资源缺少企业微信身份映射受控导入入口。"
+  fi
   image_workspace_assets=()
   while IFS= read -r workspace_candidate; do
     image_workspace_assets+=("${workspace_candidate}")
@@ -273,13 +279,13 @@ cp "${runtime_dir}/sha256sum.txt" "${output_dir}/runtime/"
 
 cp "${project_root}/database/migrations/"*.sql "${output_dir}/database/migrations/"
 
-for name in install.sh install-all.sh install-runtime.sh load-images.sh generate-secrets.sh preflight.sh migrate-db.sh start.sh stop.sh health-check.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh; do
+for name in install.sh install-all.sh install-runtime.sh load-images.sh generate-secrets.sh preflight.sh migrate-db.sh start.sh stop.sh health-check.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh 导入订单预审OA与企微身份映射.sh; do
   [ -f "${project_root}/deploy/single-server/scripts/${name}" ] && cp "${project_root}/deploy/single-server/scripts/${name}" "${output_dir}/scripts/"
 done
 
 cp "${project_root}/deploy/single-server/compose/docker-compose.yml" "${output_dir}/files/compose/"
 cp "${project_root}/deploy/single-server/config/nginx/default.conf" "${output_dir}/files/config/nginx/"
-for name in health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh; do
+for name in health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh 导入订单预审OA与企微身份映射.sh; do
   [ -f "${project_root}/deploy/single-server/scripts/${name}" ] && cp "${project_root}/deploy/single-server/scripts/${name}" "${output_dir}/files/scripts/"
 done
 cp "${sp_app_dir}/scripts/precheck-sp-full.sh" "${output_dir}/files/scripts/" 2>/dev/null || true

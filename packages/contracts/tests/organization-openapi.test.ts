@@ -74,4 +74,17 @@ describe("组织架构 OpenAPI 契约", () => {
     expect(契约内容).toContain("required: [identityId, rowVersion, reason]");
     expect(契约内容).toContain("enum: [manual, eteams_directory]");
   });
+
+  it("声明企业微信 UserId 文件导入的预览、确认和幂等边界", async () => {
+    const 契约内容 = await readFile(契约路径, "utf8");
+
+    expect(契约内容).toContain("/api/org/wecom-identities/import-preview:");
+    expect(契约内容).toContain("/api/org/wecom-identities/import-confirm:");
+    expect(契约内容).toContain("企业微信身份映射文件上传:");
+    expect(契约内容).toContain("format: binary");
+    expect(契约内容).toContain("幂等键必填:");
+    expect(契约内容).toContain("企业微信身份映射预览行:");
+    expect(契约内容).toContain("waiting_for_user");
+    expect(契约内容).toContain("ORG_WECOM_IMPORT_BLOCKED");
+  });
 });

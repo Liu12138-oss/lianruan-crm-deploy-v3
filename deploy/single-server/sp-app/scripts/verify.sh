@@ -183,6 +183,45 @@ organization_schema_ready="$(run_compose exec -T postgres psql -U lianruan_app -
   exit 1
 }
 
+s10_018_file="${package_root}/database/migrations/20260907_S10_018_客户报备业务编号函数补齐.sql"
+s10_019_file="${package_root}/database/migrations/20260907_S10_019_企微身份用户唯一约束.sql"
+[ -f "${s10_018_file}" ] && [ -f "${s10_019_file}" ] || {
+  echo "验证失败：升级包缺少客户报备编号修复或企业微信身份唯一约束迁移。" >&2
+  exit 1
+}
+s10_018_checksum="$(sha256sum "${s10_018_file}" | awk '{print $1}')"
+s10_019_checksum="$(sha256sum "${s10_019_file}" | awk '{print $1}')"
+current_fix_migrations_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT count(*) = 2
+  FROM migration.schema_migrations
+  WHERE (version='20260907_S10_018_客户报备业务编号函数补齐' AND checksum_sha256='${s10_018_checksum}')
+     OR (version='20260907_S10_019_企微身份用户唯一约束' AND checksum_sha256='${s10_019_checksum}')
+" | tr -d '[:space:]')"
+[ "${current_fix_migrations_ready}" = "t" ] || {
+  echo "验证失败：客户报备编号修复或企业微信身份唯一约束迁移账本未正确登记。" >&2
+  exit 1
+}
+business_number_function_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT to_regprocedure('crm.next_business_number(text,text)') IS NOT NULL
+     AND pg_get_functiondef('crm.next_business_number(text,text)'::regprocedure) LIKE '%registration%'
+" | tr -d '[:space:]')"
+[ "${business_number_function_ready}" = "t" ] || {
+  echo "验证失败：客户报备业务编号函数未恢复 registration 支持。" >&2
+  exit 1
+}
+wecom_identity_constraint_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT to_regclass('iam.ux_external_identities_wecom_user_active') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM iam.external_identities
+       WHERE provider_code='wecom' AND status_code='active'
+       GROUP BY user_id HAVING count(*) > 1
+     )
+" | tr -d '[:space:]')"
+[ "${wecom_identity_constraint_ready}" = "t" ] || {
+  echo "验证失败：企业微信有效身份用户唯一约束或历史数据校验未通过。" >&2
+  exit 1
+}
+
 env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${install_root}" bash "${install_root}/scripts/health-check.sh"
 wait_for_http "/health/live" http://127.0.0.1/health/live
 for required_text in '"success":true' '"status":"ok"' "\"版本\":\"${TARGET_VERSION}\""; do
@@ -231,6 +270,10 @@ esac
 case "${admin_script_text}" in
   *"只读观察"*) ;;
   *) echo "验证失败：正式 admin-app.js 缺少组织只读观察状态。" >&2; exit 1 ;;
+esac
+case "${admin_script_text}" in
+  *"企业微信账号映射导入"*"/api/org/wecom-identities/import-preview"*"/api/org/wecom-identities/import-confirm"*) ;;
+  *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射受控导入入口。" >&2; exit 1 ;;
 esac
 wait_for_http "组织架构工作区" http://127.0.0.1/workspace/admin/platform-admin/organization/units
 workspace_html_body="${response_body}"

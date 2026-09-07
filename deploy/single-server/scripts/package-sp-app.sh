@@ -219,6 +219,12 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     清理Web镜像检查
     失败 "目标 Web 静态资源缺少非内置超管角色调整与会话失效保护。"
   fi
+  if ! grep -Fq '企业微信账号映射导入' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/org/wecom-identities/import-preview' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/org/wecom-identities/import-confirm' "${static_dir}/admin-app.js"; then
+    清理Web镜像检查
+    失败 "目标 Web 静态资源缺少企业微信身份映射受控导入入口。"
+  fi
   image_workspace_assets=()
   while IFS= read -r workspace_candidate; do
     image_workspace_assets+=("${workspace_candidate}")
@@ -261,7 +267,7 @@ cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-worker-${target_
 cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-nginx-${target_version}.docker-image" "${output_dir}/images/"
 cp "${project_root}/deploy/single-server/compose/docker-compose.yml" "${output_dir}/files/compose/"
 cp "${project_root}/deploy/single-server/config/nginx/default.conf" "${output_dir}/files/config/nginx/"
-for name in health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh; do
+for name in health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh 导入订单预审OA与企微身份映射.sh; do
   [ -f "${project_root}/deploy/single-server/scripts/${name}" ] && cp "${project_root}/deploy/single-server/scripts/${name}" "${output_dir}/files/scripts/"
 done
 cp -R "${project_root}/database/migrations" "${output_dir}/database/"

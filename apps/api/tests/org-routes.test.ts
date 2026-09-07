@@ -1,6 +1,7 @@
 import { 创建测试环境变量 } from "@lianruan/testing";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 
 import { 创建密码散列 } from "../src/auth-routes.js";
 import { 创建应用 } from "../src/index.js";
@@ -142,6 +143,14 @@ function 创建服务(): 组织数据服务 {
       details: [{ partnerCode: "P-NEW", regionCode: "P-NEW", action: "create" }],
     }),
     查询泛微OA身份: async () => ({ formalIdentity: null, candidates: [], wecomIdentities: [] }),
+    预览企业微信身份导入: async () => ({
+      fileName: "映射.xlsx",
+      sourceSha256: "sha256",
+      rows: [],
+      summary: { total: 0, ready: 0, unchanged: 0, waitingForUser: 0, blocked: 0 },
+      canConfirm: false,
+    }),
+    确认企业微信身份导入: async () => ({ imported: 0 }),
     新建泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     更新泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     确认泛微OA身份候选: async () => ({
@@ -872,5 +881,108 @@ describe("组织架构路由", () => {
       .send({ unitName: "新部门", parentUnitId: null })
       .expect(200);
     expect(入参).toEqual({ unitName: "新部门", parentUnitId: null });
+  });
+
+  it("企业微信身份导入仅允许开启组织写入的超级管理员预览和确认", async () => {
+    const 服务 = 创建服务();
+    const 预览调用: string[] = [];
+    const 确认调用: string[] = [];
+    服务.预览企业微信身份导入 = async (file) => {
+      预览调用.push(`${file.fileName}:${file.rows[0]?.displayName}`);
+      return {
+        fileName: file.fileName,
+        sourceSha256: file.sourceSha256,
+        rows: [
+          {
+            rowNumber: 2,
+            displayName: "张三",
+            wecomUserId: "zhangsan",
+            status: "ready" as const,
+            message: "可导入",
+          },
+        ],
+        summary: { total: 1, ready: 1, unchanged: 0, waitingForUser: 0, blocked: 0 },
+        canConfirm: true,
+      };
+    };
+    服务.确认企业微信身份导入 = async (file, actor) => {
+      确认调用.push(`${file.sourceSha256}:${actor.username}`);
+      return { imported: 1, unchanged: 0, waitingForUser: 0, blocked: 0, identities: [] };
+    };
+    const app = 创建应用({
+      env: {
+        ...基础环境,
+        V3_ORGANIZATION_ENABLED: "true",
+        V3_ORGANIZATION_WRITE_ENABLED: "true",
+      },
+      orgService: 服务,
+    });
+    const cookie = await 登录Cookie(app, "org_admin");
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["姓名", "账号"],
+        ["张三", "zhangsan"],
+      ]),
+      "Sheet1",
+    );
+    const xlsx = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    await request(app)
+      .post("/api/org/wecom-identities/import-preview")
+      .set("Cookie", cookie)
+      .attach("file", xlsx, { filename: "企业微信映射.xlsx" })
+      .expect(200);
+    expect(预览调用).toEqual(["企业微信映射.xlsx:张三"]);
+
+    await request(app)
+      .post("/api/org/wecom-identities/import-confirm")
+      .set("Cookie", cookie)
+      .attach("file", xlsx, { filename: "企业微信映射.xlsx" })
+      .expect(400);
+    expect(确认调用).toEqual([]);
+
+    await request(app)
+      .post("/api/org/wecom-identities/import-confirm")
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", "wecom-import-confirm-001")
+      .attach("file", xlsx, { filename: "企业微信映射.xlsx" })
+      .expect(200);
+    expect(确认调用).toHaveLength(1);
+    expect(确认调用[0]).toContain(":org_admin");
+  });
+
+  it("企业微信身份导入在组织写入关闭或非超级管理员时不解析和调用服务", async () => {
+    const 服务 = 创建服务();
+    const 预览 = vi.fn(服务.预览企业微信身份导入);
+    服务.预览企业微信身份导入 = 预览;
+    const csv = Buffer.from("姓名,账号\n张三,zhangsan\n", "utf8");
+    const 只读应用 = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true" },
+      orgService: 服务,
+    });
+    const 超管Cookie = await 登录Cookie(只读应用, "org_admin");
+    await request(只读应用)
+      .post("/api/org/wecom-identities/import-preview")
+      .set("Cookie", 超管Cookie)
+      .attach("file", csv, { filename: "企业微信映射.csv", contentType: "text/csv" })
+      .expect(403);
+
+    const 普通应用 = 创建应用({
+      env: {
+        ...基础环境,
+        V3_ORGANIZATION_ENABLED: "true",
+        V3_ORGANIZATION_WRITE_ENABLED: "true",
+      },
+      orgService: 服务,
+    });
+    const 普通Cookie = await 登录Cookie(普通应用, "normal_admin");
+    await request(普通应用)
+      .post("/api/org/wecom-identities/import-preview")
+      .set("Cookie", 普通Cookie)
+      .attach("file", csv, { filename: "企业微信映射.csv", contentType: "text/csv" })
+      .expect(403);
+    expect(预览).not.toHaveBeenCalled();
   });
 });

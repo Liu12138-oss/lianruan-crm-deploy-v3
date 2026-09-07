@@ -11,9 +11,11 @@ import {
   查询成员业务角色,
   查询负责人关系,
   生成企微同步预览,
+  确认企业微信身份导入,
   确认泛微OA身份候选,
   读取泛微OA身份,
   读取组织状态,
+  预览企业微信身份导入,
   驳回泛微OA身份候选,
 } from "../src/api/organization-client.js";
 
@@ -242,6 +244,27 @@ describe("组织架构接口客户端", () => {
       reason: "人员调整",
       rowVersion: 5,
     });
+  });
+
+  it("企业微信身份导入使用 multipart 文件、Cookie 和确认幂等键", async () => {
+    const fetchMock = vi.fn(async () => 成功响应({ summary: { ready: 1, blocked: 0 } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["姓名,账号\n张三,zhangsan\n"], "企业微信映射.csv", {
+      type: "text/csv",
+    });
+
+    await 预览企业微信身份导入(file);
+    await 确认企业微信身份导入(file, { 幂等键: "wecom-import-001" });
+
+    const 请求 = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(请求.map(([路径]) => 路径)).toEqual([
+      "/api/org/wecom-identities/import-preview",
+      "/api/org/wecom-identities/import-confirm",
+    ]);
+    expect(请求.every(([, 初始化]) => 初始化.credentials === "include")).toBe(true);
+    expect(请求.every(([, 初始化]) => 初始化.body instanceof FormData)).toBe(true);
+    expect(new Headers(请求[0]?.[1].headers).has("content-type")).toBe(false);
+    expect(new Headers(请求[1]?.[1].headers).get("Idempotency-Key")).toBe("wecom-import-001");
   });
 
   it("将服务端中文错误、错误码和请求编号转换为可识别错误", async () => {

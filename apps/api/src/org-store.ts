@@ -3,6 +3,14 @@ import crypto from "node:crypto";
 import { 应用错误 } from "@lianruan/shared";
 import { Pool, type PoolClient } from "pg";
 
+import {
+  type 企业微信映射导入文件,
+  type 企业微信映射导入用户,
+  type 企业微信映射导入预览,
+  type 企业微信有效身份,
+  构建企业微信映射导入预览,
+} from "./wecom-identity-import.js";
+
 export interface 组织操作人 {
   username: string;
   requestId: string;
@@ -116,6 +124,8 @@ export interface 组织数据服务 {
     input: Record<string, unknown>,
     actor: 组织操作人,
   ): Promise<unknown>;
+  预览企业微信身份导入(file: 企业微信映射导入文件): Promise<企业微信映射导入预览>;
+  确认企业微信身份导入(file: 企业微信映射导入文件, actor: 组织操作人): Promise<unknown>;
   执行幂等<T>(参数: 组织幂等参数, 操作: () => Promise<T>): Promise<T>;
 }
 
@@ -2263,6 +2273,87 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       return 结果.rows[0];
     });
   }
+  async 预览企业微信身份导入(file: 企业微信映射导入文件) {
+    return this.构建企业微信身份导入预览(this.pool, file);
+  }
+  async 确认企业微信身份导入(file: 企业微信映射导入文件, actor: 组织操作人) {
+    return this.事务(
+      async (db) => {
+        const 操作人 = await this.操作人(db, actor);
+        const 预览 = await this.构建企业微信身份导入预览(db, file);
+        if (预览.summary.blocked > 0)
+          throw new 应用错误(
+            "ORG_WECOM_IMPORT_BLOCKED",
+            "企业微信映射预览存在阻断项，不能确认导入。",
+            409,
+            { summary: 预览.summary },
+          );
+
+        const 新增行 = 预览.rows.filter((item) => item.status === "ready" && item.user);
+        if (!新增行.length)
+          throw new 应用错误(
+            "ORG_WECOM_IMPORT_NOTHING_TO_IMPORT",
+            "没有可新增的企业微信身份；请检查预览结果后重试。",
+            409,
+            { summary: 预览.summary },
+          );
+
+        const 新增身份: Array<{
+          id: string;
+          userId: string;
+          username: string;
+          displayName: string;
+          wecomUserId: string;
+          rowNumber: number;
+        }> = [];
+        for (const row of 新增行) {
+          const 身份 = await db.query<{
+            id: string;
+            userId: string;
+            externalSubject: string;
+            externalUsername: string | null;
+          }>(
+            `INSERT INTO iam.external_identities(
+               user_id,provider_code,external_subject,external_username,status_code
+             ) VALUES($1::uuid,'wecom',$2,$3,'active')
+             RETURNING id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
+                       external_username AS "externalUsername"`,
+            [row.user!.id, row.wecomUserId, row.displayName],
+          );
+          const 新身份 = 身份.rows[0];
+          if (!新身份)
+            throw new 应用错误(
+              "ORG_WECOM_IMPORT_WRITE_FAILED",
+              "企业微信身份写入后未返回记录，导入已回滚。",
+              500,
+            );
+          const 记录 = {
+            id: 新身份.id,
+            userId: 新身份.userId,
+            username: row.user!.username,
+            displayName: row.displayName,
+            wecomUserId: 新身份.externalSubject,
+            rowNumber: row.rowNumber,
+          };
+          新增身份.push(记录);
+          await 审计(db, actor, 操作人, "wecom_identity.imported", 记录.id, {
+            ...记录,
+            sourceFileName: file.fileName,
+            sourceSha256: file.sourceSha256,
+          });
+        }
+        return {
+          imported: 新增身份.length,
+          unchanged: 预览.summary.unchanged,
+          waitingForUser: 预览.summary.waitingForUser,
+          blocked: 0,
+          sourceSha256: file.sourceSha256,
+          identities: 新增身份,
+        };
+      },
+      { serializable: true },
+    );
+  }
   async 执行幂等<T>(参数: 组织幂等参数, 操作: () => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
     try {
@@ -2343,10 +2434,37 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       return r.rows[0];
     });
   }
-  private async 事务<T>(action: (db: PoolClient) => Promise<T>): Promise<T> {
+  private async 构建企业微信身份导入预览(
+    db: Pick<Pool, "query"> | PoolClient,
+    file: 企业微信映射导入文件,
+  ): Promise<企业微信映射导入预览> {
+    const 姓名列表 = [...new Set(file.rows.map((item) => item.displayName).filter(Boolean))];
+    const 账号列表 = [...new Set(file.rows.map((item) => item.wecomUserId).filter(Boolean))];
+    const 用户 = await db.query<企业微信映射导入用户>(
+      `SELECT id::text AS id,username::text AS username,display_name AS "displayName",status_code AS "statusCode"
+       FROM iam.users
+       WHERE display_name = ANY($1::text[])`,
+      [姓名列表],
+    );
+    const 用户编号 = 用户.rows.map((item) => item.id);
+    const 身份 = await db.query<企业微信有效身份>(
+      `SELECT id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
+              external_username AS "externalUsername",status_code AS "statusCode"
+       FROM iam.external_identities
+       WHERE provider_code='wecom'
+         AND (user_id = ANY($1::uuid[]) OR external_subject = ANY($2::text[]))`,
+      [用户编号, 账号列表],
+    );
+    return 构建企业微信映射导入预览(file, 用户.rows, 身份.rows);
+  }
+  private async 事务<T>(
+    action: (db: PoolClient) => Promise<T>,
+    options: { serializable?: boolean } = {},
+  ): Promise<T> {
     const db = await this.pool.connect();
     try {
       await db.query("BEGIN");
+      if (options.serializable) await db.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
       const v = await action(db);
       await db.query("COMMIT");
       return v;

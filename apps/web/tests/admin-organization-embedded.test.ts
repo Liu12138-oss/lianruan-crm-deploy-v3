@@ -384,6 +384,17 @@ it("账号抽屉只读展示企业微信 userid，且不改变泛微 OA 映射�
   expect(脚本文本).toContain("组织读取泛微OA身份(userId)");
 });
 
+it("企业微信身份映射导入使用受控预览和确认入口，不改变自动拉群成员规则", async () => {
+  const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
+
+  expect(脚本文本).toContain("企业微信账号映射导入");
+  expect(脚本文本).toContain("组织预览企业微信身份导入(file)");
+  expect(脚本文本).toContain("组织确认企业微信身份导入(file");
+  expect(脚本文本).toContain("/api/org/wecom-identities/import-preview");
+  expect(脚本文本).toContain("/api/org/wecom-identities/import-confirm");
+  expect(脚本文本).toContain("不会修改角色、区域、订单、泛微 OA 映射或自动拉群成员规则");
+});
+
 it("从角色用户弹窗进入账号授权时先关闭原弹窗，避免账号抽屉被遮挡", async () => {
   const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
 
