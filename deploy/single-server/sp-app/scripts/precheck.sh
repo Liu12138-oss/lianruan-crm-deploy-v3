@@ -127,7 +127,7 @@ run_compose ps >/dev/null
 校验运行服务() {
   local service_name="$1" expected_image="$2" expected_image_id="$3"
   local container_id running_image running_image_id
-  container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+  container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}")"
   [ -n "${container_id}" ] || 失败 "服务未运行：${service_name}。"
   running_image="$(docker inspect -f '{{.Config.Image}}' "${container_id}")"
   running_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
@@ -145,6 +145,9 @@ if [ "${current_version}" = "${SOURCE_VERSION}" ]; then
     校验运行服务 worker-message-critical "${SOURCE_WORKER_IMAGE}" "${SOURCE_WORKER_IMAGE_ID}"
     校验运行服务 worker-message-maintenance "${SOURCE_WORKER_IMAGE}" "${SOURCE_WORKER_IMAGE_ID}"
     校验运行服务 worker-message-integration "${SOURCE_WORKER_IMAGE}" "${SOURCE_WORKER_IMAGE_ID}"
+  fi
+  if [ "$(读取配置值 "${install_root}/config/v3.env" ORDER_PREAPPROVAL_WORKER_ENABLED)" = "true" ]; then
+    校验运行服务 worker-order-preapproval "${SOURCE_WORKER_IMAGE}" "${SOURCE_WORKER_IMAGE_ID}"
   fi
   提示 "已确认测试环境混合基线：API=${SOURCE_API_IMAGE}，Worker=${SOURCE_WORKER_IMAGE}，Nginx=${SOURCE_NGINX_IMAGE}。"
 else

@@ -40,10 +40,15 @@ read_config_value() {
   awk -F= -v key="${key}" '$1 == key { value=substr($0, length(key) + 2) } END { print value }' "${config_file}" | tr -d '\r'
 }
 
+order_preapproval_services=()
+if [ "$(read_config_value "${release_dir}/config/v3.env" ORDER_PREAPPROVAL_WORKER_ENABLED)" = "true" ]; then
+  order_preapproval_services=(worker-order-preapproval)
+fi
+
 verify_offboarding_quiesced() {
   local worker_id worker_env worker_offboarding table_exists incomplete_count event_table_exists event_count
   local offboarding_column_exists offboarded_count
-  worker_id="$(run_compose --profile message --profile message-external ps -q worker)"
+  worker_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q worker)"
   [ -n "${worker_id}" ] || fail "未找到运行中的主 Worker，无法证明停用归档任务已经停止。"
   worker_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${worker_id}")"
   worker_offboarding="$(printf '%s\n' "${worker_env}" | awk -F= '$1 == "V3_ORGANIZATION_OFFBOARDING_ENABLED" { value=$2 } END { print value }')"
@@ -117,8 +122,8 @@ fi
 verify_offboarding_quiesced
 
 echo "开始恢复升级前应用文件和各组件真实镜像。数据库不会自动恢复。"
-run_compose --profile message --profile message-external stop \
-  nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration || true
+run_compose --profile message --profile message-external --profile order-preapproval stop \
+  nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration "${order_preapproval_services[@]}" || true
 cp "${release_dir}/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
 cp "${release_dir}/compose/.env" "${install_root}/compose/.env"
 cp "${release_dir}/config/v3.env" "${install_root}/config/v3.env"
@@ -127,17 +132,17 @@ cp "${release_dir}/config/nginx/default.conf" "${install_root}/config/nginx/defa
 cp "${release_dir}/scripts/"*.sh "${install_root}/scripts/"
 chmod 750 "${install_root}/scripts/"*.sh
 
-for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration; do
+for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration "${order_preapproval_services[@]}"; do
   source_image="$(read_runtime_field "${service_name}" 2)"
   source_image_id="$(read_runtime_field "${service_name}" 3)"
   [ -n "${source_image}" ] || fail "快照缺少 ${service_name}。"
   [ "$(docker image inspect -f '{{.Id}}' "${source_image}")" = "${source_image_id}" ] || fail "${service_name} 的源镜像已不存在或摘要变化。"
 done
 
-run_rollback_compose --profile message --profile message-external up -d --no-deps --force-recreate \
-  api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration
+run_rollback_compose --profile message --profile message-external --profile order-preapproval up -d --no-deps --force-recreate \
+  api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration "${order_preapproval_services[@]}"
 
-for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration; do
+for service_name in api-1 api-2 worker nginx worker-message-critical worker-message-maintenance worker-message-integration "${order_preapproval_services[@]}"; do
   verify_restored_service "${service_name}"
 done
 

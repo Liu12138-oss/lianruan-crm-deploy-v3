@@ -56,7 +56,7 @@ verify_target_service() {
   local target_image target_image_id container_id running_image running_image_id health_status
   target_image="${image_name}:${TARGET_VERSION}"
   target_image_id="$(docker image inspect -f '{{.Id}}' "${target_image}")"
-  container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+  container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}")"
   [ -n "${container_id}" ] || { echo "验证失败：服务未运行：${service_name}。" >&2; exit 1; }
   running_image="$(docker inspect -f '{{.Config.Image}}' "${container_id}")"
   running_image_id="$(docker inspect -f '{{.Image}}' "${container_id}")"
@@ -85,8 +85,11 @@ verify_target_service() {
   if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
     services+=(worker-message-critical worker-message-maintenance worker-message-integration)
   fi
+  if [ "$(awk -F= '$1 == "ORDER_PREAPPROVAL_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+    services+=(worker-order-preapproval)
+  fi
   for service_name in "${services[@]}"; do
-    container_id="$(run_compose --profile message --profile message-external ps -q "${service_name}")"
+    container_id="$(run_compose --profile message --profile message-external --profile order-preapproval ps -q "${service_name}")"
     [ -n "${container_id}" ] || { echo "验证失败：未找到 ${service_name} 容器。" >&2; exit 1; }
     container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
     for key in "${switches[@]}"; do
@@ -109,6 +112,9 @@ if [ "$(awk -F= '$1 == "MESSAGE_WORKER_ENABLED" { value=$2 } END { print value }
   verify_target_service worker-message-critical lianruan-crm-v3-worker
   verify_target_service worker-message-maintenance lianruan-crm-v3-worker
   verify_target_service worker-message-integration lianruan-crm-v3-worker
+fi
+if [ "$(awk -F= '$1 == "ORDER_PREAPPROVAL_WORKER_ENABLED" { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')" = "true" ]; then
+  verify_target_service worker-order-preapproval lianruan-crm-v3-worker
 fi
 验证运行中发布安全开关
 
@@ -219,6 +225,23 @@ wecom_identity_constraint_ready="$(run_compose exec -T postgres psql -U lianruan
 " | tr -d '[:space:]')"
 [ "${wecom_identity_constraint_ready}" = "t" ] || {
   echo "验证失败：企业微信有效身份用户唯一约束或历史数据校验未通过。" >&2
+  exit 1
+}
+
+s10_020_file="${package_root}/database/migrations/20260908_S10_020_企微映射冲突治理.sql"
+[ -f "${s10_020_file}" ] || {
+  echo "验证失败：升级包缺少企业微信映射冲突治理迁移。" >&2
+  exit 1
+}
+s10_020_checksum="$(sha256sum "${s10_020_file}" | awk '{print $1}')"
+s10_020_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT count(*) = 1
+  FROM migration.schema_migrations
+  WHERE version='20260908_S10_020_企微映射冲突治理'
+    AND checksum_sha256='${s10_020_checksum}'
+" | tr -d '[:space:]')"
+[ "${s10_020_ready}" = "t" ] || {
+  echo "验证失败：企业微信映射冲突治理迁移账本未正确登记。" >&2
   exit 1
 }
 
