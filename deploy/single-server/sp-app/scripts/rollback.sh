@@ -40,11 +40,6 @@ read_config_value() {
   awk -F= -v key="${key}" '$1 == key { value=substr($0, length(key) + 2) } END { print value }' "${config_file}" | tr -d '\r'
 }
 
-order_preapproval_services=()
-if [ "$(read_config_value "${release_dir}/config/v3.env" ORDER_PREAPPROVAL_WORKER_ENABLED)" = "true" ]; then
-  order_preapproval_services=(worker-order-preapproval)
-fi
-
 verify_offboarding_quiesced() {
   local worker_id worker_env worker_offboarding table_exists incomplete_count event_table_exists event_count
   local offboarding_column_exists offboarded_count
@@ -110,6 +105,11 @@ for snapshot_file in \
   config/nginx/default.conf runtime/service-images.tsv runtime/rollback-images.yml; do
   [ -f "${release_dir}/${snapshot_file}" ] || fail "快照缺少文件：${snapshot_file}。"
 done
+
+order_preapproval_services=()
+if [ "$(read_config_value "${release_dir}/config/v3.env" ORDER_PREAPPROVAL_WORKER_ENABLED)" = "true" ]; then
+  order_preapproval_services=(worker-order-preapproval)
+fi
 
 current_account_status_check="$(read_config_value "${install_root}/config/v3.env" V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED)"
 current_offboarding_enabled="$(read_config_value "${install_root}/config/v3.env" V3_ORGANIZATION_OFFBOARDING_ENABLED)"
