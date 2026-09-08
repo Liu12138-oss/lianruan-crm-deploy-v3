@@ -28,6 +28,33 @@ export interface 企业微信有效身份 {
   externalSubject: string;
   externalUsername: string | null;
   statusCode: "active" | "disabled";
+  userUsername?: string;
+  userDisplayName?: string;
+  userStatusCode?: string;
+  rowVersion?: number;
+}
+
+export interface 企业微信身份关联账号 {
+  id: string;
+  username: string;
+  displayName: string;
+  statusCode: string;
+}
+
+export interface 企业微信身份关联映射 {
+  id: string;
+  userId: string;
+  username: string;
+  displayName: string;
+  externalSubject: string;
+  statusCode: "active" | "disabled";
+  rowVersion: number;
+}
+
+export interface 企业微信映射冲突详情 {
+  action: "edit_file" | "open_accounts" | "correct_identity";
+  users?: 企业微信身份关联账号[];
+  identities?: 企业微信身份关联映射[];
 }
 
 export type 企业微信映射导入状态 = "ready" | "unchanged" | "waiting_for_user" | "blocked";
@@ -36,6 +63,7 @@ export interface 企业微信映射导入预览行 extends 企业微信映射导
   status: 企业微信映射导入状态;
   message: string;
   user?: Pick<企业微信映射导入用户, "id" | "username" | "displayName">;
+  conflict?: 企业微信映射冲突详情;
 }
 
 export interface 企业微信映射导入预览 {
@@ -178,9 +206,15 @@ export function 构建企业微信映射导入预览(
         ...基础,
         status: "blocked",
         message: "文件内“姓名”重复，无法严格匹配唯一 V3 账号。",
+        conflict: { action: "edit_file" },
       };
     if (重复账号.has(row.wecomUserId))
-      return { ...基础, status: "blocked", message: "文件内企业微信 UserId 重复。" };
+      return {
+        ...基础,
+        status: "blocked",
+        message: "文件内企业微信 UserId 重复。",
+        conflict: { action: "edit_file" },
+      };
 
     const 同名用户 = 用户按姓名.get(row.displayName) || [];
     const 启用用户 = 同名用户.filter((item) => item.statusCode === "active");
@@ -193,7 +227,15 @@ export function 构建企业微信映射导入预览(
           : "当前未找到同名启用 V3 账号；账号创建后请重新上传全量文件。",
       };
     if (启用用户.length > 1)
-      return { ...基础, status: "blocked", message: "存在多个同名启用 V3 账号，无法严格匹配。" };
+      return {
+        ...基础,
+        status: "blocked",
+        message: "存在多个同名启用 V3 账号，无法严格匹配。",
+        conflict: {
+          action: "open_accounts",
+          users: 启用用户.map(账号关联摘要),
+        },
+      };
 
     const user = 启用用户[0];
     if (!user) return { ...基础, status: "blocked", message: "无法确定唯一的启用 V3 账号。" };
@@ -204,6 +246,11 @@ export function 构建企业微信映射导入预览(
         status: "blocked",
         message: "当前 V3 账号存在多条有效企业微信身份，需先人工核对。",
         user: 用户摘要(user),
+        conflict: {
+          action: "correct_identity",
+          users: [账号关联摘要(user)],
+          identities: 用户已有身份.map(身份关联摘要),
+        },
       };
     if (用户已有身份[0]) {
       if (用户已有身份[0].externalSubject === row.wecomUserId)
@@ -218,6 +265,11 @@ export function 构建企业微信映射导入预览(
         status: "blocked",
         message: "当前 V3 账号已绑定不同的有效企业微信 UserId，禁止直接覆盖。",
         user: 用户摘要(user),
+        conflict: {
+          action: "correct_identity",
+          users: [账号关联摘要(user)],
+          identities: 用户已有身份.map(身份关联摘要),
+        },
       };
     }
 
@@ -228,6 +280,11 @@ export function 构建企业微信映射导入预览(
         status: "blocked",
         message: "企业微信 UserId 已绑定其他有效 V3 账号。",
         user: 用户摘要(user),
+        conflict: {
+          action: "correct_identity",
+          users: [账号关联摘要(user), ...账号已绑定身份.map(身份所有者摘要)],
+          identities: 账号已绑定身份.map(身份关联摘要),
+        },
       };
     if (停用身份按企微账号.has(row.wecomUserId))
       return {
@@ -235,6 +292,14 @@ export function 构建企业微信映射导入预览(
         status: "blocked",
         message: "企业微信 UserId 存在历史停用映射，不能自动复用。",
         user: 用户摘要(user),
+        conflict: {
+          action: "correct_identity",
+          users: [
+            账号关联摘要(user),
+            ...停用身份按企微账号.get(row.wecomUserId)!.map(身份所有者摘要),
+          ],
+          identities: 停用身份按企微账号.get(row.wecomUserId)!.map(身份关联摘要),
+        },
       };
     return {
       ...基础,
@@ -304,4 +369,34 @@ function 重复键(values: string[]): Set<string> {
 
 function 用户摘要(user: 企业微信映射导入用户) {
   return { id: user.id, username: user.username, displayName: user.displayName };
+}
+
+function 账号关联摘要(user: 企业微信映射导入用户): 企业微信身份关联账号 {
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    statusCode: user.statusCode,
+  };
+}
+
+function 身份关联摘要(identity: 企业微信有效身份): 企业微信身份关联映射 {
+  return {
+    id: identity.id,
+    userId: identity.userId,
+    username: identity.userUsername || identity.userId,
+    displayName: identity.userDisplayName || identity.externalUsername || identity.userId,
+    externalSubject: identity.externalSubject,
+    statusCode: identity.statusCode,
+    rowVersion: Number(identity.rowVersion || 1),
+  };
+}
+
+function 身份所有者摘要(identity: 企业微信有效身份): 企业微信身份关联账号 {
+  return {
+    id: identity.userId,
+    username: identity.userUsername || identity.userId,
+    displayName: identity.userDisplayName || identity.externalUsername || identity.userId,
+    statusCode: identity.userStatusCode || "active",
+  };
 }

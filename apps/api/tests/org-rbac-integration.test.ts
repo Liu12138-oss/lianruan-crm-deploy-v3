@@ -493,6 +493,492 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
     }
   });
 
+  it("恢复账号只授予本次角色和任职，不回滚已交接负责人、审批历史或外部身份", async () => {
+    const 后缀 = randomUUID();
+    const 来源账号 = await 连接池.query<{ id: string; username: string; rowVersion: number }>(
+      `INSERT INTO iam.users(username,display_name,status_code,region_id,offboarding_status)
+       VALUES($1,'恢复账号验收来源','active',$2::uuid,'active')
+       RETURNING id::text AS id,username::text AS username,row_version::int AS "rowVersion"`,
+      [前缀 + "_reactivation_source_" + 后缀, 区域Id],
+    );
+    const 接收账号 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,region_id,offboarding_status)
+       VALUES($1,'恢复账号验收接收人','active',$2::uuid,'active') RETURNING id::text AS id`,
+      [前缀 + "_reactivation_recipient_" + 后缀, 区域Id],
+    );
+    const 内部组织 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,region_id,status_code)
+       VALUES($1,'恢复账号验收内部组织','department',$2::uuid,'active') RETURNING id::text AS id`,
+      [前缀 + "_reactivation_unit_" + 后缀, 区域Id],
+    );
+    const 客户 = await 连接池.query<{ id: string }>(
+      `INSERT INTO crm.customers(customer_name,normalized_name,owner_user_id,status_code,extra_json)
+       VALUES($1,$2,$3::uuid,'active',jsonb_build_object('testRun',$4::text))
+       RETURNING id::text AS id`,
+      ["恢复账号验收客户", 前缀 + "_reactivation_customer_" + 后缀, 来源账号.rows[0]!.id, 前缀],
+    );
+    const 审批 = await 连接池.query<{ id: string }>(
+      `INSERT INTO ops.approvals(
+         approval_type_code,target_type,target_id,applicant_user_id,status_code,extra_json
+       ) VALUES('organization-test','organization-test',$1::uuid,$2::uuid,'pending',$3::jsonb)
+       RETURNING id::text AS id`,
+      [客户.rows[0]!.id, 来源账号.rows[0]!.id, JSON.stringify({ testRun: 前缀 })],
+    );
+    const 外部身份 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.external_identities(
+         user_id,provider_code,external_subject,external_username,status_code
+       ) VALUES($1::uuid,'wecom',$2,$3,'active') RETURNING id::text AS id`,
+      [来源账号.rows[0]!.id, "reactivation_wecom_" + 后缀, "reactivation_wecom_" + 后缀],
+    );
+    let 交接单Id = "";
+
+    try {
+      await 连接池.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE role_code='region_manager'`,
+        [来源账号.rows[0]!.id],
+      );
+      await 连接池.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE role_code='region_manager'`,
+        [接收账号.rows[0]!.id],
+      );
+      const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
+      const 发起结果 = (await 服务.发起离职交接(
+        {
+          userId: 来源账号.rows[0]!.id,
+          replacementUserId: 接收账号.rows[0]!.id,
+          effectiveAt: new Date().toISOString(),
+          reason: "恢复账号真实数据库验收",
+          confirmationUsername: 来源账号.rows[0]!.username,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_reactivation_offboarding_" + 后缀,
+          role: "superadmin",
+        },
+      )) as { id: string };
+      交接单Id = 发起结果.id;
+
+      await 连接池.query(
+        `UPDATE crm.customers
+         SET owner_user_id=$1::uuid,
+             extra_json=extra_json || jsonb_build_object('offboardingHandoverId',$2::text)
+         WHERE id=$3::uuid`,
+        [接收账号.rows[0]!.id, 交接单Id, 客户.rows[0]!.id],
+      );
+      await 连接池.query(
+        `INSERT INTO org.offboarding_handover_items(
+           handover_id,domain_code,object_id,status_code,transfer_strategy,
+           actual_recipient_user_id,detail_json,scanned_at
+         ) VALUES($1::uuid,'customer',$2::uuid,'completed','transfer',$3::uuid,
+                  jsonb_build_object('previousOwnerUserId',$4::text),now())`,
+        [交接单Id, 客户.rows[0]!.id, 接收账号.rows[0]!.id, 来源账号.rows[0]!.id],
+      );
+      await 连接池.query(
+        `UPDATE org.offboarding_handover
+         SET status_code='completed',scan_completed_at=now(),row_version=row_version+1
+         WHERE id=$1::uuid`,
+        [交接单Id],
+      );
+      await 连接池.query(
+        `UPDATE iam.users
+         SET offboarding_status='offboarded',row_version=row_version+1
+         WHERE id=$1::uuid`,
+        [来源账号.rows[0]!.id],
+      );
+
+      const 恢复前预览 = (await 服务.预览账号恢复(来源账号.rows[0]!.id)) as {
+        canReactivate: boolean;
+        previousRoles: Array<{ roleCode: string }>;
+        externalIdentities: Array<{ id: string; userId: string }>;
+      };
+      expect(恢复前预览.canReactivate).toBe(true);
+      expect(恢复前预览.previousRoles).toEqual(
+        expect.arrayContaining([expect.objectContaining({ roleCode: "region_manager" })]),
+      );
+      expect(恢复前预览.externalIdentities).toEqual([
+        expect.objectContaining({ id: 外部身份.rows[0]!.id, userId: 来源账号.rows[0]!.id }),
+      ]);
+
+      const 新角色 = await 连接池.query<{ id: string }>(
+        "SELECT id::text AS id FROM iam.roles WHERE role_code='partner_admin' AND status_code='active'",
+      );
+      const 恢复结果 = (await 服务.恢复账号(
+        来源账号.rows[0]!.id,
+        {
+          roleIds: [新角色.rows[0]!.id],
+          orgUnitId: 内部组织.rows[0]!.id,
+          reason: "回岗后重新授权",
+          confirmationUsername: 来源账号.rows[0]!.username,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_reactivation_execute_" + 后缀,
+          role: "superadmin",
+        },
+      )) as { authorizationVersion: number; businessOwnershipRestored: boolean };
+      expect(恢复结果.businessOwnershipRestored).toBe(false);
+      expect(恢复结果.authorizationVersion).toBeGreaterThan(来源账号.rows[0]!.rowVersion);
+
+      const 结果 = await 连接池.query<{
+        statusCode: string;
+        offboardingStatus: string;
+        roleCodes: string[];
+        assignmentUnitId: string;
+        customerOwnerUserId: string;
+        applicantUserId: string;
+        externalUserId: string;
+      }>(
+        `SELECT
+           (SELECT status_code FROM iam.users WHERE id=$1::uuid) AS "statusCode",
+           (SELECT offboarding_status FROM iam.users WHERE id=$1::uuid) AS "offboardingStatus",
+           (SELECT array_agg(r.role_code ORDER BY r.role_code)
+              FROM iam.user_roles ur JOIN iam.roles r ON r.id=ur.role_id
+             WHERE ur.user_id=$1::uuid) AS "roleCodes",
+           (SELECT org_unit_id::text FROM org.staff_assignments
+             WHERE user_id=$1::uuid AND expired_at IS NULL) AS "assignmentUnitId",
+           (SELECT owner_user_id::text FROM crm.customers WHERE id=$2::uuid) AS "customerOwnerUserId",
+           (SELECT applicant_user_id::text FROM ops.approvals WHERE id=$3::uuid) AS "applicantUserId",
+           (SELECT user_id::text FROM iam.external_identities WHERE id=$4::uuid) AS "externalUserId"`,
+        [来源账号.rows[0]!.id, 客户.rows[0]!.id, 审批.rows[0]!.id, 外部身份.rows[0]!.id],
+      );
+      expect(结果.rows[0]).toEqual({
+        statusCode: "active",
+        offboardingStatus: "reactivated",
+        roleCodes: ["partner_admin"],
+        assignmentUnitId: 内部组织.rows[0]!.id,
+        customerOwnerUserId: 接收账号.rows[0]!.id,
+        applicantUserId: 来源账号.rows[0]!.id,
+        externalUserId: 来源账号.rows[0]!.id,
+      });
+    } finally {
+      await 连接池.query("DELETE FROM ops.approvals WHERE id=$1::uuid", [审批.rows[0]!.id]);
+      await 连接池.query("DELETE FROM crm.customers WHERE id=$1::uuid", [客户.rows[0]!.id]);
+      await 连接池.query("DELETE FROM iam.external_identities WHERE id=$1::uuid", [
+        外部身份.rows[0]!.id,
+      ]);
+      if (交接单Id) {
+        await 连接池.query("DELETE FROM ops.outbox_events WHERE aggregate_id=$1::uuid", [交接单Id]);
+        await 连接池.query("DELETE FROM audit.audit_logs WHERE target_id IN ($1,$2)", [
+          交接单Id,
+          来源账号.rows[0]!.id,
+        ]);
+        await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
+          来源账号.rows[0]!.id,
+        ]);
+        await 连接池.query("DELETE FROM org.offboarding_handover WHERE id=$1::uuid", [交接单Id]);
+      }
+      await 连接池.query("DELETE FROM org.staff_assignments WHERE user_id=$1::uuid", [
+        来源账号.rows[0]!.id,
+      ]);
+      await 连接池.query("DELETE FROM iam.user_roles WHERE user_id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 接收账号.rows[0]!.id],
+      ]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 接收账号.rows[0]!.id],
+      ]);
+      await 连接池.query("DELETE FROM org.org_units WHERE id=$1::uuid", [内部组织.rows[0]!.id]);
+    }
+  });
+
+  it("重复账号归并由人工指定保留账号，交接当前业务后停用来源且保留外部映射", async () => {
+    const 后缀 = randomUUID();
+    const 来源账号 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,region_id,offboarding_status)
+       VALUES($1,'同姓重复账号来源','active',$2::uuid,'active')
+       RETURNING id::text AS id,username::text AS username`,
+      [前缀 + "_merge_source_" + 后缀, 区域Id],
+    );
+    const 保留账号 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,region_id,offboarding_status)
+       VALUES($1,'同姓重复账号保留','active',$2::uuid,'active') RETURNING id::text AS id`,
+      [前缀 + "_merge_keep_" + 后缀, 区域Id],
+    );
+    const 客户 = await 连接池.query<{ id: string }>(
+      `INSERT INTO crm.customers(customer_name,normalized_name,owner_user_id,status_code,extra_json)
+       VALUES($1,$2,$3::uuid,'active',jsonb_build_object('testRun',$4::text))
+       RETURNING id::text AS id`,
+      ["重复账号归并验收客户", 前缀 + "_merge_customer_" + 后缀, 来源账号.rows[0]!.id, 前缀],
+    );
+    const 外部身份 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.external_identities(
+         user_id,provider_code,external_subject,external_username,status_code
+       ) VALUES($1::uuid,'wecom',$2,$3,'active') RETURNING id::text AS id`,
+      [来源账号.rows[0]!.id, "merge_wecom_" + 后缀, "merge_wecom_" + 后缀],
+    );
+    let 交接单Id = "";
+
+    try {
+      await 连接池.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE role_code='region_manager'`,
+        [来源账号.rows[0]!.id],
+      );
+      await 连接池.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE role_code='region_manager'`,
+        [保留账号.rows[0]!.id],
+      );
+      const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
+      const 预览 = (await 服务.预览重复账号归并(来源账号.rows[0]!.id, 保留账号.rows[0]!.id)) as {
+        canMerge: boolean;
+        eligibleRecipient: boolean;
+        totalCount: number;
+        externalIdentities: Array<{ id: string; userId: string }>;
+      };
+      expect(预览).toMatchObject({
+        canMerge: true,
+        eligibleRecipient: true,
+        totalCount: 1,
+      });
+      expect(预览.externalIdentities).toEqual([
+        expect.objectContaining({ id: 外部身份.rows[0]!.id, userId: 来源账号.rows[0]!.id }),
+      ]);
+
+      const 结果 = (await 服务.归并重复账号(
+        来源账号.rows[0]!.id,
+        {
+          keepUserId: 保留账号.rows[0]!.id,
+          reason: "人工确认同姓重复账号归并",
+          confirmationUsername: 来源账号.rows[0]!.username,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_merge_execute_" + 后缀,
+          role: "superadmin",
+        },
+      )) as { id: string; accountDisabled: boolean; replacementUserId: string };
+      交接单Id = 结果.id;
+      expect(结果).toMatchObject({
+        accountDisabled: true,
+        replacementUserId: 保留账号.rows[0]!.id,
+      });
+
+      await 连接池.query(
+        `UPDATE crm.customers
+         SET owner_user_id=$1::uuid,
+             extra_json=extra_json || jsonb_build_object('offboardingHandoverId',$2::text)
+         WHERE id=$3::uuid`,
+        [保留账号.rows[0]!.id, 交接单Id, 客户.rows[0]!.id],
+      );
+      await 连接池.query(
+        `INSERT INTO org.offboarding_handover_items(
+           handover_id,domain_code,object_id,status_code,transfer_strategy,
+           actual_recipient_user_id,detail_json,scanned_at
+         ) VALUES($1::uuid,'customer',$2::uuid,'completed','transfer',$3::uuid,
+                  jsonb_build_object('previousOwnerUserId',$4::text),now())`,
+        [交接单Id, 客户.rows[0]!.id, 保留账号.rows[0]!.id, 来源账号.rows[0]!.id],
+      );
+      await 连接池.query(
+        `UPDATE org.offboarding_handover
+         SET status_code='completed',scan_completed_at=now(),row_version=row_version+1
+         WHERE id=$1::uuid`,
+        [交接单Id],
+      );
+      await 连接池.query(
+        `UPDATE iam.users
+         SET offboarding_status='offboarded',row_version=row_version+1
+         WHERE id=$1::uuid`,
+        [来源账号.rows[0]!.id],
+      );
+
+      const 状态 = await 连接池.query<{
+        sourceStatusCode: string;
+        sourceOffboardingStatus: string;
+        sourceRoleCount: number;
+        ownerUserId: string;
+        externalUserId: string;
+        handoverStatus: string;
+        mergeAuditCount: number;
+      }>(
+        `SELECT
+           (SELECT status_code FROM iam.users WHERE id=$1::uuid) AS "sourceStatusCode",
+           (SELECT offboarding_status FROM iam.users WHERE id=$1::uuid) AS "sourceOffboardingStatus",
+           (SELECT count(*)::int FROM iam.user_roles WHERE user_id=$1::uuid) AS "sourceRoleCount",
+           (SELECT owner_user_id::text FROM crm.customers WHERE id=$2::uuid) AS "ownerUserId",
+           (SELECT user_id::text FROM iam.external_identities WHERE id=$3::uuid) AS "externalUserId",
+           (SELECT status_code FROM org.offboarding_handover WHERE id=$4::uuid) AS "handoverStatus",
+           (SELECT count(*)::int FROM audit.audit_logs
+             WHERE target_id=$4::text AND action_code='account.merge_initiated') AS "mergeAuditCount"`,
+        [来源账号.rows[0]!.id, 客户.rows[0]!.id, 外部身份.rows[0]!.id, 交接单Id],
+      );
+      expect(状态.rows[0]).toEqual({
+        sourceStatusCode: "disabled",
+        sourceOffboardingStatus: "offboarded",
+        sourceRoleCount: 0,
+        ownerUserId: 保留账号.rows[0]!.id,
+        externalUserId: 来源账号.rows[0]!.id,
+        handoverStatus: "completed",
+        mergeAuditCount: 1,
+      });
+    } finally {
+      await 连接池.query("DELETE FROM crm.customers WHERE id=$1::uuid", [客户.rows[0]!.id]);
+      await 连接池.query("DELETE FROM iam.external_identities WHERE id=$1::uuid", [
+        外部身份.rows[0]!.id,
+      ]);
+      if (交接单Id) {
+        await 连接池.query("DELETE FROM ops.outbox_events WHERE aggregate_id=$1::uuid", [交接单Id]);
+        await 连接池.query("DELETE FROM audit.audit_logs WHERE target_id IN ($1,$2)", [
+          交接单Id,
+          来源账号.rows[0]!.id,
+        ]);
+        await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
+          来源账号.rows[0]!.id,
+        ]);
+        await 连接池.query("DELETE FROM org.offboarding_handover WHERE id=$1::uuid", [交接单Id]);
+      }
+      await 连接池.query("DELETE FROM iam.user_roles WHERE user_id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 保留账号.rows[0]!.id],
+      ]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 保留账号.rows[0]!.id],
+      ]);
+    }
+  });
+
+  it("同名账号可定位，企业微信身份校正保留历史映射并在重新预览后显示已一致", async () => {
+    const 后缀 = randomUUID();
+    const 同名姓名 = "同名账号识别测试" + 后缀.slice(0, 8);
+    const 姓名 = "企微映射校正目标" + 后缀.slice(0, 8);
+    const 同名来源账号 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'active','active') RETURNING id::text AS id`,
+      [前缀 + "_same_name_source_" + 后缀, 同名姓名],
+    );
+    const 同名保留账号 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'active','active') RETURNING id::text AS id`,
+      [前缀 + "_same_name_keep_" + 后缀, 同名姓名],
+    );
+    const 来源账号 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'active','active')
+       RETURNING id::text AS id,username::text AS username`,
+      [前缀 + "_wecom_source_" + 后缀, "企微映射错误归属" + 后缀.slice(0, 8)],
+    );
+    const 目标账号 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'active','active')
+       RETURNING id::text AS id,username::text AS username`,
+      [前缀 + "_wecom_target_" + 后缀, 姓名],
+    );
+    const 企业微信UserId = "wecom_conflict_" + 后缀.replaceAll("-", "");
+    const 来源映射 = await 连接池.query<{ id: string; rowVersion: number }>(
+      `INSERT INTO iam.external_identities(
+         user_id,provider_code,external_subject,external_username,status_code
+       ) VALUES($1::uuid,'wecom',$2,$3,'active')
+       RETURNING id::text AS id,row_version::int AS "rowVersion"`,
+      [来源账号.rows[0]!.id, 企业微信UserId, 姓名],
+    );
+    let 新映射Id = "";
+
+    try {
+      const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
+      const 冲突清单 = (await 服务.查询账号冲突()) as {
+        sameDisplayNameGroups: Array<{ displayName: string; users: Array<{ id: string }> }>;
+      };
+      const 同名分组 = 冲突清单.sameDisplayNameGroups.find((分组) => 分组.displayName === 同名姓名);
+      expect(同名分组?.users.map((账号) => 账号.id)).toEqual(
+        expect.arrayContaining([同名来源账号.rows[0]!.id, 同名保留账号.rows[0]!.id]),
+      );
+
+      const 冲突预览 = await 服务.预览企业微信身份导入({
+        fileName: "企微映射冲突测试.xlsx",
+        sourceSha256: "c".repeat(64),
+        rows: [{ rowNumber: 2, displayName: 姓名, wecomUserId: 企业微信UserId }],
+      });
+      expect(冲突预览.rows[0]).toMatchObject({
+        status: "blocked",
+        conflict: {
+          action: "correct_identity",
+          identities: [
+            expect.objectContaining({
+              id: 来源映射.rows[0]!.id,
+              rowVersion: 来源映射.rows[0]!.rowVersion,
+            }),
+          ],
+        },
+      });
+
+      const 校正结果 = (await 服务.校正企业微信身份(
+        {
+          targetUserId: 目标账号.rows[0]!.id,
+          wecomUserId: 企业微信UserId,
+          expectedIdentities: [
+            { identityId: 来源映射.rows[0]!.id, rowVersion: 来源映射.rows[0]!.rowVersion },
+          ],
+          reason: "人工核对后更正企业微信身份",
+          confirmationUsername: 目标账号.rows[0]!.username,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_wecom_correct_" + 后缀,
+          role: "superadmin",
+        },
+      )) as {
+        disabledIdentities: Array<{ id: string; statusCode: string }>;
+        activeIdentity: { id: string; userId: string; statusCode: string };
+      };
+      新映射Id = 校正结果.activeIdentity.id;
+      expect(校正结果.disabledIdentities).toEqual([
+        expect.objectContaining({ id: 来源映射.rows[0]!.id, statusCode: "disabled" }),
+      ]);
+      expect(校正结果.activeIdentity).toMatchObject({
+        userId: 目标账号.rows[0]!.id,
+        statusCode: "active",
+      });
+
+      const 映射状态 = await 连接池.query<{
+        sourceStatusCode: string;
+        targetUserId: string;
+        targetStatusCode: string;
+        auditCount: number;
+      }>(
+        `SELECT
+           (SELECT status_code FROM iam.external_identities WHERE id=$1::uuid) AS "sourceStatusCode",
+           (SELECT user_id::text FROM iam.external_identities WHERE id=$2::uuid) AS "targetUserId",
+           (SELECT status_code FROM iam.external_identities WHERE id=$2::uuid) AS "targetStatusCode",
+           (SELECT count(*)::int FROM audit.audit_logs
+             WHERE target_id=$2::text AND action_code='wecom_identity.corrected') AS "auditCount"`,
+        [来源映射.rows[0]!.id, 新映射Id],
+      );
+      expect(映射状态.rows[0]).toEqual({
+        sourceStatusCode: "disabled",
+        targetUserId: 目标账号.rows[0]!.id,
+        targetStatusCode: "active",
+        auditCount: 1,
+      });
+
+      const 校正后预览 = await 服务.预览企业微信身份导入({
+        fileName: "企微映射冲突测试.xlsx",
+        sourceSha256: "c".repeat(64),
+        rows: [{ rowNumber: 2, displayName: 姓名, wecomUserId: 企业微信UserId }],
+      });
+      expect(校正后预览.rows[0]).toMatchObject({
+        status: "unchanged",
+        user: { id: 目标账号.rows[0]!.id },
+      });
+    } finally {
+      if (新映射Id)
+        await 连接池.query(
+          "DELETE FROM audit.audit_logs WHERE target_id=$1::text AND action_code='wecom_identity.corrected'",
+          [新映射Id],
+        );
+      await 连接池.query("DELETE FROM iam.external_identities WHERE user_id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 目标账号.rows[0]!.id],
+      ]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=ANY($1::uuid[])", [
+        [
+          来源账号.rows[0]!.id,
+          目标账号.rows[0]!.id,
+          同名来源账号.rows[0]!.id,
+          同名保留账号.rows[0]!.id,
+        ],
+      ]);
+    }
+  });
+
   it("已停用账号或无有效成员关系的账号不能颁发证书", async () => {
     const 已停用 = await 连接池.query<{ id: string }>(
       "INSERT INTO iam.users(username,display_name,status_code) VALUES($1,'已停用证书测试用户','disabled') RETURNING id::text AS id",

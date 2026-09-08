@@ -33,6 +33,8 @@ interface 交付用户 {
   roles: string[];
   permissions: string[];
   scopes: string[];
+  /** 数据库账号行版本；仅数据库账号携带，用于拒绝授权变更前签发的会话。 */
+  authorizationVersion?: number;
 }
 
 type 业务页面角色 = "superadmin" | "admin" | "partner_admin" | "staff";
@@ -72,6 +74,7 @@ interface 移动端会话载荷 {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
+  authorizationVersion?: number;
 }
 
 interface 会话载荷 {
@@ -80,6 +83,7 @@ interface 会话载荷 {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
+  authorizationVersion?: number;
 }
 
 interface 认证配置 {
@@ -113,6 +117,7 @@ interface 数据库用户行 {
   permission_codes: string[] | null;
   scope_items: string[] | null;
   phone: string | null;
+  authorization_version: number;
 }
 
 interface 单点登录本地匹配结果 {
@@ -191,9 +196,30 @@ export function 读取请求会话角色(
   }
 }
 
+/**
+ * 返回已验签 Cookie 中的授权版本。应与 iam.users.row_version 一致；
+ * 配置兜底账号和历史会话不携带该字段，调用方可按自身安全策略拒绝或兼容。
+ */
+export function 读取请求会话授权版本(
+  req: Request,
+  参数: 会话用户名读取参数 | undefined,
+): number | null {
+  if (!参数?.sessionSecret) return null;
+  const env = 参数.env ?? process.env;
+  const token = 读取Cookie(req, env.V3_DELIVERY_AUTH_COOKIE_NAME || 默认Cookie名称);
+  if (!token) return null;
+  try {
+    const payload = 解析会话令牌(token, 参数.sessionSecret);
+    if (payload.expiresAt <= Math.floor(Date.now() / 1000)) return null;
+    return 是有效授权版本(payload.authorizationVersion) ? payload.authorizationVersion : null;
+  } catch {
+    return null;
+  }
+}
+
 export function 写入正式页面可信Cookie会话(
   res: { setHeader(name: string, value: string): void },
-  身份: { username: string; role: string },
+  身份: { username: string; role: string; authorizationVersion?: number },
   参数: 会话用户名读取参数,
 ): boolean {
   const env = 参数.env ?? process.env;
@@ -209,7 +235,7 @@ export function 写入正式页面可信Cookie会话(
     ttlSeconds: 解析正整数(env.V3_DELIVERY_AUTH_TTL_SECONDS, 默认会话秒数),
     sessionSecret: 参数.sessionSecret,
   };
-  const token = 签发会话令牌(username, role as 业务页面角色, 会话配置);
+  const token = 签发会话令牌(username, role as 业务页面角色, 会话配置, 身份.authorizationVersion);
   写入会话Cookie(res, 会话配置, token);
   return true;
 }
@@ -230,7 +256,12 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
         throw new 应用错误("V3_AUTH_INVALID_CREDENTIALS", "用户名或密码不正确。", 401);
       }
 
-      const token = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
+      const token = 签发会话令牌(
+        用户.username,
+        用户.pageUser.role,
+        配置,
+        用户.authorizationVersion,
+      );
       const 页面会话 = 创建业务页面会话(用户);
       const 移动端会话 = 创建移动端会话(用户, 配置);
       写入会话Cookie(res, 配置, token);
@@ -473,7 +504,12 @@ async function 处理Iam单点登录(
       throw new 应用错误("V3_AUTH_SSO_FORBIDDEN", "当前账号未开通该单点登录入口。", 403);
     }
 
-    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
+    const sessionToken = 签发会话令牌(
+      用户.username,
+      用户.pageUser.role,
+      配置,
+      用户.authorizationVersion,
+    );
     const 页面会话 = 创建业务页面会话(用户);
     const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
@@ -581,7 +617,12 @@ async function 处理UniSdp单点登录(
     const 用户 = 本地匹配.用户;
     // UniSDP 入口同样严格按形态决定。识别用户单点登录入口不再作为唯一决定因素。
     const 登录入口 = 本地匹配.匹配方式 === "partner_phone" ? "partner" : "admin";
-    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
+    const sessionToken = 签发会话令牌(
+      用户.username,
+      用户.pageUser.role,
+      配置,
+      用户.authorizationVersion,
+    );
     const 页面会话 = 创建业务页面会话(用户);
     const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
@@ -688,7 +729,12 @@ async function 处理UniSdp门户单点登录(
     }
     const 用户 = 本地匹配.用户;
 
-    const sessionToken = 签发会话令牌(用户.username, 用户.pageUser.role, 配置);
+    const sessionToken = 签发会话令牌(
+      用户.username,
+      用户.pageUser.role,
+      配置,
+      用户.authorizationVersion,
+    );
     const 页面会话 = 创建业务页面会话(用户);
     // 门户落点严格按形态:手机号→partner 入口,username→admin 入口。
     const 目标路径 = 本地匹配.匹配方式 === "partner_phone" ? "/partner.html" : "/admin.html";
@@ -1269,6 +1315,7 @@ function 签发会话令牌(
   username: string,
   role: 业务页面角色,
   配置: Pick<认证配置, "sessionSecret" | "ttlSeconds">,
+  authorizationVersion?: number,
 ): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: 会话载荷 = {
@@ -1277,6 +1324,7 @@ function 签发会话令牌(
     issuedAt: now,
     expiresAt: now + 配置.ttlSeconds,
     nonce: crypto.randomBytes(16).toString("base64url"),
+    ...(是有效授权版本(authorizationVersion) ? { authorizationVersion } : {}),
   };
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return body + "." + 签名(body, 配置.sessionSecret);
@@ -1432,6 +1480,7 @@ async function 查询数据库用户行(
       u.v2_source_id,
       u.username::text AS username,
       u.display_name::text AS display_name,
+      u.row_version::int AS authorization_version,
       pc.password_hash,
       COALESCE(
         (
@@ -1505,7 +1554,7 @@ async function 查询数据库用户行(
     LEFT JOIN channel.partners p ON p.id = pm.partner_id
     WHERE (${whereSql})
       AND u.status_code = 'active'
-    GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash,
+    GROUP BY u.id, u.v2_source_id, u.username, u.display_name, u.row_version, pc.password_hash,
       reg.region_name, u.extra_json, u.phone
     LIMIT ${limit}
     `,
@@ -1535,6 +1584,7 @@ function 从数据库行创建交付用户(row: 数据库用户行 | undefined):
     roles: 摘要.roles,
     permissions: 摘要.permissions,
     scopes: 摘要.scopes,
+    authorizationVersion: row.authorization_version,
   };
 }
 
@@ -1624,19 +1674,23 @@ function 创建数据库业务页面用户(
 
 function 创建业务页面会话(用户: 交付用户): 业务页面会话 {
   return {
-    token: 签发业务页面令牌(用户.username),
+    token: 签发业务页面令牌(用户.username, 用户.authorizationVersion),
     user: 用户.pageUser,
   };
 }
 
 function 创建移动端会话(用户: 交付用户, 配置: 认证配置): 移动端会话 {
   return {
-    token: 签发移动端会话令牌(用户.pageUser, 配置),
+    token: 签发移动端会话令牌(用户.pageUser, 配置, 用户.authorizationVersion),
     user: 用户.pageUser,
   };
 }
 
-function 签发移动端会话令牌(用户: 业务页面用户, 配置: 认证配置): string {
+function 签发移动端会话令牌(
+  用户: 业务页面用户,
+  配置: 认证配置,
+  authorizationVersion?: number,
+): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: 移动端会话载荷 = {
     username: 用户.username,
@@ -1644,6 +1698,7 @@ function 签发移动端会话令牌(用户: 业务页面用户, 配置: 认证�
     issuedAt: now,
     expiresAt: now + 配置.ttlSeconds,
     nonce: crypto.randomBytes(16).toString("base64url"),
+    ...(是有效授权版本(authorizationVersion) ? { authorizationVersion } : {}),
   };
   const body = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return ["v3m", body, 签名(`v3m.${body}`, 配置.sessionSecret)].join(".");
@@ -1652,7 +1707,7 @@ function 签发移动端会话令牌(用户: 业务页面用户, 配置: 认证�
 export function 读取移动端会话身份(
   req: Request,
   参数: 会话用户名读取参数 | undefined,
-): Pick<移动端会话载荷, "username" | "role"> | null {
+): Pick<移动端会话载荷, "username" | "role" | "authorizationVersion"> | null {
   if (!参数?.sessionSecret) return null;
   const header = req.headers.authorization || "";
   const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
@@ -1660,7 +1715,13 @@ export function 读取移动端会话身份(
   try {
     const payload = 解析移动端会话令牌(token, 参数.sessionSecret);
     if (payload.expiresAt <= Math.floor(Date.now() / 1000)) return null;
-    return { username: payload.username, role: payload.role };
+    return {
+      username: payload.username,
+      role: payload.role,
+      ...(是有效授权版本(payload.authorizationVersion)
+        ? { authorizationVersion: payload.authorizationVersion }
+        : {}),
+    };
   } catch {
     return null;
   }
@@ -1691,10 +1752,11 @@ function 解析移动端会话令牌(token: string, secret: string): 移动端�
   return payload;
 }
 
-function 签发业务页面令牌(username: string): string {
+function 签发业务页面令牌(username: string, authorizationVersion?: number): string {
   return [
     "v2",
     Buffer.from(username, "utf8").toString("base64url"),
+    ...(是有效授权版本(authorizationVersion) ? [String(authorizationVersion)] : []),
     crypto.randomBytes(24).toString("base64url"),
   ].join(".");
 }
@@ -1785,6 +1847,10 @@ function 读取Cookie(req: Request, name: string): string | undefined {
 
 function 签名(body: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(body).digest("base64url");
+}
+
+function 是有效授权版本(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 export async function 校验密码(password: string, storedHash: string): Promise<boolean> {

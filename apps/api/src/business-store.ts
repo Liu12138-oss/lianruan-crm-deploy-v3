@@ -2211,6 +2211,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           UPDATE iam.users
           SET status_code = $2,
               updated_at = now(),
+              row_version = row_version + 1,
               extra_json = extra_json || $3::jsonb
           WHERE id = $1::uuid
           `,

@@ -2,10 +2,19 @@ import { 应用错误 } from "@lianruan/shared";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { Pool } from "pg";
 
-import { 读取移动端会话身份, 读取请求会话用户名, 读取请求会话角色 } from "./auth-routes.js";
+import {
+  读取移动端会话身份,
+  读取请求会话授权版本,
+  读取请求会话用户名,
+  读取请求会话角色,
+} from "./auth-routes.js";
 
 export interface 会话账号状态服务 {
-  查询账号状态(username: string): Promise<{ statusCode: string; offboardingStatus: string } | null>;
+  查询账号状态(username: string): Promise<{
+    statusCode: string;
+    offboardingStatus: string;
+    authorizationVersion?: number;
+  } | null>;
   /**
    * 查询数据库中的有效系统角色。返回 null 表示数据库中不存在该账号，
    * 空数组表示账号存在但当前没有有效角色。
@@ -18,8 +27,13 @@ export function 创建会话账号状态服务(databaseUrl: string): 会话账�
   const pool = new Pool({ connectionString: databaseUrl, max: 5 });
   return {
     async 查询账号状态(username) {
-      const 结果 = await pool.query<{ statusCode: string; offboardingStatus: string }>(
-        `SELECT status_code AS "statusCode",offboarding_status AS "offboardingStatus"
+      const 结果 = await pool.query<{
+        statusCode: string;
+        offboardingStatus: string;
+        authorizationVersion: number;
+      }>(
+        `SELECT status_code AS "statusCode",offboarding_status AS "offboardingStatus",
+                row_version::int AS "authorizationVersion"
          FROM iam.users
          WHERE username=$1::citext OR v2_source_id=$1
          ORDER BY CASE WHEN username=$1::citext THEN 0 ELSE 1 END
@@ -141,28 +155,32 @@ export function 创建停用账号会话防护(参数: {
         sessionSecret: 参数.sessionSecret,
         ...(参数.env ? { env: 参数.env } : {}),
       };
-      const 用户名集合 = new Set<string>();
+      const 会话身份集合 = new Map<string, number | null>();
       const Cookie用户名 = 读取请求会话用户名(req, 会话参数);
-      if (Cookie用户名) 用户名集合.add(Cookie用户名);
-      const 移动端用户名 = 读取移动端会话身份(req, 会话参数)?.username || "";
-      if (移动端用户名) 用户名集合.add(移动端用户名);
-      const V2用户名 = 读取V2页面令牌用户名(req);
-      if (V2用户名 && !用户名集合.has(V2用户名))
-        if (用户名集合.size)
+      if (Cookie用户名) 会话身份集合.set(Cookie用户名, 读取请求会话授权版本(req, 会话参数));
+      const 移动端身份 = 读取移动端会话身份(req, 会话参数);
+      if (移动端身份)
+        会话身份集合.set(
+          移动端身份.username,
+          是有效授权版本(移动端身份.authorizationVersion) ? 移动端身份.authorizationVersion : null,
+        );
+      const V2页面身份 = 读取V2页面令牌身份(req);
+      if (V2页面身份 && !会话身份集合.has(V2页面身份.username))
+        if (会话身份集合.size)
           throw new 应用错误(
             "V3_AUTH_SESSION_MISMATCH",
             "正式页面令牌与当前登录账号不一致，请重新登录。",
             401,
           );
-        else 用户名集合.add(V2用户名);
-      if (!用户名集合.size && 存在不可信兼容身份(req))
+        else 会话身份集合.set(V2页面身份.username, V2页面身份.authorizationVersion);
+      if (!会话身份集合.size && 存在不可信兼容身份(req))
         throw new 应用错误(
           "V3_AUTH_TRUSTED_SESSION_REQUIRED",
           "当前操作必须使用签名会话，不能使用客户端自报身份。",
           401,
         );
 
-      for (const username of 用户名集合) {
+      for (const [username, 会话授权版本] of 会话身份集合) {
         const 状态 = await 参数.service.查询账号状态(username);
         if (!状态) {
           if (是交付配置账号(username, 参数.env)) continue;
@@ -182,6 +200,16 @@ export function 创建停用账号会话防护(参数: {
             401,
           );
         }
+        if (
+          是有效授权版本(状态.authorizationVersion) &&
+          (会话授权版本 !== 状态.authorizationVersion ||
+            (状态.offboardingStatus === "reactivated" && 会话授权版本 === null))
+        )
+          throw new 应用错误(
+            "V3_AUTH_AUTHORIZATION_CHANGED",
+            "账号授权已发生变化，请重新登录。",
+            401,
+          );
       }
       next();
     } catch (error) {
@@ -217,15 +245,27 @@ function 存在不可信兼容身份(req: Request): boolean {
   );
 }
 
-function 读取V2页面令牌用户名(req: Request): string {
+function 读取V2页面令牌身份(
+  req: Request,
+): { username: string; authorizationVersion: number | null } | null {
   const header = req.headers.authorization || "";
-  const match = /^Bearer\s+v2\.([^.]+)\./i.exec(header);
-  if (!match?.[1]) return "";
+  const match = /^Bearer\s+v2\.([^.]+)\.([^.]+)(?:\.([^.]+))?/i.exec(header);
+  if (!match?.[1]) return null;
   try {
-    return Buffer.from(match[1], "base64url").toString("utf8").trim();
+    const username = Buffer.from(match[1], "base64url").toString("utf8").trim();
+    if (!username) return null;
+    const version = match[3] ? Number(match[2]) : Number.NaN;
+    return {
+      username,
+      authorizationVersion: 是有效授权版本(version) ? version : null,
+    };
   } catch {
-    return "";
+    return null;
   }
+}
+
+function 是有效授权版本(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function 是交付配置账号(username: string, env: NodeJS.ProcessEnv | undefined): boolean {

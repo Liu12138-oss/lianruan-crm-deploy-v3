@@ -373,6 +373,14 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     "/channel-sync/execute",
     执行写入((req, 主体) => 获取服务().执行渠道商同步(读取对象(req), 主体)),
   );
+  router.get(
+    "/account-conflicts",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      return 获取服务().查询账号冲突();
+    }),
+  );
   router.post(
     "/wecom-identities/import-preview",
     校验企微导入权限(参数),
@@ -390,6 +398,16 @@ export function 创建组织路由(参数: 组织路由参数): Router {
       const file = 读取企微映射文件(req);
       return 执行企微导入幂等写入(req, 获取服务(), 主体, file.sourceSha256, () =>
         获取服务().确认企业微信身份导入(file, 主体),
+      );
+    }),
+  );
+  router.post(
+    "/wecom-identities/correct",
+    执行(async (req) => {
+      const 主体 = 读取可写主体(req, 参数);
+      const 内容 = 读取对象(req);
+      return 执行企业微信身份校正幂等写入(req, 获取服务(), 主体, () =>
+        获取服务().校正企业微信身份(内容, 主体),
       );
     }),
   );
@@ -476,6 +494,38 @@ export function 创建组织路由(参数: 组织路由参数): Router {
       断言组织已启用(参数);
       读取主体(req);
       return 获取服务().预览离职影响(读取标识(req, "userId"));
+    }),
+  );
+  router.get(
+    "/users/:userId/reactivation-preview",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      return 获取服务().预览账号恢复(读取标识(req, "userId"));
+    }),
+  );
+  router.post(
+    "/users/:userId/reactivate",
+    执行写入((req, 主体) => {
+      断言离职交接执行已启用(参数);
+      return 获取服务().恢复账号(读取标识(req, "userId"), 读取对象(req), 主体);
+    }),
+  );
+  router.get(
+    "/users/:userId/merge-preview",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      const keepUserId = 读取查询标识(req, "keepUserId");
+      if (!keepUserId) throw new 应用错误("ORG_REQUEST_INVALID", "请指定保留账号。", 400);
+      return 获取服务().预览重复账号归并(读取标识(req, "userId"), keepUserId);
+    }),
+  );
+  router.post(
+    "/users/:userId/merge",
+    执行写入((req, 主体) => {
+      断言离职交接执行已启用(参数);
+      return 获取服务().归并重复账号(读取标识(req, "userId"), 读取对象(req), 主体);
     }),
   );
 
@@ -677,6 +727,34 @@ async function 执行企微导入幂等写入<T>(
       请求哈希: crypto
         .createHash("sha256")
         .update(JSON.stringify({ method: req.method, path: req.path, sourceSha256 }), "utf8")
+        .digest("hex"),
+    },
+    操作,
+  );
+}
+
+async function 执行企业微信身份校正幂等写入<T>(
+  req: Request,
+  服务: 组织数据服务,
+  主体: 组织操作人,
+  操作: () => Promise<T>,
+): Promise<T> {
+  const value = req.headers["idempotency-key"];
+  if (typeof value !== "string" || !value.trim())
+    throw new 应用错误("ORG_IDEMPOTENCY_KEY_REQUIRED", "校正企业微信身份必须提供幂等键。", 400);
+  const key = value.trim();
+  if (key.length > 200)
+    throw new 应用错误("ORG_IDEMPOTENCY_KEY_INVALID", "幂等键长度不能超过200个字符。", 400);
+  return 服务.执行幂等(
+    {
+      作用域: `org:${主体.username}:${req.method}:${req.path}`,
+      幂等键: key,
+      请求哈希: crypto
+        .createHash("sha256")
+        .update(
+          JSON.stringify({ method: req.method, path: req.path, body: req.body || null }),
+          "utf8",
+        )
         .digest("hex"),
     },
     操作,

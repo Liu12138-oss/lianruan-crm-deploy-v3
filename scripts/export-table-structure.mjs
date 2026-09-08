@@ -878,6 +878,111 @@ function createContext() {
   };
 }
 
+function 转义Markdown单元格(value) {
+  return String(value ?? '')
+    .replaceAll('\\', '\\\\')
+    .replaceAll('|', '\\|')
+    .replaceAll('\r\n', '<br>')
+    .replaceAll('\n', '<br>');
+}
+
+function 表完整名称(table) {
+  return `\`${table.schema}.${table.name}\``;
+}
+
+function 构建Markdown表结构({ files, tableList, totalColumns, totalIndexes, totalConstraints }) {
+  const lines = [
+    '# V3 物理表结构',
+    '',
+    `> 生成时间：${new Date().toLocaleString('zh-CN', { hour12: false })}`,
+    '> 数据来源：`database/migrations` 中全部正向迁移文件；回退迁移文件不参与结构汇总。',
+    '> 使用说明：本文反映代码仓库当前目标结构。实际环境以已执行的迁移记录和数据库元数据为准。',
+    '',
+    '## 1. 结构概览',
+    '',
+    '| 项目 | 数量 |',
+    '| --- | ---: |',
+    `| 正向迁移文件 | ${files.length} |`,
+    `| Schema | ${new Set(tableList.map((table) => table.schema)).size} |`,
+    `| 表 | ${tableList.length} |`,
+    `| 字段 | ${totalColumns} |`,
+    `| 索引 | ${totalIndexes} |`,
+    `| 表级约束 | ${totalConstraints} |`,
+    '',
+    '## 2. 表清单',
+    '',
+    '| Schema | 表 | 中文名 | 字段数 | 索引数 | 表级约束数 | 首次建表迁移 |',
+    '| --- | --- | --- | ---: | ---: | ---: | --- |',
+    ...tableList.map((table) =>
+      `| \`${table.schema}\` | ${表完整名称(table)} | ${转义Markdown单元格(TABLE_CN[table.name] || table.comment || '未命名')} | ${table.columns.length} | ${table.indexes.length} | ${Object.keys(table.constraints).length} | \`${table.source}\` |`,
+    ),
+    '',
+    '## 3. 分表明细',
+    '',
+  ];
+
+  const schemas = [...new Set(tableList.map((table) => table.schema))];
+  for (const schema of schemas) {
+    lines.push(`### ${schema}`);
+    lines.push('');
+    for (const table of tableList.filter((item) => item.schema === schema)) {
+      const tableName = TABLE_CN[table.name] || table.comment || table.name;
+      lines.push(`#### ${表完整名称(table)} ${tableName}`);
+      lines.push('');
+      if (table.comment) lines.push(`说明：${table.comment}`);
+      lines.push(`首次建表迁移：\`${table.source}\``);
+      lines.push('');
+      lines.push('| 字段 | 类型 | 含义 | 约束 | 默认值 | 引用 | 注释 |');
+      lines.push('| --- | --- | --- | --- | --- | --- | --- |');
+      for (const column of table.columns) {
+        const constraints = [
+          column.pk ? '主键' : '',
+          column.unique ? '唯一' : '',
+          column.notNull ? '非空' : '',
+          column.checks ? `检查：${column.checks}` : '',
+          column.generated ? `生成：${column.generated}` : '',
+        ]
+          .filter(Boolean)
+          .join('；');
+        lines.push(
+          `| \`${column.name}\` | \`${转义Markdown单元格(column.type)}\` | ${转义Markdown单元格(generateColumnMeaning(table, column))} | ${转义Markdown单元格(constraints)} | ${转义Markdown单元格(column.default)} | ${转义Markdown单元格(column.references)} | ${转义Markdown单元格(column.comment)} |`,
+        );
+      }
+      if (table.indexes.length > 0) {
+        lines.push('');
+        lines.push('索引：');
+        lines.push('');
+        lines.push('| 索引名 | 唯一 | 索引列或表达式 | 条件 | 来源迁移 |');
+        lines.push('| --- | --- | --- | --- | --- |');
+        for (const index of table.indexes) {
+          lines.push(
+            `| \`${index.name}\` | ${index.unique ? '是' : '否'} | ${转义Markdown单元格(index.columns)} | ${转义Markdown单元格(index.where)} | \`${index.source}\` |`,
+          );
+        }
+      }
+      const constraints = Object.values(table.constraints);
+      if (constraints.length > 0) {
+        lines.push('');
+        lines.push('表级约束：');
+        lines.push('');
+        lines.push('| 约束名 | 类型 | 定义 | 来源迁移 |');
+        lines.push('| --- | --- | --- | --- |');
+        for (const constraint of constraints) {
+          lines.push(
+            `| \`${constraint.name}\` | ${转义Markdown单元格(constraint.type)} | ${转义Markdown单元格(constraint.def)} | \`${constraint.source}\` |`,
+          );
+        }
+      }
+      lines.push('');
+    }
+  }
+
+  lines.push('## 4. 参与汇总的正向迁移');
+  lines.push('');
+  lines.push(...files.map((file) => `- \`${file}\``));
+  return lines.join('\n');
+}
+
 // ---------- 主流程 ----------
 function main() {
   const outPath = process.argv[2] ? path.resolve(process.argv[2]) : OUT_DEFAULT;
@@ -905,6 +1010,22 @@ function main() {
   const totalColumns = tableList.reduce((s, t) => s + t.columns.length, 0);
   const totalIndexes = tableList.reduce((s, t) => s + t.indexes.length, 0);
   const totalConstraints = tableList.reduce((s, t) => s + Object.keys(t.constraints).length, 0);
+
+  if (path.extname(outPath).toLowerCase() === '.md') {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(
+      outPath,
+      构建Markdown表结构({ files, tableList, totalColumns, totalIndexes, totalConstraints }),
+      'utf8',
+    );
+    console.log(`输出文件：${outPath}`);
+    console.log(`迁移文件：${files.length}`);
+    console.log(`表数量：${tableList.length}`);
+    console.log(`字段数量：${totalColumns}`);
+    console.log(`索引数量：${totalIndexes}`);
+    console.log(`表级约束数量：${totalConstraints}`);
+    return;
+  }
 
   // ---- Sheet 1 表清单 ----
   const sheetTables = tableList.map((t, i) => ({

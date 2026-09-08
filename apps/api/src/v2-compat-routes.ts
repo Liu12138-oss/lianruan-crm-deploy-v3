@@ -418,7 +418,7 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
         return;
       }
 
-      const token = 签发V2令牌(用户.username);
+      const token = 签发V2令牌(用户.username, 用户.authorizationVersion);
       const dueReminders = await 需要服务(service).查询到期提醒({
         username: 用户.username,
         displayName: 用户.name || 用户.username,
@@ -426,7 +426,11 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
       });
       写入正式页面可信Cookie会话(
         res,
-        { username: 用户.username, role: 用户.role },
+        {
+          username: 用户.username,
+          role: 用户.role,
+          authorizationVersion: 用户.authorizationVersion,
+        },
         {
           sessionSecret: 参数.sessionSecret || "",
           ...(参数.env ? { env: 参数.env } : {}),
@@ -454,7 +458,11 @@ export function 创建V2兼容路由(参数: V2兼容路由参数): Router {
         return;
       }
       const { passwordHash: _passwordHash, ...安全用户 } = 用户;
-      res.json({ success: true, user: 安全用户, token: 签发V2令牌(安全用户.username) });
+      res.json({
+        success: true,
+        user: 安全用户,
+        token: 签发V2令牌(安全用户.username, 安全用户.authorizationVersion),
+      });
     }),
   );
 
@@ -1897,6 +1905,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
     extra_json: 字典 | null;
     partner_id: string | null;
     partner_name: string | null;
+    row_version: number;
   }>(
     `
     SELECT
@@ -1906,6 +1915,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
       u.display_name,
       pc.password_hash,
       u.status_code,
+      u.row_version,
       COALESCE((array_agg(r.role_code ORDER BY
         CASE r.role_code
           WHEN 'superadmin' THEN 1
@@ -1937,7 +1947,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
     LEFT JOIN channel.partners p ON p.id = pm.partner_id
     WHERE lower(u.username::text) = lower($1)
       AND ($2 OR u.status_code = 'active')
-    GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash, u.status_code,
+    GROUP BY u.id, u.v2_source_id, u.username, u.display_name, pc.password_hash, u.status_code, u.row_version,
       reg.region_name, u.extra_json, p.v2_source_id, p.partner_code, p.id, p.partner_name
     LIMIT 1
     `,
@@ -1962,6 +1972,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
     bigRegion: 读取对象文本(extra, "bigRegion"),
     partnerId: 读取对象文本(extra, "partnerId") || row.partner_id || "",
     partnerName: 读取对象文本(extra, "partnerName") || row.partner_name || "",
+    authorizationVersion: row.row_version,
     passwordHash: row.password_hash || "",
   };
 }
@@ -2000,12 +2011,17 @@ function 转V2角色名称(role: string): string {
   return 映射[role] || "渠道用户";
 }
 
-function 签发V2令牌(username: string): string {
+function 签发V2令牌(username: string, authorizationVersion?: number): string {
   return [
     "v2",
     Buffer.from(username, "utf8").toString("base64url"),
+    ...(是有效授权版本(authorizationVersion) ? [String(authorizationVersion)] : []),
     crypto.randomBytes(24).toString("base64url"),
   ].join(".");
+}
+
+function 是有效授权版本(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function 读取Bearer用户名(req: Request): string {
@@ -2365,7 +2381,12 @@ async function 单点登录降级响应(pool: Pool, req: Request) {
   const 用户 = username ? await 查询V2用户(pool, username) : await 查询首个管理员(pool);
   if (!用户) return 失败("当前未配置单点登录，请使用账号密码登录。");
   const { passwordHash: _passwordHash, ...安全用户 } = 用户;
-  return { success: true, user: 安全用户, token: 签发V2令牌(安全用户.username), ssoFallback: true };
+  return {
+    success: true,
+    user: 安全用户,
+    token: 签发V2令牌(安全用户.username, 安全用户.authorizationVersion),
+    ssoFallback: true,
+  };
 }
 
 async function 保存用户密码(
@@ -2402,6 +2423,10 @@ async function 保存用户密码(
     [userId, passwordHash, mustChangePassword],
   );
   if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
+  await pool.query(
+    "UPDATE iam.users SET row_version=row_version+1,updated_at=now() WHERE id=$1::uuid",
+    [result.rows[0].user_id],
+  );
 }
 
 async function _调整订单价格(
@@ -2477,7 +2502,7 @@ async function 保存V2用户(
   pool: 数据库查询器,
   id: string,
   输入: 字典,
-  选项: { 同步渠道成员?: boolean } = {},
+  选项: { 同步渠道成员?: boolean; 允许复用启用账号?: boolean } = {},
 ) {
   const 已有账号 = id ? await 查询V2账号保存快照(pool, id) : null;
   if (id && !已有账号) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
@@ -2514,6 +2539,7 @@ async function 保存V2用户(
 
   await 校验账号联系电话唯一(pool, phone, { id: id || code, username });
 
+  let 复用已有启用账号 = false;
   try {
     if (id) {
       const result = await pool.query<{ username: string }>(
@@ -2525,6 +2551,7 @@ async function 保存V2用户(
             phone = NULLIF($5, ''),
             email = NULLIF($6, '')::citext,
             updated_at = now(),
+            row_version = row_version + CASE WHEN status_code IS DISTINCT FROM $4 THEN 1 ELSE 0 END,
             extra_json = extra_json || $7::jsonb
         WHERE id::text = $1 OR v2_source_id = $1 OR username::text = $1 OR extra_json->>'id' = $1
         RETURNING username::text AS username
@@ -2533,22 +2560,49 @@ async function 保存V2用户(
       );
       if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
     } else {
-      await pool.query(
-        `
-        INSERT INTO iam.users (
-          v2_source_id, username, display_name, status_code, phone, email, extra_json
-        )
-        VALUES ($1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::jsonb)
-        ON CONFLICT (username) DO UPDATE
-        SET display_name = EXCLUDED.display_name,
-            status_code = EXCLUDED.status_code,
-            phone = EXCLUDED.phone,
-            email = EXCLUDED.email,
-            updated_at = now(),
-            extra_json = iam.users.extra_json || EXCLUDED.extra_json
-        `,
-        [code, username, name, status, phone, email, JSON.stringify(extra)],
+      const 已存在 = await pool.query<{
+        status_code: string;
+        offboarding_status: string;
+        display_name: string;
+        phone: string | null;
+      }>(
+        `SELECT status_code,offboarding_status,display_name,phone
+           FROM iam.users
+          WHERE username=$1::citext
+          LIMIT 1`,
+        [username],
       );
+      const 已有 = 已存在.rows[0];
+      if (
+        已有 &&
+        选项.允许复用启用账号 &&
+        已有.status_code === "active" &&
+        ["active", "reactivated"].includes(已有.offboarding_status) &&
+        已有.display_name === name &&
+        规范化账号联系电话(已有.phone || "") === 规范化账号联系电话(phone)
+      ) {
+        复用已有启用账号 = true;
+      } else if (已有)
+        throw Object.assign(
+          new Error(
+            已有.status_code === "disabled"
+              ? "该登录账号已归档，请恢复账号并重新授权，或使用新的登录账号。"
+              : 选项.允许复用启用账号
+                ? "该登录账号已存在。如需将现有账号加入本渠道，请确认姓名和手机号与原账号一致；否则请使用新的登录账号。"
+                : "该登录账号已存在，请使用其他登录账号或编辑原账号。",
+          ),
+          { statusCode: 409 },
+        );
+      if (!复用已有启用账号)
+        await pool.query(
+          `
+          INSERT INTO iam.users (
+            v2_source_id, username, display_name, status_code, phone, email, extra_json
+          )
+          VALUES ($1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::jsonb)
+          `,
+          [code, username, name, status, phone, email, JSON.stringify(extra)],
+        );
     }
   } catch (error) {
     抛出账号联系电话冲突错误(error);
@@ -2562,7 +2616,7 @@ async function 保存V2用户(
     }
   }
   const password = 读取正文文本(输入, ["password"], "");
-  if (password) await 保存用户密码(pool, username, password, true);
+  if (password && !复用已有启用账号) await 保存用户密码(pool, username, password, true);
   const 用户 = await 查询V2用户(pool, username, true);
   if (!用户) throw Object.assign(new Error("用户保存失败。"), { statusCode: 500 });
   return 用户;
@@ -2693,6 +2747,7 @@ async function 更新用户状态(pool: Pool, id: string, status: string) {
     UPDATE iam.users
     SET status_code = $2,
         updated_at = now(),
+        row_version = row_version + 1,
         extra_json = extra_json || $3::jsonb
     WHERE id::text = $1 OR v2_source_id = $1 OR username::text = $1 OR extra_json->>'id' = $1
     RETURNING username::text AS username
@@ -2818,6 +2873,10 @@ async function 绑定用户角色(pool: 数据库查询器, username: string, ro
     ON CONFLICT DO NOTHING
     `,
     [username, roleCode],
+  );
+  await pool.query(
+    "UPDATE iam.users SET row_version=row_version+1,updated_at=now() WHERE lower(username::text)=lower($1)",
+    [username],
   );
 }
 
@@ -3438,7 +3497,7 @@ async function 保存渠道商员工(
         staffRole: 员工职位,
         partnerId,
       },
-      { 同步渠道成员: false },
+      { 同步渠道成员: false, 允许复用启用账号: true },
     );
     const userUuid = await 查找用户UUID(client, 用户.id || 用户.username);
     if (!userUuid) throw Object.assign(new Error("员工账号保存失败。"), { statusCode: 500 });
@@ -3721,6 +3780,7 @@ async function 删除渠道商员工(
         UPDATE iam.users
         SET status_code = 'disabled',
             updated_at = now(),
+            row_version = row_version + 1,
             extra_json = (extra_json - 'partnerId' - 'partnerName') || $2::jsonb
         WHERE id = $1::uuid
         `,
@@ -3732,6 +3792,7 @@ async function 删除渠道商员工(
         UPDATE iam.users
         SET status_code = 'active',
             updated_at = now(),
+            row_version = row_version + 1,
             extra_json = (extra_json - 'partnerId' - 'partnerName') || $2::jsonb
         WHERE id = $1::uuid
         `,
@@ -3867,10 +3928,11 @@ async function 更新待审批状态(pool: Pool, id: string, status: string, 输
         const 目标状态 = status === "approved" ? "active" : "disabled";
         await client.query(
           `
-          UPDATE iam.users
-          SET status_code = $2,
-              updated_at = now(),
-              extra_json = extra_json || $3::jsonb
+    UPDATE iam.users
+    SET status_code = $2,
+        updated_at = now(),
+        row_version = row_version + 1,
+        extra_json = extra_json || $3::jsonb
           WHERE id = $1::uuid
           `,
           [

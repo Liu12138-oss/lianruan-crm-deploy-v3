@@ -127,6 +127,10 @@ function 创建服务(): 组织数据服务 {
     预览离职影响: async () => ({ readOnly: true, items: [] }),
     查询离职交接详情: async () => ({ items: [] }),
     发起离职交接: async () => ({}),
+    预览账号恢复: async () => ({ readOnly: true, canReactivate: false }),
+    恢复账号: async () => ({}),
+    预览重复账号归并: async () => ({ readOnly: true, canMerge: false }),
+    归并重复账号: async () => ({}),
     重试离职扫描: async () => ({}),
     关闭离职交接: async () => ({}),
     预览渠道商同步: async () => ({
@@ -143,6 +147,7 @@ function 创建服务(): 组织数据服务 {
       details: [{ partnerCode: "P-NEW", regionCode: "P-NEW", action: "create" }],
     }),
     查询泛微OA身份: async () => ({ formalIdentity: null, candidates: [], wecomIdentities: [] }),
+    查询账号冲突: async () => ({ sameDisplayNameGroups: [] }),
     预览企业微信身份导入: async () => ({
       fileName: "映射.xlsx",
       sourceSha256: "sha256",
@@ -151,6 +156,7 @@ function 创建服务(): 组织数据服务 {
       canConfirm: false,
     }),
     确认企业微信身份导入: async () => ({ imported: 0 }),
+    校正企业微信身份: async () => ({ disabledIdentities: [], activeIdentity: null }),
     新建泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     更新泛微OA身份候选: async () => ({ id: "candidate", statusCode: "pending" }),
     确认泛微OA身份候选: async () => ({
@@ -398,6 +404,8 @@ describe("组织架构路由", () => {
       { method: "post", path: "/api/org/offboarding" },
       { method: "post", path: `/api/org/offboarding/${标识}/retry-items` },
       { method: "post", path: `/api/org/offboarding/${标识}/close` },
+      { method: "post", path: `/api/org/users/${标识}/reactivate` },
+      { method: "post", path: `/api/org/users/${标识}/merge` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity-candidates` },
       { method: "put", path: `/api/org/users/${标识}/eteams-identity-candidates/${标识}` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity-candidates/${标识}/confirm` },
@@ -705,6 +713,108 @@ describe("组织架构路由", () => {
     expect(关闭).not.toHaveBeenCalled();
   });
 
+  it("账号恢复和重复账号归并遵循组织写入与独立交接开关", async () => {
+    const 标识 = "00000000-0000-0000-0000-000000000061";
+    const 保留账号 = "00000000-0000-0000-0000-000000000062";
+    const 服务 = 创建服务();
+    const 恢复预览 = vi.fn(async () => ({
+      readOnly: true,
+      canReactivate: true,
+      previousRoles: [],
+    }));
+    const 恢复 = vi.fn(async () => ({ userId: 标识, statusCode: "active" }));
+    const 归并预览 = vi.fn(async () => ({
+      readOnly: true,
+      canMerge: true,
+      sourceUser: { username: "source" },
+      keepUser: { username: "keep" },
+      items: [],
+    }));
+    const 归并 = vi.fn(async () => ({
+      userId: 标识,
+      replacementUserId: 保留账号,
+      affectedCount: 0,
+    }));
+    服务.预览账号恢复 = 恢复预览;
+    服务.恢复账号 = 恢复;
+    服务.预览重复账号归并 = 归并预览;
+    服务.归并重复账号 = 归并;
+    const app = 创建应用({
+      env: {
+        ...基础环境,
+        V3_ORGANIZATION_ENABLED: "true",
+        V3_ORGANIZATION_WRITE_ENABLED: "true",
+        V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED: "true",
+        V3_ORGANIZATION_OFFBOARDING_ENABLED: "true",
+      },
+      orgService: 服务,
+    });
+    const cookie = await 登录Cookie(app, "org_admin");
+
+    await request(app)
+      .get(`/api/org/users/${标识}/reactivation-preview`)
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(恢复预览).toHaveBeenCalledWith(标识);
+
+    const 恢复请求 = {
+      roleIds: [保留账号],
+      orgUnitId: 保留账号,
+      reason: "回岗",
+      confirmationUsername: "source",
+    };
+    await request(app)
+      .post(`/api/org/users/${标识}/reactivate`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", "reactivate-001")
+      .send(恢复请求)
+      .expect(200);
+    expect(恢复).toHaveBeenCalledWith(
+      标识,
+      恢复请求,
+      expect.objectContaining({ username: "org_admin" }),
+    );
+
+    await request(app)
+      .get(`/api/org/users/${标识}/merge-preview?keepUserId=${保留账号}`)
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(归并预览).toHaveBeenCalledWith(标识, 保留账号);
+
+    const 归并请求 = {
+      keepUserId: 保留账号,
+      reason: "重复账号清理",
+      confirmationUsername: "source",
+    };
+    await request(app)
+      .post(`/api/org/users/${标识}/merge`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", "merge-001")
+      .send(归并请求)
+      .expect(200);
+    expect(归并).toHaveBeenCalledWith(
+      标识,
+      归并请求,
+      expect.objectContaining({ username: "org_admin" }),
+    );
+
+    const 关闭执行 = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true", V3_ORGANIZATION_WRITE_ENABLED: "true" },
+      orgService: 服务,
+    });
+    const 关闭Cookie = await 登录Cookie(关闭执行, "org_admin");
+    await request(关闭执行)
+      .post(`/api/org/users/${标识}/reactivate`)
+      .set("Cookie", 关闭Cookie)
+      .send(恢复请求)
+      .expect(403);
+    await request(关闭执行)
+      .post(`/api/org/users/${标识}/merge`)
+      .set("Cookie", 关闭Cookie)
+      .send(归并请求)
+      .expect(403);
+  });
+
   it("负责人关系和成员业务角色写入遵循双开关、签名会话与幂等约定", async () => {
     const env = {
       ...基础环境,
@@ -984,5 +1094,98 @@ describe("组织架构路由", () => {
       .attach("file", csv, { filename: "企业微信映射.csv", contentType: "text/csv" })
       .expect(403);
     expect(预览).not.toHaveBeenCalled();
+  });
+
+  it("同名不同登录账号清单仅允许已登录超级管理员读取", async () => {
+    const 服务 = 创建服务();
+    const 查询 = vi.fn(async () => ({
+      sameDisplayNameGroups: [
+        {
+          displayName: "张三",
+          users: [
+            { id: "00000000-0000-0000-0000-000000000071", username: "zhangsan_a" },
+            { id: "00000000-0000-0000-0000-000000000072", username: "zhangsan_b" },
+          ],
+        },
+      ],
+    }));
+    服务.查询账号冲突 = 查询;
+    const app = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true" },
+      orgService: 服务,
+    });
+
+    await request(app).get("/api/org/account-conflicts").expect(401);
+    const 普通管理员Cookie = await 登录Cookie(app, "normal_admin");
+    await request(app)
+      .get("/api/org/account-conflicts")
+      .set("Cookie", 普通管理员Cookie)
+      .expect(403);
+    const 超管Cookie = await 登录Cookie(app, "org_admin");
+    const 响应 = await request(app)
+      .get("/api/org/account-conflicts")
+      .set("Cookie", 超管Cookie)
+      .expect(200);
+    expect(响应.body.data.sameDisplayNameGroups[0].displayName).toBe("张三");
+    expect(查询).toHaveBeenCalledTimes(1);
+  });
+
+  it("企业微信身份校正必须开启组织写入、提供幂等键并传递可信主体", async () => {
+    const 标识 = "00000000-0000-0000-0000-000000000081";
+    const 映射 = "00000000-0000-0000-0000-000000000082";
+    const 内容 = {
+      targetUserId: 标识,
+      wecomUserId: "zhangsan_wecom",
+      expectedIdentities: [{ identityId: 映射, rowVersion: 1 }],
+      reason: "更正重复绑定",
+      confirmationUsername: "zhangsan",
+    };
+    const 服务 = 创建服务();
+    const 校正 = vi.fn(async () => ({
+      targetUserId: 标识,
+      wecomUserId: "zhangsan_wecom",
+      disabledIdentities: [],
+      activeIdentity: { id: 映射, statusCode: "active" },
+    }));
+    服务.校正企业微信身份 = 校正;
+    const 可写应用 = 创建应用({
+      env: {
+        ...基础环境,
+        V3_ORGANIZATION_ENABLED: "true",
+        V3_ORGANIZATION_WRITE_ENABLED: "true",
+      },
+      orgService: 服务,
+    });
+    const 超管Cookie = await 登录Cookie(可写应用, "org_admin");
+
+    await request(可写应用)
+      .post("/api/org/wecom-identities/correct")
+      .set("Cookie", 超管Cookie)
+      .send(内容)
+      .expect(400);
+    expect(校正).not.toHaveBeenCalled();
+
+    await request(可写应用)
+      .post("/api/org/wecom-identities/correct")
+      .set("Cookie", 超管Cookie)
+      .set("Idempotency-Key", "wecom-identity-correct-001")
+      .send(内容)
+      .expect(200);
+    expect(校正).toHaveBeenCalledWith(
+      内容,
+      expect.objectContaining({ username: "org_admin", role: "superadmin" }),
+    );
+
+    const 只读应用 = 创建应用({
+      env: { ...基础环境, V3_ORGANIZATION_ENABLED: "true" },
+      orgService: 服务,
+    });
+    const 只读超管Cookie = await 登录Cookie(只读应用, "org_admin");
+    await request(只读应用)
+      .post("/api/org/wecom-identities/correct")
+      .set("Cookie", 只读超管Cookie)
+      .set("Idempotency-Key", "wecom-identity-correct-readonly")
+      .send(内容)
+      .expect(403);
   });
 });

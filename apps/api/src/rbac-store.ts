@@ -9,7 +9,7 @@ export interface Rbac数据服务 {
   查询角色列表(): Promise<unknown>;
   查询角色用户(
     roleId: string,
-    参数: { keyword?: string; page: number; pageSize: number },
+    参数: { keyword?: string; includeInactive?: boolean; page: number; pageSize: number },
   ): Promise<unknown>;
   查询账号(keyword: string): Promise<unknown>;
   新建角色(input: Record<string, unknown>, actor: Rbac操作人): Promise<unknown>;
@@ -93,7 +93,10 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
           '[]'::json
         ) AS scopes,
         COALESCE(
-          (SELECT count(*)::int FROM iam.user_roles ur WHERE ur.role_id = r.id),
+          (SELECT count(*)::int
+             FROM iam.user_roles ur
+             JOIN iam.users u ON u.id = ur.user_id
+            WHERE ur.role_id = r.id AND u.status_code = 'active'),
           0
         ) AS "userCount"
       FROM iam.roles r
@@ -111,7 +114,10 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
     return { items: rows.map((行) => ({ ...行, scopes: 行.scopes || [] })) };
   }
 
-  async 查询角色用户(roleId: string, 参数: { keyword?: string; page: number; pageSize: number }) {
+  async 查询角色用户(
+    roleId: string,
+    参数: { keyword?: string; includeInactive?: boolean; page: number; pageSize: number },
+  ) {
     const 角色 = await this.查询角色概要(roleId);
     const keyword = 参数.keyword || null;
     const [数量, 用户] = await Promise.all([
@@ -122,8 +128,9 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
         JOIN iam.users u ON u.id = ur.user_id
         WHERE ur.role_id = $1::uuid
           AND ($2::text IS NULL OR u.username::text ILIKE '%' || $2 || '%' OR u.display_name ILIKE '%' || $2 || '%')
+          AND ($3::boolean OR u.status_code = 'active')
         `,
-        [roleId, keyword],
+        [roleId, keyword, Boolean(参数.includeInactive)],
       ),
       this.pool.query(
         `
@@ -151,10 +158,17 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
         ) 渠道成员 ON true
         WHERE ur.role_id = $1::uuid
           AND ($2::text IS NULL OR u.username::text ILIKE '%' || $2 || '%' OR u.display_name ILIKE '%' || $2 || '%')
-        ORDER BY u.display_name, u.username
-        LIMIT $3 OFFSET $4
+          AND ($3::boolean OR u.status_code = 'active')
+        ORDER BY CASE u.status_code WHEN 'active' THEN 0 ELSE 1 END, u.display_name, u.username
+        LIMIT $4 OFFSET $5
         `,
-        [roleId, keyword, 参数.pageSize, (参数.page - 1) * 参数.pageSize],
+        [
+          roleId,
+          keyword,
+          Boolean(参数.includeInactive),
+          参数.pageSize,
+          (参数.page - 1) * 参数.pageSize,
+        ],
       ),
     ]);
     return {
@@ -174,6 +188,7 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
         u.username::text AS username,
         u.display_name AS "displayName",
         u.status_code AS "statusCode",
+        u.offboarding_status AS "offboardingStatus",
         u.phone AS phone,
         u.email::text AS email,
         COALESCE(系统角色.role_codes, ARRAY[]::text[]) AS "systemRoleCodes",
@@ -270,6 +285,7 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
       );
       await this.绑定权限(db, id, permissionCodes);
       await this.绑定范围(db, id, scopes);
+      await 递增角色成员授权版本(db, id);
       await 审计Rbac(db, 操作人Id, actor, "rbac.role.updated", id, {
         roleName,
         description,
@@ -297,6 +313,7 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
     return this.事务(async (db) => {
       const 操作人Id = await this.操作人(db, actor);
       await db.query("UPDATE iam.roles SET status_code = $2 WHERE id = $1::uuid", [id, statusCode]);
+      await 递增角色成员授权版本(db, id);
       await 审计Rbac(db, 操作人Id, actor, "rbac.role.status.updated", id, {
         statusCode,
       });
@@ -411,6 +428,10 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
           [userId, roleId],
         );
       }
+      await db.query(
+        "UPDATE iam.users SET row_version=row_version+1,updated_at=now() WHERE id=$1::uuid",
+        [userId],
+      );
       await 审计Rbac(db, 操作人Id, actor, "rbac.user.roles.updated", userId, {
         roleIds,
         username: 用户.rows[0].username,
@@ -527,6 +548,20 @@ class PostgreSQLRbac数据服务 implements Rbac数据服务 {
       db.release();
     }
   }
+}
+
+/**
+ * 角色的权限、数据范围或启停状态变化后，所有拥有该角色的旧会话均不得继续沿用。
+ * 仅递增关联账号的授权版本，不改动账号状态、外部身份或角色归属。
+ */
+async function 递增角色成员授权版本(db: PoolClient, roleId: string): Promise<void> {
+  await db.query(
+    `UPDATE iam.users u
+        SET row_version=u.row_version+1,updated_at=now()
+       FROM iam.user_roles ur
+      WHERE ur.user_id=u.id AND ur.role_id=$1::uuid`,
+    [roleId],
+  );
 }
 
 async function 审计Rbac(

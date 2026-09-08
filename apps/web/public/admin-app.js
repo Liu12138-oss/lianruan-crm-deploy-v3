@@ -19040,6 +19040,8 @@ function 组织上传企业微信映射文件(路径, file, 选项 = {}) {
 }
 function 组织预览企业微信身份导入(file) { return 组织上传企业微信映射文件('/api/org/wecom-identities/import-preview', file); }
 function 组织确认企业微信身份导入(file, 选项 = {}) { return 组织上传企业微信映射文件('/api/org/wecom-identities/import-confirm', file, 选项); }
+function 组织查询账号冲突() { return 组织读取('/api/org/account-conflicts'); }
+function 组织校正企业微信身份(内容, 选项 = {}) { return 组织写入('/api/org/wecom-identities/correct', 'POST', 内容, 选项); }
 function 组织导出部门() { return 组织读取('/api/org/units/export'); }
 function 组织导出成员() { return 组织读取('/api/org/staff/export'); }
 function 组织导入部门(rows, 选项 = {}) { return 组织写入('/api/org/units/import', 'POST', { rows }, 选项); }
@@ -19081,6 +19083,10 @@ function 组织统计未归集管理账号() { return 组织读取('/api/org/adm
 function 组织查询离职交接() { return 组织读取('/api/org/offboarding'); }
 function 组织预览离职影响(userId) { return 组织读取('/api/org/staff/' + 组织编码路径参数(userId) + '/offboarding-preview'); }
 function 组织发起离职交接(内容, 选项 = {}) { return 组织写入('/api/org/offboarding', 'POST', 内容, 选项); }
+function 组织预览账号恢复(userId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/reactivation-preview'); }
+function 组织恢复账号(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/reactivate', 'POST', 内容, 选项); }
+function 组织预览重复账号归并(userId, keepUserId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/merge-preview' + 组织构建查询参数({ keepUserId })); }
+function 组织归并重复账号(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/merge', 'POST', 内容, 选项); }
 function 组织读取企微同步状态() { return 组织读取('/api/integrations/directory-sync/status'); }
 function 组织测试企微同步连接(内容 = {}, 选项 = {}) { return 组织写入('/api/integrations/directory-sync/test-connection', 'POST', 内容, 选项); }
 function 组织生成企微同步预览(内容 = {}, 选项 = {}) { return 组织写入('/api/integrations/directory-sync/preview', 'POST', 内容, 选项); }
@@ -19508,12 +19514,34 @@ const OrganizationWorkspace = {
           </div>
           <input ref="企微映射文件输入" type="file" accept=".xlsx,.csv" hidden @change="处理企微映射文件" />
           <el-alert title="导入边界" type="info" :closable="false" show-icon description="不会修改角色、区域、订单、泛微 OA 映射或自动拉群成员规则；文件未包含的旧企微映射不会自动停用。" />
+          <section class="组织抽屉区块" style="margin-top:14px">
+            <div class="组织卡片标题">
+              <div>
+                <h3>同名不同登录账号清单</h3>
+                <p>仅用于人工确认后的账号归并；系统不会按姓名自动合并。</p>
+              </div>
+              <el-button size="small" :loading="账号冲突加载中" @click="加载账号冲突清单">刷新清单</el-button>
+            </div>
+            <el-empty v-if="!账号冲突加载中 && !同名账号冲突清单.length" description="暂无同名不同登录账号" :image-size="72" />
+            <div v-for="分组 in 同名账号冲突清单" :key="分组.displayName" class="组织抽屉小卡" style="margin-top:8px">
+              <div class="组织抽屉小卡主"><b>{{ 分组.displayName }}</b><span>共 {{ 分组.users.length }} 个启用账号，需人工核对。</span></div>
+              <el-table :data="分组.users" size="small" style="margin-top:8px">
+                <el-table-column prop="username" label="登录账号" min-width="150" />
+                <el-table-column prop="regionName" label="区域" min-width="120"><template #default="{ row }">{{ row.regionName || '未设置' }}</template></el-table-column>
+                <el-table-column label="系统角色" min-width="160"><template #default="{ row }">{{ (row.roleNames || []).join('、') || '普通账号' }}</template></el-table-column>
+                <el-table-column prop="currentBusinessCount" label="当前业务" width="100" />
+                <el-table-column label="操作" width="130"><template #default="{ row }"><el-button size="small" text type="warning" @click="打开企微冲突账号(row)">打开并归并</el-button></template></el-table-column>
+              </el-table>
+            </div>
+          </section>
           <template v-if="企微映射预览">
             <div class="同步状态" style="margin-top:12px">
               <span>文件：<b>{{ 企微映射预览.fileName }}</b></span><span>总行数：<b>{{ 企微映射预览.summary.total }}</b></span><span>待新增：<b>{{ 企微映射预览.summary.ready }}</b></span><span>已一致：<b>{{ 企微映射预览.summary.unchanged }}</b></span><span>等待账号：<b>{{ 企微映射预览.summary.waitingForUser }}</b></span><span>阻断：<b>{{ 企微映射预览.summary.blocked }}</b></span>
             </div>
-            <el-table :data="企微映射预览.rows" max-height="360" size="small" empty-text="暂无数据行">
+            <div style="display:flex;justify-content:flex-end;margin:10px 0"><el-select v-model="企微映射结果筛选" size="small" style="width:150px"><el-option label="全部结果" value="all" /><el-option label="仅阻断" value="blocked" /></el-select></div>
+            <el-table :data="过滤后企微映射预览行" max-height="360" size="small" empty-text="暂无数据行">
               <el-table-column prop="rowNumber" label="源行" width="75" /><el-table-column prop="displayName" label="姓名" min-width="120" /><el-table-column prop="wecomUserId" label="企业微信 UserId" min-width="180" /><el-table-column label="结果" width="130"><template #default="{ row }"><el-tag :type="企微映射状态类型(row.status)" size="small">{{ 企微映射状态中文(row.status) }}</el-tag></template></el-table-column><el-table-column prop="message" label="说明" min-width="280" />
+              <el-table-column label="处理" min-width="170" fixed="right"><template #default="{ row }"><span v-if="row.conflict?.action === 'edit_file'" class="组织抽屉空">请修改源文件后重传</span><template v-else-if="row.conflict?.action === 'open_accounts'"><el-button v-for="账号 in row.conflict.users || []" :key="账号.id" size="small" text type="primary" @click="打开企微冲突账号(账号)">查看 {{ 账号.username }}</el-button></template><el-button v-else-if="row.conflict?.action === 'correct_identity'" size="small" text type="warning" :disabled="!可写" @click="打开企微身份校正(row)">校正身份</el-button><span v-else>—</span></template></el-table-column>
             </el-table>
           </template>
         </section>
@@ -19658,9 +19686,11 @@ const OrganizationWorkspace = {
 
     <el-dialog v-model="角色用户弹窗打开" :title="(当前角色用户角色?.roleName || '角色') + '的用户'" width="min(760px, 94vw)" :z-index="4200" append-to-body>
       <el-alert type="info" :closable="false" show-icon description="点击用户可进入账号与授权详情；渠道成员职责仍须在渠道商管理中维护。" style="margin-bottom:12px" />
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px"><el-switch v-model="角色用户包含停用" active-text="显示停用历史" @change="加载角色用户(1)" /></div>
       <el-table v-loading="角色用户加载中" :data="角色用户数据.items" empty-text="该角色暂无用户">
         <el-table-column prop="displayName" label="姓名" min-width="130" />
         <el-table-column prop="username" label="登录账号" min-width="150" />
+        <el-table-column label="状态" width="90"><template #default="{ row }">{{ row.statusCode === 'active' ? '启用' : '停用' }}</template></el-table-column>
         <el-table-column label="内部任职" min-width="180"><template #default="{ row }">{{ row.internalAssignmentSummary || '—' }}</template></el-table-column>
         <el-table-column label="渠道成员关系" min-width="200"><template #default="{ row }">{{ row.partnerMembershipSummary || '—' }}</template></el-table-column>
         <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button size="small" text type="primary" @click="打开角色用户账号(row)">查看授权</el-button></template></el-table-column>
@@ -19807,6 +19837,8 @@ const OrganizationWorkspace = {
                 <el-button size="small" type="primary" :loading="提交中" @click="保存基本信息">保存基本信息</el-button>
                 <el-button size="small" @click="重置密码">重置密码（123456）</el-button>
                 <el-button v-if="编辑用户.username !== 'admin' && String(编辑用户.username || '').toLowerCase() !== 当前用户名 && 编辑用户.status === 'active'" size="small" type="danger" plain :loading="提交中" @click="打开停用归档">删除（停用并交接）</el-button>
+                <el-button v-if="编辑用户.status === 'disabled'" size="small" type="success" plain :loading="提交中" @click="打开账号恢复">恢复并重新授权</el-button>
+                <el-button v-if="编辑用户.username !== 'admin' && String(编辑用户.username || '').toLowerCase() !== 当前用户名 && 编辑用户.status === 'active'" size="small" type="warning" plain :loading="提交中" @click="打开重复账号归并">归并到保留账号</el-button>
               </template>
               <span v-else class="组织抽屉空">渠道账号的基本信息、状态和成员职责请在渠道商管理维护。</span>
             </div>
@@ -20009,6 +20041,145 @@ const OrganizationWorkspace = {
         >确认停用并开始交接</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="账号恢复弹窗打开"
+      :title="'恢复并重新授权' + (编辑用户 ? '：' + 编辑用户.name : '')"
+      width="min(680px, 94vw)"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        description="恢复只启用原账号，并按本次选择的系统角色和内部任职重新授权；已经交接出去的客户、报备、商机、报价和订单负责人不回滚，泛微与企业微信身份映射保持原样。"
+        style="margin-bottom:12px"
+      />
+      <template v-if="账号恢复预览">
+        <el-alert
+          v-if="!账号恢复预览.canReactivate"
+          type="error"
+          :closable="false"
+          show-icon
+          title="当前账号不能恢复"
+          :description="账号恢复预览.notice || '只有已完成或已关闭交接的离职账号可以恢复。'"
+          style="margin-bottom:12px"
+        />
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="登录账号">{{ 账号恢复预览.user?.username }}</el-descriptions-item>
+          <el-descriptions-item label="交接状态">{{ 状态中文(账号恢复预览.user?.handoverStatus) }}</el-descriptions-item>
+          <el-descriptions-item label="历史角色" :span="2">
+            <el-tag v-for="角色 in 账号恢复预览.previousRoles || []" :key="角色.id" size="small" style="margin-right:6px">{{ 角色.roleName }}</el-tag>
+            <span v-if="!(账号恢复预览.previousRoles || []).length">无历史角色快照</span>
+          </el-descriptions-item>
+          <el-descriptions-item label="保留外部身份" :span="2">{{ (账号恢复预览.externalIdentities || []).length }} 条，恢复过程不会迁移、替换或删除。</el-descriptions-item>
+        </el-descriptions>
+        <el-form label-position="top" style="margin-top:14px">
+          <el-form-item label="系统角色（本次重新指定）" required>
+            <el-select v-model="账号恢复表单.roleIds" multiple filterable collapse-tags collapse-tags-tooltip :teleported="true" popper-class="组织账号顶层下拉" style="width:100%" placeholder="请选择当前应授予的角色">
+              <el-option v-for="角色 in 可分配角色列表" :key="角色.id" :label="角色.roleName + (角色.isSystem ? '（系统内置）' : '')" :value="角色.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="内部部门" required>
+            <el-select v-model="账号恢复表单.orgUnitId" filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:100%" placeholder="请选择当前所属部门" @change="账号恢复表单.positionId = ''">
+              <el-option v-for="组织 in 平铺组织列表" :key="组织.id" :label="'　'.repeat(组织.层级 || 0) + 组织.unitName" :value="组织.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="岗位（可选）">
+            <el-select v-model="账号恢复表单.positionId" clearable filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:100%" placeholder="请选择岗位">
+              <el-option v-for="岗位 in 恢复部门岗位列表" :key="岗位.id" :label="岗位.positionName" :value="岗位.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="恢复原因" required><el-input v-model="账号恢复表单.reason" type="textarea" :rows="2" maxlength="200" show-word-limit /></el-form-item>
+          <el-form-item :label="'二次确认：请输入账号 ' + (账号恢复预览.user?.username || '')" required><el-input v-model="账号恢复表单.confirmationUsername" autocomplete="off" /></el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="账号恢复弹窗打开 = false">取消</el-button>
+        <el-button type="success" :loading="提交中" :disabled="!可提交账号恢复" @click="确认账号恢复">确认恢复并重新授权</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="账号归并弹窗打开"
+      :title="'归并重复账号' + (编辑用户 ? '：' + 编辑用户.name : '')"
+      width="min(720px, 94vw)"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        type="warning"
+        :closable="false"
+        show-icon
+        description="仅用于已人工确认属于同一人员的两个账号。系统不会按姓名自动归并：来源账号会停用并交接当前业务给保留账号；历史申请、审批、审计和泛微、企业微信身份映射均不改写。"
+        style="margin-bottom:12px"
+      />
+      <el-form label-position="top">
+        <el-form-item label="检索保留账号" required>
+          <div style="display:flex;gap:8px;width:100%">
+            <el-input v-model="归并保留账号检索词" placeholder="输入保留账号的用户名或姓名" @keyup.enter="检索归并保留账号" />
+            <el-button :loading="归并账号检索中" @click="检索归并保留账号">检索</el-button>
+          </div>
+        </el-form-item>
+        <el-form-item label="保留账号" required>
+          <el-select v-model="账号归并表单.keepUserId" filterable :teleported="true" popper-class="组织账号顶层下拉" style="width:100%" placeholder="请从检索结果中明确选择" @change="读取账号归并预览">
+            <el-option v-for="账号 in 归并账号候选" :key="账号.id" :label="账号.name + '（' + 账号.username + '）· ' + 账号角色摘要(账号)" :value="账号.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template v-if="账号归并预览">
+        <el-alert v-if="!账号归并预览.canMerge" type="error" :closable="false" show-icon title="当前不能归并" description="保留账号必须是有效账号，并且具备接收来源账号当前业务所需的角色和区域资格。" style="margin-bottom:12px" />
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="来源账号">{{ 账号归并预览.sourceUser?.displayName }}（{{ 账号归并预览.sourceUser?.username }}）</el-descriptions-item>
+          <el-descriptions-item label="保留账号">{{ 账号归并预览.keepUser?.displayName }}（{{ 账号归并预览.keepUser?.username }}）</el-descriptions-item>
+          <el-descriptions-item label="当前待交接业务" :span="2">共 {{ 账号归并预览.totalCount || 0 }} 条；归并来源账号将被停用，历史事实不迁移。</el-descriptions-item>
+          <el-descriptions-item label="外部身份处理" :span="2">{{ (账号归并预览.externalIdentities || []).length }} 条映射均原样保留，不自动迁移、停用或删除。</el-descriptions-item>
+        </el-descriptions>
+        <el-table :data="账号归并预览.items || []" size="small" style="margin-top:12px" empty-text="没有当前业务需要交接">
+          <el-table-column label="范围" min-width="160"><template #default="{ row }">{{ row.domainName || 离职交接领域中文(row.domainCode) }}</template></el-table-column>
+          <el-table-column prop="affectedCount" label="数量" width="100" />
+        </el-table>
+        <el-form label-position="top" style="margin-top:14px">
+          <el-form-item label="归并原因" required><el-input v-model="账号归并表单.reason" type="textarea" :rows="2" maxlength="200" show-word-limit /></el-form-item>
+          <el-form-item :label="'二次确认：请输入来源账号 ' + (账号归并预览.sourceUser?.username || '')" required><el-input v-model="账号归并表单.confirmationUsername" autocomplete="off" /></el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="账号归并弹窗打开 = false">取消</el-button>
+        <el-button type="warning" :loading="提交中" :disabled="!可提交账号归并" @click="确认账号归并">确认归并并停用来源账号</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="企微身份校正弹窗打开"
+      :title="'校正企业微信身份' + (企微身份校正目标行 ? '：' + 企微身份校正目标行.displayName : '')"
+      width="min(720px, 94vw)"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert type="warning" :closable="false" show-icon description="校正会停用预览中冲突的有效映射，再为目标账号新增当前 UserId 的有效映射；不会删除历史记录，也不会改写泛微 OA、订单、审批或已创建群。" style="margin-bottom:12px" />
+      <template v-if="企微身份校正目标行">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="目标账号">{{ 企微身份校正目标行.user?.displayName }}（{{ 企微身份校正目标行.user?.username }}）</el-descriptions-item>
+          <el-descriptions-item label="企业微信 UserId">{{ 企微身份校正目标行.wecomUserId }}</el-descriptions-item>
+        </el-descriptions>
+        <h4 style="margin:16px 0 8px">将核对并处理的映射</h4>
+        <el-table :data="企微身份校正目标行.conflict?.identities || []" size="small" empty-text="预览未返回可校正映射，请重新上传文件">
+          <el-table-column prop="displayName" label="当前关联账号" min-width="160"><template #default="{ row }">{{ row.displayName }}（{{ row.username }}）</template></el-table-column>
+          <el-table-column prop="externalSubject" label="企业微信 UserId" min-width="180" />
+          <el-table-column prop="statusCode" label="状态" width="100"><template #default="{ row }">{{ row.statusCode === 'active' ? '有效' : '历史停用' }}</template></el-table-column>
+        </el-table>
+        <el-form label-position="top" style="margin-top:14px">
+          <el-form-item label="校正原因" required><el-input v-model="企微身份校正表单.reason" type="textarea" :rows="2" maxlength="200" show-word-limit /></el-form-item>
+          <el-form-item :label="'二次确认：请输入目标账号 ' + (企微身份校正目标行.user?.username || '')" required><el-input v-model="企微身份校正表单.confirmationUsername" autocomplete="off" /></el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="企微身份校正弹窗打开 = false">取消</el-button>
+        <el-button type="warning" :loading="企微身份校正中" :disabled="!可提交企微身份校正" @click="确认企微身份校正">确认校正身份</el-button>
+      </template>
+    </el-dialog>
   </div>`,
 
   setup() {
@@ -20038,11 +20209,27 @@ const OrganizationWorkspace = {
     const 离职交接弹窗打开 = ref(false);
     const 离职影响预览 = ref(null);
     const 离职确认表单 = reactive({ replacementUserId: '', reason: '', confirmationUsername: '' });
+    const 账号恢复弹窗打开 = ref(false);
+    const 账号恢复预览 = ref(null);
+    const 账号恢复表单 = reactive({ roleIds: [], orgUnitId: '', positionId: '', reason: '', confirmationUsername: '' });
+    const 账号归并弹窗打开 = ref(false);
+    const 账号归并预览 = ref(null);
+    const 账号归并表单 = reactive({ keepUserId: '', reason: '', confirmationUsername: '' });
+    const 归并保留账号检索词 = ref('');
+    const 归并账号候选 = ref([]);
+    const 归并账号检索中 = ref(false);
     const 企微同步状态 = ref(null);
     const 企微映射文件输入 = ref(null);
     const 企微映射文件 = ref(null);
     const 企微映射预览 = ref(null);
     const 企微映射导入中 = ref(false);
+    const 企微映射结果筛选 = ref('all');
+    const 同名账号冲突清单 = ref([]);
+    const 账号冲突加载中 = ref(false);
+    const 企微身份校正弹窗打开 = ref(false);
+    const 企微身份校正目标行 = ref(null);
+    const 企微身份校正表单 = reactive({ reason: '', confirmationUsername: '' });
+    const 企微身份校正中 = ref(false);
     const 同步批次列表 = ref([]);
     const 同步差异列表 = ref([]);
     const 渠道同步预览摘要 = ref(null);
@@ -20076,6 +20263,7 @@ const OrganizationWorkspace = {
     const 当前角色用户角色 = ref(null);
     const 角色用户加载中 = ref(false);
     const 角色用户数据 = ref({ items: [], page: 1, pageSize: 20, total: 0 });
+    const 角色用户包含停用 = ref(false);
     const 角色编辑弹窗打开 = ref(false);
     const 角色表单 = reactive({ id: '', roleName: '', description: '', permissionCodes: [], 范围: { 全局: false, 仅本人: false, 部门Ids: [], 渠道Ids: [] } });
     const 组织编辑弹窗打开 = ref(false);
@@ -20113,6 +20301,49 @@ const OrganizationWorkspace = {
       return Boolean(
         离职确认表单.reason.trim() &&
         离职确认表单.confirmationUsername.trim().toLowerCase() === String(预览.user?.username || '').toLowerCase()
+      );
+    });
+    const 恢复部门岗位列表 = computed(() =>
+      账号恢复表单.orgUnitId
+        ? 岗位列表.value.filter((岗位) => 岗位.orgUnitId === 账号恢复表单.orgUnitId && 岗位.statusCode === 'active')
+        : [],
+    );
+    const 可提交账号恢复 = computed(() => {
+      const 预览 = 账号恢复预览.value;
+      if (!预览?.canReactivate || !可写.value || !组织功能状态.value?.offboardingEnabled) return false;
+      return Boolean(
+        账号恢复表单.roleIds.length &&
+        账号恢复表单.orgUnitId &&
+        账号恢复表单.reason.trim() &&
+        账号恢复表单.confirmationUsername.trim().toLowerCase() === String(预览.user?.username || '').toLowerCase(),
+      );
+    });
+    const 可提交账号归并 = computed(() => {
+      const 预览 = 账号归并预览.value;
+      if (!预览?.canMerge || !可写.value || !组织功能状态.value?.offboardingEnabled) return false;
+      return Boolean(
+        账号归并表单.keepUserId &&
+        账号归并表单.reason.trim() &&
+        账号归并表单.confirmationUsername.trim().toLowerCase() === String(预览.sourceUser?.username || '').toLowerCase(),
+      );
+    });
+    const 过滤后企微映射预览行 = computed(() => {
+      const 行 = 企微映射预览.value?.rows || [];
+      return 企微映射结果筛选.value === 'blocked'
+        ? 行.filter((item) => item.status === 'blocked')
+        : 行;
+    });
+    const 可提交企微身份校正 = computed(() => {
+      const 行 = 企微身份校正目标行.value;
+      const 映射 = 行?.conflict?.identities || [];
+      return Boolean(
+        可写.value &&
+        行?.conflict?.action === 'correct_identity' &&
+        行?.user?.id &&
+        行?.wecomUserId &&
+        映射.length &&
+        企微身份校正表单.reason.trim() &&
+        企微身份校正表单.confirmationUsername.trim().toLowerCase() === String(行.user?.username || '').toLowerCase(),
       );
     });
 
@@ -20487,6 +20718,19 @@ const OrganizationWorkspace = {
       return error instanceof Error ? error.message : 默认信息;
     }
 
+    async function 加载账号冲突清单() {
+      账号冲突加载中.value = true;
+      try {
+        const 结果 = await 组织查询账号冲突();
+        同名账号冲突清单.value = 结果.sameDisplayNameGroups || [];
+      } catch (error) {
+        同名账号冲突清单.value = [];
+        ElementPlus.ElMessage.error('读取同名账号清单失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        账号冲突加载中.value = false;
+      }
+    }
+
     async function 加载页面() {
       加载中.value = true;
       错误提示.value = '';
@@ -20520,6 +20764,7 @@ const OrganizationWorkspace = {
         离职交接列表.value = 离职.items;
         await 加载角色管理数据();
         组织统计未归集管理账号().then((结果) => { 未归集管理账号数.value = 结果?.unassigned || 0; }).catch(() => { 未归集管理账号数.value = 0; });
+        加载账号冲突清单().catch(() => {});
 
         if (状态.directorySyncEnabled) {
           try {
@@ -20572,6 +20817,7 @@ const OrganizationWorkspace = {
       }
       企微映射文件.value = file;
       企微映射预览.value = null;
+      企微映射结果筛选.value = 'all';
       企微映射导入中.value = true;
       try {
         企微映射预览.value = await 组织预览企业微信身份导入(file);
@@ -20592,6 +20838,11 @@ const OrganizationWorkspace = {
       return status === 'ready' ? 'success' : status === 'unchanged' ? 'info' : status === 'waiting_for_user' ? 'warning' : 'danger';
     }
 
+    async function 刷新企微映射预览() {
+      if (!企微映射文件.value) return;
+      企微映射预览.value = await 组织预览企业微信身份导入(企微映射文件.value);
+    }
+
     async function 确认企微映射导入() {
       const file = 企微映射文件.value;
       const preview = 企微映射预览.value;
@@ -20601,7 +20852,7 @@ const OrganizationWorkspace = {
       try {
         const result = await 组织确认企业微信身份导入(file, { 幂等键: 生成组织幂等键() });
         ElementPlus.ElMessage.success(`企微映射导入完成，新增 ${result.imported} 条，已一致 ${result.unchanged} 条。`);
-        企微映射预览.value = await 组织预览企业微信身份导入(file);
+        await 刷新企微映射预览();
       } catch (error) {
         ElementPlus.ElMessage.error('企微映射导入失败：' + 读取错误信息(error, '未知错误'));
       } finally {
@@ -20893,6 +21144,7 @@ const OrganizationWorkspace = {
     }
     async function 打开角色用户(角色) {
       当前角色用户角色.value = 角色;
+      角色用户包含停用.value = false;
       角色用户数据.value = { items: [], page: 1, pageSize: 20, total: 0 };
       角色用户弹窗打开.value = true;
       await 加载角色用户(1);
@@ -20901,7 +21153,7 @@ const OrganizationWorkspace = {
       if (!当前角色用户角色.value) return;
       角色用户加载中.value = true;
       try {
-        const 结果 = await 组织查询角色用户(当前角色用户角色.value.id, { page, pageSize: 20 });
+        const 结果 = await 组织查询角色用户(当前角色用户角色.value.id, { page, pageSize: 20, includeInactive: 角色用户包含停用.value });
         角色用户数据.value = 结果;
       } catch (error) {
         ElementPlus.ElMessage.error('读取角色用户失败：' + 读取错误信息(error, '未知错误'));
@@ -20972,6 +21224,7 @@ const OrganizationWorkspace = {
         systemRoleCodes: 系统角色编码,
         systemRoleNames: 行.systemRoleNames || 原始.systemRoleNames || [],
         status: 行.statusCode || 行.状态 || 原始.status || 'active',
+        offboardingStatus: 行.offboardingStatus || 原始.offboardingStatus || '',
         phone: 行.phone || 原始.phone || '',
         email: 行.email || 原始.email || '',
         internalAssignmentSummary: 行.internalAssignmentSummary || '',
@@ -21042,6 +21295,56 @@ const OrganizationWorkspace = {
         编辑用户管理员角色Ids.value = [];
       }
       编辑抽屉打开.value = true;
+    }
+    async function 打开企微冲突账号(账号) {
+      if (!账号?.id || !账号?.username) return;
+      try {
+        const 结果 = await 组织查询账号({ keyword: 账号.username });
+        const 完整账号 = (结果.items || []).find((项) => 项.id === 账号.id);
+        if (!完整账号) throw new Error('未找到当前账号。');
+        await 打开账号编辑(
+          完整账号,
+          完整账号.partnerMembershipSummary ? 'channel' : 'internal',
+        );
+      } catch (error) {
+        ElementPlus.ElMessage.error('打开冲突账号失败：' + 读取错误信息(error, '未知错误'));
+      }
+    }
+    function 打开企微身份校正(行) {
+      if (!可写.value || 行?.conflict?.action !== 'correct_identity' || !行?.user?.id) return;
+      if (!(行.conflict.identities || []).length) {
+        ElementPlus.ElMessage.warning('预览未返回可校正映射，请重新上传文件后重试。');
+        return;
+      }
+      企微身份校正目标行.value = 行;
+      企微身份校正表单.reason = '';
+      企微身份校正表单.confirmationUsername = '';
+      企微身份校正弹窗打开.value = true;
+    }
+    async function 确认企微身份校正() {
+      const 行 = 企微身份校正目标行.value;
+      if (!可提交企微身份校正.value || !行) return;
+      if (!window.confirm('确认停用冲突的有效企业微信映射，并为目标账号建立新的有效映射？历史映射会保留。')) return;
+      企微身份校正中.value = true;
+      try {
+        const 结果 = await 组织校正企业微信身份({
+          targetUserId: 行.user.id,
+          wecomUserId: 行.wecomUserId,
+          expectedIdentities: (行.conflict.identities || []).map((映射) => ({
+            identityId: 映射.id,
+            rowVersion: 映射.rowVersion,
+          })),
+          reason: 企微身份校正表单.reason.trim(),
+          confirmationUsername: 企微身份校正表单.confirmationUsername.trim(),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success(`企业微信身份已校正，停用 ${结果.disabledIdentities?.length || 0} 条旧映射。`);
+        企微身份校正弹窗打开.value = false;
+        await Promise.all([刷新企微映射预览(), 加载账号冲突清单()]);
+      } catch (error) {
+        ElementPlus.ElMessage.error('校正企业微信身份失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        企微身份校正中.value = false;
+      }
     }
     async function 打开成员编辑(成员) {
       await 打开账号编辑({
@@ -21192,6 +21495,112 @@ const OrganizationWorkspace = {
         await 加载编辑详情(编辑用户.value.id);
       } catch (error) {
         ElementPlus.ElMessage.error('停用失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 打开账号恢复() {
+      if (!编辑用户.value || 编辑用户.value.status !== 'disabled' || !可写.value) return;
+      提交中.value = true;
+      try {
+        const 预览 = await 组织预览账号恢复(编辑用户.value.id);
+        账号恢复预览.value = 预览;
+        账号恢复表单.roleIds = (预览.previousRoles || []).map((角色) => 角色.id).filter(Boolean);
+        账号恢复表单.orgUnitId = 平铺组织列表.value[0]?.id || '';
+        账号恢复表单.positionId = '';
+        账号恢复表单.reason = '';
+        账号恢复表单.confirmationUsername = '';
+        账号恢复弹窗打开.value = true;
+      } catch (error) {
+        ElementPlus.ElMessage.error('恢复预览失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 确认账号恢复() {
+      if (!编辑用户.value || !可提交账号恢复.value) return;
+      提交中.value = true;
+      try {
+        await 组织恢复账号(编辑用户.value.id, {
+          roleIds: 账号恢复表单.roleIds,
+          orgUnitId: 账号恢复表单.orgUnitId,
+          ...(账号恢复表单.positionId ? { positionId: 账号恢复表单.positionId } : {}),
+          reason: 账号恢复表单.reason.trim(),
+          confirmationUsername: 账号恢复表单.confirmationUsername.trim(),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('账号已恢复并按新角色、任职重新授权；已交接业务未回滚。');
+        账号恢复弹窗打开.value = false;
+        await 加载页面();
+        if (账号检索已执行.value) await 检索账号();
+        await 打开账号编辑({ ...编辑用户.value, status: 'active' }, 'internal');
+      } catch (error) {
+        ElementPlus.ElMessage.error('恢复账号失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 打开重复账号归并() {
+      if (!编辑用户.value || 编辑用户.value.status !== 'active' || !可写.value) return;
+      账号归并预览.value = null;
+      账号归并表单.keepUserId = '';
+      账号归并表单.reason = '';
+      账号归并表单.confirmationUsername = '';
+      归并保留账号检索词.value = '';
+      归并账号候选.value = [];
+      账号归并弹窗打开.value = true;
+    }
+    async function 检索归并保留账号() {
+      const 关键词 = 归并保留账号检索词.value.trim();
+      if (!关键词) {
+        归并账号候选.value = [];
+        return;
+      }
+      归并账号检索中.value = true;
+      try {
+        const 结果 = await 组织查询账号({ keyword: 关键词 });
+        归并账号候选.value = (结果.items || [])
+          .map(解析账号行)
+          .filter((账号) => 账号.id !== 编辑用户.value?.id && 账号.status === 'active');
+      } catch (error) {
+        ElementPlus.ElMessage.error('保留账号检索失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        归并账号检索中.value = false;
+      }
+    }
+    async function 读取账号归并预览() {
+      if (!编辑用户.value || !账号归并表单.keepUserId) {
+        账号归并预览.value = null;
+        return;
+      }
+      提交中.value = true;
+      try {
+        账号归并预览.value = await 组织预览重复账号归并(编辑用户.value.id, 账号归并表单.keepUserId);
+        账号归并表单.reason = '';
+        账号归并表单.confirmationUsername = '';
+      } catch (error) {
+        账号归并预览.value = null;
+        ElementPlus.ElMessage.error('归并影响预览失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 确认账号归并() {
+      if (!编辑用户.value || !可提交账号归并.value) return;
+      if (!window.confirm('确认来源账号将被停用，当前业务负责人交接给保留账号？历史审批、审计和外部身份映射不会改写。')) return;
+      提交中.value = true;
+      try {
+        const 结果 = await 组织归并重复账号(编辑用户.value.id, {
+          keepUserId: 账号归并表单.keepUserId,
+          reason: 账号归并表单.reason.trim(),
+          confirmationUsername: 账号归并表单.confirmationUsername.trim(),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('重复账号已停用并创建业务交接单，待处理 ' + (结果.affectedCount || 0) + ' 条。');
+        账号归并弹窗打开.value = false;
+        关闭编辑抽屉();
+        await 加载页面();
+        if (账号检索已执行.value) await 检索账号();
+      } catch (error) {
+        ElementPlus.ElMessage.error('归并账号失败：' + 读取错误信息(error, '未知错误'));
       } finally {
         提交中.value = false;
       }
@@ -21428,6 +21837,10 @@ const OrganizationWorkspace = {
       编辑用户业务角色.value = [];
       编辑用户证书.value = [];
       泛微OA身份.value = null;
+      账号恢复弹窗打开.value = false;
+      账号恢复预览.value = null;
+      账号归并弹窗打开.value = false;
+      账号归并预览.value = null;
       重置泛微候选表单();
       取消调整任职();
       新业务角色表单.businessRoleId = '';
@@ -21645,6 +22058,19 @@ const OrganizationWorkspace = {
       企微映射状态类型,
       企微映射预览,
       企微映射导入中,
+      企微映射结果筛选,
+      过滤后企微映射预览行,
+      同名账号冲突清单,
+      账号冲突加载中,
+      加载账号冲突清单,
+      打开企微冲突账号,
+      企微身份校正弹窗打开,
+      企微身份校正目标行,
+      企微身份校正表单,
+      企微身份校正中,
+      可提交企微身份校正,
+      打开企微身份校正,
+      确认企微身份校正,
       导出部门Excel,
       导出成员Excel,
       部门树引用,
@@ -21702,6 +22128,17 @@ const OrganizationWorkspace = {
       离职确认表单,
       可提交离职交接,
       离职交接领域中文,
+      账号恢复弹窗打开,
+      账号恢复预览,
+      账号恢复表单,
+      恢复部门岗位列表,
+      可提交账号恢复,
+      账号归并弹窗打开,
+      账号归并预览,
+      账号归并表单,
+      归并保留账号检索词,
+      归并账号候选,
+      归并账号检索中,
       企微同步状态,
       同步批次列表,
       同步差异列表,
@@ -21735,6 +22172,7 @@ const OrganizationWorkspace = {
       当前角色用户角色,
       角色用户加载中,
       角色用户数据,
+      角色用户包含停用,
       角色编辑弹窗打开,
       角色表单,
       业务权限分组,
@@ -21788,6 +22226,12 @@ const OrganizationWorkspace = {
       重置密码,
       打开停用归档,
       确认停用归档,
+      打开账号恢复,
+      确认账号恢复,
+      打开重复账号归并,
+      检索归并保留账号,
+      读取账号归并预览,
+      确认账号归并,
       开始调整任职,
       取消调整任职,
       保存任职,

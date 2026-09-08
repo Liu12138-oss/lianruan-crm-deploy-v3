@@ -26,7 +26,7 @@ export interface Rbac数据服务 {
   查询角色列表(): Promise<unknown>;
   查询角色用户(
     roleId: string,
-    参数: { keyword?: string; page: number; pageSize: number },
+    参数: { keyword?: string; includeInactive?: boolean; page: number; pageSize: number },
   ): Promise<unknown>;
   查询账号(keyword: string): Promise<unknown>;
   新建角色(input: Record<string, unknown>, actor: Rbac操作人): Promise<unknown>;

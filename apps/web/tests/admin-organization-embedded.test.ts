@@ -395,6 +395,22 @@ it("企业微信身份映射导入使用受控预览和确认入口，不改变�
   expect(脚本文本).toContain("不会修改角色、区域、订单、泛微 OA 映射或自动拉群成员规则");
 });
 
+it("企业微信导入阻断项可定位并受控处理，同名账号仍须人工归并", async () => {
+  const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
+
+  expect(脚本文本).toContain("同名不同登录账号清单");
+  expect(脚本文本).toContain("系统不会按姓名自动合并");
+  expect(脚本文本).toContain("'/api/org/account-conflicts'");
+  expect(脚本文本).toContain("仅阻断");
+  expect(脚本文本).toContain("请修改源文件后重传");
+  expect(脚本文本).toContain("打开企微冲突账号");
+  expect(脚本文本).toContain("校正企业微信身份");
+  expect(脚本文本).toContain("'/api/org/wecom-identities/correct'");
+  expect(脚本文本).toContain("expectedIdentities");
+  expect(脚本文本).toContain("confirmationUsername: 企微身份校正表单.confirmationUsername.trim()");
+  expect(脚本文本).toContain("刷新企微映射预览");
+});
+
 it("从角色用户弹窗进入账号授权时先关闭原弹窗，避免账号抽屉被遮挡", async () => {
   const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
 
@@ -538,6 +554,28 @@ it("停用交接先展示影响与接收人，独立开关关闭时只能预览"
   expect(脚本文本).toContain("confirmationUsername.trim().toLowerCase()");
   expect(脚本文本).toContain("!组织功能状态.value?.offboardingEnabled");
   expect(脚本文本).toContain(':disabled="!可提交离职交接"');
+});
+
+it("停用账号可受控恢复，重复账号必须人工选择保留账号后归并", async () => {
+  const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
+
+  expect(脚本文本).toContain("组织预览账号恢复(userId)");
+  expect(脚本文本).toContain("组织恢复账号(userId, 内容, 选项 = {})");
+  expect(脚本文本).toContain(
+    "'/api/org/users/' + 组织编码路径参数(userId) + '/reactivation-preview'",
+  );
+  expect(脚本文本).toContain("'/api/org/users/' + 组织编码路径参数(userId) + '/reactivate'");
+  expect(脚本文本).toContain("恢复并重新授权");
+  expect(脚本文本).toContain("已交接业务未回滚");
+  expect(脚本文本).toContain("confirmationUsername: 账号恢复表单.confirmationUsername.trim()");
+  expect(脚本文本).toContain("组织预览重复账号归并(userId, keepUserId)");
+  expect(脚本文本).toContain("组织归并重复账号(userId, 内容, 选项 = {})");
+  expect(脚本文本).toContain("'/api/org/users/' + 组织编码路径参数(userId) + '/merge-preview'");
+  expect(脚本文本).toContain("'/api/org/users/' + 组织编码路径参数(userId) + '/merge'");
+  expect(脚本文本).toContain("系统不会按姓名自动归并");
+  expect(脚本文本).toContain("归并到保留账号");
+  expect(脚本文本).toContain("归并来源账号将被停用");
+  expect(脚本文本).toContain("外部身份映射不会改写");
 });
 
 it("组织总开关关闭不读取数据，只读模式隐藏全部写入入口", async () => {

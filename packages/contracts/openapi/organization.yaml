@@ -28,7 +28,7 @@ tags:
   - name: 泛微 OA 身份
     description: 泛微 OA／eteams 发起人身份的候选核验与正式映射维护；候选不具备流程发起资格。
   - name: 企业微信身份映射
-    description: 企业微信 UserId 与 V3 用户的受控文件导入；仅新增有效映射并保留审计。
+    description: 企业微信 UserId 与 V3 用户的受控文件导入、冲突定位与身份校正；保留审计。
 paths:
   /api/org/status:
     get:
@@ -72,6 +72,10 @@ paths:
         - name: keyword
           in: query
           schema: { type: string, maxLength: 100 }
+        - name: includeInactive
+          in: query
+          schema: { type: boolean, default: false }
+          description: 默认仅返回启用账号；为 true 时追加停用历史账号。
         - name: page
           in: query
           schema: { type: integer, minimum: 1, default: 1 }
@@ -243,6 +247,35 @@ paths:
             schema: { $ref: "#/components/schemas/企业微信身份映射文件上传" }
       responses:
         "200": { $ref: "#/components/responses/企业微信身份映射导入成功" }
+        "400": { $ref: "#/components/responses/企业微信身份映射请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织写入关闭" }
+        "409": { $ref: "#/components/responses/企业微信身份映射冲突" }
+  /api/org/account-conflicts:
+    get:
+      tags: [企业微信身份映射]
+      operationId: 查询账号与企业微信映射冲突
+      summary: 查询同名不同登录账号清单
+      description: 仅超级管理员可调用。只返回启用账号中的同名不同登录账号摘要，供人工选择来源账号和保留账号；不自动归并。
+      responses:
+        "200": { $ref: "#/components/responses/账号冲突清单成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/wecom-identities/correct:
+    post:
+      tags: [企业微信身份映射]
+      operationId: 校正企业微信身份映射
+      summary: 停用冲突映射并建立目标账号的有效企业微信身份
+      description: 仅超级管理员可调用。必须携带预览中的映射编号和行版本、原因、目标账号二次确认及幂等键；不删除历史映射，不修改 OA、订单或群记录。
+      parameters: [{ $ref: "#/components/parameters/幂等键必填" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/企业微信身份校正请求" }
+      responses:
+        "200": { $ref: "#/components/responses/企业微信身份校正成功" }
         "400": { $ref: "#/components/responses/企业微信身份映射请求不合法" }
         "401": { $ref: "#/components/responses/组织未登录" }
         "403": { $ref: "#/components/responses/组织写入关闭" }
@@ -832,6 +865,78 @@ paths:
         "401": { $ref: "#/components/responses/组织未登录" }
         "403": { $ref: "#/components/responses/组织无权限" }
         "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/reactivation-preview:
+    get:
+      tags: [组织架构]
+      operationId: 预览账号恢复
+      summary: 预览停用账号恢复与重新授权
+      description: 只读返回历史角色和外部身份摘要。恢复不会回滚已经交接的业务负责人，也不会迁移泛微或企业微信身份映射。
+      parameters: [{ $ref: "#/components/parameters/用户编号" }]
+      responses:
+        "200": { $ref: "#/components/responses/账号恢复预览成功" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/reactivate:
+    post:
+      tags: [组织架构]
+      operationId: 恢复账号
+      summary: 恢复停用账号并重新指定角色和内部任职
+      description: 仅允许已完成或已关闭交接的停用账号。必须同时开启组织、组织写入、账号状态防护和停用归档交接开关；旧会话不会恢复。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/账号恢复请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/离职交接关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
+  /api/org/users/{userId}/merge-preview:
+    get:
+      tags: [组织架构]
+      operationId: 预览重复账号归并
+      summary: 预览来源账号归并到保留账号的影响
+      description: 必须明确提供保留账号；系统不按姓名自动归并。外部身份映射只读保留，不自动迁移。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - name: keepUserId
+          in: query
+          required: true
+          schema: { $ref: "#/components/schemas/UUID" }
+      responses:
+        "200": { $ref: "#/components/responses/账号归并预览成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/组织无权限" }
+        "404": { $ref: "#/components/responses/组织不存在" }
+        "503": { $ref: "#/components/responses/组织功能关闭" }
+  /api/org/users/{userId}/merge:
+    post:
+      tags: [组织架构]
+      operationId: 归并重复账号
+      summary: 将来源账号停用并交接给明确选择的保留账号
+      description: 通过既有停用交接状态机执行；不物理删除来源账号，不改写历史申请、审批、审计或外部身份映射。
+      parameters:
+        - $ref: "#/components/parameters/用户编号"
+        - $ref: "#/components/parameters/幂等键"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/账号归并请求" }
+      responses:
+        "200": { $ref: "#/components/responses/通用成功" }
+        "400": { $ref: "#/components/responses/组织请求不合法" }
+        "401": { $ref: "#/components/responses/组织未登录" }
+        "403": { $ref: "#/components/responses/离职交接关闭" }
+        "409": { $ref: "#/components/responses/组织并发或约束冲突" }
   /api/org/offboarding:
     get:
       tags: [组织架构]
@@ -1104,6 +1209,12 @@ components:
     企业微信身份映射导入成功:
       description: 企业微信身份映射已在事务内导入并完成审计。
       content: { application/json: { schema: { $ref: "#/components/schemas/企业微信身份映射导入成功响应" } } }
+    账号冲突清单成功:
+      description: 同名不同登录账号清单读取成功。
+      content: { application/json: { schema: { $ref: "#/components/schemas/账号冲突清单成功响应" } } }
+    企业微信身份校正成功:
+      description: 企业微信身份映射已受控校正并完成审计。
+      content: { application/json: { schema: { $ref: "#/components/schemas/企业微信身份校正成功响应" } } }
     企微状态成功:
       description: 企微同步状态读取成功。
       content: { application/json: { schema: { $ref: "#/components/schemas/企微状态成功响应" } } }
@@ -1201,6 +1312,41 @@ components:
                 page: { type: integer, minimum: 1 }
                 pageSize: { type: integer, minimum: 1 }
                 total: { type: integer, minimum: 0 }
+    账号恢复预览成功:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [user, readOnly, canReactivate, previousRoles, externalIdentities, externalIdentityPolicy]
+              properties:
+                user: { type: object, additionalProperties: true }
+                readOnly: { const: true }
+                canReactivate: { type: boolean }
+                previousRoles: { type: array, items: { type: object, additionalProperties: true } }
+                externalIdentities: { type: array, items: { type: object, additionalProperties: true } }
+                externalIdentityPolicy: { const: retain_no_transfer }
+                notice: { type: string }
+    账号归并预览成功:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sourceUser, keepUser, readOnly, canMerge, totalCount, items, externalIdentities, externalIdentityPolicy]
+              properties:
+                sourceUser: { type: object, additionalProperties: true }
+                keepUser: { type: object, additionalProperties: true }
+                readOnly: { const: true }
+                canMerge: { type: boolean }
+                eligibleRecipient: { type: boolean }
+                totalCount: { type: integer, minimum: 0 }
+                items: { type: array, items: { type: object, additionalProperties: true } }
+                externalIdentities: { type: array, items: { type: object, additionalProperties: true } }
+                externalIdentityPolicy: { const: retain_no_transfer }
+                notice: { type: string }
     组织状态成功响应:
       allOf:
         - $ref: "#/components/schemas/通用成功响应"
@@ -1342,6 +1488,90 @@ components:
             id: { $ref: "#/components/schemas/UUID" }
             username: { type: string }
             displayName: { type: string }
+        conflict:
+          $ref: "#/components/schemas/企业微信身份映射冲突详情"
+    企业微信身份映射冲突详情:
+      type: object
+      properties:
+        action: { type: string, enum: [edit_file, open_accounts, correct_identity] }
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/企业微信身份关联账号" }
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/企业微信身份关联映射" }
+    企业微信身份关联账号:
+      type: object
+      required: [id, username, displayName, statusCode]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        username: { type: string }
+        displayName: { type: string }
+        statusCode: { type: string, enum: [active, disabled, locked] }
+    企业微信身份关联映射:
+      type: object
+      required: [id, userId, username, displayName, externalSubject, statusCode, rowVersion]
+      properties:
+        id: { $ref: "#/components/schemas/UUID" }
+        userId: { $ref: "#/components/schemas/UUID" }
+        username: { type: string }
+        displayName: { type: string }
+        externalSubject: { type: string }
+        statusCode: { type: string, enum: [active, disabled] }
+        rowVersion: { type: integer, minimum: 1 }
+    企业微信身份校正请求:
+      type: object
+      required: [targetUserId, wecomUserId, expectedIdentities, reason, confirmationUsername]
+      properties:
+        targetUserId: { $ref: "#/components/schemas/UUID" }
+        wecomUserId: { type: string, minLength: 1, maxLength: 128 }
+        expectedIdentities:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            type: object
+            required: [identityId, rowVersion]
+            properties:
+              identityId: { $ref: "#/components/schemas/UUID" }
+              rowVersion: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+        confirmationUsername: { type: string, minLength: 1, maxLength: 200 }
+    企业微信身份校正成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [targetUserId, wecomUserId, disabledIdentities, activeIdentity]
+              properties:
+                targetUserId: { $ref: "#/components/schemas/UUID" }
+                wecomUserId: { type: string }
+                disabledIdentities:
+                  type: array
+                  items: { $ref: "#/components/schemas/企业微信身份关联映射" }
+                activeIdentity: { $ref: "#/components/schemas/企业微信身份关联映射" }
+    账号冲突清单成功响应:
+      allOf:
+        - $ref: "#/components/schemas/通用成功响应"
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [sameDisplayNameGroups]
+              properties:
+                sameDisplayNameGroups:
+                  type: array
+                  items:
+                    type: object
+                    required: [displayName, users]
+                    properties:
+                      displayName: { type: string }
+                      users:
+                        type: array
+                        minItems: 2
+                        items: { $ref: "#/components/schemas/企业微信身份关联账号" }
     企业微信身份映射汇总:
       type: object
       required: [total, ready, unchanged, waitingForUser, blocked]
@@ -1616,6 +1846,26 @@ components:
           type: string
           minLength: 1
           description: 必须再次输入目标账号，服务端按不区分大小写方式精确核对。
+    账号恢复请求:
+      type: object
+      required: [roleIds, orgUnitId, reason, confirmationUsername]
+      properties:
+        roleIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/UUID" }
+        orgUnitId: { $ref: "#/components/schemas/UUID" }
+        positionId: { $ref: "#/components/schemas/UUID" }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+        confirmationUsername: { type: string, minLength: 1 }
+    账号归并请求:
+      type: object
+      required: [keepUserId, reason, confirmationUsername]
+      properties:
+        keepUserId: { $ref: "#/components/schemas/UUID" }
+        reason: { type: string, minLength: 1, maxLength: 200 }
+        confirmationUsername: { type: string, minLength: 1 }
     同步连接器请求:
       type: object
       properties:

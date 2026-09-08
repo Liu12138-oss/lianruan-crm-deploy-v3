@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { 创建测试环境变量 } from "@lianruan/testing";
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
@@ -39,9 +41,56 @@ async function 登录(app: ReturnType<typeof 创建应用>) {
 }
 
 function 创建状态服务(
-  状态: { statusCode: string; offboardingStatus: string } | null,
+  状态: { statusCode: string; offboardingStatus: string; authorizationVersion?: number } | null,
 ): 会话账号状态服务 {
   return { 查询账号状态: vi.fn(async () => 状态) };
+}
+
+function 签发测试Cookie会话(authorizationVersion: number): string {
+  const body = Buffer.from(
+    JSON.stringify({
+      username: "guard_admin",
+      role: "superadmin",
+      issuedAt: Math.floor(Date.now() / 1000),
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      nonce: "test-cookie-nonce",
+      authorizationVersion,
+    }),
+    "utf8",
+  ).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", 基础环境.SESSION_SECRET || "")
+    .update(body)
+    .digest("base64url");
+  return `lianruan_crm_v3_session=${encodeURIComponent(`${body}.${signature}`)}`;
+}
+
+function 签发测试移动端会话(authorizationVersion: number): string {
+  const body = Buffer.from(
+    JSON.stringify({
+      username: "guard_admin",
+      role: "superadmin",
+      issuedAt: Math.floor(Date.now() / 1000),
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+      nonce: "test-mobile-nonce",
+      authorizationVersion,
+    }),
+    "utf8",
+  ).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", 基础环境.SESSION_SECRET || "")
+    .update(`v3m.${body}`)
+    .digest("base64url");
+  return `v3m.${body}.${signature}`;
+}
+
+function 签发测试正式页面令牌(authorizationVersion: number): string {
+  return [
+    "v2",
+    Buffer.from("guard_admin", "utf8").toString("base64url"),
+    String(authorizationVersion),
+    "test-page-nonce",
+  ].join(".");
 }
 
 function 创建角色管理假服务() {
@@ -159,6 +208,40 @@ describe("停用账号旧会话防护", () => {
 
     const 响应 = await request(app).get("/api/org/status").set("Cookie", 会话.cookie).expect(503);
     expect(响应.body.error.code).toBe("V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE");
+  });
+
+  it("角色、任职或归并导致授权版本变化后，Cookie、正式页面令牌和移动端令牌均立即失效", async () => {
+    const 服务 = 创建状态服务({
+      statusCode: "active",
+      offboardingStatus: "active",
+      authorizationVersion: 2,
+    });
+    const app = 创建应用({
+      env: {
+        ...基础环境,
+        V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED: "true",
+        V3_ORGANIZATION_OFFBOARDING_ENABLED: "true",
+      },
+      sessionAccountStatusService: 服务,
+    });
+
+    const Cookie响应 = await request(app)
+      .get("/api/org/status")
+      .set("Cookie", 签发测试Cookie会话(1))
+      .expect(401);
+    expect(Cookie响应.body.error.code).toBe("V3_AUTH_AUTHORIZATION_CHANGED");
+
+    const 页面响应 = await request(app)
+      .get("/api/v2/oauth/config")
+      .set("Authorization", `Bearer ${签发测试正式页面令牌(1)}`)
+      .expect(401);
+    expect(页面响应.body.error.code).toBe("V3_AUTH_AUTHORIZATION_CHANGED");
+
+    const 移动端响应 = await request(app)
+      .get("/api/org/status")
+      .set("Authorization", `Bearer ${签发测试移动端会话(1)}`)
+      .expect(401);
+    expect(移动端响应.body.error.code).toBe("V3_AUTH_AUTHORIZATION_CHANGED");
   });
 
   it("超级管理员角色被数据库移除后，旧 Cookie 访问组织和 RBAC 立即失效", async () => {

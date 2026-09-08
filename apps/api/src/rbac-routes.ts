@@ -47,6 +47,7 @@ export function 创建Rbac路由(参数: Rbac路由参数): Router {
       const keyword = 读取查询文本(req, "keyword");
       return 获取服务().查询角色用户(读取标识(req, "id"), {
         ...(keyword ? { keyword } : {}),
+        includeInactive: req.query.includeInactive === "true",
         page: 读取页码(req, "page", 1, 1, 100000),
         pageSize: 读取页码(req, "pageSize", 20, 1, 100),
       });

@@ -91,6 +91,10 @@ export interface 组织数据服务 {
   预览离职影响(userId: string): Promise<unknown>;
   查询离职交接详情(id: string): Promise<unknown>;
   发起离职交接(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
+  预览账号恢复(userId: string): Promise<unknown>;
+  恢复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
+  预览重复账号归并(userId: string, keepUserId: string): Promise<unknown>;
+  归并重复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   重试离职扫描(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   关闭离职交接(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   预览渠道商同步(): Promise<unknown>;
@@ -124,8 +128,10 @@ export interface 组织数据服务 {
     input: Record<string, unknown>,
     actor: 组织操作人,
   ): Promise<unknown>;
+  查询账号冲突(): Promise<unknown>;
   预览企业微信身份导入(file: 企业微信映射导入文件): Promise<企业微信映射导入预览>;
   确认企业微信身份导入(file: 企业微信映射导入文件, actor: 组织操作人): Promise<unknown>;
+  校正企业微信身份(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   执行幂等<T>(参数: 组织幂等参数, 操作: () => Promise<T>): Promise<T>;
 }
 
@@ -1618,6 +1624,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
           [user, before.id, 版本(input)],
         );
         if (!r.rows[0]) throw 冲突();
+        await 递增角色成员授权版本(db, subjectId);
         await 审计(db, actor, user, "data_scope.bound", r.rows[0].id, r.rows[0], before);
         return { runtimeApplied: false, ...r.rows[0] };
       }
@@ -1636,6 +1643,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                    status_code AS "statusCode", row_version AS "rowVersion"`,
         [subjectId, resourceCode, scopeType, scopeRefId, user],
       );
+      await 递增角色成员授权版本(db, subjectId);
       await 审计(db, actor, user, "data_scope.bound", r.rows[0].id, r.rows[0]);
       return { runtimeApplied: false, ...r.rows[0] };
     });
@@ -1654,6 +1662,11 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         [id, 版本(input)],
       );
       if (!r.rows[0]) throw 冲突();
+      const 角色 = await db.query<{ roleId: string }>(
+        'SELECT role_id::text AS "roleId" FROM iam.data_scope_bindings WHERE id=$1::uuid',
+        [id],
+      );
+      if (角色.rows[0]) await 递增角色成员授权版本(db, 角色.rows[0].roleId);
       await 审计(db, actor, user, "data_scope.unbound", id, r.rows[0], before);
       return { runtimeApplied: false, ...r.rows[0] };
     });
@@ -1671,7 +1684,10 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       await 锁定交接目标账号(db, target);
       const 上下文 = await 查询交接上下文(db, target);
       校验可发起账号交接(上下文, actor);
-      if (上下文.statusCode !== "active" || 上下文.offboardingStatus !== "active")
+      if (
+        上下文.statusCode !== "active" ||
+        !["active", "reactivated"].includes(上下文.offboardingStatus)
+      )
         throw new 应用错误("ORG_OFFBOARDING_USER_UNAVAILABLE", "该账号已停用或已在交接中。", 409);
       const 确认账号 = 文本(input, "confirmationUsername");
       if (确认账号.toLowerCase() !== 上下文.username.toLowerCase())
@@ -1784,14 +1800,205 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         accountDisabled: true,
         affectedCount: 影响.totalCount,
       };
-      await 审计(db, actor, user, "offboarding.initiated", r.rows[0].id, 结果, {
-        userId: target,
-        username: 上下文.username,
-        statusCode: 上下文.statusCode,
-        offboardingStatus: 上下文.offboardingStatus,
+      const 是否重复账号归并 = input.operationType === "duplicate_account_merge";
+      await 审计(
+        db,
+        actor,
+        user,
+        是否重复账号归并 ? "account.merge_initiated" : "offboarding.initiated",
+        r.rows[0].id,
+        { ...结果, ...(是否重复账号归并 ? { operationType: "duplicate_account_merge" } : {}) },
+        {
+          userId: target,
+          username: 上下文.username,
+          statusCode: 上下文.statusCode,
+          offboardingStatus: 上下文.offboardingStatus,
+        },
+      );
+      return 结果;
+    });
+  }
+  async 预览账号恢复(userId: string) {
+    const 用户 = await 查询账号恢复上下文(this.pool, userId);
+    const 历史角色 = await 查询离职角色快照(this.pool, 用户.handoverId);
+    const 外部身份 = await 查询外部身份摘要(this.pool, [userId]);
+    return {
+      user: 用户,
+      readOnly: true,
+      canReactivate: 可恢复账号(用户),
+      previousRoles: 历史角色,
+      externalIdentities: 外部身份,
+      externalIdentityPolicy: "retain_no_transfer",
+      notice:
+        "恢复后仅按本次提交的新角色和新内部任职授权；历史角色、业务负责人、审计记录和外部身份映射均不自动回滚。",
+    };
+  }
+  async 恢复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人) {
+    const roleIds = 标识数组(input, "roleIds");
+    if (!roleIds.length)
+      throw new 应用错误(
+        "ORG_REACTIVATION_ROLE_REQUIRED",
+        "恢复账号时至少选择一个有效系统角色。",
+        400,
+      );
+    const orgUnitId = 标识(input, "orgUnitId");
+    const positionId = 可选标识(input, "positionId");
+    const reason = 受限文本(input, "reason", 200);
+    return this.事务(async (db) => {
+      const 操作人 = await this.操作人(db, actor);
+      await 锁定交接目标账号(db, userId);
+      const 用户 = await 查询账号恢复上下文(db, userId);
+      if (!可恢复账号(用户))
+        throw new 应用错误(
+          "ORG_REACTIVATION_NOT_ALLOWED",
+          "仅已完成交接且处于已离职状态的账号可以恢复，请先完成或关闭原交接单。",
+          409,
+        );
+      const 确认账号 = 文本(input, "confirmationUsername");
+      if (确认账号.toLowerCase() !== 用户.username.toLowerCase())
+        throw new 应用错误(
+          "ORG_REACTIVATION_CONFIRMATION_INVALID",
+          "二次确认账号与目标账号不一致。",
+          400,
+        );
+      const 有效角色 = await db.query<{ id: string }>(
+        "SELECT id::text AS id FROM iam.roles WHERE id::text=ANY($1::text[]) AND status_code='active' FOR KEY SHARE",
+        [roleIds],
+      );
+      if (有效角色.rows.length !== roleIds.length)
+        throw new 应用错误("ORG_REACTIVATION_ROLE_INVALID", "存在无效或已停用的系统角色。", 409);
+      const 组织 = await db.query<{ id: string }>(
+        `SELECT id::text AS id FROM org.org_units
+         WHERE id=$1::uuid AND status_code='active' AND channel_partner_id IS NULL FOR KEY SHARE`,
+        [orgUnitId],
+      );
+      if (!组织.rows[0])
+        throw new 应用错误("ORG_REACTIVATION_ORG_UNIT_INVALID", "请选择有效的内部组织。", 409);
+      if (positionId) {
+        const 岗位 = await db.query<{ id: string }>(
+          `SELECT id::text AS id FROM org.positions
+           WHERE id=$1::uuid AND org_unit_id=$2::uuid AND status_code='active' FOR KEY SHARE`,
+          [positionId, orgUnitId],
+        );
+        if (!岗位.rows[0])
+          throw new 应用错误(
+            "ORG_REACTIVATION_POSITION_INVALID",
+            "所选岗位不存在、已停用或不属于该内部组织。",
+            409,
+          );
+      }
+      const 有效任职 = await db.query(
+        "SELECT 1 FROM org.staff_assignments WHERE user_id=$1::uuid AND expired_at IS NULL",
+        [userId],
+      );
+      if (有效任职.rows[0])
+        throw new 应用错误(
+          "ORG_REACTIVATION_ASSIGNMENT_CONFLICT",
+          "该账号已有有效内部任职，不能重复恢复。",
+          409,
+        );
+      if (用户.handoverStatus === "completed")
+        await db.query(
+          `UPDATE org.offboarding_handover
+           SET status_code='closed',closed_at=COALESCE(closed_at,now()),row_version=row_version+1
+           WHERE id=$1::uuid AND status_code='completed'`,
+          [用户.handoverId],
+        );
+      const 更新账号 = await db.query<{ authorizationVersion: number }>(
+        `UPDATE iam.users
+         SET status_code='active',offboarding_status='reactivated',updated_at=now(),row_version=row_version+1
+         WHERE id=$1::uuid
+         RETURNING row_version::int AS "authorizationVersion"`,
+        [userId],
+      );
+      await db.query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [userId]);
+      await db.query(
+        `INSERT INTO iam.user_roles(user_id,role_id)
+         SELECT $1::uuid,id FROM iam.roles WHERE id::text=ANY($2::text[])`,
+        [userId, roleIds],
+      );
+      const 任职 = await db.query<{ id: string }>(
+        `INSERT INTO org.staff_assignments(
+           user_id,org_unit_id,position_id,is_primary,effective_at,created_by_user_id
+         ) VALUES($1::uuid,$2::uuid,$3::uuid,true,now(),$4::uuid)
+         RETURNING id::text AS id`,
+        [userId, orgUnitId, positionId, 操作人],
+      );
+      await db.query("SELECT org.assert_assignment_consistent($1::uuid)", [任职.rows[0]!.id]);
+      const 结果 = {
+        userId,
+        username: 用户.username,
+        statusCode: "active",
+        offboardingStatus: "reactivated",
+        roleIds,
+        orgUnitId,
+        positionId,
+        assignmentId: 任职.rows[0]!.id,
+        authorizationVersion: 更新账号.rows[0]!.authorizationVersion,
+        businessOwnershipRestored: false,
+        externalIdentitiesChanged: false,
+      };
+      await 审计(db, actor, 操作人, "account.reactivated", userId, 结果, {
+        statusCode: 用户.statusCode,
+        offboardingStatus: 用户.offboardingStatus,
+        handoverId: 用户.handoverId,
+        handoverStatus: 用户.handoverStatus,
+        reason,
       });
       return 结果;
     });
+  }
+  async 预览重复账号归并(userId: string, keepUserId: string) {
+    if (userId === keepUserId)
+      throw new 应用错误("ORG_ACCOUNT_MERGE_SAME_USER", "来源账号和保留账号不能相同。", 400);
+    const [来源账号, 保留账号] = await Promise.all([
+      查询交接上下文(this.pool, userId),
+      查询交接上下文(this.pool, keepUserId),
+    ]);
+    const 影响 = await 查询交接影响(this.pool, 来源账号);
+    const 候选人 = await 查询交接候选人(this.pool, 来源账号);
+    const 可作为接收人 = 候选人.some((候选) => 候选.id === keepUserId);
+    const 外部身份 = await 查询外部身份摘要(this.pool, [userId, keepUserId]);
+    const 可归并 =
+      来源账号.statusCode === "active" &&
+      ["active", "reactivated"].includes(来源账号.offboardingStatus) &&
+      保留账号.statusCode === "active" &&
+      ["active", "reactivated"].includes(保留账号.offboardingStatus) &&
+      可作为接收人;
+    return {
+      readOnly: true,
+      sourceUser: 来源账号,
+      keepUser: 保留账号,
+      canMerge: 可归并,
+      eligibleRecipient: 可作为接收人,
+      totalCount: 影响.totalCount,
+      items: 影响.items,
+      externalIdentities: 外部身份,
+      externalIdentityPolicy: "retain_no_transfer",
+      notice:
+        "归并只会把来源账号当前业务负责人交接给保留账号并停用来源账号；不会合并系统角色，也不会迁移、停用或删除泛微和企业微信身份映射。",
+    };
+  }
+  async 归并重复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人) {
+    const keepUserId = 标识(input, "keepUserId");
+    const 预览 = (await this.预览重复账号归并(userId, keepUserId)) as { canMerge: boolean };
+    if (!预览.canMerge)
+      throw new 应用错误(
+        "ORG_ACCOUNT_MERGE_RECIPIENT_INVALID",
+        "保留账号当前不具备接收来源账号业务的角色或区域资格。",
+        409,
+      );
+    return this.发起离职交接(
+      {
+        userId,
+        replacementUserId: keepUserId,
+        effectiveAt: input.effectiveAt || new Date().toISOString(),
+        reason: 文本(input, "reason"),
+        confirmationUsername: 文本(input, "confirmationUsername"),
+        operationType: "duplicate_account_merge",
+      },
+      actor,
+    );
   }
   async 预览离职影响(userId: string) {
     const 用户 = await 查询交接上下文(this.pool, userId);
@@ -2273,6 +2480,79 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       return 结果.rows[0];
     });
   }
+  async 查询账号冲突() {
+    const 结果 = await this.pool.query<{
+      id: string;
+      username: string;
+      displayName: string;
+      statusCode: string;
+      regionName: string | null;
+      roleNames: string[];
+      currentBusinessCount: number;
+    }>(
+      `WITH 同名启用账号 AS (
+         SELECT display_name
+         FROM iam.users
+         WHERE status_code='active'
+         GROUP BY display_name
+         HAVING count(*) > 1
+       )
+       SELECT u.id::text AS id,u.username::text AS username,u.display_name AS "displayName",
+              u.status_code AS "statusCode",region.region_name AS "regionName",
+              COALESCE(角色.role_names,ARRAY[]::text[]) AS "roleNames",
+              COALESCE(当前业务.total_count,0)::int AS "currentBusinessCount"
+       FROM iam.users u
+       JOIN 同名启用账号 同名 ON 同名.display_name=u.display_name
+       LEFT JOIN LATERAL (
+         SELECT region_name
+         FROM org.regions
+         WHERE id=COALESCE(
+           u.region_id,
+           (
+             SELECT ou.region_id
+             FROM org.staff_assignments sa
+             JOIN org.org_units ou ON ou.id=sa.org_unit_id
+             WHERE sa.user_id=u.id AND sa.expired_at IS NULL
+             ORDER BY sa.is_primary DESC,sa.effective_at DESC
+             LIMIT 1
+           )
+         )
+       ) region ON true
+       LEFT JOIN LATERAL (
+         SELECT array_agg(r.role_name ORDER BY r.role_name) AS role_names
+         FROM iam.user_roles ur
+         JOIN iam.roles r ON r.id=ur.role_id AND r.status_code='active'
+         WHERE ur.user_id=u.id
+       ) 角色 ON true
+       LEFT JOIN LATERAL (
+         SELECT count(*)::int AS total_count
+         FROM (
+           SELECT id FROM crm.customers WHERE owner_user_id=u.id AND status_code='active'
+           UNION ALL SELECT id FROM crm.registrations
+             WHERE owner_user_id=u.id AND status_code IN ('draft','pending','approved')
+           UNION ALL SELECT id FROM crm.opportunities WHERE owner_user_id=u.id AND status_code='active'
+           UNION ALL SELECT id FROM crm.quotes
+             WHERE owner_user_id=u.id AND status_code IN ('draft','submitted','approved')
+           UNION ALL SELECT id FROM crm.orders
+             WHERE owner_user_id=u.id AND status_code IN (
+               'draft','pending_primary_confirm','primary_confirmed','pending_superadmin_confirm',
+               'confirmed','processing','shipped'
+             )
+         ) 当前对象
+       ) 当前业务 ON true
+       WHERE u.status_code='active'
+       ORDER BY u.display_name,u.username`,
+    );
+    const 分组 = new Map<string, Array<(typeof 结果.rows)[number]>>();
+    for (const item of 结果.rows)
+      分组.set(item.displayName, [...(分组.get(item.displayName) || []), item]);
+    return {
+      sameDisplayNameGroups: [...分组.entries()].map(([displayName, users]) => ({
+        displayName,
+        users,
+      })),
+    };
+  }
   async 预览企业微信身份导入(file: 企业微信映射导入文件) {
     return this.构建企业微信身份导入预览(this.pool, file);
   }
@@ -2350,6 +2630,138 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
           sourceSha256: file.sourceSha256,
           identities: 新增身份,
         };
+      },
+      { serializable: true },
+    );
+  }
+  async 校正企业微信身份(input: Record<string, unknown>, actor: 组织操作人) {
+    const 校正 = 读取企业微信身份校正输入(input);
+    return this.事务(
+      async (db) => {
+        const 操作人 = await this.操作人(db, actor);
+        const 目标账号 = await db.query<{
+          id: string;
+          username: string;
+          displayName: string;
+          statusCode: string;
+        }>(
+          `SELECT id::text AS id,username::text AS username,display_name AS "displayName",status_code AS "statusCode"
+           FROM iam.users
+           WHERE id=$1::uuid
+           FOR UPDATE`,
+          [校正.targetUserId],
+        );
+        const 目标 = 目标账号.rows[0];
+        if (!目标) throw new 应用错误("ORG_USER_NOT_FOUND", "目标 V3 账号不存在。", 404);
+        if (目标.statusCode !== "active")
+          throw new 应用错误(
+            "ORG_WECOM_IDENTITY_TARGET_INACTIVE",
+            "目标 V3 账号未启用，不能校正企业微信身份。",
+            409,
+          );
+        if (目标.username.toLowerCase() !== 校正.confirmationUsername.toLowerCase())
+          throw new 应用错误(
+            "ORG_WECOM_IDENTITY_CONFIRMATION_INVALID",
+            "二次确认账号与目标 V3 账号不一致。",
+            400,
+          );
+
+        const 当前映射 = await db.query<企业微信有效身份>(
+          `SELECT e.id::text AS id,e.user_id::text AS "userId",e.external_subject AS "externalSubject",
+                  e.external_username AS "externalUsername",e.status_code AS "statusCode",
+                  e.row_version::int AS "rowVersion",u.username::text AS "userUsername",
+                  u.display_name AS "userDisplayName",u.status_code AS "userStatusCode"
+           FROM iam.external_identities e
+           JOIN iam.users u ON u.id=e.user_id
+           WHERE e.provider_code='wecom'
+             AND (e.user_id=$1::uuid OR e.external_subject=$2)
+           FOR UPDATE OF e`,
+          [校正.targetUserId, 校正.wecomUserId],
+        );
+        const 需确认映射 = 当前映射.rows.filter(
+          (item) =>
+            (item.userId === 校正.targetUserId && item.statusCode === "active") ||
+            item.externalSubject === 校正.wecomUserId,
+        );
+        if (!映射版本集合一致(需确认映射, 校正.expectedIdentities))
+          throw new 应用错误(
+            "ORG_WECOM_IDENTITY_PREVIEW_STALE",
+            "企业微信映射已变化，请重新上传文件并核对阻断项后再校正。",
+            409,
+          );
+        const 已一致映射 = 需确认映射[0];
+        if (
+          需确认映射.length === 1 &&
+          已一致映射?.statusCode === "active" &&
+          已一致映射.userId === 校正.targetUserId &&
+          已一致映射.externalSubject === 校正.wecomUserId
+        )
+          throw new 应用错误(
+            "ORG_WECOM_IDENTITY_ALREADY_MATCHED",
+            "目标账号已绑定该企业微信 UserId。",
+            409,
+          );
+
+        const 待停用 = 需确认映射.filter((item) => item.statusCode === "active");
+        const 停用结果 = await Promise.all(
+          待停用.map(async (item) => {
+            const result = await db.query<企业微信有效身份>(
+              `UPDATE iam.external_identities
+               SET status_code='disabled',updated_at=now(),row_version=row_version+1
+               WHERE id=$1::uuid AND row_version=$2
+               RETURNING id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
+                         external_username AS "externalUsername",status_code AS "statusCode",
+                         row_version::int AS "rowVersion"`,
+              [item.id, item.rowVersion],
+            );
+            if (!result.rows[0]) throw 冲突();
+            return {
+              ...result.rows[0],
+              ...(item.userUsername ? { userUsername: item.userUsername } : {}),
+              ...(item.userDisplayName ? { userDisplayName: item.userDisplayName } : {}),
+              ...(item.userStatusCode ? { userStatusCode: item.userStatusCode } : {}),
+            };
+          }),
+        );
+        const 新映射 = await db.query<企业微信有效身份>(
+          `INSERT INTO iam.external_identities(
+             user_id,provider_code,external_subject,external_username,status_code
+           ) VALUES($1::uuid,'wecom',$2,$3,'active')
+           RETURNING id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
+                     external_username AS "externalUsername",status_code AS "statusCode",row_version::int AS "rowVersion"`,
+          [目标.id, 校正.wecomUserId, 目标.displayName],
+        );
+        const 有效映射 = 新映射.rows[0];
+        if (!有效映射)
+          throw new 应用错误(
+            "ORG_WECOM_IDENTITY_CORRECTION_FAILED",
+            "企业微信身份校正未生成有效映射。",
+            500,
+          );
+        const 输出 = {
+          targetUserId: 目标.id,
+          wecomUserId: 校正.wecomUserId,
+          disabledIdentities: 停用结果.map(企业微信身份输出),
+          activeIdentity: 企业微信身份输出({
+            ...有效映射,
+            userUsername: 目标.username,
+            userDisplayName: 目标.displayName,
+            userStatusCode: 目标.statusCode,
+          }),
+        };
+        await 审计(
+          db,
+          actor,
+          操作人,
+          "wecom_identity.corrected",
+          有效映射.id,
+          { ...输出, reason: 校正.reason },
+          {
+            expectedIdentities: 校正.expectedIdentities,
+            identities: 需确认映射.map(企业微信身份输出),
+          },
+        );
+        return 输出;
       },
       { serializable: true },
     );
@@ -2448,11 +2860,14 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     );
     const 用户编号 = 用户.rows.map((item) => item.id);
     const 身份 = await db.query<企业微信有效身份>(
-      `SELECT id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
-              external_username AS "externalUsername",status_code AS "statusCode"
-       FROM iam.external_identities
-       WHERE provider_code='wecom'
-         AND (user_id = ANY($1::uuid[]) OR external_subject = ANY($2::text[]))`,
+      `SELECT e.id::text AS id,e.user_id::text AS "userId",e.external_subject AS "externalSubject",
+              e.external_username AS "externalUsername",e.status_code AS "statusCode",
+              e.row_version::int AS "rowVersion",u.username::text AS "userUsername",
+              u.display_name AS "userDisplayName",u.status_code AS "userStatusCode"
+       FROM iam.external_identities e
+       JOIN iam.users u ON u.id=e.user_id
+       WHERE e.provider_code='wecom'
+         AND (e.user_id = ANY($1::uuid[]) OR e.external_subject = ANY($2::text[]))`,
       [用户编号, 账号列表],
     );
     return 构建企业微信映射导入预览(file, 用户.rows, 身份.rows);
@@ -2709,6 +3124,88 @@ interface 交接影响项 {
   affectedCount: number;
 }
 
+interface 账号恢复上下文 {
+  id: string;
+  username: string;
+  displayName: string;
+  statusCode: string;
+  offboardingStatus: string;
+  handoverId: string | null;
+  handoverStatus: string | null;
+}
+
+interface 外部身份摘要 {
+  id: string;
+  userId: string;
+  providerCode: string;
+  externalSubject: string;
+  externalUsername: string | null;
+  statusCode: string;
+}
+
+async function 递增角色成员授权版本(db: PoolClient, roleId: string): Promise<void> {
+  await db.query(
+    `UPDATE iam.users u
+        SET row_version=u.row_version+1,updated_at=now()
+       FROM iam.user_roles ur
+      WHERE ur.user_id=u.id AND ur.role_id=$1::uuid`,
+    [roleId],
+  );
+}
+
+async function 查询账号恢复上下文(db: Pool | PoolClient, userId: string): Promise<账号恢复上下文> {
+  const 结果 = await db.query<账号恢复上下文>(
+    `SELECT u.id::text AS id,u.username::text AS username,u.display_name AS "displayName",
+            u.status_code AS "statusCode",u.offboarding_status AS "offboardingStatus",
+            u.offboarding_handover_id::text AS "handoverId",h.status_code AS "handoverStatus"
+       FROM iam.users u
+       LEFT JOIN org.offboarding_handover h ON h.id=u.offboarding_handover_id
+      WHERE u.id=$1::uuid`,
+    [userId],
+  );
+  if (!结果.rows[0]) throw new 应用错误("ORG_USER_NOT_FOUND", "用户不存在。", 404);
+  return 结果.rows[0];
+}
+
+function 可恢复账号(用户: 账号恢复上下文): boolean {
+  return (
+    用户.statusCode === "disabled" &&
+    用户.offboardingStatus === "offboarded" &&
+    Boolean(用户.handoverId) &&
+    ["completed", "closed"].includes(用户.handoverStatus || "")
+  );
+}
+
+async function 查询离职角色快照(db: Pool | PoolClient, handoverId: string | null) {
+  if (!handoverId) return [];
+  const 结果 = await db.query<{
+    id: string;
+    roleCode: string;
+    roleName: string;
+  }>(
+    `SELECT role_id::text AS id,role_code AS "roleCode",role_name AS "roleName"
+       FROM org.offboarding_role_snapshots
+      WHERE handover_id=$1::uuid
+      ORDER BY role_code`,
+    [handoverId],
+  );
+  return 结果.rows;
+}
+
+async function 查询外部身份摘要(db: Pool | PoolClient, userIds: string[]): Promise<外部身份摘要[]> {
+  if (!userIds.length) return [];
+  const 结果 = await db.query<外部身份摘要>(
+    `SELECT id::text AS id,user_id::text AS "userId",provider_code AS "providerCode",
+            external_subject AS "externalSubject",external_username AS "externalUsername",
+            status_code AS "statusCode"
+       FROM iam.external_identities
+      WHERE user_id=ANY($1::uuid[])
+      ORDER BY user_id,provider_code,external_subject`,
+    [userIds],
+  );
+  return 结果.rows;
+}
+
 async function 查询交接上下文(db: Pool | PoolClient, userId: string): Promise<交接账号上下文> {
   const 结果 = await db.query<交接账号上下文>(
     `SELECT
@@ -2931,6 +3428,14 @@ interface 泛微OA候选输入 {
   sourceCode: "manual" | "eteams_directory";
 }
 
+interface 企业微信身份校正输入 {
+  targetUserId: string;
+  wecomUserId: string;
+  expectedIdentities: Array<{ identityId: string; rowVersion: number }>;
+  reason: string;
+  confirmationUsername: string;
+}
+
 function 读取泛微OA候选输入(input: Record<string, unknown>): 泛微OA候选输入 {
   return {
     externalSubject: 受限文本(input, "externalSubject", 200),
@@ -2938,6 +3443,61 @@ function 读取泛微OA候选输入(input: Record<string, unknown>): 泛微OA候
     sourceCode: 枚举(input, "sourceCode", ["manual", "eteams_directory"], "manual") as
       "manual" | "eteams_directory",
   };
+}
+
+function 读取企业微信身份校正输入(input: Record<string, unknown>): 企业微信身份校正输入 {
+  const wecomUserId = 受限文本(input, "wecomUserId", 128);
+  if (/\s/.test(wecomUserId) || 包含控制字符(wecomUserId))
+    throw new 应用错误("ORG_REQUEST_INVALID", "wecomUserId格式不合法。", 400);
+  const 原始映射 = input.expectedIdentities;
+  if (!Array.isArray(原始映射) || 原始映射.length < 1 || 原始映射.length > 3)
+    throw new 应用错误("ORG_REQUEST_INVALID", "expectedIdentities必须包含1至3条映射。", 400);
+  const expectedIdentities = 原始映射.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new 应用错误("ORG_REQUEST_INVALID", "expectedIdentities元素必须是对象。", 400);
+    const 映射 = item as Record<string, unknown>;
+    const rowVersion = 整数(映射, "rowVersion");
+    if (rowVersion < 1)
+      throw new 应用错误("ORG_REQUEST_INVALID", "expectedIdentities中的rowVersion不合法。", 400);
+    return { identityId: 标识(映射, "identityId"), rowVersion };
+  });
+  if (new Set(expectedIdentities.map((item) => item.identityId)).size !== expectedIdentities.length)
+    throw new 应用错误("ORG_REQUEST_INVALID", "expectedIdentities不能包含重复映射。", 400);
+  return {
+    targetUserId: 标识(input, "targetUserId"),
+    wecomUserId,
+    expectedIdentities,
+    reason: 受限文本(input, "reason", 200),
+    confirmationUsername: 受限文本(input, "confirmationUsername", 200),
+  };
+}
+
+function 映射版本集合一致(
+  当前映射: 企业微信有效身份[],
+  预期映射: 企业微信身份校正输入["expectedIdentities"],
+): boolean {
+  if (当前映射.length !== 预期映射.length) return false;
+  const 预期版本 = new Map(预期映射.map((item) => [item.identityId, item.rowVersion]));
+  return 当前映射.every((item) => 预期版本.get(item.id) === Number(item.rowVersion));
+}
+
+function 企业微信身份输出(identity: 企业微信有效身份) {
+  return {
+    id: identity.id,
+    userId: identity.userId,
+    username: identity.userUsername || identity.userId,
+    displayName: identity.userDisplayName || identity.externalUsername || identity.userId,
+    externalSubject: identity.externalSubject,
+    statusCode: identity.statusCode,
+    rowVersion: Number(identity.rowVersion || 1),
+  };
+}
+
+function 包含控制字符(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.codePointAt(0) || 0;
+    return code <= 31 || code === 127;
+  });
 }
 
 async function 校验泛微OA目标账号(db: PoolClient, userId: string): Promise<void> {
