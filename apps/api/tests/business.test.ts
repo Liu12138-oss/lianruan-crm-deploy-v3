@@ -1322,6 +1322,215 @@ describe("阶段9业务兼容接口", () => {
     }
   });
 
+  it("订单预审明确失败后按新审批轮次重试，已受理历史阻断再次自动发起", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `ORDER-PREAPPROVAL-ROUND-${Date.now()}`;
+    try {
+      const 区域编号 = await 准备渠道范围测试区域(pool, 批次);
+      await 准备渠道范围测试角色(pool);
+      const 渠道 = await 创建渠道范围测试渠道(pool, 批次, "PRIMARY", 区域编号, "primary");
+      const 提报员工 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "staff",
+        "提报员工",
+        "staff",
+        "self",
+        区域编号,
+      );
+      const 区管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "region_manager",
+        "区管",
+        "region_manager",
+        "region",
+        区域编号,
+      );
+      const 超管 = await 创建渠道范围测试用户(
+        pool,
+        批次,
+        "superadmin",
+        "超管",
+        "superadmin",
+        "all",
+        区域编号,
+      );
+      await 绑定渠道范围测试成员(pool, 渠道.id, 提报员工.id, "staff");
+      const 业务 = await 创建渠道范围测试报价和订单(pool, 批次, `${批次}-客户`, 渠道, 提报员工);
+      await pool.query(
+        `UPDATE crm.orders
+         SET status_code='primary_confirmed',region_confirmed_by_user_id=$2::uuid,
+             region_confirmed_at=now(),extra_json=extra_json || $3::jsonb
+         WHERE id=$1::uuid`,
+        [
+          业务.订单.id,
+          区管.id,
+          JSON.stringify({
+            status: "primary_confirmed",
+            submittedByUserId: 提报员工.id,
+            submittedPartnerId: 渠道.id,
+            submittedPartnerLevel: "primary",
+          }),
+        ],
+      );
+
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/primary-confirm`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({ reason: "第一轮区管确认" })
+        .expect(200);
+      const 第一轮 = await pool.query<{
+        id: string;
+        approval_round: number;
+        status_code: string;
+      }>(
+        `SELECT id::text AS id,approval_round,status_code
+         FROM integration.order_preapproval_requests
+         WHERE order_id=$1::uuid`,
+        [业务.订单.id],
+      );
+      expect(第一轮.rows).toEqual([
+        { id: expect.any(String), approval_round: 1, status_code: "pending" },
+      ]);
+      await pool.query(
+        `UPDATE integration.order_preapproval_requests
+         SET status_code='failed',failure_code='ORDER_PREAPPROVAL_REGION_MAPPING_MISSING',
+             failure_summary='测试：区域映射缺失',updated_at=now()
+         WHERE id=$1::uuid`,
+        [第一轮.rows[0]?.id],
+      );
+
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(超管.username))
+        .send({
+          status: "returned_to_primary",
+          returnTarget: "primary",
+          reason: "退回修改模块",
+        })
+        .expect(200);
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(提报员工.username))
+        .send({
+          reason: "已修改模块并重新提交",
+          items: [{ itemName: "终端防护", quantity: 2, unitPrice: 12000, lineAmount: 24000 }],
+        })
+        .expect(200);
+
+      const 并发确认结果 = await Promise.all([
+        request(app)
+          .put(`/api/orders/${业务.订单.id}/primary-confirm`)
+          .set("Authorization", 签发测试V2令牌(区管.username))
+          .send({ reason: "第二轮区管并发确认一" }),
+        request(app)
+          .put(`/api/orders/${业务.订单.id}/primary-confirm`)
+          .set("Authorization", 签发测试V2令牌(区管.username))
+          .send({ reason: "第二轮区管并发确认二" }),
+      ]);
+      expect(并发确认结果.filter((响应) => 响应.status === 200)).toHaveLength(1);
+
+      const 两轮请求 = await pool.query<{
+        id: string;
+        approval_round: number;
+        status_code: string;
+        snapshot_round: string;
+      }>(
+        `SELECT id::text AS id,approval_round,status_code,
+                request_snapshot_json->>'approvalRound' AS snapshot_round
+         FROM integration.order_preapproval_requests
+         WHERE order_id=$1::uuid
+         ORDER BY approval_round`,
+        [业务.订单.id],
+      );
+      expect(两轮请求.rows).toEqual([
+        {
+          id: 第一轮.rows[0]?.id,
+          approval_round: 1,
+          status_code: "failed",
+          snapshot_round: "1",
+        },
+        {
+          id: expect.any(String),
+          approval_round: 2,
+          status_code: "pending",
+          snapshot_round: "2",
+        },
+      ]);
+      const 预审事件轮次 = await pool.query<{ approval_round: string }>(
+        `SELECT event.payload_json->>'approvalRound' AS approval_round
+         FROM ops.outbox_events event
+         JOIN integration.order_preapproval_requests request
+           ON request.id=event.aggregate_id::uuid
+         WHERE event.event_type='crm.order.preapproval.requested'
+           AND request.order_id=$1::uuid
+         ORDER BY request.approval_round`,
+        [业务.订单.id],
+      );
+      expect(预审事件轮次.rows).toEqual([{ approval_round: "1" }, { approval_round: "2" }]);
+
+      const 第二轮编号 = 两轮请求.rows[1]?.id;
+      await pool.query(
+        `UPDATE integration.order_preapproval_requests
+         SET status_code='accepted',external_request_id=$2,accepted_at=now(),updated_at=now()
+         WHERE id=$1::uuid`,
+        [第二轮编号, `${批次}-OA`],
+      );
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/status`)
+        .set("Authorization", 签发测试V2令牌(超管.username))
+        .send({
+          status: "returned_to_primary",
+          returnTarget: "primary",
+          reason: "已受理后再次退回核验",
+        })
+        .expect(200);
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/resubmit`)
+        .set("Authorization", 签发测试V2令牌(提报员工.username))
+        .send({
+          reason: "第三轮修改后重新提交",
+          items: [{ itemName: "终端防护", quantity: 3, unitPrice: 12000, lineAmount: 36000 }],
+        })
+        .expect(200);
+      await request(app)
+        .put(`/api/orders/${业务.订单.id}/primary-confirm`)
+        .set("Authorization", 签发测试V2令牌(区管.username))
+        .send({ reason: "第三轮区管确认" })
+        .expect(200);
+
+      const 阻断后请求数 = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM integration.order_preapproval_requests
+         WHERE order_id=$1::uuid`,
+        [业务.订单.id],
+      );
+      expect(阻断后请求数.rows[0]?.count).toBe("2");
+      const 阻断审计 = await pool.query<{
+        result_code: string;
+        blocked_status: string;
+        approval_round: string;
+      }>(
+        `SELECT result_code,after_json->>'blockedByStatus' AS blocked_status,
+                after_json->>'approvalRound' AS approval_round
+         FROM audit.audit_logs
+         WHERE module_code='order_preapproval'
+           AND action_code='auto_request_skipped'
+           AND target_id=$1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [业务.订单.id],
+      );
+      expect(阻断审计.rows).toEqual([
+        { result_code: "skipped", blocked_status: "accepted", approval_round: "3" },
+      ]);
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("历史零价手工明细重提时按提交人渠道等级恢复产品并计算区域阶梯价", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });

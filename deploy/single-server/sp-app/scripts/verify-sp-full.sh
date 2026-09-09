@@ -239,6 +239,42 @@ wecom_identity_constraint_ready="$(run_compose exec -T postgres psql -U lianruan
   exit 1
 }
 
+s10_022_file="${package_root}/database/migrations/20260909_S10_022_订单预审按审批轮次幂等.sql"
+[ -f "${s10_022_file}" ] || {
+  echo "验证失败：升级包缺少订单预审审批轮次迁移。" >&2
+  exit 1
+}
+s10_022_checksum="$(sha256sum "${s10_022_file}" | awk '{print $1}')"
+s10_022_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT count(*) = 1
+  FROM migration.schema_migrations
+  WHERE version='20260909_S10_022_订单预审按审批轮次幂等'
+    AND checksum_sha256='${s10_022_checksum}'
+" | tr -d '[:space:]')"
+[ "${s10_022_ready}" = "t" ] || {
+  echo "验证失败：订单预审审批轮次迁移账本未正确登记。" >&2
+  exit 1
+}
+preapproval_round_schema_ready="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
+  SELECT to_regclass('integration.ux_order_preapproval_requests_order_round') IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema='integration'
+         AND table_name='order_preapproval_requests'
+         AND column_name='approval_round'
+         AND is_nullable='NO'
+     )
+     AND EXISTS (
+       SELECT 1 FROM pg_constraint
+       WHERE conrelid='integration.order_preapproval_requests'::regclass
+         AND conname='ck_order_preapproval_requests_approval_round_positive'
+     )
+" | tr -d '[:space:]')"
+[ "${preapproval_round_schema_ready}" = "t" ] || {
+  echo "验证失败：订单预审审批轮次字段、正数约束或订单＋轮次唯一索引未就绪。" >&2
+  exit 1
+}
+
 env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${install_root}" bash "${install_root}/scripts/health-check.sh"
 wait_for_http "/health/live" http://127.0.0.1/health/live
 for required_text in '"success":true' '"status":"ok"' "\"版本\":\"${TARGET_VERSION}\""; do

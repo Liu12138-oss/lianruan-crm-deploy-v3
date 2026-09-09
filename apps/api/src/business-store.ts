@@ -3880,6 +3880,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           新状态: 状态,
           是否当前调价: 是否调价,
           是否存在调价记录: Array.isArray(订单.extra_json?.priceAdjustments),
+          审批轮次: Math.max(1, Number(订单.extra_json?.approvalRound || 0)),
           区管用户编号: 正式编号结果?.区管用户编号 || 订单.region_confirmed_by_user_id,
           用户,
         });
@@ -4003,7 +4004,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           400,
         );
       }
-      const 轮次 = Number(订单.extra_json?.approvalRound || 0) + 1;
+      const 最大预审轮次结果 = await client.query<{ max_approval_round: number | null }>(
+        `SELECT MAX(approval_round)::integer AS max_approval_round
+         FROM integration.order_preapproval_requests
+         WHERE order_id = $1::uuid`,
+        [订单.id],
+      );
+      const 最大历史预审轮次 = Number(最大预审轮次结果.rows[0]?.max_approval_round || 0);
+      const 轮次 = Math.max(Number(订单.extra_json?.approvalRound || 0), 最大历史预审轮次) + 1;
       const 修改记录 = {
         reason: 原因,
         amount: 新金额,
@@ -7616,7 +7624,7 @@ async function 写入订单发件箱事件(
 
 /**
  * 自动预审只由订单状态机调用：普通订单在区管确认后投递；调价订单仅在超管确认后投递。
- * 订单唯一约束是最终幂等门禁，重复流转、并发请求和后续调价均不得生成第二条 OA 发起记录。
+ * 幂等范围是订单审批轮次；同轮重复流转和并发请求不得生成第二条 OA 发起记录，明确失败的旧轮次允许真实退回重提后创建新轮次。
  */
 async function 写入订单预审自动发起事件(
   client: PoolClient,
@@ -7627,6 +7635,7 @@ async function 写入订单预审自动发起事件(
     新状态: string;
     是否当前调价: boolean;
     是否存在调价记录: boolean;
+    审批轮次: number;
     区管用户编号: string | null;
     用户: 当前业务用户 | null;
   },
@@ -7645,6 +7654,51 @@ async function 写入订单预审自动发起事件(
   const 触发代码 = 普通订单区管确认
     ? "region_confirmed"
     : "superadmin_confirmed_after_price_adjust";
+  const 审批轮次 = Number.isInteger(参数.审批轮次) && 参数.审批轮次 > 0 ? 参数.审批轮次 : 1;
+
+  const 历史请求查询 = await client.query<{
+    id: string;
+    approval_round: number;
+    status_code: string;
+    external_request_id: string | null;
+  }>(
+    `
+    SELECT id::text AS id, approval_round, status_code, external_request_id
+    FROM integration.order_preapproval_requests
+    WHERE order_id = $1::uuid
+    ORDER BY approval_round DESC, created_at DESC, id DESC
+    `,
+    [参数.订单编号],
+  );
+  const 同轮请求 = 历史请求查询.rows.find((请求) => 请求.approval_round === 审批轮次);
+  const 已受理或结果不确定请求 = 历史请求查询.rows.find(
+    (请求) =>
+      请求.approval_round < 审批轮次 &&
+      !(请求.status_code === "failed" && !请求.external_request_id),
+  );
+  if (同轮请求 || 已受理或结果不确定请求) {
+    const 阻断请求 = 同轮请求 || 已受理或结果不确定请求;
+    await 写入审计日志(client, {
+      用户: 参数.用户,
+      模块: "order_preapproval",
+      动作: "auto_request_skipped",
+      对象类型: "order",
+      对象编号: 参数.订单编号,
+      对象名称: 参数.订单编号文本,
+      结果: "skipped",
+      说明: 同轮请求
+        ? "订单预审同一审批轮次已有请求，已按幂等规则跳过重复发起。"
+        : "订单历史预审并非明确失败且无外部流程编号，禁止自动创建新的外部审批流程，请先人工确认旧流程状态。",
+      变更后: {
+        approvalRound: 审批轮次,
+        blockedByRequestId: 阻断请求?.id || "",
+        blockedByApprovalRound: 阻断请求?.approval_round || null,
+        blockedByStatus: 阻断请求?.status_code || "",
+        hasExternalRequestId: Boolean(阻断请求?.external_request_id),
+      },
+    });
+    return;
+  }
   const 模板查询 = await client.query<{
     id: string;
     template_version: string;
@@ -7663,22 +7717,23 @@ async function 写入订单预审自动发起事件(
     `,
   );
   const 模板 = 模板查询.rows[0];
-  const 幂等键 = `order-preapproval:${参数.订单编号}:2026-08-27-v1`;
+  const 幂等键 = `order-preapproval:${参数.订单编号}:round-${审批轮次}:${模板?.template_version || "unconfigured"}`;
   const 发起结果 = await client.query<{ id: string }>(
     `
     INSERT INTO integration.order_preapproval_requests (
-      order_id, template_id, template_version, trigger_code, region_manager_user_id,
+      order_id, approval_round, template_id, template_version, trigger_code, region_manager_user_id,
       idempotency_key, status_code, failure_code, failure_summary, template_snapshot_json, request_snapshot_json
     )
     VALUES (
-      $1::uuid, $2::uuid, $3, $4, $5::uuid,
-      $6, $7, $8, $9, $10::jsonb, $11::jsonb
+      $1::uuid, $2::integer, $3::uuid, $4, $5, $6::uuid,
+      $7, $8, $9, $10, $11::jsonb, $12::jsonb
     )
-    ON CONFLICT (order_id) DO NOTHING
+    ON CONFLICT (order_id, approval_round) DO NOTHING
     RETURNING id::text AS id
     `,
     [
       参数.订单编号,
+      审批轮次,
       模板?.id || null,
       模板?.template_version || "unconfigured",
       触发代码,
@@ -7701,12 +7756,35 @@ async function 写入订单预审自动发起事件(
       JSON.stringify({
         orderNo: 参数.订单编号文本,
         triggerCode: 触发代码,
+        approvalRound: 审批轮次,
         regionManagerUserId: 参数.区管用户编号 || "",
       }),
     ],
   );
   const 发起编号 = 发起结果.rows[0]?.id;
-  if (!发起编号) return;
+  if (!发起编号) {
+    await 写入审计日志(client, {
+      用户: 参数.用户,
+      模块: "order_preapproval",
+      动作: "auto_request_skipped",
+      对象类型: "order",
+      对象编号: 参数.订单编号,
+      对象名称: 参数.订单编号文本,
+      结果: "skipped",
+      说明: "订单预审同一审批轮次已有并发请求，已按数据库幂等约束跳过重复发起。",
+      变更后: { approvalRound: 审批轮次, idempotencyKey: 幂等键 },
+    });
+    return;
+  }
+
+  // 固化当前订单预审轮次，后续退回重提可基于存量请求稳定递增。
+  await client.query(
+    `UPDATE crm.orders
+     SET extra_json = extra_json || jsonb_build_object('approvalRound', $2::integer),
+         updated_at = now(), row_version = row_version + 1
+     WHERE id = $1::uuid`,
+    [参数.订单编号, 审批轮次],
+  );
 
   if (模板) {
     await client.query(
@@ -7719,7 +7797,11 @@ async function 写入订单预审自动发起事件(
       [
         "crm.order.preapproval.requested",
         发起编号,
-        JSON.stringify({ orderPreapprovalRequestId: 发起编号, triggerCode: 触发代码 }),
+        JSON.stringify({
+          orderPreapprovalRequestId: 发起编号,
+          triggerCode: 触发代码,
+          approvalRound: 审批轮次,
+        }),
       ],
     );
   }
@@ -7734,7 +7816,7 @@ async function 写入订单预审自动发起事件(
     说明: 模板
       ? "订单状态机已自动创建渠道产品订单预审发起请求。"
       : "订单状态机已创建停止的预审记录，等待模板配置恢复。",
-    变更后: { requestId: 发起编号, triggerCode: 触发代码 },
+    变更后: { requestId: 发起编号, triggerCode: 触发代码, approvalRound: 审批轮次 },
   });
 }
 
