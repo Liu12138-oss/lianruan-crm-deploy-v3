@@ -27,6 +27,17 @@ const V2区域管理员恢复回退迁移 = fs.readFileSync(
   ),
   "utf8",
 );
+const 区管正式区域绑定迁移 = fs.readFileSync(
+  path.resolve(当前目录, "../../../database/migrations/20260909_S10_021_区管正式区域绑定修复.sql"),
+  "utf8",
+);
+const 区管正式区域绑定回退迁移 = fs.readFileSync(
+  path.resolve(
+    当前目录,
+    "../../../database/migrations/20260909_S10_021_区管正式区域绑定修复.rollback.sql",
+  ),
+  "utf8",
+);
 
 if (!测试环境变量.DATABASE_URL) {
   throw new Error("V2兼容接口测试必须配置 PostgreSQL DATABASE_URL，禁止回退内存模式。");
@@ -156,6 +167,7 @@ describe("V2真实页面兼容接口", () => {
 
   it("迁移区域管理员部分保存后保留登录名、角色和联系电话", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
     const 批次 = `region_admin_save_${Date.now()}`;
     const 登录账号 = `${批次}_login`;
     const 联系电话 = `137${String(Date.now()).slice(-8)}`;
@@ -177,6 +189,17 @@ describe("V2真实页面兼容接口", () => {
       .expect(200);
     expect(创建.body.data.role).toBe("admin");
 
+    const 创建后区域 = await pool.query<{ region_name: string | null }>(
+      `
+      SELECT r.region_name
+      FROM iam.users u
+      LEFT JOIN org.regions r ON r.id = u.region_id
+      WHERE u.username = $1::citext
+      `,
+      [登录账号],
+    );
+    expect(创建后区域.rows[0]?.region_name).toBe("安徽区");
+
     const 部分保存 = await request(app)
       .put(`/api/v2/users/${encodeURIComponent(批次)}`)
       .send({
@@ -190,6 +213,42 @@ describe("V2真实页面兼容接口", () => {
     expect(部分保存.body.data.username).toBe(登录账号);
     expect(部分保存.body.data.role).toBe("admin");
     expect(部分保存.body.data.phone).toBe(联系电话);
+
+    const 可切换区域 = await pool.query<{ region_name: string }>(
+      `
+      SELECT region_name
+      FROM org.regions
+      WHERE region_level = 'region'
+        AND status_code = 'active'
+        AND region_name <> '安徽区'
+      ORDER BY region_name
+      LIMIT 1
+      `,
+    );
+    const 新区域 = 可切换区域.rows[0]?.region_name;
+    if (!新区域) throw new Error("测试库缺少可用于编辑区管的有效区域。");
+    await request(app)
+      .put(`/api/v2/users/${encodeURIComponent(批次)}`)
+      .send({ region: 新区域 })
+      .expect(200);
+
+    const 无效区域 = await request(app)
+      .put(`/api/v2/users/${encodeURIComponent(批次)}`)
+      .send({ region: "不存在的测试区域" })
+      .expect(400);
+    expect(无效区域.body.success).toBe(false);
+    expect(无效区域.body.error).toContain("负责区域不存在或已停用");
+
+    const 编辑后区域 = await pool.query<{ region_name: string | null }>(
+      `
+      SELECT r.region_name
+      FROM iam.users u
+      LEFT JOIN org.regions r ON r.id = u.region_id
+      WHERE u.username = $1::citext
+      `,
+      [登录账号],
+    );
+    expect(编辑后区域.rows[0]?.region_name).toBe(新区域);
 
     const 登录 = await request(app)
       .post("/api/v2/auth/login")
@@ -210,6 +269,119 @@ describe("V2真实页面兼容接口", () => {
     expect(恢复.body.data.username).toBe(登录账号);
     expect(恢复.body.data.role).toBe("admin");
     expect(恢复.body.data.phone).toBe(联系电话);
+    await pool.end();
+  });
+
+  it("区管正式区域迁移仅补齐唯一匹配账号，重名区域拒绝账号保存且回退可执行", async () => {
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `formal_region_migration_${Date.now()}`;
+    let 区域Id = "";
+    let 区域重复Id = "";
+    let 区域重复二Id = "";
+    let 唯一用户Id = "";
+    let 重复用户Id = "";
+    try {
+      const 大区 = await pool.query<{ id: string }>(
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移测试大区','big_region','active') RETURNING id::text AS id",
+        [批次 + "_big"],
+      );
+      const 区域 = await pool.query<{ id: string }>(
+        "INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level,status_code) VALUES($1,'迁移唯一区域',$2::uuid,'region','active') RETURNING id::text AS id",
+        [批次 + "_region", 大区.rows[0]!.id],
+      );
+      区域Id = 区域.rows[0]!.id;
+      const 重复区域 = await pool.query<{ id: string }>(
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移重复区域','region','active') RETURNING id::text AS id",
+        [批次 + "_duplicate_region"],
+      );
+      区域重复Id = 重复区域.rows[0]!.id;
+      const 重复区域二 = await pool.query<{ id: string }>(
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移重复区域','region','active') RETURNING id::text AS id",
+        [批次 + "_duplicate_region_2"],
+      );
+      区域重复二Id = 重复区域二.rows[0]!.id;
+      const 用户 = await pool.query<{ id: string }>(
+        `
+        INSERT INTO iam.users(username,display_name,status_code,extra_json)
+        VALUES
+          ($1::citext,'迁移唯一区管','active',jsonb_build_object('region','迁移唯一区域')),
+          ($2::citext,'迁移重复区管','active',jsonb_build_object('region','迁移重复区域'))
+        RETURNING id::text AS id
+        `,
+        [批次 + "_unique", 批次 + "_duplicate"],
+      );
+      唯一用户Id = 用户.rows[0]!.id;
+      重复用户Id = 用户.rows[1]!.id;
+      await pool.query(
+        `
+        INSERT INTO iam.user_roles(user_id,role_id)
+        SELECT unnest($1::uuid[]), r.id
+        FROM iam.roles r
+        WHERE r.role_code = 'region_manager'
+        `,
+        [[唯一用户Id, 重复用户Id]],
+      );
+
+      const app = 创建应用({ env: 测试环境变量 });
+      const 重名区域保存 = await request(app)
+        .post("/api/v2/admin/accounts")
+        .send({
+          username: 批次 + "_duplicate_save",
+          name: "重名区域保存测试",
+          role: "admin",
+          region: "迁移重复区域",
+        })
+        .expect(400);
+      expect(重名区域保存.body.error).toContain("负责区域存在重复配置");
+
+      await pool.query(区管正式区域绑定迁移);
+      const 结果 = await pool.query<{ username: string; region_id: string | null }>(
+        "SELECT username::text AS username, region_id::text FROM iam.users WHERE id = ANY($1::uuid[]) ORDER BY username",
+        [[唯一用户Id, 重复用户Id]],
+      );
+      expect(结果.rows).toEqual([
+        { username: 批次 + "_duplicate", region_id: null },
+        { username: 批次 + "_unique", region_id: 区域Id },
+      ]);
+
+      const 客户端 = await pool.connect();
+      try {
+        await 客户端.query("BEGIN");
+        await 客户端.query(区管正式区域绑定回退迁移);
+        const 回退 = await 客户端.query<{ region_id: string | null }>(
+          "SELECT region_id::text FROM iam.users WHERE id = $1::uuid",
+          [唯一用户Id],
+        );
+        expect(回退.rows[0]?.region_id).toBeNull();
+      } finally {
+        await 客户端.query("ROLLBACK").catch(() => {});
+        客户端.release();
+      }
+    } finally {
+      await pool
+        .query(
+          "DELETE FROM migration.region_manager_formal_region_repairs WHERE user_id = ANY($1::uuid[])",
+          [[唯一用户Id, 重复用户Id]],
+        )
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM iam.user_roles WHERE user_id = ANY($1::uuid[])", [
+          [唯一用户Id, 重复用户Id],
+        ])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM iam.users WHERE id = ANY($1::uuid[])", [[唯一用户Id, 重复用户Id]])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM org.regions WHERE id = ANY($1::uuid[])", [
+          [区域Id, 区域重复Id, 区域重复二Id],
+        ])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM org.regions WHERE region_code = $1", [批次 + "_big"])
+        .catch(() => {});
+      await pool.end();
+    }
   });
 
   it("原始V2区域管理员被旧保存逻辑覆盖后仅恢复明确异常账号", async () => {

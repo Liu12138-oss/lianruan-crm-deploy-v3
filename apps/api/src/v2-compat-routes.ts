@@ -2517,6 +2517,22 @@ async function 保存V2用户(
   const name = 读取正文文本(输入, ["name", "displayName"], 已有账号?.displayName || username);
   const 角色输入 = 读取正文文本(输入, ["role"], "");
   const role = 角色输入 ? 转V3角色(角色输入) : id ? "" : "staff";
+  const 是否区域管理员 =
+    role === "region_manager" || (!角色输入 && Boolean(id) && (await 是已保存区域管理员(pool, id)));
+  const 区域字段已提供 = 是否包含正文键(输入, ["region", "区域"]);
+  const 展示区域名称 = 区域字段已提供
+    ? 读取正文文本(输入, ["region", "区域"], "").trim()
+    : 读取对象文本(已有账号?.extra || {}, "region");
+  const 正式区域编号 = 是否区域管理员
+    ? !区域字段已提供 && 已有账号?.regionId
+      ? 已有账号.regionId
+      : await 解析区域管理员正式区域(pool, {
+          regionName: 展示区域名称,
+          required: !id || 区域字段已提供 || Boolean(展示区域名称),
+        })
+    : null;
+  const 应同步正式区域 =
+    是否区域管理员 && (区域字段已提供 || (!已有账号?.regionId && Boolean(正式区域编号)));
   const 待转状态 = 已有账号?.status
     ? String(已有账号.status)
     : 读取正文文本(输入, ["status"], "active");
@@ -2550,13 +2566,24 @@ async function 保存V2用户(
             status_code = $4,
             phone = NULLIF($5, ''),
             email = NULLIF($6, '')::citext,
+            region_id = CASE WHEN $8 THEN $9::uuid ELSE region_id END,
             updated_at = now(),
             row_version = row_version + CASE WHEN status_code IS DISTINCT FROM $4 THEN 1 ELSE 0 END,
             extra_json = extra_json || $7::jsonb
         WHERE id::text = $1 OR v2_source_id = $1 OR username::text = $1 OR extra_json->>'id' = $1
         RETURNING username::text AS username
         `,
-        [id, username, name, status, phone, email, JSON.stringify(extra)],
+        [
+          id,
+          username,
+          name,
+          status,
+          phone,
+          email,
+          JSON.stringify(extra),
+          应同步正式区域,
+          正式区域编号,
+        ],
       );
       if (!result.rows[0]) throw Object.assign(new Error("用户不存在。"), { statusCode: 404 });
     } else {
@@ -2597,11 +2624,13 @@ async function 保存V2用户(
         await pool.query(
           `
           INSERT INTO iam.users (
-            v2_source_id, username, display_name, status_code, phone, email, extra_json
+            v2_source_id, username, display_name, status_code, phone, email, region_id, extra_json
           )
-          VALUES ($1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::jsonb)
+          VALUES (
+            $1, $2::citext, $3, $4, NULLIF($5, ''), NULLIF($6, '')::citext, $7::uuid, $8::jsonb
+          )
           `,
-          [code, username, name, status, phone, email, JSON.stringify(extra)],
+          [code, username, name, status, phone, email, 正式区域编号, JSON.stringify(extra)],
         );
     }
   } catch (error) {
@@ -2622,6 +2651,64 @@ async function 保存V2用户(
   return 用户;
 }
 
+async function 是已保存区域管理员(pool: 数据库查询器, id: string): Promise<boolean> {
+  const result = await pool.query<{ is_region_manager: boolean }>(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM iam.users u
+      JOIN iam.user_roles ur ON ur.user_id = u.id
+      JOIN iam.roles r ON r.id = ur.role_id
+      WHERE r.role_code = 'region_manager'
+        AND r.status_code = 'active'
+        AND (
+          u.id::text = $1
+          OR u.v2_source_id = $1
+          OR u.username::text = $1
+          OR u.extra_json->>'id' = $1
+          OR u.extra_json->>'userId' = $1
+        )
+    ) AS is_region_manager
+    `,
+    [id],
+  );
+  return result.rows[0]?.is_region_manager === true;
+}
+
+async function 解析区域管理员正式区域(
+  pool: 数据库查询器,
+  参数: { regionName: string; required: boolean },
+): Promise<string | null> {
+  if (!参数.regionName) {
+    if (参数.required)
+      throw Object.assign(new Error("区域管理员必须选择有效的负责区域。"), { statusCode: 400 });
+    return null;
+  }
+  const result = await pool.query<{ id: string }>(
+    `
+    SELECT id::text AS id
+    FROM org.regions
+    WHERE region_name = $1
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY id
+    LIMIT 2
+    `,
+    [参数.regionName],
+  );
+  if (result.rows.length !== 1) {
+    throw Object.assign(
+      new Error(
+        result.rows.length
+          ? "负责区域存在重复配置，请先由超级管理员完成区域治理。"
+          : "负责区域不存在或已停用，请重新选择有效区域。",
+      ),
+      { statusCode: 400 },
+    );
+  }
+  return result.rows[0]!.id;
+}
+
 async function 查询V2账号保存快照(pool: 数据库查询器, id: string) {
   const result = await pool.query<{
     username: string;
@@ -2629,6 +2716,7 @@ async function 查询V2账号保存快照(pool: 数据库查询器, id: string) 
     status_code: string;
     phone: string | null;
     email: string | null;
+    region_id: string | null;
     extra_json: 字典 | null;
   }>(
     `
@@ -2638,6 +2726,7 @@ async function 查询V2账号保存快照(pool: 数据库查询器, id: string) 
       status_code,
       phone,
       email::text AS email,
+      region_id::text AS region_id,
       extra_json
     FROM iam.users
     WHERE id::text = $1
@@ -2657,6 +2746,7 @@ async function 查询V2账号保存快照(pool: 数据库查询器, id: string) 
     status: row.extra_json?.status || row.status_code,
     phone: row.phone || "",
     email: row.email || "",
+    regionId: row.region_id || "",
     extra: row.extra_json || {},
   };
 }
