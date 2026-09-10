@@ -20,6 +20,13 @@ describe("超管提醒规则保存入口", () => {
   it("保存业务事件时保留站内提醒，并传递报备待审批的可配置范围", async () => {
     const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
 
+    expect(脚本文本).toContain("request('GET', '/recipient-candidates')");
+    expect(脚本文本).toContain('v-for="u in recipientUsers"');
+    const 提醒模块 = 脚本文本.slice(
+      脚本文本.indexOf("const MessageRules ="),
+      脚本文本.indexOf("const WorkloadConfig ="),
+    );
+    expect(提醒模块).not.toContain("/api/org/staff");
     expect(脚本文本).toContain("业务事件规则必须保留站内提醒。");
     expect(脚本文本).toContain("rule.recipientRule?.type === 'registration_pending_approver'");
     expect(脚本文本).toContain("body.recipientScope = scope;");

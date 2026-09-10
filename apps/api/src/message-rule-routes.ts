@@ -86,6 +86,15 @@ export function 创建消息规则路由(参数: 消息规则路由参数): Rout
     }
   });
 
+  router.get("/rules/recipient-candidates", async (req, res, next) => {
+    try {
+      const data = await service.查询接收人候选(读取超级管理员(req, 平台参数));
+      res.json(成功(req, 参数.build, data));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.put("/rules/reminders/:ruleCode", async (req, res, next) => {
     try {
       校验规则同源写请求(req, 参数.corsOrigin);

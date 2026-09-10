@@ -17444,7 +17444,7 @@ const MESSAGE_RULES_RECIPIENT_EDITOR = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <select class="form-control" v-model="activeDraft.addUserId" style="width:280px">
             <option value="">选择用户（可多次添加）</option>
-            <option v-for="u in staffUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）</option>
+            <option v-for="u in recipientUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）{{ u.hasWecomIdentity ? '' : ' · 未绑定企微' }}</option>
           </select>
           <button class="btn btn-default btn-sm" :disabled="!activeDraft.addUserId" @click="addDraftUser">添加</button>
         </div>
@@ -17654,7 +17654,7 @@ const MessageRules = {
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                   <select class="form-control" v-model="ruleDraft.addUserId" style="width:260px">
                     <option value="">选择用户（可选）</option>
-                    <option v-for="u in staffUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）</option>
+                    <option v-for="u in recipientUsers" :key="u.userId" :value="u.userId">{{ u.displayName }}（{{ u.username }}）{{ u.hasWecomIdentity ? '' : ' · 未绑定企微' }}</option>
                   </select>
                   <button class="btn btn-default btn-sm" :disabled="!ruleDraft.addUserId" @click="addDraftUser">添加</button>
                 </div>
@@ -17875,7 +17875,7 @@ ${MESSAGE_RULES_VARIABLE_TAGS}
     const templates = ref([]);
     const taskTemplates = ref([]);
     const catalog = ref(null);
-    const staffUsers = ref([]);
+    const recipientUsers = ref([]);
     const orgOptions = ref([]);
     const regionOptions = ref([]);
     const partnerOptions = ref([]);
@@ -17993,11 +17993,9 @@ ${MESSAGE_RULES_VARIABLE_TAGS}
           templates.value = Array.isArray(tpl) ? tpl : [];
         } catch (e) { templates.value = []; }
         try {
-          const staff = await adminFetch('/api/org/staff', { headers: { 'content-type': 'application/json' } });
-          const staffJson = await staff.json().catch(() => ({}));
-          const staffData = staffJson?.data?.items ?? staffJson?.data ?? staffJson?.items ?? [];
-          staffUsers.value = Array.isArray(staffData) ? staffData : [];
-        } catch (e) { staffUsers.value = []; }
+          const candidates = await request('GET', '/recipient-candidates');
+          recipientUsers.value = Array.isArray(candidates?.items) ? candidates.items : [];
+        } catch (e) { recipientUsers.value = []; }
         try {
           const [orgRes, channelRes] = await Promise.all([
             adminFetch('/api/org/units/tree', { headers: { 'content-type': 'application/json' } }),
@@ -18093,7 +18091,7 @@ ${MESSAGE_RULES_VARIABLE_TAGS}
       return days;
     }
     function userLabel(userId) {
-      const found = staffUsers.value.find(u => u.userId === userId);
+      const found = recipientUsers.value.find(u => u.userId === userId);
       return found ? `${found.displayName}（${found.username}）` : userId;
     }
     function addDraftUser() {
@@ -18458,7 +18456,7 @@ ${MESSAGE_RULES_VARIABLE_TAGS}
       finally { saving.value = ''; }
     }
     onMounted(load);
-    return { isSuperAdmin, rules, templates, taskTemplates, catalog, loading, saving, error, activeTab, selectedRule, showDetail, selectedTemplate, showTemplate, templateDraft, taskTemplateDraft, showTaskTemplateModal, editingTaskTemplateCode, copyDraft, showCopyModal, copySourceTemplate, taskCreateDraft, showTaskCreateModal, ruleDraft, reminderDraft, availableAdvanceDays, channelOptions, roleOptions, dynamicRecipientOptions, dataSourceOptions, eventOptions, categoryOptions, priorityOptions, recipientTypeOptions, staffUsers, orgOptions, regionOptions, partnerOptions, businessRules, expiryRules, visibleRules, activeCount, mandatoryCount, activeDraft, activeVariables, 变量示例, load, isExpiry, eventLabel, dataSourceLabel, advanceDaysText, recipientLabel, channelLabel, channelText, statusLabel, statusClass, auditLabel, reminderStrategy, digestLabel, userLabel, addDraftUser, removeDraftUser, openDetail, closeDetail, openTemplate, insertTemplateVariable, insertDraftVariable, refreshTemplateVariables, openTaskTemplateModal, editTaskTemplate, closeTaskTemplateModal, saveTaskTemplate, openCopyModal, saveCopy, openTaskCreateModal, selectTaskTemplate, saveTaskCreate, toggle, saveEventRule, saveReminder, saveTaskInstance, saveTemplate };
+    return { isSuperAdmin, rules, templates, taskTemplates, catalog, loading, saving, error, activeTab, selectedRule, showDetail, selectedTemplate, showTemplate, templateDraft, taskTemplateDraft, showTaskTemplateModal, editingTaskTemplateCode, copyDraft, showCopyModal, copySourceTemplate, taskCreateDraft, showTaskCreateModal, ruleDraft, reminderDraft, availableAdvanceDays, channelOptions, roleOptions, dynamicRecipientOptions, dataSourceOptions, eventOptions, categoryOptions, priorityOptions, recipientTypeOptions, recipientUsers, orgOptions, regionOptions, partnerOptions, businessRules, expiryRules, visibleRules, activeCount, mandatoryCount, activeDraft, activeVariables, 变量示例, load, isExpiry, eventLabel, dataSourceLabel, advanceDaysText, recipientLabel, channelLabel, channelText, statusLabel, statusClass, auditLabel, reminderStrategy, digestLabel, userLabel, addDraftUser, removeDraftUser, openDetail, closeDetail, openTemplate, insertTemplateVariable, insertDraftVariable, refreshTemplateVariables, openTaskTemplateModal, editTaskTemplate, closeTaskTemplateModal, saveTaskTemplate, openCopyModal, saveCopy, openTaskCreateModal, selectTaskTemplate, saveTaskCreate, toggle, saveEventRule, saveReminder, saveTaskInstance, saveTemplate };
   }
 };
 

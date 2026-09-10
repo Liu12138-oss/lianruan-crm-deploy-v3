@@ -113,6 +113,20 @@ class 记录消息规则服务 implements 消息规则数据服务 {
   public 最后更新: { 订阅代码: string; 输入: 事件规则更新输入 } | undefined;
   public 最后到期更新: { 规则代码: string; 输入: 到期提醒规则更新输入 } | undefined;
 
+  public async 查询接收人候选(用户: 消息规则当前用户) {
+    this.最后用户 = 用户;
+    return {
+      items: [
+        {
+          userId: "6f2fd9ae-1200-b247-9018-27de1ca8515c",
+          username: "liulonghai",
+          displayName: "刘龙海",
+          hasWecomIdentity: true,
+        },
+      ],
+    };
+  }
+
   public async 查询事件规则(用户: 消息规则当前用户): Promise<平台事件规则[]> {
     this.最后用户 = 用户;
     return [测试事件规则];
@@ -397,6 +411,33 @@ describe("消息渠道配置接口", () => {
 });
 
 describe("提醒规则管理接口", () => {
+  it("接收人候选仅超级管理员可读，并使用会话主体", async () => {
+    const { agent, ruleService } = await 登录("platform_superadmin");
+
+    const 查询 = await agent
+      .get("/api/messages/platform/rules/recipient-candidates")
+      .query({ username: "伪造主体" })
+      .expect(200);
+    expect(查询.body.data.items).toEqual([
+      {
+        userId: "6f2fd9ae-1200-b247-9018-27de1ca8515c",
+        username: "liulonghai",
+        displayName: "刘龙海",
+        hasWecomIdentity: true,
+      },
+    ]);
+    expect(ruleService.最后用户?.username).toBe("platform_superadmin");
+
+    const 普通管理员 = await 登录("platform_admin");
+    await 普通管理员.agent.get("/api/messages/platform/rules/recipient-candidates").expect(403);
+
+    const 未登录应用 = 创建应用({
+      env: 环境变量,
+      messageRuleService: new 记录消息规则服务(),
+    });
+    await request(未登录应用).get("/api/messages/platform/rules/recipient-candidates").expect(401);
+  });
+
   it("仅超级管理员可读取和更新，且使用会话主体", async () => {
     const { agent, ruleService } = await 登录("platform_superadmin");
 
