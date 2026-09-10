@@ -7,6 +7,7 @@ import {
   更新任职,
   更新泛微OA身份候选,
   更新组织,
+  查询外部身份映射,
   查询岗位,
   查询成员业务角色,
   查询负责人关系,
@@ -50,6 +51,29 @@ describe("组织架构接口客户端", () => {
       "/api/org/status",
       expect.objectContaining({ credentials: "include" }),
     );
+  });
+
+  it("外部身份映射查询传递筛选、分页并使用 Cookie", async () => {
+    const fetchMock = vi.fn(async () =>
+      成功响应({ items: [], summary: {}, pagination: { page: 1, pageSize: 20, total: 0 } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await 查询外部身份映射({
+      keyword: "张三",
+      regionId: "region/1",
+      provider: "eteams",
+      mappingStatus: "abnormal",
+      includeInactive: true,
+      page: 2,
+      pageSize: 50,
+    });
+    const [路径, 初始化] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(路径).toContain("/api/org/external-identities?");
+    expect(路径).toContain("keyword=%E5%BC%A0%E4%B8%89");
+    expect(路径).toContain("provider=eteams");
+    expect(路径).toContain("includeInactive=true");
+    expect(路径).toContain("page=2");
+    expect(初始化.credentials).toBe("include");
   });
 
   it("组织更新同时传递行版本与幂等键", async () => {

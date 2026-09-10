@@ -801,7 +801,7 @@ export class 消息消费存储 {
           [通知编号, 首项.recipientUserId, `${模板代码}_email`, 语义键, 邮箱去重键],
         );
       }
-      if (config.message.channels.wecomApp.enabled && 首项.channelCodes.includes("wecom_app")) {
+      if (首项.channelCodes.includes("wecom_app")) {
         const 企微应用去重键 = crypto
           .createHash("sha256")
           .update(`${语义键}:wecom_app`, "utf8")
@@ -813,7 +813,16 @@ export class 消息消费存储 {
             semantic_key, deduplication_key, status_code
           )
           SELECT $1::uuid, $2::uuid, 'wecom_app', $3::text, 1, $4::text, $5::text, 'pending'
-          WHERE EXISTS (
+          WHERE COALESCE(
+            (
+              SELECT account.enabled
+              FROM message.channel_accounts account
+              WHERE account.channel_code = 'wecom_app'
+              LIMIT 1
+            ),
+            $6::boolean
+          )
+          AND EXISTS (
             SELECT 1
             FROM iam.external_identities identity
             JOIN iam.users recipient ON recipient.id = identity.user_id
@@ -824,7 +833,14 @@ export class 消息消费存储 {
           )
           ON CONFLICT (deduplication_key) DO NOTHING
           `,
-          [通知编号, 首项.recipientUserId, `${模板代码}_wecom_app`, 语义键, 企微应用去重键],
+          [
+            通知编号,
+            首项.recipientUserId,
+            `${模板代码}_wecom_app`,
+            语义键,
+            企微应用去重键,
+            config.message.channels.wecomApp.enabled,
+          ],
         );
       }
       await client.query(
@@ -1531,7 +1547,7 @@ export class 消息消费存储 {
         去重键,
       ],
     );
-    if (订阅.channelCodes.includes("wecom_app") && config.message.channels.wecomApp.enabled) {
+    if (订阅.channelCodes.includes("wecom_app")) {
       const 外部去重键 = 生成投递去重键(事件.sourceEventId, 接收人编号, "wecom_app");
       await client.query(
         `
@@ -1540,7 +1556,16 @@ export class 消息消费存储 {
           template_version, semantic_key, deduplication_key, status_code
         )
         SELECT $1::uuid, $2::uuid, $3::uuid, 'wecom_app', $4::text, $5::int, $6::text, $7::text, 'pending'
-        WHERE EXISTS (
+        WHERE COALESCE(
+          (
+            SELECT account.enabled
+            FROM message.channel_accounts account
+            WHERE account.channel_code = 'wecom_app'
+            LIMIT 1
+          ),
+          $8::boolean
+        )
+        AND EXISTS (
           SELECT 1
           FROM iam.external_identities identity
           JOIN iam.users recipient ON recipient.id = identity.user_id
@@ -1559,6 +1584,7 @@ export class 消息消费存储 {
           1,
           事件.sourceEventId,
           外部去重键,
+          config.message.channels.wecomApp.enabled,
         ],
       );
     }

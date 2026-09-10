@@ -25,6 +25,7 @@ describe("组织架构工程化工作区路由", () => {
         "/workspace/admin/platform-admin/organization/certifications",
         "/workspace/admin/platform-admin/organization/offboarding",
         "/workspace/admin/platform-admin/organization/directory-sync",
+        "/workspace/admin/platform-admin/organization/external-identities",
       ]),
     );
     expect(路径列表).not.toEqual(

@@ -16,6 +16,16 @@ export interface 组织操作人 {
   requestId: string;
   role?: string;
 }
+export interface 外部身份映射查询参数 {
+  keyword?: string;
+  regionId?: string;
+  roleCode?: string;
+  provider: "all" | "eteams" | "wecom";
+  mappingStatus: "all" | "complete" | "eteams_missing" | "wecom_missing" | "abnormal";
+  includeInactive: boolean;
+  page: number;
+  pageSize: number;
+}
 export interface 组织幂等参数 {
   作用域: string;
   幂等键: string;
@@ -100,6 +110,7 @@ export interface 组织数据服务 {
   预览渠道商同步(): Promise<unknown>;
   执行渠道商同步(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   查询泛微OA身份(userId: string): Promise<unknown>;
+  查询外部身份映射(参数: 外部身份映射查询参数): Promise<unknown>;
   新建泛微OA身份候选(
     userId: string,
     input: Record<string, unknown>,
@@ -2260,6 +2271,156 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       inactiveFormalIdentities: 正式映射.rows.filter((item) => item.statusCode !== "active"),
       candidates: 候选.rows,
       wecomIdentities: 企业微信映射.rows,
+    };
+  }
+  async 查询外部身份映射(参数: 外部身份映射查询参数) {
+    let 参数序号 = 1;
+    const 关键词序号 = 参数.keyword ? 参数序号++ : 0;
+    const 区域序号 = 参数.regionId ? 参数序号++ : 0;
+    const 角色序号 = 参数.roleCode ? 参数序号++ : 0;
+    const 条件 = [
+      参数.includeInactive ? "TRUE" : "u.status_code = 'active'",
+      参数.keyword
+        ? `(u.username ILIKE $${关键词序号} OR u.display_name ILIKE $${关键词序号})`
+        : "TRUE",
+      参数.regionId ? `u.region_id = $${区域序号}::uuid` : "TRUE",
+      参数.roleCode
+        ? `EXISTS (SELECT 1 FROM iam.user_roles urf JOIN iam.roles rrf ON rrf.id=urf.role_id WHERE urf.user_id=u.id AND rrf.role_code=$${角色序号} AND rrf.status_code='active')`
+        : "TRUE",
+    ].join(" AND ");
+    const 参数值: unknown[] = [];
+    if (参数.keyword) 参数值.push(`%${参数.keyword}%`);
+    if (参数.regionId) 参数值.push(参数.regionId);
+    if (参数.roleCode) 参数值.push(参数.roleCode);
+    const provider条件 =
+      参数.provider === "eteams"
+        ? "AND (eteams_total > 0 OR eteams_pending > 0)"
+        : 参数.provider === "wecom"
+          ? "AND wecom_total > 0"
+          : "";
+    const 状态条件 =
+      参数.mappingStatus === "complete"
+        ? "AND eteams_status = 'active' AND wecom_status = 'active'"
+        : 参数.mappingStatus === "eteams_missing"
+          ? "AND eteams_status IN ('missing','pending','disabled')"
+          : 参数.mappingStatus === "wecom_missing"
+            ? "AND wecom_status IN ('missing','disabled')"
+            : 参数.mappingStatus === "abnormal"
+              ? "AND (eteams_status IN ('disabled','duplicate') OR wecom_status IN ('disabled','duplicate'))"
+              : "";
+    const 基础查询 = `
+      WITH role_stats AS (
+        SELECT ur.user_id,
+               array_agg(r.role_code ORDER BY r.role_code) FILTER (WHERE r.status_code='active') AS role_codes,
+               array_agg(r.role_name ORDER BY r.role_code) FILTER (WHERE r.status_code='active') AS role_names
+        FROM iam.user_roles ur JOIN iam.roles r ON r.id=ur.role_id
+        GROUP BY ur.user_id
+      ), eteams_stats AS (
+        SELECT e.user_id,
+               count(*) FILTER (WHERE e.status_code='active')::int AS eteams_active,
+               count(*)::int AS eteams_total,
+               count(*) FILTER (WHERE e.status_code<>'active')::int AS eteams_inactive,
+               max(e.external_subject) FILTER (WHERE e.status_code='active') AS eteams_subject,
+               max(e.external_username) FILTER (WHERE e.status_code='active') AS eteams_username,
+               max(e.updated_at) FILTER (WHERE e.status_code='active') AS eteams_updated_at,
+               max(e.row_version) FILTER (WHERE e.status_code='active') AS eteams_row_version,
+               bool_or(e.status_code='active' AND sc.subject_count > 1) AS eteams_subject_duplicate
+        FROM iam.external_identities e
+        LEFT JOIN (
+          SELECT provider_code, external_subject, count(*)::int AS subject_count
+          FROM iam.external_identities WHERE status_code='active'
+          GROUP BY provider_code, external_subject
+        ) sc ON sc.provider_code=e.provider_code AND sc.external_subject=e.external_subject
+        WHERE e.provider_code='eteams'
+        GROUP BY e.user_id
+      ), candidate_stats AS (
+        SELECT c.user_id, count(*) FILTER (WHERE c.status_code='pending')::int AS eteams_pending,
+               max(c.external_subject) FILTER (WHERE c.status_code='pending') AS candidate_subject,
+               max(c.external_username) FILTER (WHERE c.status_code='pending') AS candidate_username
+        FROM iam.external_identity_candidates c
+        WHERE c.provider_code='eteams'
+        GROUP BY c.user_id
+      ), wecom_stats AS (
+        SELECT e.user_id,
+               count(*) FILTER (WHERE e.status_code='active')::int AS wecom_active,
+               count(*)::int AS wecom_total,
+               count(*) FILTER (WHERE e.status_code<>'active')::int AS wecom_inactive,
+               max(e.external_subject) FILTER (WHERE e.status_code='active') AS wecom_subject,
+               max(e.external_username) FILTER (WHERE e.status_code='active') AS wecom_username,
+               max(e.updated_at) FILTER (WHERE e.status_code='active') AS wecom_updated_at,
+               max(e.row_version) FILTER (WHERE e.status_code='active') AS wecom_row_version,
+               bool_or(e.status_code='active' AND sc.subject_count > 1) AS wecom_subject_duplicate
+        FROM iam.external_identities e
+        LEFT JOIN (
+          SELECT provider_code, external_subject, count(*)::int AS subject_count
+          FROM iam.external_identities WHERE status_code='active'
+          GROUP BY provider_code, external_subject
+        ) sc ON sc.provider_code=e.provider_code AND sc.external_subject=e.external_subject
+        WHERE e.provider_code='wecom'
+        GROUP BY e.user_id
+      ), base AS (
+        SELECT u.id::text AS user_id, u.username::text AS username, u.display_name,
+               u.status_code, u.region_id::text AS region_id, rg.region_name,
+               COALESCE(rs.role_codes, ARRAY[]::text[]) AS role_codes,
+               COALESCE(rs.role_names, ARRAY[]::text[]) AS role_names,
+               COALESCE(es.eteams_total,0) AS eteams_total,
+               CASE WHEN COALESCE(es.eteams_active,0)>1 OR COALESCE(es.eteams_subject_duplicate,false) THEN 'duplicate'
+                    WHEN COALESCE(es.eteams_active,0)=1 THEN 'active'
+                    WHEN COALESCE(cs.eteams_pending,0)>0 THEN 'pending'
+                    WHEN COALESCE(es.eteams_inactive,0)>0 THEN 'disabled' ELSE 'missing' END AS eteams_status,
+               es.eteams_subject, es.eteams_username, es.eteams_updated_at, es.eteams_row_version,
+               cs.eteams_pending, cs.candidate_subject, cs.candidate_username,
+               COALESCE(ws.wecom_total,0) AS wecom_total,
+               CASE WHEN COALESCE(ws.wecom_active,0)>1 OR COALESCE(ws.wecom_subject_duplicate,false) THEN 'duplicate'
+                    WHEN COALESCE(ws.wecom_active,0)=1 THEN 'active'
+                    WHEN COALESCE(ws.wecom_inactive,0)>0 THEN 'disabled' ELSE 'missing' END AS wecom_status,
+               ws.wecom_subject, ws.wecom_username, ws.wecom_updated_at, ws.wecom_row_version
+        FROM iam.users u
+        LEFT JOIN org.regions rg ON rg.id=u.region_id
+        LEFT JOIN role_stats rs ON rs.user_id=u.id
+        LEFT JOIN eteams_stats es ON es.user_id=u.id
+        LEFT JOIN candidate_stats cs ON cs.user_id=u.id
+        LEFT JOIN wecom_stats ws ON ws.user_id=u.id
+        WHERE ${条件}
+      ), filtered AS (
+        SELECT * FROM base WHERE TRUE ${provider条件} ${状态条件}
+      )`;
+    const countResult = await this.pool.query(
+      `${基础查询} SELECT count(*)::int AS total,
+        count(*) FILTER (WHERE eteams_status='active')::int AS "eteamsActive",
+        count(*) FILTER (WHERE eteams_status='missing')::int AS "eteamsMissing",
+        count(*) FILTER (WHERE eteams_status='pending')::int AS "eteamsPending",
+        count(*) FILTER (WHERE wecom_status='active')::int AS "wecomActive",
+        count(*) FILTER (WHERE wecom_status='missing')::int AS "wecomMissing",
+        count(*) FILTER (WHERE eteams_status IN ('disabled','duplicate') OR wecom_status IN ('disabled','duplicate'))::int AS abnormal
+        FROM filtered`,
+      参数值,
+    );
+    const offset = (参数.page - 1) * 参数.pageSize;
+    const rows = await this.pool.query(
+      `${基础查询} SELECT user_id AS "userId", username, display_name AS "displayName", status_code AS "statusCode",
+        region_id AS "regionId", region_name AS "regionName", role_codes AS "roleCodes", role_names AS "roleNames",
+        jsonb_build_object('status', eteams_status, 'externalSubject', eteams_subject, 'externalUsername', eteams_username,
+          'updatedAt', eteams_updated_at, 'rowVersion', eteams_row_version) AS eteams,
+        CASE WHEN eteams_pending > 0 THEN jsonb_build_object('status','pending','externalSubject',candidate_subject,'externalUsername',candidate_username) END AS "eteamsCandidate",
+        jsonb_build_object('status', wecom_status, 'externalSubject', wecom_subject, 'externalUsername', wecom_username,
+          'updatedAt', wecom_updated_at, 'rowVersion', wecom_row_version) AS wecom
+       FROM filtered ORDER BY display_name, username, user_id LIMIT $${参数值.length + 1} OFFSET $${参数值.length + 2}`,
+      [...参数值, 参数.pageSize, offset],
+    );
+    const summary = countResult.rows[0] || {};
+    return {
+      items: rows.rows,
+      summary: {
+        total: Number(summary.total || 0),
+        eteamsActive: Number(summary.eteamsActive || 0),
+        eteamsMissing: Number(summary.eteamsMissing || 0),
+        eteamsPending: Number(summary.eteamsPending || 0),
+        wecomActive: Number(summary.wecomActive || 0),
+        wecomMissing: Number(summary.wecomMissing || 0),
+        abnormal: Number(summary.abnormal || 0),
+      },
+      pagination: { page: 参数.page, pageSize: 参数.pageSize, total: Number(summary.total || 0) },
     };
   }
   async 新建泛微OA身份候选(userId: string, input: Record<string, unknown>, actor: 组织操作人) {

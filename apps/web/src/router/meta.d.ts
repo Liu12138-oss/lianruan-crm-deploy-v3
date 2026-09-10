@@ -29,6 +29,7 @@ declare module "vue-router" {
       | "certifications"
       | "offboarding"
       | "directory-sync"
+      | "external-identities"
       | "access";
   }
 }

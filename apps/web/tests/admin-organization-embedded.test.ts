@@ -62,7 +62,7 @@ describe("正式管理员页组织架构内嵌路由", () => {
   it("正式页面引用内嵌版本资源", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=162"></script>');
+    expect(页面文本).toContain('<script src="admin-app.js?v=163"></script>');
     expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=17" />');
     expect(页面文本).toContain('<script src="libs/xlsx.full.min.js"></script>');
   });

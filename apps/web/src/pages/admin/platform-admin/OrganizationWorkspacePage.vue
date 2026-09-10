@@ -17,6 +17,7 @@ import {
   创建证书模板,
   type 同步差异,
   type 同步批次,
+  type 外部身份映射结果,
   导入成员,
   导入部门,
   导出成员,
@@ -33,6 +34,8 @@ import {
   查询任职,
   查询企微同步差异,
   查询企微同步批次,
+  查询区域列表,
+  查询外部身份映射,
   查询岗位,
   查询成员业务角色,
   查询成员证书,
@@ -72,6 +75,7 @@ type 页面栏目 =
   | "certifications"
   | "offboarding"
   | "directory-sync"
+  | "external-identities"
   | "access";
 type 新建类型 = "unit" | "position" | "businessRole" | "certificationTemplate";
 
@@ -134,6 +138,7 @@ const 同步错误提示 = ref("");
 const 组织功能状态 = ref<组织状态 | null>(null);
 const 组织树 = ref<组织单元[]>([]);
 const 渠道组织树 = ref<Array<接口对象 & { children?: 接口对象[]; members?: 接口对象[] }>>([]);
+const 区域列表 = ref<Array<{ id: string; regionName: string }>>([]);
 const 岗位列表 = ref<岗位[]>([]);
 const 任职列表 = ref<任职[]>([]);
 const 业务角色列表 = ref<业务角色[]>([]);
@@ -172,6 +177,19 @@ const 账号检索中 = ref(false);
 const 新建用户弹窗打开 = ref(false);
 const 编辑抽屉打开 = ref(false);
 const 编辑用户 = ref<编辑账号状态 | null>(null);
+const 外部身份映射数据 = ref<外部身份映射结果 | null>(null);
+const 外部身份映射加载中 = ref(false);
+const 外部身份映射错误 = ref("");
+const 外部身份筛选 = reactive({
+  keyword: "",
+  regionId: "",
+  roleCode: "",
+  provider: "all",
+  mappingStatus: "all",
+  includeInactive: false,
+  page: 1,
+  pageSize: 20,
+});
 const 编辑用户任职 = ref<任职[]>([]);
 const 编辑用户业务角色 = ref<成员业务角色[]>([]);
 const 编辑用户证书 = ref<成员证书[]>([]);
@@ -237,6 +255,11 @@ const 导航项列表: 导航项[] = [
     栏目: "directory-sync",
     名称: "企微同步",
     路径: "/workspace/admin/platform-admin/organization/directory-sync",
+  },
+  {
+    栏目: "external-identities",
+    名称: "外部身份映射",
+    路径: "/workspace/admin/platform-admin/organization/external-identities",
   },
 ];
 
@@ -527,17 +550,19 @@ async function 加载页面() {
     组织功能状态.value = 状态;
     if (!状态.enabled) return;
 
-    const [组织, 岗位, 任职, 负责人关系, 角色, 成员角色, 模板, 证书, 离职] = await Promise.all([
-      读取组织树(),
-      查询岗位(),
-      查询任职(),
-      查询负责人关系(),
-      查询业务角色(),
-      查询成员业务角色(),
-      查询证书模板(),
-      查询成员证书(),
-      查询离职交接(),
-    ]);
+    const [组织, 岗位, 任职, 负责人关系, 角色, 成员角色, 模板, 证书, 离职, 区域] =
+      await Promise.all([
+        读取组织树(),
+        查询岗位(),
+        查询任职(),
+        查询负责人关系(),
+        查询业务角色(),
+        查询成员业务角色(),
+        查询证书模板(),
+        查询成员证书(),
+        查询离职交接(),
+        查询区域列表(),
+      ]);
     组织树.value = 组织.items;
     try {
       渠道组织树.value = (await 读取渠道组织树()).items;
@@ -552,7 +577,9 @@ async function 加载页面() {
     证书模板列表.value = 模板.items;
     成员证书列表.value = 证书.items;
     离职交接列表.value = 离职.items;
+    区域列表.value = 区域.items;
     加载账号列表();
+    if (当前栏目.value === "external-identities") await 加载外部身份映射();
 
     if (状态.directorySyncEnabled) {
       try {
@@ -577,6 +604,52 @@ async function 加载页面() {
   } finally {
     加载中.value = false;
   }
+}
+
+async function 加载外部身份映射(): Promise<void> {
+  外部身份映射加载中.value = true;
+  外部身份映射错误.value = "";
+  try {
+    外部身份映射数据.value = await 查询外部身份映射({
+      ...外部身份筛选,
+      ...(外部身份筛选.keyword.trim() ? { keyword: 外部身份筛选.keyword.trim() } : {}),
+      ...(外部身份筛选.regionId ? { regionId: 外部身份筛选.regionId } : {}),
+      ...(外部身份筛选.roleCode ? { roleCode: 外部身份筛选.roleCode } : {}),
+      provider: 外部身份筛选.provider as "all" | "eteams" | "wecom",
+      mappingStatus: 外部身份筛选.mappingStatus as
+        "all" | "complete" | "eteams_missing" | "wecom_missing" | "abnormal",
+    });
+  } catch (error) {
+    外部身份映射错误.value = 读取错误信息(error, "外部身份映射读取失败，请稍后重试。");
+  } finally {
+    外部身份映射加载中.value = false;
+  }
+}
+function 应用外部身份筛选(): void {
+  外部身份筛选.page = 1;
+  void 加载外部身份映射();
+}
+function 外部身份状态中文(status: string): string {
+  return (
+    (
+      {
+        active: "已确认",
+        pending: "待核验",
+        disabled: "已停用",
+        missing: "缺失",
+        duplicate: "重复",
+      } as Record<string, string>
+    )[status] || status
+  );
+}
+function 外部身份状态类型(status: string): "success" | "info" | "warning" | "danger" {
+  return status === "active"
+    ? "success"
+    : status === "missing"
+      ? "danger"
+      : status === "duplicate"
+        ? "danger"
+        : "warning";
 }
 
 function 触发文件选择(类型: "部门" | "成员") {
@@ -1523,6 +1596,10 @@ watch(渠道搜索词, (词) => {
   渠道树引用.value?.filter(词);
 });
 
+watch(当前栏目, (栏目) => {
+  if (栏目 === "external-identities" && 已启用.value) void 加载外部身份映射();
+});
+
 onMounted(() => {
   按访问终端加载页面();
   window.addEventListener("resize", 按访问终端加载页面);
@@ -1841,6 +1918,166 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             </div>
           </article>
         </section>
+
+        <article v-else-if="当前栏目 === 'external-identities'" class="组织卡片">
+          <div class="组织卡片标题">
+            <div>
+              <h2>外部身份映射</h2>
+              <p>只读核对泛微 OA 与企业微信身份；完整 userid 仅在既有账号详情中查看。</p>
+            </div>
+            <el-button :loading="外部身份映射加载中" @click="加载外部身份映射">刷新</el-button>
+          </div>
+          <div class="组织筛选栏">
+            <el-input
+              v-model="外部身份筛选.keyword"
+              placeholder="登录名或姓名，按回车查询"
+              clearable
+              @keyup.enter="应用外部身份筛选"
+              @clear="应用外部身份筛选"
+            />
+            <el-select
+              v-model="外部身份筛选.regionId"
+              clearable
+              placeholder="全部区域"
+              @change="应用外部身份筛选"
+            >
+              <el-option
+                v-for="区域 in 区域列表"
+                :key="区域.id"
+                :label="区域.regionName"
+                :value="区域.id"
+              />
+            </el-select>
+            <el-input
+              v-model="外部身份筛选.roleCode"
+              placeholder="系统角色代码，按回车查询"
+              clearable
+              @keyup.enter="应用外部身份筛选"
+              @clear="应用外部身份筛选"
+            />
+            <el-select v-model="外部身份筛选.provider" @change="应用外部身份筛选">
+              <el-option label="全部映射" value="all" />
+              <el-option label="仅泛微" value="eteams" />
+              <el-option label="仅企微" value="wecom" />
+            </el-select>
+            <el-select v-model="外部身份筛选.mappingStatus" @change="应用外部身份筛选">
+              <el-option label="全部状态" value="all" />
+              <el-option label="完整" value="complete" />
+              <el-option label="泛微缺失" value="eteams_missing" />
+              <el-option label="企微缺失" value="wecom_missing" />
+              <el-option label="任一异常" value="abnormal" />
+            </el-select>
+            <el-checkbox v-model="外部身份筛选.includeInactive" @change="应用外部身份筛选"
+              >包含停用账号</el-checkbox
+            >
+          </div>
+          <p v-if="外部身份映射错误" class="组织错误">
+            {{ 外部身份映射错误 }}
+            <el-button text type="primary" @click="加载外部身份映射">重新加载</el-button>
+          </p>
+          <template v-else>
+            <div v-if="外部身份映射数据" class="外部身份统计">
+              <span
+                >账号总数：<b>{{ 外部身份映射数据.summary.total }}</b></span
+              >
+              <span
+                >泛微已确认：<b>{{ 外部身份映射数据.summary.eteamsActive }}</b></span
+              >
+              <span
+                >泛微缺失：<b>{{ 外部身份映射数据.summary.eteamsMissing }}</b></span
+              >
+              <span
+                >泛微待核验：<b>{{ 外部身份映射数据.summary.eteamsPending }}</b></span
+              >
+              <span
+                >企微已维护：<b>{{ 外部身份映射数据.summary.wecomActive }}</b></span
+              >
+              <span
+                >企微缺失：<b>{{ 外部身份映射数据.summary.wecomMissing }}</b></span
+              >
+              <span
+                >映射异常：<b>{{ 外部身份映射数据.summary.abnormal }}</b></span
+              >
+            </div>
+            <el-table
+              v-loading="外部身份映射加载中"
+              :data="外部身份映射数据?.items || []"
+              empty-text="当前筛选条件下暂无账号"
+            >
+              <el-table-column prop="username" label="登录名" min-width="140" />
+              <el-table-column prop="displayName" label="姓名" min-width="120" />
+              <el-table-column label="账号状态" width="100"
+                ><template #default="{ row }">{{
+                  状态中文(row.statusCode)
+                }}</template></el-table-column
+              >
+              <el-table-column prop="regionName" label="区域" min-width="130"
+                ><template #default="{ row }">{{
+                  row.regionName || "—"
+                }}</template></el-table-column
+              >
+              <el-table-column label="系统角色" min-width="160"
+                ><template #default="{ row }">{{
+                  row.roleNames?.join("、") || "—"
+                }}</template></el-table-column
+              >
+              <el-table-column label="泛微 OA 状态" min-width="130"
+                ><template #default="{ row }"
+                  ><el-tag :type="外部身份状态类型(row.eteams.status)" size="small">{{
+                    外部身份状态中文(row.eteams.status)
+                  }}</el-tag></template
+                ></el-table-column
+              >
+              <el-table-column label="企业微信状态" min-width="130"
+                ><template #default="{ row }"
+                  ><el-tag :type="外部身份状态类型(row.wecom.status)" size="small">{{
+                    外部身份状态中文(row.wecom.status)
+                  }}</el-tag></template
+                ></el-table-column
+              >
+              <el-table-column label="操作" width="110" fixed="right"
+                ><template #default="{ row }"
+                  ><el-button
+                    text
+                    type="primary"
+                    @click="
+                      打开账号编辑({
+                        id: row.userId,
+                        username: row.username,
+                        name: row.displayName,
+                        role: row.roleCodes?.[0] || 'staff',
+                        status: row.statusCode,
+                      })
+                    "
+                    >查看详情</el-button
+                  ></template
+                ></el-table-column
+              >
+            </el-table>
+            <el-pagination
+              v-if="外部身份映射数据"
+              class="组织分页"
+              layout="total, sizes, prev, pager, next"
+              :total="外部身份映射数据.pagination.total"
+              :current-page="外部身份筛选.page"
+              :page-size="外部身份筛选.pageSize"
+              :page-sizes="[20, 50, 100]"
+              @update:current-page="
+                (page: number) => {
+                  外部身份筛选.page = page;
+                  加载外部身份映射();
+                }
+              "
+              @update:page-size="
+                (pageSize: number) => {
+                  外部身份筛选.pageSize = pageSize;
+                  外部身份筛选.page = 1;
+                  加载外部身份映射();
+                }
+              "
+            />
+          </template>
+        </article>
 
         <article v-else-if="当前栏目 === 'staff'" class="组织卡片">
           <div class="组织卡片标题">

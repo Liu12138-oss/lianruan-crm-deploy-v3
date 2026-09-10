@@ -14,6 +14,13 @@ export interface 接收人范围 {
   partnerIds?: string[];
 }
 
+export interface 提醒接收人候选 {
+  userId: string;
+  username: string;
+  displayName: string;
+  hasWecomIdentity: boolean;
+}
+
 export interface 消息规则当前用户 {
   username: string;
   requestId: string;
@@ -191,6 +198,7 @@ export interface 提醒任务更新输入 {
 }
 
 export interface 消息规则数据服务 {
+  查询接收人候选(用户: 消息规则当前用户): Promise<{ items: 提醒接收人候选[] }>;
   查询事件规则(用户: 消息规则当前用户): Promise<平台事件规则[]>;
   查询到期提醒规则(用户: 消息规则当前用户): Promise<平台到期提醒规则[]>;
   查询模板(用户: 消息规则当前用户): Promise<平台消息模板[]>;
@@ -228,6 +236,28 @@ export interface 消息规则数据服务 {
   更新模板(用户: 消息规则当前用户, 模板代码: string, 输入: 模板更新输入): Promise<平台消息模板>;
 }
 
+// 指定用户提醒只允许选择有效的内部任职人员，或有效的内部管理角色账号。
+// 该条件同时用于候选查询和保存校验，避免前后端口径不一致。
+const 有效内部提醒用户条件 = `(
+  EXISTS (
+    SELECT 1
+      FROM org.staff_assignments assignment
+      JOIN org.org_units unit ON unit.id = assignment.org_unit_id
+     WHERE assignment.user_id = u.id
+       AND assignment.expired_at IS NULL
+       AND unit.status_code = 'active'
+       AND unit.unit_type NOT LIKE 'channel_%'
+  )
+  OR EXISTS (
+    SELECT 1
+      FROM iam.user_roles user_role
+      JOIN iam.roles role ON role.id = user_role.role_id
+     WHERE user_role.user_id = u.id
+       AND role.status_code = 'active'
+       AND role.role_code IN ('superadmin', 'admin', 'region_manager')
+  )
+)`;
+
 export function 创建消息规则数据服务(
   参数: { databaseUrl?: string; pool?: Pool } = {},
 ): 消息规则数据服务 {
@@ -242,6 +272,9 @@ class 未配置消息规则数据服务 implements 消息规则数据服务 {
     throw new 应用错误("V3_MESSAGE_RULE_DATABASE_UNAVAILABLE", "提醒规则数据库尚未配置。", 503);
   }
 
+  查询接收人候选(): Promise<{ items: 提醒接收人候选[] }> {
+    return Promise.reject(this.不可用());
+  }
   查询事件规则(): Promise<平台事件规则[]> {
     return Promise.reject(this.不可用());
   }
@@ -282,6 +315,31 @@ class 未配置消息规则数据服务 implements 消息规则数据服务 {
 
 class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
   public constructor(private readonly pool: Pool) {}
+
+  public async 查询接收人候选(用户: 消息规则当前用户): Promise<{ items: 提醒接收人候选[] }> {
+    const 操作人 = await this.读取超级管理员(用户);
+    const result = await this.pool.query<提醒接收人候选>(
+      `SELECT u.id::text AS "userId",
+              u.username::text AS username,
+              u.display_name AS "displayName",
+              EXISTS (
+                SELECT 1
+                  FROM iam.external_identities identity
+                 WHERE identity.user_id = u.id
+                   AND identity.provider_code = 'wecom'
+                   AND identity.status_code = 'active'
+                   AND NULLIF(BTRIM(identity.external_subject), '') IS NOT NULL
+              ) AS "hasWecomIdentity"
+         FROM iam.users u
+        WHERE u.status_code = 'active'
+          AND ${有效内部提醒用户条件}
+        ORDER BY u.display_name, u.username`,
+    );
+    await this.写入审计(操作人, 用户, "read_recipient_candidates", "提醒接收人候选", {
+      count: result.rows.length,
+    });
+    return { items: result.rows };
+  }
 
   public async 查询事件规则(用户: 消息规则当前用户): Promise<平台事件规则[]> {
     const 操作人 = await this.读取超级管理员(用户);
@@ -338,6 +396,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
         输入.recipientScope === undefined
           ? (当前.recipient_rule_json.scope ?? {})
           : 校验接收人范围(输入.recipientScope);
+      await this.校验指定用户有效(client, 提取指定用户编号(范围));
       const 更新结果 = await client.query<事件规则行>(
         `UPDATE message.event_subscriptions
             SET status_code = $2,
@@ -417,6 +476,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
         type: 输入.recipientRule,
         ...(输入.recipientScope ? { scope: 输入.recipientScope } : {}),
       });
+      await this.校验指定用户有效(client, 提取指定用户编号(接收人));
       const 更新结果 = await client.query<到期提醒规则行>(
         `UPDATE message.reminder_rules
             SET status_code = $2,
@@ -515,6 +575,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await this.校验指定用户有效(client, 提取指定用户编号(参数.接收人));
       await client.query(
         `INSERT INTO message.reminder_templates (
            template_code, template_name, reminder_type, reminder_code, aggregate_type,
@@ -603,6 +664,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await this.校验指定用户有效(client, 提取指定用户编号(参数.接收人));
       await client.query(
         `INSERT INTO message.reminder_templates (
            template_code, template_name, reminder_type, reminder_code, aggregate_type,
@@ -687,6 +749,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
         可改默认 && 输入.recipientRule
           ? 校验接收人规则(输入.recipientRule)
           : 当前.default_recipient_rule_json;
+      await this.校验指定用户有效(client, 提取指定用户编号(接收人));
       const 渠道 =
         可改默认 && 输入.channelCodes
           ? 校验通道集合(输入.channelCodes)
@@ -785,6 +848,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await this.校验指定用户有效(client, 提取指定用户编号(接收人));
       await client.query(
         `INSERT INTO message.reminder_templates (
            template_code, template_name, reminder_type, reminder_code, aggregate_type,
@@ -927,6 +991,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
         const 接收人 = 输入.recipientRule
           ? 校验接收人规则(输入.recipientRule)
           : 当前.recipient_rule_json;
+        await this.校验指定用户有效(client, 提取指定用户编号(接收人));
         const 渠道 = 输入.channelCodes ? 校验通道集合(输入.channelCodes) : 当前.channel_codes;
         const 提前天数 = 输入.advanceDays ? 校验提前天数(输入.advanceDays) : 当前.advance_days;
         const 执行时间 = String(输入.dispatchTime ?? 当前.dispatch_time).trim();
@@ -1016,6 +1081,7 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
       const 接收人 = 输入.recipientRule
         ? 校验接收人规则(输入.recipientRule)
         : 当前.recipient_rule_json;
+      await this.校验指定用户有效(client, 提取指定用户编号(接收人));
       const 渠道 = 输入.channelCodes ? 校验通道集合(输入.channelCodes) : 当前.channel_codes;
       const 状态 =
         输入.statusCode === "disabled"
@@ -1210,6 +1276,26 @@ class PostgreSQL消息规则数据服务 implements 消息规则数据服务 {
       throw new 应用错误("V3_MESSAGE_RULE_SUBJECT_INVALID", "当前超级管理员账号不可用。", 403);
     }
     return result.rows[0];
+  }
+
+  private async 校验指定用户有效(db: Pick<Pool, "query">, 用户编号: string[]): Promise<void> {
+    const 去重编号 = [...new Set(用户编号)];
+    if (去重编号.length === 0) return;
+    const result = await db.query<{ id: string }>(
+      `SELECT u.id::text AS id
+         FROM iam.users u
+        WHERE u.id::text = ANY($1::text[])
+          AND u.status_code = 'active'
+          AND ${有效内部提醒用户条件}`,
+      [去重编号],
+    );
+    if (result.rows.length !== 去重编号.length) {
+      throw new 应用错误(
+        "V3_MESSAGE_RULE_RECIPIENT_UNAVAILABLE",
+        "指定接收人中存在无效、已停用或不属于内部提醒范围的账号，请刷新候选列表后重试。",
+        409,
+      );
+    }
   }
 
   private async 写入审计(
@@ -1624,6 +1710,18 @@ function 校验接收人规则(输入: unknown): Record<string, unknown> {
     return { type: "partners", scope: { type: "partners", partnerIds: [...渠道商] } };
   }
   throw new 应用错误("V3_MESSAGE_RULE_SCOPE_INVALID", "接收人规则类型不支持。", 400);
+}
+
+function 提取指定用户编号(输入: unknown): string[] {
+  if (!输入 || typeof 输入 !== "object" || Array.isArray(输入)) return [];
+  const 对象 = 输入 as Record<string, unknown>;
+  const 范围 =
+    对象.scope && typeof 对象.scope === "object" && !Array.isArray(对象.scope)
+      ? (对象.scope as Record<string, unknown>)
+      : 对象;
+  return Array.isArray(范围.userIds)
+    ? 范围.userIds.filter((编号): 编号 is string => typeof 编号 === "string")
+    : [];
 }
 
 function 校验提前天数(value: unknown): number[] {

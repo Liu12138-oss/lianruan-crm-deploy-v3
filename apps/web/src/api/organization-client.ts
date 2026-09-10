@@ -72,6 +72,11 @@ export interface 组织单元 {
   rowVersion: number;
   children?: 组织单元[];
 }
+export interface 区域 {
+  id: string;
+  regionCode: string;
+  regionName: string;
+}
 
 export interface 组织树结果 {
   items: 组织单元[];
@@ -216,6 +221,57 @@ export interface 企业微信身份 {
   rowVersion: number;
 }
 
+export interface 外部身份映射项 {
+  userId: string;
+  username: string;
+  displayName: string;
+  statusCode: "active" | "disabled" | "locked";
+  regionId: string | null;
+  regionName: string | null;
+  roleCodes: string[];
+  roleNames: string[];
+  eteams: {
+    status: "active" | "pending" | "disabled" | "missing" | "duplicate";
+    externalSubject?: string | null;
+    externalUsername?: string | null;
+    updatedAt?: string | null;
+    rowVersion?: number | null;
+  };
+  eteamsCandidate?: {
+    status: "pending";
+    externalSubject?: string | null;
+    externalUsername?: string | null;
+  } | null;
+  wecom: {
+    status: "active" | "disabled" | "missing" | "duplicate";
+    externalSubject?: string | null;
+    externalUsername?: string | null;
+    updatedAt?: string | null;
+    rowVersion?: number | null;
+  };
+}
+export interface 外部身份映射查询参数 extends 分页参数 {
+  keyword?: string;
+  regionId?: string;
+  roleCode?: string;
+  provider?: "all" | "eteams" | "wecom";
+  mappingStatus?: "all" | "complete" | "eteams_missing" | "wecom_missing" | "abnormal";
+  includeInactive?: boolean;
+}
+export interface 外部身份映射结果 {
+  items: 外部身份映射项[];
+  summary: {
+    total: number;
+    eteamsActive: number;
+    eteamsMissing: number;
+    eteamsPending: number;
+    wecomActive: number;
+    wecomMissing: number;
+    abnormal: number;
+  };
+  pagination: { page: number; pageSize: number; total: number };
+}
+
 export type 企业微信映射导入状态 = "ready" | "unchanged" | "waiting_for_user" | "blocked";
 export interface 企业微信映射导入预览行 {
   rowNumber: number;
@@ -294,7 +350,7 @@ function 编码路径参数(value: string): string {
   return encodeURIComponent(value);
 }
 
-function 构建查询参数(参数: Record<string, string | number | undefined>): string {
+function 构建查询参数(参数: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   for (const [键, 值] of Object.entries(参数)) {
     if (值 !== undefined && 值 !== "") query.set(键, String(值));
@@ -390,6 +446,10 @@ export function 读取组织树(): Promise<组织树结果> {
 
 export function 读取渠道组织树(): Promise<{ items: 接口对象[] }> {
   return 读取<{ items: 接口对象[] }>("/api/org/channel-tree");
+}
+
+export function 查询区域列表(): Promise<{ items: 区域[] }> {
+  return 读取<{ items: 区域[] }>("/api/org/regions");
 }
 
 export function 导入部门(rows: 接口对象[], 选项: 写入选项 = {}): Promise<{ imported: number }> {
@@ -663,6 +723,10 @@ export function 暂停企微同步批次(
 
 export function 读取泛微OA身份(userId: string): Promise<泛微OA身份详情> {
   return 读取<泛微OA身份详情>(`/api/org/users/${编码路径参数(userId)}/eteams-identity`);
+}
+
+export function 查询外部身份映射(参数: 外部身份映射查询参数 = {}): Promise<外部身份映射结果> {
+  return 读取<外部身份映射结果>(`/api/org/external-identities${构建查询参数({ ...参数 })}`);
 }
 
 export function 预览企业微信身份导入(file: File): Promise<企业微信映射导入预览> {

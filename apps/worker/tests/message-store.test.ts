@@ -182,6 +182,122 @@ describe("到期提醒规则扫描", () => {
     expect(连接.release).toHaveBeenCalledOnce();
   });
 
+  it("正式事件的企微投递以页面开关为准，环境开关仅在页面无配置时兜底", async () => {
+    const 连接 = {
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+    };
+    const 配置 = 创建测试配置();
+    const 存储 = new 消息消费存储(配置) as unknown as {
+      写入事件投递事实(...参数: unknown[]): Promise<void>;
+    };
+
+    await 存储.写入事件投递事实(
+      连接,
+      {
+        consumptionId: "00000000-0000-4000-8000-000000000031",
+        sourceEventId: "00000000-0000-4000-8000-000000000032",
+        eventCode: "iam.account.approval.pending",
+        aggregateType: "approval",
+        aggregateId: "00000000-0000-4000-8000-000000000033",
+      },
+      {
+        subscriptionCode: "m1_account_approval_pending",
+        templateCode: "m1_account_approval_pending",
+        channelCodes: ["in_app", "wecom_app"],
+        categoryCode: "todo",
+        priorityCode: "strong",
+        targetAction: "approve",
+        recipientRule: "users",
+        recipientScope: {},
+        titleTemplate: "员工账号待审核",
+        bodyTemplate: "员工账号待审核。",
+      },
+      "00000000-0000-4000-8000-000000000034",
+      "00000000-0000-4000-8000-000000000035",
+      配置,
+    );
+
+    const 企微调用 = 连接.query.mock.calls.find(([语句]) => String(语句).includes("'wecom_app'"));
+    expect(企微调用).toBeDefined();
+    const 企微语句 = String(企微调用?.[0]);
+    expect(企微语句).toContain("FROM message.channel_accounts account");
+    expect(企微语句).toContain("WHERE account.channel_code = 'wecom_app'");
+    expect(企微语句).toContain("COALESCE(");
+    expect(企微语句).toContain("$8::boolean");
+    expect(企微语句).toContain("FROM iam.external_identities identity");
+    expect(企微语句).toContain("ON CONFLICT (deduplication_key) DO NOTHING");
+    expect(企微调用?.[1]).toEqual([
+      "00000000-0000-4000-8000-000000000035",
+      "00000000-0000-4000-8000-000000000032",
+      "00000000-0000-4000-8000-000000000034",
+      "m1_account_approval_pending_wecom_app",
+      1,
+      "00000000-0000-4000-8000-000000000032",
+      expect.any(String),
+      false,
+    ]);
+  });
+
+  it("到期提醒的企微投递同样以页面开关为准并保留身份与去重门禁", async () => {
+    const 连接 = {
+      query: vi.fn().mockImplementation((语句: unknown) => {
+        const SQL = String(语句);
+        if (SQL.includes("FROM message.templates")) {
+          return Promise.resolve({
+            rows: [{ title_template: "到期提醒", body_template: "请及时处理。" }],
+          });
+        }
+        if (SQL.includes("INSERT INTO message.notifications")) {
+          return Promise.resolve({
+            rows: [{ id: "00000000-0000-4000-8000-000000000045" }],
+          });
+        }
+        return Promise.resolve({ rows: [], rowCount: 1 });
+      }),
+      release: vi.fn(),
+    };
+    const 配置 = 创建测试配置();
+    const 存储实例 = new 消息消费存储(配置);
+    (存储实例 as unknown as { 数据库连接池: { connect(): Promise<typeof 连接> } }).数据库连接池 = {
+      connect: vi.fn().mockResolvedValue(连接),
+    };
+    const 存储 = 存储实例 as unknown as {
+      写入提醒通知组(...参数: unknown[]): Promise<void>;
+    };
+
+    await 存储.写入提醒通知组(
+      [
+        {
+          id: "00000000-0000-4000-8000-000000000041",
+          reminderCode: "crm.registration.expiring",
+          aggregateType: "other",
+          aggregateId: "00000000-0000-4000-8000-000000000042",
+          recipientUserId: "00000000-0000-4000-8000-000000000043",
+          templateCode: "m3_registration_expiring",
+          dueOn: "2026-09-30",
+          semanticKey: "到期提醒语义键",
+          digestWindowMinutes: 0,
+          dispatchAfter: "2026-09-10T00:00:00.000Z",
+          channelCodes: ["in_app", "wecom_app"],
+        },
+      ],
+      配置,
+    );
+
+    const 企微调用 = 连接.query.mock.calls.find(([语句]) => String(语句).includes("'wecom_app'"));
+    expect(企微调用).toBeDefined();
+    const 企微语句 = String(企微调用?.[0]);
+    expect(企微语句).toContain("FROM message.channel_accounts account");
+    expect(企微语句).toContain("WHERE account.channel_code = 'wecom_app'");
+    expect(企微语句).toContain("COALESCE(");
+    expect(企微语句).toContain("$6::boolean");
+    expect(企微语句).toContain("FROM iam.external_identities identity");
+    expect(企微语句).toContain("ON CONFLICT (deduplication_key) DO NOTHING");
+    expect((企微调用?.[1] as unknown[])?.at(-1)).toBe(false);
+    expect(连接.query).toHaveBeenCalledWith("COMMIT");
+    expect(连接.release).toHaveBeenCalledOnce();
+  });
+
   it("客户报备提醒从受控渠道与账号关系取得渠道商和提报人", async () => {
     const 领取连接 = {
       query: vi
@@ -348,7 +464,7 @@ describe("到期提醒规则扫描", () => {
     );
   });
 
-  it("超管审核待办从审批记录读取渠道商、提交人，并仅投递规则指定的启用用户", async () => {
+  it("超管审核待办只投递规则指定的启用用户，并在页面启用企微后生成外部投递", async () => {
     const 领取连接 = {
       query: vi
         .fn()
@@ -377,7 +493,7 @@ describe("到期提醒规则扫描", () => {
             {
               category_code: "todo",
               priority_code: "strong",
-              channel_codes: ["in_app"],
+              channel_codes: ["in_app", "wecom_app"],
               recipient_rule_json: {
                 type: "users",
                 scope: { type: "users", userIds: ["00000000-0000-4000-8000-000000000024"] },
@@ -397,6 +513,7 @@ describe("到期提醒规则扫描", () => {
         })
         .mockResolvedValueOnce({ rows: [{ user_id: "00000000-0000-4000-8000-000000000024" }] })
         .mockResolvedValueOnce({ rows: [{ id: "00000000-0000-4000-8000-000000000025" }] })
+        .mockResolvedValueOnce({})
         .mockResolvedValueOnce({})
         .mockResolvedValueOnce({})
         .mockResolvedValueOnce({}),
@@ -430,6 +547,11 @@ describe("到期提醒规则扫描", () => {
     expect(通知写入参数).toContain(
       "员工账号待审核。员工姓名：待审核员工；渠道商名称：联软渠道商；提交人：湛怀玉。",
     );
+    const 企微投递调用 = 执行连接.query.mock.calls.find(([语句]) =>
+      String(语句).includes("'wecom_app'"),
+    );
+    expect(企微投递调用).toBeDefined();
+    expect((企微投递调用?.[1] as unknown[])?.at(-1)).toBe(false);
   });
 });
 

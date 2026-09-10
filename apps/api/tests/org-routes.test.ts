@@ -147,6 +147,19 @@ function 创建服务(): 组织数据服务 {
       details: [{ partnerCode: "P-NEW", regionCode: "P-NEW", action: "create" }],
     }),
     查询泛微OA身份: async () => ({ formalIdentity: null, candidates: [], wecomIdentities: [] }),
+    查询外部身份映射: async (参数) => ({
+      items: [],
+      summary: {
+        total: 0,
+        eteamsActive: 0,
+        eteamsMissing: 0,
+        eteamsPending: 0,
+        wecomActive: 0,
+        wecomMissing: 0,
+        abnormal: 0,
+      },
+      pagination: { page: 参数.page, pageSize: 参数.pageSize, total: 0 },
+    }),
     查询账号冲突: async () => ({ sameDisplayNameGroups: [] }),
     预览企业微信身份导入: async () => ({
       fileName: "映射.xlsx",
@@ -170,6 +183,32 @@ function 创建服务(): 组织数据服务 {
 }
 
 describe("组织架构路由", () => {
+  it("外部身份映射批量查询仅允许超级管理员并校验参数", async () => {
+    const env = { ...基础环境, V3_ORGANIZATION_ENABLED: "true" };
+    const app = 创建应用({ env, orgService: 创建服务() });
+    await request(app).get("/api/org/external-identities").expect(401);
+    const 普通管理员Cookie = await 登录Cookie(app, "normal_admin");
+    await request(app)
+      .get("/api/org/external-identities")
+      .set("Cookie", 普通管理员Cookie)
+      .expect(403);
+    const cookie = await 登录Cookie(app, "org_admin");
+    const res = await request(app)
+      .get(
+        "/api/org/external-identities?keyword=张三&provider=eteams&mappingStatus=abnormal&page=2&pageSize=50&includeInactive=true",
+      )
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(res.body.data.pagination).toEqual({ page: 2, pageSize: 50, total: 0 });
+    await request(app)
+      .get("/api/org/external-identities?provider=unknown")
+      .set("Cookie", cookie)
+      .expect(400);
+    await request(app)
+      .get("/api/org/external-identities?pageSize=101")
+      .set("Cookie", cookie)
+      .expect(400);
+  });
   it("默认关闭且不要求会话", async () => {
     const app = 创建应用({ env: 基础环境, orgService: 创建服务() });
     const res = await request(app).get("/api/org/status").expect(200);

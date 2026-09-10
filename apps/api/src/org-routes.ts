@@ -132,6 +132,38 @@ export function 创建组织路由(参数: 组织路由参数): Router {
       return 获取服务().查询区域列表();
     }),
   );
+  router.get(
+    "/external-identities",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      const provider = 读取枚举查询(req, "provider", ["all", "eteams", "wecom"] as const, "all");
+      const mappingStatus = 读取枚举查询(
+        req,
+        "mappingStatus",
+        ["all", "complete", "eteams_missing", "wecom_missing", "abnormal"] as const,
+        "all",
+      );
+      const keyword = 读取查询文本(req, "keyword");
+      if (keyword && keyword.length > 100)
+        throw new 应用错误("ORG_REQUEST_INVALID", "keyword不能超过100个字符。", 400);
+      const regionId = 读取查询标识(req, "regionId");
+      const roleCode = 读取查询文本(req, "roleCode");
+      if (roleCode && roleCode.length > 100)
+        throw new 应用错误("ORG_REQUEST_INVALID", "roleCode不能超过100个字符。", 400);
+      const includeInactive = 读取布尔查询(req, "includeInactive", false);
+      return 获取服务().查询外部身份映射({
+        ...(keyword ? { keyword } : {}),
+        ...(regionId ? { regionId } : {}),
+        ...(roleCode ? { roleCode } : {}),
+        provider,
+        mappingStatus,
+        includeInactive,
+        page: 读取页码(req, "page", 1, 1, Number.MAX_SAFE_INTEGER),
+        pageSize: 读取页码(req, "pageSize", 20, 1, 100),
+      });
+    }),
+  );
   router.post(
     "/regions",
     执行写入((req, 主体) => 获取服务().新建区域(读取对象(req), 主体)),
@@ -622,6 +654,40 @@ function 读取查询标识(req: Request, key: string): string | undefined {
   if (!/^[0-9a-f-]{36}$/i.test(value))
     throw new 应用错误("ORG_REQUEST_INVALID", `${key}格式不合法。`, 400);
   return value;
+}
+function 读取枚举查询<T extends readonly string[]>(
+  req: Request,
+  key: string,
+  values: T,
+  默认值: T[number],
+): T[number] {
+  const value = 读取查询文本(req, key);
+  if (value === undefined) return 默认值;
+  if (!(values as readonly string[]).includes(value))
+    throw new 应用错误("ORG_REQUEST_INVALID", `${key}参数不合法。`, 400);
+  return value as T[number];
+}
+function 读取布尔查询(req: Request, key: string, 默认值: boolean): boolean {
+  const value = 读取查询文本(req, key);
+  if (value === undefined) return 默认值;
+  if (value !== "true" && value !== "false")
+    throw new 应用错误("ORG_REQUEST_INVALID", `${key}必须是 true 或 false。`, 400);
+  return value === "true";
+}
+function 读取页码(
+  req: Request,
+  key: string,
+  默认值: number,
+  最小值: number,
+  最大值: number,
+): number {
+  const value = 读取查询文本(req, key);
+  if (value === undefined) return 默认值;
+  if (!/^\d+$/.test(value)) throw new 应用错误("ORG_REQUEST_INVALID", `${key}必须是整数。`, 400);
+  const number = Number(value);
+  if (number < 最小值 || number > 最大值)
+    throw new 应用错误("ORG_REQUEST_INVALID", `${key}超出允许范围。`, 400);
+  return number;
 }
 function 读取数据范围主体类型(req: Request): string {
   const value = req.params.subjectType;

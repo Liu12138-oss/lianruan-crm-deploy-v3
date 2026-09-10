@@ -40,6 +40,7 @@ const 组织架构工作区路由: RouteRecordRaw[] = [
     ["permission-roles", "权限与范围"],
     ["offboarding", "离职交接"],
     ["directory-sync", "企微组织同步"],
+    ["external-identities", "外部身份映射"],
   ]),
 ];
 
