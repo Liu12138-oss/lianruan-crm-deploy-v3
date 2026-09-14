@@ -91,6 +91,7 @@ verify_target_service() {
     container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
     for key in "${switches[@]}"; do
       value="$(printf '%s\n' "${container_env}" | awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' | tr -d '\r')"
+      [ -n "${value}" ] || value=false
       expected_value="$(awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
       [ -n "${expected_value}" ] || expected_value=false
       [ "${value}" = "${expected_value}" ] || {
