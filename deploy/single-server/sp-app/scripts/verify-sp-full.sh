@@ -67,8 +67,8 @@ verify_target_service() {
   echo "${service_name} 目标镜像与运行状态通过。"
 }
 
-验证运行中发布安全开关() {
-  local service_name container_id container_env key value
+验证运行中业务开关一致性() {
+  local service_name container_id container_env key value expected_value
   local -a services=(api-1 api-2 worker)
   local -a switches=(
     V3_ORGANIZATION_ENABLED
@@ -91,13 +91,15 @@ verify_target_service() {
     container_env="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${container_id}")"
     for key in "${switches[@]}"; do
       value="$(printf '%s\n' "${container_env}" | awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' | tr -d '\r')"
-      [ "${value}" = "false" ] || {
-        echo "验证失败：${service_name} 的 ${key} 实际值为 ${value:-未设置}，升级验证期间必须为 false。" >&2
+      expected_value="$(awk -F= -v key="${key}" '$1 == key { value=$2 } END { print value }' "${install_root}/config/v3.env" | tr -d '\r')"
+      [ -n "${expected_value}" ] || expected_value=false
+      [ "${value}" = "${expected_value}" ] || {
+        echo "验证失败：${service_name} 的 ${key} 实际值为 ${value:-未设置}，与配置值 ${expected_value} 不一致。" >&2
         exit 1
       }
     done
   done
-  echo "运行中的 7 项发布安全开关均为 false。"
+  echo "运行中的 7 项组织业务开关均与当前配置一致。"
 }
 
 current_version="$(awk -F= '$1 == "V3_IMAGE_TAG" { value=$2 } END { print value }' "${install_root}/compose/.env" | tr -d '\r')"
@@ -127,7 +129,7 @@ if [ "$(awk -F= '$1 == "ORDER_PREAPPROVAL_WORKER_ENABLED" { value=$2 } END { pri
   verify_target_service worker-order-preapproval lianruan-crm-v3-worker
 fi
 
-验证运行中发布安全开关
+验证运行中业务开关一致性
 
 organization_migration_count="$(run_compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc "
   SELECT count(*)
