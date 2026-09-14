@@ -12511,6 +12511,9 @@ const AccountManage = {
               <input class="form-control" v-model="form.email" placeholder="name@company.com"/>
               <div class="form-hint">用于统一消息提醒（邮件、账号匹配）</div>
             </div>
+            <div v-if="!editing" class="form-item"><label class="form-label">泛微 OA userid（待核验）</label><input class="form-control" v-model="form.eteamsUserId" placeholder="可选，创建后需人工确认" /></div>
+            <div v-if="!editing" class="form-item"><label class="form-label">泛微姓名或登录名</label><input class="form-control" v-model="form.eteamsUsername" placeholder="填写泛微 userid 时必填" /></div>
+            <div v-if="!editing" class="form-item"><label class="form-label">企业微信 userid</label><input class="form-control" v-model="form.wecomUserId" placeholder="可选，唯一后立即生效" /></div>
             <div class="form-item">
               <label class="form-label">头像字</label>
               <input class="form-control" v-model="form.avatar" placeholder="1-2个字" maxlength="2"/>
@@ -12553,7 +12556,7 @@ const AccountManage = {
     const currentUsername = computed(() => String(store.user?.username || '').toLowerCase());
     const showForm = ref(false);
     const editing = ref(false);
-    const form = reactive({ id:'', username:'', name:'', avatar:'', role:'admin', bigRegion:'', region:'', status:'active', remark:'', phone:'', email:'' });
+    const form = reactive({ id:'', username:'', name:'', avatar:'', role:'admin', bigRegion:'', region:'', status:'active', remark:'', phone:'', email:'', eteamsUserId:'', eteamsUsername:'', wecomUserId:'' });
     const canSave = computed(() => {
       if (!form.username || !form.name) return false;
       if (form.role === 'superadmin') return true;
@@ -12620,6 +12623,9 @@ const AccountManage = {
       form.remark = '';
       form.phone = '';
       form.email = '';
+      form.eteamsUserId = '';
+      form.eteamsUsername = '';
+      form.wecomUserId = '';
       showForm.value = true;
     }
 
@@ -12636,7 +12642,10 @@ const AccountManage = {
         status: a.role === 'superadmin' ? 'active' : a.status,
         remark: a.remark || '',
         phone: a.phone || '',
-        email: a.email || ''
+        email: a.email || '',
+        eteamsUserId: '',
+        eteamsUsername: '',
+        wecomUserId: ''
       });
       showForm.value = true;
     }
@@ -12644,6 +12653,7 @@ const AccountManage = {
     async function save() {
       if (!form.username) { alert('请填写登录账号'); return; }
       if (!form.name) { alert('请填写管理员姓名'); return; }
+      if (!editing.value && form.eteamsUserId && !form.eteamsUsername) { alert('填写泛微 OA userid 时，请同时填写泛微姓名或登录名'); return; }
       if (form.role === 'admin' && !form.bigRegion) { alert('请选择大区'); return; }
       if (form.role === 'admin' && !form.region) { alert('请选择负责区域'); return; }
 
@@ -12660,7 +12670,10 @@ const AccountManage = {
             region: form.role === 'superadmin' ? '' : form.region,
             remark: form.remark,
             phone: form.phone,
-            email: form.email
+            email: form.email,
+            ...(form.eteamsUserId ? { eteamsUserId: form.eteamsUserId } : {}),
+            ...(form.eteamsUsername ? { eteamsUsername: form.eteamsUsername } : {}),
+            ...(form.wecomUserId ? { wecomUserId: form.wecomUserId } : {})
           });
           if (res.success) {
             alert('保存成功');
@@ -19348,7 +19361,7 @@ const OrganizationWorkspace = {
 
       <article v-else-if="当前栏目 === 'external-identities'" class="组织卡片">
         <div class="组织卡片标题">
-          <div><h2>外部身份映射</h2><p>只读核对泛微 OA 与企业微信身份；完整 userid 仅在既有账号详情中查看。</p></div>
+          <div><h2>联软内部人员外部身份映射</h2><p>仅展示当前归属联软组织架构的人员；渠道商账号和已结束任职的历史账号不纳入统计。</p></div>
           <el-button :loading="外部身份映射加载中" @click="加载外部身份映射">刷新</el-button>
         </div>
         <div class="组织筛选栏">
@@ -19368,6 +19381,7 @@ const OrganizationWorkspace = {
             <el-table-column prop="username" label="登录名" min-width="140" /><el-table-column prop="displayName" label="姓名" min-width="120" />
             <el-table-column label="账号状态" width="100"><template #default="{ row }">{{ 状态中文(row.statusCode) }}</template></el-table-column>
             <el-table-column prop="regionName" label="区域" min-width="130"><template #default="{ row }">{{ row.regionName || '—' }}</template></el-table-column>
+            <el-table-column prop="internalOrgUnitName" label="所属组织" min-width="160" />
             <el-table-column label="系统角色" min-width="160"><template #default="{ row }">{{ row.roleNames?.join('、') || '—' }}</template></el-table-column>
             <el-table-column label="泛微 OA 状态" min-width="130"><template #default="{ row }"><el-tag :type="外部身份状态类型(row.eteams.status)" size="small">{{ 外部身份状态中文(row.eteams.status) }}</el-tag></template></el-table-column>
             <el-table-column label="企业微信状态" min-width="130"><template #default="{ row }"><el-tag :type="外部身份状态类型(row.wecom.status)" size="small">{{ 外部身份状态中文(row.wecom.status) }}</el-tag></template></el-table-column>
@@ -19800,6 +19814,9 @@ const OrganizationWorkspace = {
             <div class="form-item"><label class="form-label required">姓名</label><input class="form-control" v-model="新建用户表单.name" placeholder="请输入姓名" /></div>
             <div class="form-item"><label class="form-label">手机号</label><input class="form-control" v-model="新建用户表单.phone" placeholder="138-0000-0000" /></div>
             <div class="form-item"><label class="form-label">邮箱</label><input class="form-control" v-model="新建用户表单.email" placeholder="name@company.com" /></div>
+            <div class="form-item"><label class="form-label">泛微 OA userid（待核验）</label><input class="form-control" v-model="新建用户表单.eteamsUserId" placeholder="可选，创建后需人工确认" /></div>
+            <div class="form-item"><label class="form-label">泛微姓名或登录名</label><input class="form-control" v-model="新建用户表单.eteamsUsername" placeholder="填写泛微 userid 时必填" /></div>
+            <div class="form-item"><label class="form-label">企业微信 userid</label><input class="form-control" v-model="新建用户表单.wecomUserId" placeholder="可选，唯一后立即生效" /></div>
             <div class="form-item"><label class="form-label">初始密码</label><input class="form-control" v-model="新建用户表单.password" placeholder="默认 123456" /></div>
             <div class="form-item">
               <label class="form-label">账号状态</label>
@@ -20334,7 +20351,7 @@ const OrganizationWorkspace = {
     const 新建用户表单 = reactive({
       username: '', name: '', phone: '', email: '', password: '123456', status: 'active',
       role: 'staff', bigRegion: '', region: '', orgUnitId: '', positionId: '',
-      businessRoleId: '', certificationTemplateId: '', certificateExpiresOn: '',
+      businessRoleId: '', certificationTemplateId: '', certificateExpiresOn: '', eteamsUserId: '', eteamsUsername: '', wecomUserId: '',
     });
 
     const 可提交离职交接 = computed(() => {
@@ -21491,7 +21508,7 @@ const OrganizationWorkspace = {
         };
         if (待核验泛微候选.value) {
           await 组织更新泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, 内容, {
-            rowVersion: 待核验泛微候选.value.rowVersion,
+            rowVersion: Number(待核验泛微候选.value.rowVersion),
             幂等键: 生成组织幂等键(),
           });
           ElementPlus.ElMessage.success('泛微 OA 身份候选已更新，仍需人工确认。');
@@ -21515,7 +21532,7 @@ const OrganizationWorkspace = {
       try {
         const 内容 = 核验说明.trim() ? { verificationNote: 核验说明.trim() } : {};
         await 组织确认泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, 内容, {
-          rowVersion: 待核验泛微候选.value.rowVersion,
+          rowVersion: Number(待核验泛微候选.value.rowVersion),
           幂等键: 生成组织幂等键(),
         });
         ElementPlus.ElMessage.success('泛微 OA 身份已确认，可供后续订单预审流程使用。');
@@ -21537,7 +21554,7 @@ const OrganizationWorkspace = {
       提交中.value = true;
       try {
         await 组织驳回泛微OA身份候选(编辑用户.value.id, 待核验泛微候选.value.id, { rejectedReason: 原因.trim() }, {
-          rowVersion: 待核验泛微候选.value.rowVersion,
+          rowVersion: Number(待核验泛微候选.value.rowVersion),
           幂等键: 生成组织幂等键(),
         });
         ElementPlus.ElMessage.success('泛微 OA 身份候选已驳回。');
@@ -21563,7 +21580,7 @@ const OrganizationWorkspace = {
           identityId: 泛微OA身份.value.formalIdentity.id,
           reason: 原因.trim(),
         }, {
-          rowVersion: 泛微OA身份.value.formalIdentity.rowVersion,
+          rowVersion: Number(泛微OA身份.value.formalIdentity.rowVersion),
           幂等键: 生成组织幂等键(),
         });
         ElementPlus.ElMessage.success('泛微 OA 正式身份已停用，历史记录仍保留。');
@@ -22073,6 +22090,7 @@ const OrganizationWorkspace = {
     }
     function 打开新建用户弹窗() {
       新建用户表单.username = ''; 新建用户表单.name = ''; 新建用户表单.phone = ''; 新建用户表单.email = '';
+      新建用户表单.eteamsUserId = ''; 新建用户表单.eteamsUsername = ''; 新建用户表单.wecomUserId = '';
       新建用户表单.password = '123456'; 新建用户表单.status = 'active'; 新建用户表单.role = 'staff';
       新建用户表单.bigRegion = ''; 新建用户表单.region = '';
       新建用户表单.orgUnitId = 选中部门Id.value || (平铺组织列表.value[0] ? 平铺组织列表.value[0].id : '');
@@ -22086,6 +22104,9 @@ const OrganizationWorkspace = {
       if (!新建用户表单.username || !新建用户表单.name) {
         ElementPlus.ElMessage.warning('请填写登录账号和姓名。'); return;
       }
+      if (新建用户表单.eteamsUserId && !新建用户表单.eteamsUsername) {
+        ElementPlus.ElMessage.warning('填写泛微 OA userid 时，请同时填写泛微姓名或登录名。'); return;
+      }
       if (!新建用户表单.orgUnitId) {
         ElementPlus.ElMessage.warning('请选择所属部门。'); return;
       }
@@ -22098,6 +22119,10 @@ const OrganizationWorkspace = {
           status: 新建用户表单.status,
           phone: 新建用户表单.phone,
           email: 新建用户表单.email,
+          ...(新建用户表单.eteamsUserId ? { eteamsUserId: 新建用户表单.eteamsUserId } : {}),
+          ...(新建用户表单.eteamsUsername ? { eteamsUsername: 新建用户表单.eteamsUsername } : {}),
+          ...(新建用户表单.wecomUserId ? { wecomUserId: 新建用户表单.wecomUserId } : {}),
+          createdBy: store.user?.username || store.user?.id || '',
           password: 新建用户表单.password || '123456',
           ...(['admin', 'region_manager'].includes(新建用户表单.role) ? { bigRegion: 新建用户表单.bigRegion, region: 新建用户表单.region } : {}),
         };

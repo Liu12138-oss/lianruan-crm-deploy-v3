@@ -272,6 +272,62 @@ describe("V2真实页面兼容接口", () => {
     await pool.end();
   });
 
+  it("账号管理新建区管同步组织任职，并按规则维护外部身份", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `admin_identity_${Date.now()}`;
+    const 登录账号 = `${批次}_login`;
+    const 泛微编号 = `${批次}_eteams`;
+    const 企微编号 = `${批次}_wecom`;
+    try {
+      const 创建 = await request(app)
+        .post("/api/v2/admin/accounts")
+        .send({
+          username: 登录账号,
+          name: `${批次}-区管`,
+          role: "admin",
+          region: "安徽区",
+          bigRegion: "大东区",
+          password: "LrCRM@2026!",
+          createdBy: "liulonghai",
+          eteamsUserId: 泛微编号,
+          eteamsUsername: `${批次}-泛微姓名`,
+          wecomUserId: 企微编号,
+        })
+        .expect(200);
+      expect(创建.body.success).toBe(true);
+
+      const 数据 = await pool.query<{
+        assignment_count: number;
+        pending_eteams: number;
+        active_wecom: number;
+      }>(
+        `SELECT
+           (SELECT count(*)::int FROM org.staff_assignments sa WHERE sa.user_id=u.id AND sa.expired_at IS NULL) AS assignment_count,
+           (SELECT count(*)::int FROM iam.external_identity_candidates c WHERE c.user_id=u.id AND c.provider_code='eteams' AND c.status_code='pending') AS pending_eteams,
+           (SELECT count(*)::int FROM iam.external_identities e WHERE e.user_id=u.id AND e.provider_code='wecom' AND e.status_code='active') AS active_wecom
+         FROM iam.users u WHERE u.username=$1::citext`,
+        [登录账号],
+      );
+      expect(数据.rows[0]).toEqual({ assignment_count: 1, pending_eteams: 1, active_wecom: 1 });
+    } finally {
+      await pool
+        .query("DELETE FROM iam.external_identity_candidates WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM iam.external_identities WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM org.staff_assignments WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM iam.user_roles WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .catch(() => {});
+      await pool.query("DELETE FROM iam.users WHERE username=$1::citext", [登录账号]).catch(() => {});
+      await pool.end();
+    }
+  });
+
   it("区管正式区域迁移仅补齐唯一匹配账号，重名区域拒绝账号保存且回退可执行", async () => {
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
     const 批次 = `formal_region_migration_${Date.now()}`;

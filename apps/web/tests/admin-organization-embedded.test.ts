@@ -65,12 +65,12 @@ describe("正式管理员页组织架构内嵌路由", () => {
   it("正式页面引用内嵌版本资源", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=164"></script>');
+    expect(页面文本).toContain('<script src="admin-app.js?v=166"></script>');
     expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=17" />');
     expect(页面文本).toContain('<script src="libs/xlsx.full.min.js"></script>');
   });
 
-  it("正式组织页提供外部身份映射只读查询、筛选、统计和分页", async () => {
+  it("正式组织页提供联软内部人员外部身份映射只读查询、筛选、统计和分页", async () => {
     const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
     expect(脚本文本).toContain("外部身份映射");
     expect(脚本文本).toContain("/api/org/external-identities");
@@ -81,6 +81,9 @@ describe("正式管理员页组织架构内嵌路由", () => {
     expect(脚本文本).toContain("映射异常");
     expect(脚本文本).toContain("查看详情");
     expect(脚本文本).toContain("watch(当前栏目");
+    expect(脚本文本).toContain("联软内部人员外部身份映射");
+    expect(脚本文本).toContain("渠道商账号和已结束任职的历史账号不纳入统计");
+    expect(脚本文本).toContain('prop="internalOrgUnitName" label="所属组织"');
   });
 
   it("组织架构采用左树右表：左侧部门树，右侧成员概要信息与证书", async () => {
@@ -385,8 +388,8 @@ it("账号抽屉将泛微 OA 候选与正式映射隔离，候选不可用于发
   expect(脚本文本).toContain("泛微 OA 身份候选已保存，尚不能用于发起流程。");
   expect(脚本文本).toContain("确认后该身份将可用于 OA 发起");
   expect(脚本文本).toContain("确认正式映射");
-  expect(脚本文本).toContain("rowVersion: 待核验泛微候选.value.rowVersion");
-  expect(脚本文本).toContain("rowVersion: 泛微OA身份.value.formalIdentity.rowVersion");
+  expect(脚本文本).toContain("rowVersion: Number(待核验泛微候选.value.rowVersion)");
+  expect(脚本文本).toContain("rowVersion: Number(泛微OA身份.value.formalIdentity.rowVersion)");
   expect(脚本文本).toContain("幂等键: 生成组织幂等键()");
 });
 

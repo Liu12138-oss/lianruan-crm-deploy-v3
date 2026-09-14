@@ -2295,7 +2295,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       ),
       this.pool.query(
         `SELECT id::text AS id,external_subject AS "externalSubject",external_username AS "externalUsername",
-                status_code AS "statusCode",created_at AS "createdAt",updated_at AS "updatedAt",row_version AS "rowVersion"
+                status_code AS "statusCode",created_at AS "createdAt",updated_at AS "updatedAt",row_version::int AS "rowVersion"
          FROM iam.external_identities
          WHERE user_id=$1::uuid AND provider_code='eteams'
          ORDER BY CASE status_code WHEN 'active' THEN 0 ELSE 1 END,created_at DESC`,
@@ -2306,7 +2306,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                 c.source_code AS "sourceCode",c.status_code AS "statusCode",c.verification_note AS "verificationNote",
                 c.rejected_reason AS "rejectedReason",c.verified_at AS "verifiedAt",
                 verifier.username::text AS "verifiedByUsername",verifier.display_name AS "verifiedByName",
-                c.created_at AS "createdAt",c.updated_at AS "updatedAt",c.row_version AS "rowVersion"
+                c.created_at AS "createdAt",c.updated_at AS "updatedAt",c.row_version::int AS "rowVersion"
          FROM iam.external_identity_candidates c
          LEFT JOIN iam.users verifier ON verifier.id=c.verified_by_user_id
          WHERE c.user_id=$1::uuid AND c.provider_code='eteams'
@@ -2316,7 +2316,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       this.pool.query(
         `SELECT id::text AS id,external_subject AS "externalSubject",external_username AS "externalUsername",
                 status_code AS "statusCode",created_at AS "createdAt",updated_at AS "updatedAt",
-                row_version AS "rowVersion"
+                row_version::int AS "rowVersion"
          FROM iam.external_identities
          WHERE user_id=$1::uuid AND provider_code='wecom' AND status_code='active'
          ORDER BY created_at DESC`,
@@ -2382,7 +2382,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                max(e.external_subject) FILTER (WHERE e.status_code='active') AS eteams_subject,
                max(e.external_username) FILTER (WHERE e.status_code='active') AS eteams_username,
                max(e.updated_at) FILTER (WHERE e.status_code='active') AS eteams_updated_at,
-               max(e.row_version) FILTER (WHERE e.status_code='active') AS eteams_row_version,
+               (max(e.row_version) FILTER (WHERE e.status_code='active'))::int AS eteams_row_version,
                bool_or(e.status_code='active' AND sc.subject_count > 1) AS eteams_subject_duplicate
         FROM iam.external_identities e
         LEFT JOIN (
@@ -2407,7 +2407,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                max(e.external_subject) FILTER (WHERE e.status_code='active') AS wecom_subject,
                max(e.external_username) FILTER (WHERE e.status_code='active') AS wecom_username,
                max(e.updated_at) FILTER (WHERE e.status_code='active') AS wecom_updated_at,
-               max(e.row_version) FILTER (WHERE e.status_code='active') AS wecom_row_version,
+               (max(e.row_version) FILTER (WHERE e.status_code='active'))::int AS wecom_row_version,
                bool_or(e.status_code='active' AND sc.subject_count > 1) AS wecom_subject_duplicate
         FROM iam.external_identities e
         LEFT JOIN (
@@ -2420,6 +2420,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       ), base AS (
         SELECT u.id::text AS user_id, u.username::text AS username, u.display_name,
                u.status_code, u.region_id::text AS region_id, rg.region_name,
+               内部任职.org_unit_name AS internal_org_unit_name,
                COALESCE(rs.role_codes, ARRAY[]::text[]) AS role_codes,
                COALESCE(rs.role_names, ARRAY[]::text[]) AS role_names,
                COALESCE(es.eteams_total,0) AS eteams_total,
@@ -2435,6 +2436,17 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
                     WHEN COALESCE(ws.wecom_inactive,0)>0 THEN 'disabled' ELSE 'missing' END AS wecom_status,
                ws.wecom_subject, ws.wecom_username, ws.wecom_updated_at, ws.wecom_row_version
         FROM iam.users u
+        JOIN LATERAL (
+          SELECT ou.unit_name AS org_unit_name
+          FROM org.staff_assignments sa
+          JOIN org.org_units ou ON ou.id=sa.org_unit_id
+          WHERE sa.user_id=u.id
+            AND sa.expired_at IS NULL
+            AND ou.unit_type NOT LIKE 'channel_%'
+            AND ou.status_code IN ('active','draft')
+          ORDER BY sa.is_primary DESC,sa.effective_at DESC,sa.id
+          LIMIT 1
+        ) 内部任职 ON TRUE
         LEFT JOIN org.regions rg ON rg.id=u.region_id
         LEFT JOIN role_stats rs ON rs.user_id=u.id
         LEFT JOIN eteams_stats es ON es.user_id=u.id
@@ -2458,7 +2470,8 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     const offset = (参数.page - 1) * 参数.pageSize;
     const rows = await this.pool.query(
       `${基础查询} SELECT user_id AS "userId", username, display_name AS "displayName", status_code AS "statusCode",
-        region_id AS "regionId", region_name AS "regionName", role_codes AS "roleCodes", role_names AS "roleNames",
+        region_id AS "regionId", region_name AS "regionName", internal_org_unit_name AS "internalOrgUnitName",
+        role_codes AS "roleCodes", role_names AS "roleNames",
         jsonb_build_object('status', eteams_status, 'externalSubject', eteams_subject, 'externalUsername', eteams_username,
           'updatedAt', eteams_updated_at, 'rowVersion', eteams_row_version) AS eteams,
         CASE WHEN eteams_pending > 0 THEN jsonb_build_object('status','pending','externalSubject',candidate_subject,'externalUsername',candidate_username) END AS "eteamsCandidate",

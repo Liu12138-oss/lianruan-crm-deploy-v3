@@ -1507,13 +1507,32 @@ function 注册后台维护路由(
   router.post(
     "/users",
     捕获(async (req, res) => {
-      res.json(成功(await 保存V2用户(需要数据库(pool), "", 读取正文(req))));
+      res.json(
+        成功(
+          await 保存内部账号(
+            需要数据库(pool),
+            "",
+            读取正文(req),
+            读取请求会话用户名(req, { sessionSecret: 参数.sessionSecret || "", ...(参数.env ? { env: 参数.env } : {}) }),
+          ),
+        ),
+      );
     }),
   );
   router.post(
     "/admin/accounts",
     捕获(async (req, res) => {
-      res.json(成功(await 保存V2用户(需要数据库(pool), "", 读取正文(req))));
+      res.json(
+        成功(
+          await 保存内部账号(
+            需要数据库(pool),
+            "",
+            读取正文(req),
+            读取请求会话用户名(req, { sessionSecret: 参数.sessionSecret || "", ...(参数.env ? { env: 参数.env } : {}) }),
+            { 同步管理组织: true },
+          ),
+        ),
+      );
     }),
   );
   router.put(
@@ -2649,6 +2668,97 @@ async function 保存V2用户(
   const 用户 = await 查询V2用户(pool, username, true);
   if (!用户) throw Object.assign(new Error("用户保存失败。"), { statusCode: 500 });
   return 用户;
+}
+
+async function 保存内部账号(
+  pool: Pool,
+  id: string,
+  输入: 字典,
+  当前会话用户名?: string,
+  选项: { 同步管理组织?: boolean } = {},
+) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const 账号 = await 保存V2用户(client, id, 输入);
+    if (!id) {
+      const userId = await 查找用户UUID(client, 账号.id || 账号.username);
+      if (!userId) throw Object.assign(new Error("用户保存失败，未找到用户标识。"), { statusCode: 500 });
+      const partnerId = 读取正文文本(输入, ["partnerId"], "");
+      if (!partnerId) {
+        await 维护新建用户外部身份(client, userId, 输入, 当前会话用户名 || 读取正文文本(输入, ["createdBy"], ""));
+        if (选项.同步管理组织) {
+          const 角色 = 转V3角色(读取正文文本(输入, ["role"], "staff"));
+          if (["region_manager", "superadmin", "admin"].includes(角色)) {
+            const 区域 = await client.query<{ region_id: string | null }>(
+              "SELECT region_id::text AS region_id FROM iam.users WHERE id=$1::uuid",
+              [userId],
+            );
+            await 同步新建管理账号组织归属(client, userId, 角色, 区域.rows[0]?.region_id || null);
+          }
+        }
+      }
+    }
+    await client.query("COMMIT");
+    return 账号;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function 维护新建用户外部身份(
+  pool: 数据库查询器,
+  userId: string,
+  输入: 字典,
+  操作人标识: string,
+) {
+  const 泛微编号 = 读取正文文本(输入, ["eteamsUserId", "eteamsUserid", "eteamsExternalSubject"], "");
+  const 企微编号 = 读取正文文本(输入, ["wecomUserId", "wecomUserid", "wecomExternalSubject"], "");
+  if (!泛微编号 && !企微编号) return;
+  const 操作人 = 操作人标识 ? await 查找用户UUID(pool, 操作人标识) : "";
+  if (泛微编号 && !操作人)
+    throw Object.assign(new Error("填写泛微 OA userid 时必须提供有效的创建人账号。"), { statusCode: 400 });
+  if (泛微编号) {
+    const 泛微姓名或登录名 = 读取正文文本(输入, ["eteamsUsername", "eteamsName"], "");
+    if (!泛微姓名或登录名)
+      throw Object.assign(new Error("填写泛微 OA userid 时必须同时填写泛微姓名或登录名。"), { statusCode: 400 });
+    const 已占用 = await pool.query("SELECT 1 FROM iam.external_identities WHERE provider_code='eteams' AND external_subject=$1 AND status_code='active' UNION ALL SELECT 1 FROM iam.external_identity_candidates WHERE provider_code='eteams' AND external_subject=$1 AND status_code='pending' LIMIT 1", [泛微编号]);
+    if (已占用.rows[0]) throw Object.assign(new Error("该泛微 OA userid 已被占用，请先核对外部身份映射。"), { statusCode: 409 });
+    await pool.query("INSERT INTO iam.external_identity_candidates(user_id,provider_code,external_subject,external_username,source_code,created_by_user_id) VALUES($1::uuid,'eteams',$2,$3,'manual',$4::uuid)", [userId, 泛微编号, 泛微姓名或登录名, 操作人]);
+  }
+  if (企微编号) {
+    const 已占用 = await pool.query("SELECT 1 FROM iam.external_identities WHERE provider_code='wecom' AND external_subject=$1 AND status_code='active'", [企微编号]);
+    if (已占用.rows[0]) throw Object.assign(new Error("该企业微信 userid 已被占用，请先核对外部身份映射。"), { statusCode: 409 });
+    await pool.query("INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code) VALUES($1::uuid,'wecom',$2,$3,'active')", [userId, 企微编号, 读取正文文本(输入, ["wecomUsername", "wecomName"], 读取正文文本(输入, ["name", "displayName"], ""))]);
+  }
+}
+
+async function 同步新建管理账号组织归属(
+  pool: 数据库查询器,
+  userId: string,
+  role: string,
+  regionId: string | null,
+) {
+  const 根 = await pool.query("SELECT id::text AS id FROM org.org_units WHERE parent_unit_id IS NULL AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1");
+  if (!根.rows[0])
+    throw Object.assign(new Error("组织架构缺少根部门，无法同步新建管理员。"), { statusCode: 400 });
+  let 组织Id = 根.rows[0].id as string;
+  if (role === "region_manager" && regionId) {
+    const 区域 = await pool.query("SELECT r.region_name AS name,b.region_name AS big_name FROM org.regions r LEFT JOIN org.regions b ON b.id=r.parent_region_id WHERE r.id=$1::uuid", [regionId]);
+    const 取部门 = async (名称: string, 父Id: string) => {
+      const 已有 = await pool.query("SELECT id::text AS id FROM org.org_units WHERE parent_unit_id=$1::uuid AND unit_name=$2 AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1", [父Id, 名称]);
+      if (已有.rows[0]) return 已有.rows[0].id as string;
+      const 新建 = await pool.query("INSERT INTO org.org_units(unit_code,unit_name,unit_type,parent_unit_id,status_code,sort_order) VALUES($1,$2,'department',$3::uuid,'active',0) RETURNING id::text AS id", [`auto-${crypto.randomUUID()}`, 名称, 父Id]);
+      return 新建.rows[0].id as string;
+    };
+    if (区域.rows[0]?.big_name) 组织Id = await 取部门(区域.rows[0].big_name, 组织Id);
+    if (区域.rows[0]?.name) 组织Id = await 取部门(区域.rows[0].name, 组织Id);
+  }
+  const 已有任职 = await pool.query("SELECT 1 FROM org.staff_assignments WHERE user_id=$1::uuid AND expired_at IS NULL LIMIT 1", [userId]);
+  if (!已有任职.rows[0]) await pool.query("INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,source_code) VALUES($1::uuid,$2::uuid,NULL,true,now(),'manual')", [userId, 组织Id]);
 }
 
 async function 是已保存区域管理员(pool: 数据库查询器, id: string): Promise<boolean> {

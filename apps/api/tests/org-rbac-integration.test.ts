@@ -228,6 +228,81 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
     );
   });
 
+  it("外部身份映射仅返回当前有效归属联软内部组织的人员", async () => {
+    const 后缀 = randomUUID();
+    const 内部组织 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,status_code)
+       VALUES($1,'外部身份映射内部组织','department','active') RETURNING id::text AS id`,
+      [前缀 + "_identity_internal_unit_" + 后缀],
+    );
+    const 渠道组织 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,channel_partner_id,status_code)
+       VALUES($1,'外部身份映射渠道组织','channel_team',$2::uuid,'active') RETURNING id::text AS id`,
+      [前缀 + "_identity_channel_unit_" + 后缀, 渠道商Id],
+    );
+    const 用户 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code) VALUES
+       ($1,'映射范围内部人员','active'),
+       ($2,'映射范围渠道人员','active'),
+       ($3,'映射范围历史人员','active'),
+       ($4,'映射范围无任职人员','active')
+       RETURNING id::text AS id,username::text AS username`,
+      [
+        前缀 + "_identity_internal_" + 后缀,
+        前缀 + "_identity_channel_" + 后缀,
+        前缀 + "_identity_expired_" + 后缀,
+        前缀 + "_identity_unassigned_" + 后缀,
+      ],
+    );
+
+    try {
+      await 连接池.query(
+        `INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary)
+         VALUES($1::uuid,$2::uuid,NULL,true),($3::uuid,$4::uuid,NULL,true)`,
+        [用户.rows[0]!.id, 内部组织.rows[0]!.id, 用户.rows[1]!.id, 渠道组织.rows[0]!.id],
+      );
+      await 连接池.query(
+        `INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,expired_at)
+         VALUES($1::uuid,$2::uuid,NULL,true,now()-interval '2 days',now()-interval '1 day')`,
+        [用户.rows[2]!.id, 内部组织.rows[0]!.id],
+      );
+
+      const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
+      const 查询结果 = (await 服务.查询外部身份映射({
+        provider: "all",
+        mappingStatus: "all",
+        includeInactive: false,
+        page: 1,
+        pageSize: 20,
+      })) as {
+        items: Array<{ userId: string; username: string; internalOrgUnitName: string }>;
+      };
+
+      expect(查询结果.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 用户.rows[0]!.id,
+            username: 用户.rows[0]!.username,
+            internalOrgUnitName: "外部身份映射内部组织",
+          }),
+        ]),
+      );
+      expect(查询结果.items.some((项) => 项.userId === 用户.rows[1]!.id)).toBe(false);
+      expect(查询结果.items.some((项) => 项.userId === 用户.rows[2]!.id)).toBe(false);
+      expect(查询结果.items.some((项) => 项.userId === 用户.rows[3]!.id)).toBe(false);
+    } finally {
+      await 连接池.query("DELETE FROM org.staff_assignments WHERE user_id=ANY($1::uuid[])", [
+        用户.rows.map((项) => 项.id),
+      ]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=ANY($1::uuid[])", [
+        用户.rows.map((项) => 项.id),
+      ]);
+      await 连接池.query("DELETE FROM org.org_units WHERE id=ANY($1::uuid[])", [
+        [内部组织.rows[0]!.id, 渠道组织.rows[0]!.id],
+      ]);
+    }
+  });
+
   it("区域可编辑名称与父级（防环）", async () => {
     const app = 创建应用({ env: 环境变量 });
     const cookie = await 登录Cookie(app);
