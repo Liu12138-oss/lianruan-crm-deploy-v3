@@ -334,6 +334,10 @@ case "${admin_script_text}" in
   *"企业微信账号映射导入"*"/api/org/wecom-identities/import-preview"*"/api/org/wecom-identities/import-confirm"*) ;;
   *) echo "验证失败：正式 admin-app.js 缺少企业微信身份映射受控导入入口。" >&2; exit 1 ;;
 esac
+case "${admin_script_text}" in
+  *"organization/external-identities"*"外部身份映射"*"/api/org/external-identities"*"账号总数"*"泛微已确认"*"企微已维护"*"映射异常"*) ;;
+  *) echo "验证失败：正式 admin-app.js 缺少外部身份映射查询入口。" >&2; exit 1 ;;
+esac
 wait_for_http "组织架构工作区" http://127.0.0.1/workspace/admin/platform-admin/organization/units
 workspace_html_body="${response_body}"
 case "${workspace_html_body}" in

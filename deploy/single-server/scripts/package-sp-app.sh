@@ -225,6 +225,16 @@ bash "${project_root}/deploy/single-server/tests/数据库迁移顺序测试.sh"
     清理Web镜像检查
     失败 "目标 Web 静态资源缺少企业微信身份映射受控导入入口。"
   fi
+  if ! grep -Fq 'organization/external-identities' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '外部身份映射' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '/api/org/external-identities' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '账号总数' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '泛微已确认' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '企微已维护' "${static_dir}/admin-app.js" ||
+    ! grep -Fq '映射异常' "${static_dir}/admin-app.js"; then
+    清理Web镜像检查
+    失败 "目标 Web 静态资源缺少外部身份映射查询入口。"
+  fi
   image_workspace_assets=()
   while IFS= read -r workspace_candidate; do
     image_workspace_assets+=("${workspace_candidate}")

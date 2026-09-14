@@ -29,6 +29,9 @@ describe("正式管理员页组织架构内嵌路由", () => {
     expect(脚本文本).toContain(
       "{ path: 'organization/directory-sync', component: OrganizationWorkspace }",
     );
+    expect(脚本文本).toContain(
+      "{ path: 'organization/external-identities', component: OrganizationWorkspace }",
+    );
   });
 
   it("侧边栏入口使用内部路由并带激活态", async () => {
@@ -62,9 +65,22 @@ describe("正式管理员页组织架构内嵌路由", () => {
   it("正式页面引用内嵌版本资源", async () => {
     const 页面文本 = await readFile(正式管理员页面地址, "utf8");
 
-    expect(页面文本).toContain('<script src="admin-app.js?v=163"></script>');
+    expect(页面文本).toContain('<script src="admin-app.js?v=164"></script>');
     expect(页面文本).toContain('<link rel="stylesheet" href="style.css?v=17" />');
     expect(页面文本).toContain('<script src="libs/xlsx.full.min.js"></script>');
+  });
+
+  it("正式组织页提供外部身份映射只读查询、筛选、统计和分页", async () => {
+    const 脚本文本 = await readFile(正式管理员脚本地址, "utf8");
+    expect(脚本文本).toContain("外部身份映射");
+    expect(脚本文本).toContain("/api/org/external-identities");
+    expect(脚本文本).toContain("外部身份筛选");
+    expect(脚本文本).toContain("账号总数");
+    expect(脚本文本).toContain("泛微已确认");
+    expect(脚本文本).toContain("企微已维护");
+    expect(脚本文本).toContain("映射异常");
+    expect(脚本文本).toContain("查看详情");
+    expect(脚本文本).toContain("watch(当前栏目");
   });
 
   it("组织架构采用左树右表：左侧部门树，右侧成员概要信息与证书", async () => {
