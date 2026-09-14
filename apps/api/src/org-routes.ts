@@ -497,6 +497,25 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     ),
   );
   router.get(
+    "/users/:userId/eteams-identity/takeover-preview",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      const externalSubject = 读取查询文本(req, "externalSubject");
+      if (!externalSubject)
+        throw new 应用错误("ORG_REQUEST_INVALID", "请指定泛微 OA userid。", 400);
+      if (externalSubject.length > 200)
+        throw new 应用错误("ORG_REQUEST_INVALID", "泛微 OA userid不能超过200个字符。", 400);
+      return 获取服务().预览泛微OA身份接管(读取标识(req, "userId"), externalSubject);
+    }),
+  );
+  router.post(
+    "/users/:userId/eteams-identity/takeover",
+    执行写入((req, 主体) =>
+      获取服务().接管泛微OA身份(读取标识(req, "userId"), 读取对象(req), 主体),
+    ),
+  );
+  router.get(
     "/data-scopes/:subjectType/:subjectId",
     执行(async (req) => {
       断言组织已启用(参数);
@@ -541,6 +560,21 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     执行写入((req, 主体) => {
       断言离职交接执行已启用(参数);
       return 获取服务().恢复账号(读取标识(req, "userId"), 读取对象(req), 主体);
+    }),
+  );
+  router.get(
+    "/users/:userId/archive-preview",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      return 获取服务().预览账号归档清理(读取标识(req, "userId"));
+    }),
+  );
+  router.post(
+    "/users/:userId/archive",
+    执行写入((req, 主体) => {
+      断言离职交接执行已启用(参数);
+      return 获取服务().归档清理账号(读取标识(req, "userId"), 读取对象(req), 主体);
     }),
   );
   router.get(

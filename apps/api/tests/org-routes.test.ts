@@ -129,6 +129,8 @@ function 创建服务(): 组织数据服务 {
     发起离职交接: async () => ({}),
     预览账号恢复: async () => ({ readOnly: true, canReactivate: false }),
     恢复账号: async () => ({}),
+    预览账号归档清理: async () => ({ readOnly: true, canArchive: false }),
+    归档清理账号: async () => ({}),
     预览重复账号归并: async () => ({ readOnly: true, canMerge: false }),
     归并重复账号: async () => ({}),
     重试离职扫描: async () => ({}),
@@ -178,6 +180,8 @@ function 创建服务(): 组织数据服务 {
     }),
     驳回泛微OA身份候选: async () => ({ id: "candidate", statusCode: "rejected" }),
     停用泛微OA身份: async () => ({ id: "identity", statusCode: "disabled" }),
+    预览泛微OA身份接管: async () => ({ readOnly: true, canTakeover: false }),
+    接管泛微OA身份: async () => ({}),
     执行幂等: async (_参数, 操作) => 操作(),
   };
 }
@@ -444,12 +448,14 @@ describe("组织架构路由", () => {
       { method: "post", path: `/api/org/offboarding/${标识}/retry-items` },
       { method: "post", path: `/api/org/offboarding/${标识}/close` },
       { method: "post", path: `/api/org/users/${标识}/reactivate` },
+      { method: "post", path: `/api/org/users/${标识}/archive` },
       { method: "post", path: `/api/org/users/${标识}/merge` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity-candidates` },
       { method: "put", path: `/api/org/users/${标识}/eteams-identity-candidates/${标识}` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity-candidates/${标识}/confirm` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity-candidates/${标识}/reject` },
       { method: "post", path: `/api/org/users/${标识}/eteams-identity/disable` },
+      { method: "post", path: `/api/org/users/${标识}/eteams-identity/takeover` },
     ];
 
     for (const 请求 of 请求列表) {
@@ -477,9 +483,13 @@ describe("组织架构路由", () => {
     }));
     const 新建调用 = vi.fn(async () => ({ id: 标识, statusCode: "pending" }));
     const 确认调用 = vi.fn(async () => ({ formalIdentity: { statusCode: "active" } }));
+    const 接管预览调用 = vi.fn(async () => ({ readOnly: true, canTakeover: true }));
+    const 接管调用 = vi.fn(async () => ({ activeIdentity: { statusCode: "active" } }));
     服务.查询泛微OA身份 = 查询调用;
     服务.新建泛微OA身份候选 = 新建调用;
     服务.确认泛微OA身份候选 = 确认调用;
+    服务.预览泛微OA身份接管 = 接管预览调用;
+    服务.接管泛微OA身份 = 接管调用;
     const app = 创建应用({
       env: {
         ...基础环境,
@@ -526,6 +536,30 @@ describe("组织架构路由", () => {
       标识,
       标识,
       { rowVersion: 1, verificationNote: "已与人员确认" },
+      expect.objectContaining({ username: "org_admin", role: "superadmin" }),
+    );
+    await request(app)
+      .get(
+        `/api/org/users/${标识}/eteams-identity/takeover-preview?externalSubject=fanwei-userid-002`,
+      )
+      .set("Cookie", cookie)
+      .expect(200);
+    expect(接管预览调用).toHaveBeenCalledWith(标识, "fanwei-userid-002");
+    const 接管内容 = {
+      externalSubject: "fanwei-userid-002",
+      reason: "停用旧账号身份接管",
+      confirmationUsername: "org_admin",
+      sourceConfirmationUsername: "disabled_org_admin",
+    };
+    await request(app)
+      .post(`/api/org/users/${标识}/eteams-identity/takeover`)
+      .set("Cookie", cookie)
+      .set("Idempotency-Key", "eteams-identity-takeover")
+      .send(接管内容)
+      .expect(200);
+    expect(接管调用).toHaveBeenCalledWith(
+      标识,
+      接管内容,
       expect.objectContaining({ username: "org_admin", role: "superadmin" }),
     );
   });

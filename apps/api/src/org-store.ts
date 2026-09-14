@@ -103,6 +103,8 @@ export interface 组织数据服务 {
   发起离职交接(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   预览账号恢复(userId: string): Promise<unknown>;
   恢复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
+  预览账号归档清理(userId: string): Promise<unknown>;
+  归档清理账号(userId: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   预览重复账号归并(userId: string, keepUserId: string): Promise<unknown>;
   归并重复账号(userId: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   重试离职扫描(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
@@ -135,6 +137,12 @@ export interface 组织数据服务 {
     actor: 组织操作人,
   ): Promise<unknown>;
   停用泛微OA身份(
+    userId: string,
+    input: Record<string, unknown>,
+    actor: 组织操作人,
+  ): Promise<unknown>;
+  预览泛微OA身份接管(userId: string, externalSubject: string): Promise<unknown>;
+  接管泛微OA身份(
     userId: string,
     input: Record<string, unknown>,
     actor: 组织操作人,
@@ -1959,6 +1967,57 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       return 结果;
     });
   }
+  async 预览账号归档清理(userId: string) {
+    return 查询账号归档预览(this.pool, userId);
+  }
+  async 归档清理账号(userId: string, input: Record<string, unknown>, actor: 组织操作人) {
+    const reason = 受限文本(input, "reason", 200);
+    return this.事务(async (db) => {
+      const 操作人 = await this.操作人(db, actor);
+      await 锁定交接目标账号(db, userId);
+      const 预览 = await 查询账号归档预览(db, userId);
+      if (!预览.canArchive)
+        throw new 应用错误(
+          "ORG_ACCOUNT_ARCHIVE_NOT_ALLOWED",
+          "该账号尚未完成交接、不是停用状态，或仍有未处理交接项，不能归档清理。",
+          409,
+        );
+      const 用户 = await 查询账号恢复上下文(db, userId);
+      if (版本(input) !== 用户.rowVersion) throw 冲突();
+      const 确认账号 = 文本(input, "confirmationUsername");
+      if (确认账号.toLowerCase() !== 用户.username.toLowerCase())
+        throw new 应用错误(
+          "ORG_ACCOUNT_ARCHIVE_CONFIRMATION_INVALID",
+          "二次确认账号与目标账号不一致。",
+          400,
+        );
+      const 归档登录名 = `archived--${userId}`;
+      const 归档 = await db.query(
+        `INSERT INTO iam.account_archives(
+           user_id,original_username,archived_username,reason,archived_by_user_id
+         ) VALUES($1::uuid,$2::citext,$3::citext,$4,$5::uuid)
+         RETURNING archived_at AS "archivedAt"`,
+        [userId, 用户.username, 归档登录名, reason, 操作人],
+      );
+      const 更新 = await db.query(
+        `UPDATE iam.users
+            SET username=$1::citext,updated_at=now(),row_version=row_version+1
+          WHERE id=$2::uuid AND row_version=$3
+          RETURNING row_version::int AS "rowVersion"`,
+        [归档登录名, userId, 用户.rowVersion],
+      );
+      if (!更新.rows[0]) throw 冲突();
+      const 结果 = {
+        userId,
+        originalUsername: 用户.username,
+        archivedUsername: 归档登录名,
+        archivedAt: 归档.rows[0]?.archivedAt || null,
+        rowVersion: 更新.rows[0].rowVersion,
+      };
+      await 审计(db, actor, 操作人, "account.archived", userId, { ...结果, reason }, 用户);
+      return 结果;
+    });
+  }
   async 预览重复账号归并(userId: string, keepUserId: string) {
     if (userId === keepUserId)
       throw new 应用错误("ORG_ACCOUNT_MERGE_SAME_USER", "来源账号和保留账号不能相同。", 400);
@@ -2606,7 +2665,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     const 原因 = 受限文本(input, "reason", 200);
     return this.事务(async (db) => {
       const 操作人 = await this.操作人(db, actor);
-      await 校验泛微OA目标账号(db, userId);
+      await 校验泛微OA目标账号(db, userId, true);
       const 原映射 = await db.query(
         `SELECT id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
                 external_username AS "externalUsername",status_code,row_version
@@ -2639,6 +2698,162 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         原映射.rows[0],
       );
       return 结果.rows[0];
+    });
+  }
+  async 预览泛微OA身份接管(userId: string, externalSubject: string) {
+    const [目标账号, 来源, 目标映射, 待核验] = await Promise.all([
+      查询账号恢复上下文(this.pool, userId),
+      this.pool.query(
+        `SELECT e.id::text AS "identityId",e.user_id::text AS "sourceUserId",
+              u.username::text AS "sourceUsername",u.display_name AS "sourceDisplayName",
+              u.status_code AS "sourceStatusCode",u.offboarding_status AS "sourceOffboardingStatus",
+              e.external_subject AS "externalSubject",e.external_username AS "externalUsername",
+              e.row_version::int AS "sourceRowVersion"
+         FROM iam.external_identities e
+         JOIN iam.users u ON u.id=e.user_id
+        WHERE e.provider_code='eteams' AND e.external_subject=$1 AND e.status_code='active'`,
+        [externalSubject],
+      ),
+      this.pool.query(
+        `SELECT id::text AS id FROM iam.external_identities
+          WHERE user_id=$1::uuid AND provider_code='eteams' AND status_code='active'`,
+        [userId],
+      ),
+      this.pool.query(
+        `SELECT id::text AS id FROM iam.external_identity_candidates
+          WHERE user_id=$1::uuid AND provider_code='eteams' AND status_code='pending'`,
+        [userId],
+      ),
+    ]);
+    const 来源映射 = 来源.rows[0] || null;
+    const canTakeover = Boolean(
+      来源映射 &&
+      来源映射.sourceUserId !== userId &&
+      来源映射.sourceStatusCode === "disabled" &&
+      目标账号.statusCode === "active" &&
+      !目标账号.archivedUsername &&
+      !目标映射.rows[0] &&
+      !待核验.rows[0],
+    );
+    return {
+      readOnly: true,
+      targetUser: 目标账号,
+      sourceIdentity: 来源映射,
+      canTakeover,
+      notice: canTakeover
+        ? "确认后来源映射将停用，目标账号获得该泛微 userid；旧映射和审计记录保留。"
+        : "仅允许把已停用账号的有效泛微映射接管给未绑定映射的启用账号。",
+    };
+  }
+  async 接管泛微OA身份(userId: string, input: Record<string, unknown>, actor: 组织操作人) {
+    const externalSubject = 受限文本(input, "externalSubject", 200);
+    const reason = 受限文本(input, "reason", 200);
+    const confirmationUsername = 文本(input, "confirmationUsername");
+    const sourceConfirmationUsername = 文本(input, "sourceConfirmationUsername");
+    return this.事务(async (db) => {
+      const 操作人 = await this.操作人(db, actor);
+      await 锁定交接目标账号(db, userId);
+      const 目标账号 = await 查询账号恢复上下文(db, userId);
+      if (目标账号.statusCode !== "active")
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_USER_INACTIVE",
+          "目标账号必须处于启用状态。",
+          409,
+        );
+      if (confirmationUsername.toLowerCase() !== 目标账号.username.toLowerCase())
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_TAKEOVER_CONFIRMATION_INVALID",
+          "二次确认账号与目标账号不一致。",
+          400,
+        );
+      const 来源 = await db.query(
+        `SELECT e.id::text AS "identityId",e.user_id::text AS "sourceUserId",
+                u.username::text AS "sourceUsername",u.display_name AS "sourceDisplayName",
+                u.status_code AS "sourceStatusCode",e.external_subject AS "externalSubject",
+                e.external_username AS "externalUsername",e.row_version::int AS "sourceRowVersion"
+           FROM iam.external_identities e
+           JOIN iam.users u ON u.id=e.user_id
+          WHERE e.provider_code='eteams' AND e.external_subject=$1 AND e.status_code='active'
+          FOR UPDATE`,
+        [externalSubject],
+      );
+      const 来源映射 = 来源.rows[0];
+      if (!来源映射)
+        throw new 应用错误("ORG_EXTERNAL_IDENTITY_NOT_FOUND", "未找到该有效泛微 OA userid。", 404);
+      if (来源映射.sourceUserId === userId)
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_TAKEOVER_SAME_USER",
+          "来源账号和目标账号不能相同。",
+          400,
+        );
+      if (sourceConfirmationUsername.toLowerCase() !== 来源映射.sourceUsername.toLowerCase())
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_TAKEOVER_SOURCE_CONFIRMATION_INVALID",
+          "来源账号二次确认不一致。",
+          400,
+        );
+      if (来源映射.sourceStatusCode !== "disabled")
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_TAKEOVER_SOURCE_ACTIVE",
+          "只有已停用来源账号的泛微映射可以接管。",
+          409,
+        );
+      const 已有目标映射 = await db.query(
+        `SELECT id::text AS id FROM iam.external_identities
+          WHERE user_id=$1::uuid AND provider_code='eteams' AND status_code='active'
+          FOR UPDATE`,
+        [userId],
+      );
+      if (已有目标映射.rows[0])
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_ALREADY_CONFIRMED",
+          "目标账号已有有效泛微 OA 身份，请先停用后再接管。",
+          409,
+        );
+      const 待核验 = await db.query(
+        `SELECT 1 FROM iam.external_identity_candidates
+          WHERE user_id=$1::uuid AND provider_code='eteams' AND status_code='pending'
+          LIMIT 1 FOR KEY SHARE`,
+        [userId],
+      );
+      if (待核验.rows[0])
+        throw new 应用错误(
+          "ORG_EXTERNAL_IDENTITY_CANDIDATE_PENDING",
+          "目标账号已有待核验泛微身份，请先完成或驳回。",
+          409,
+        );
+      const 停用来源 = await db.query(
+        `UPDATE iam.external_identities
+            SET status_code='disabled',updated_at=now(),row_version=row_version+1
+          WHERE id=$1::uuid AND status_code='active'
+          RETURNING id::text AS id,external_subject AS "externalSubject",status_code AS "statusCode",
+                    row_version::int AS "rowVersion"`,
+        [来源映射.identityId],
+      );
+      if (!停用来源.rows[0]) throw 冲突();
+      const 新映射 = await db.query(
+        `INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code)
+         VALUES($1::uuid,'eteams',$2,$3,'active')
+         RETURNING id::text AS id,user_id::text AS "userId",external_subject AS "externalSubject",
+                   external_username AS "externalUsername",status_code AS "statusCode",row_version::int AS "rowVersion"`,
+        [userId, 来源映射.externalSubject, 来源映射.externalUsername],
+      );
+      const 结果 = {
+        sourceIdentity: 停用来源.rows[0],
+        activeIdentity: 新映射.rows[0],
+        sourceUserId: 来源映射.sourceUserId,
+        targetUserId: userId,
+      };
+      await 审计(
+        db,
+        actor,
+        操作人,
+        "eteams_identity.takeover",
+        新映射.rows[0].id,
+        { ...结果, reason },
+        来源映射,
+      );
+      return 结果;
     });
   }
   async 查询账号冲突() {
@@ -3293,6 +3508,8 @@ interface 账号恢复上下文 {
   offboardingStatus: string;
   handoverId: string | null;
   handoverStatus: string | null;
+  rowVersion: number;
+  archivedUsername: string | null;
 }
 
 interface 外部身份摘要 {
@@ -3318,9 +3535,11 @@ async function 查询账号恢复上下文(db: Pool | PoolClient, userId: string
   const 结果 = await db.query<账号恢复上下文>(
     `SELECT u.id::text AS id,u.username::text AS username,u.display_name AS "displayName",
             u.status_code AS "statusCode",u.offboarding_status AS "offboardingStatus",
-            u.offboarding_handover_id::text AS "handoverId",h.status_code AS "handoverStatus"
+            u.offboarding_handover_id::text AS "handoverId",h.status_code AS "handoverStatus",
+            u.row_version::int AS "rowVersion",aa.archived_username::text AS "archivedUsername"
        FROM iam.users u
        LEFT JOIN org.offboarding_handover h ON h.id=u.offboarding_handover_id
+       LEFT JOIN iam.account_archives aa ON aa.user_id=u.id
       WHERE u.id=$1::uuid`,
     [userId],
   );
@@ -3328,12 +3547,43 @@ async function 查询账号恢复上下文(db: Pool | PoolClient, userId: string
   return 结果.rows[0];
 }
 
+async function 查询账号归档预览(db: Pool | PoolClient, userId: string) {
+  const [用户, 未完成交接项] = await Promise.all([
+    查询账号恢复上下文(db, userId),
+    db.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+         FROM org.offboarding_handover_items i
+         JOIN org.offboarding_handover h ON h.id=i.handover_id
+        WHERE h.user_id=$1::uuid AND i.status_code IN ('pending','transferring','failed')`,
+      [userId],
+    ),
+  ]);
+  const remainingItemCount = Number(未完成交接项.rows[0]?.count || 0);
+  const canArchive =
+    用户.statusCode === "disabled" &&
+    用户.offboardingStatus === "offboarded" &&
+    Boolean(用户.handoverId) &&
+    ["completed", "closed"].includes(用户.handoverStatus || "") &&
+    !用户.archivedUsername &&
+    remainingItemCount === 0;
+  return {
+    readOnly: true,
+    user: 用户,
+    canArchive,
+    remainingItemCount,
+    notice: canArchive
+      ? "归档会保留账号主键、业务引用和审计，仅释放原登录名；归档后该历史账号不能恢复登录。"
+      : "只有已完成交接、已停用且不存在未处理交接项的账号可以归档清理。",
+  };
+}
+
 function 可恢复账号(用户: 账号恢复上下文): boolean {
   return (
     用户.statusCode === "disabled" &&
     用户.offboardingStatus === "offboarded" &&
     Boolean(用户.handoverId) &&
-    ["completed", "closed"].includes(用户.handoverStatus || "")
+    ["completed", "closed"].includes(用户.handoverStatus || "") &&
+    !用户.archivedUsername
   );
 }
 
@@ -3661,13 +3911,20 @@ function 包含控制字符(value: string): boolean {
   });
 }
 
-async function 校验泛微OA目标账号(db: PoolClient, userId: string): Promise<void> {
+async function 校验泛微OA目标账号(
+  db: PoolClient,
+  userId: string,
+  允许停用账号 = false,
+): Promise<void> {
   const 用户 = await db.query<{ status_code: string }>(
     "SELECT status_code FROM iam.users WHERE id=$1::uuid FOR KEY SHARE",
     [userId],
   );
   if (!用户.rows[0]) throw new 应用错误("ORG_USER_NOT_FOUND", "用户不存在。", 404);
-  if (用户.rows[0].status_code !== "active")
+  if (
+    用户.rows[0].status_code !== "active" &&
+    !(允许停用账号 && 用户.rows[0].status_code === "disabled")
+  )
     throw new 应用错误(
       "ORG_EXTERNAL_IDENTITY_USER_INACTIVE",
       "已停用账号不能维护泛微 OA 身份。",

@@ -979,6 +979,152 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
     }
   });
 
+  it("已完成交接的停用账号可归档释放登录名，停用账号的泛微身份可受控接管", async () => {
+    const 后缀 = randomUUID();
+    const 原登录名 = 前缀 + "_archive_source_" + 后缀;
+    const 来源账号 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'disabled','offboarded') RETURNING id::text AS id,username::text AS username`,
+      [原登录名, "归档清理来源账号" + 后缀.slice(0, 8)],
+    );
+    const 目标账号 = await 连接池.query<{ id: string; username: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code,offboarding_status)
+       VALUES($1,$2,'active','active') RETURNING id::text AS id,username::text AS username`,
+      [前缀 + "_archive_target_" + 后缀, "泛微身份接管目标" + 后缀.slice(0, 8)],
+    );
+    const 交接单 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.offboarding_handover(
+         user_id,status_code,effective_at,replacement_user_id,reason,created_by_user_id,target_role_codes
+       ) VALUES($1::uuid,'completed',now(),$2::uuid,'集成测试已完成交接',$3::uuid,ARRAY[]::text[])
+       RETURNING id::text AS id`,
+      [来源账号.rows[0]!.id, 目标账号.rows[0]!.id, 目标账号.rows[0]!.id],
+    );
+    await 连接池.query("UPDATE iam.users SET offboarding_handover_id=$1::uuid WHERE id=$2::uuid", [
+      交接单.rows[0]!.id,
+      来源账号.rows[0]!.id,
+    ]);
+    const 泛微UserId = "eteams_takeover_" + 后缀.replaceAll("-", "");
+    const 来源映射 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code)
+       VALUES($1::uuid,'eteams',$2,'归档测试泛微账号','active') RETURNING id::text AS id`,
+      [来源账号.rows[0]!.id, 泛微UserId],
+    );
+    let 新映射Id = "";
+    let 新账号Id = "";
+    let 目标已有映射Id = "";
+    try {
+      const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
+      const 归档预览 = (await 服务.预览账号归档清理(来源账号.rows[0]!.id)) as {
+        canArchive: boolean;
+        user: { rowVersion: number };
+      };
+      expect(归档预览.canArchive).toBe(true);
+
+      const 接管预览 = (await 服务.预览泛微OA身份接管(目标账号.rows[0]!.id, 泛微UserId)) as {
+        canTakeover: boolean;
+      };
+      expect(接管预览.canTakeover).toBe(true);
+      const 目标已有映射 = await 连接池.query<{ id: string }>(
+        `INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code)
+         VALUES($1::uuid,'eteams',$2,'目标账号既有泛微身份','active') RETURNING id::text AS id`,
+        [目标账号.rows[0]!.id, "eteams_target_existing_" + 后缀.replaceAll("-", "")],
+      );
+      目标已有映射Id = 目标已有映射.rows[0]!.id;
+      const 已有映射接管预览 = (await 服务.预览泛微OA身份接管(
+        目标账号.rows[0]!.id,
+        泛微UserId,
+      )) as { canTakeover: boolean };
+      expect(已有映射接管预览.canTakeover).toBe(false);
+      await 连接池.query("DELETE FROM iam.external_identities WHERE id=$1::uuid", [目标已有映射Id]);
+      目标已有映射Id = "";
+      await expect(
+        服务.接管泛微OA身份(
+          目标账号.rows[0]!.id,
+          {
+            externalSubject: 泛微UserId,
+            reason: "来源账号确认错误",
+            confirmationUsername: 目标账号.rows[0]!.username,
+            sourceConfirmationUsername: "错误来源账号",
+          },
+          {
+            username: "org_integration_admin",
+            requestId: 前缀 + "_eteams_takeover_invalid_" + 后缀,
+            role: "superadmin",
+          },
+        ),
+      ).rejects.toMatchObject({
+        code: "ORG_EXTERNAL_IDENTITY_TAKEOVER_SOURCE_CONFIRMATION_INVALID",
+        statusCode: 400,
+      });
+      const 接管结果 = (await 服务.接管泛微OA身份(
+        目标账号.rows[0]!.id,
+        {
+          externalSubject: 泛微UserId,
+          reason: "归档账号身份接管",
+          confirmationUsername: 目标账号.rows[0]!.username,
+          sourceConfirmationUsername: 来源账号.rows[0]!.username,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_eteams_takeover_" + 后缀,
+          role: "superadmin",
+        },
+      )) as {
+        activeIdentity: { id: string; userId: string };
+        sourceIdentity: { statusCode: string };
+      };
+      新映射Id = 接管结果.activeIdentity.id;
+      expect(接管结果).toMatchObject({
+        sourceIdentity: { statusCode: "disabled" },
+        activeIdentity: { userId: 目标账号.rows[0]!.id },
+      });
+
+      const 归档结果 = (await 服务.归档清理账号(
+        来源账号.rows[0]!.id,
+        {
+          reason: "重复账号已完成交接",
+          confirmationUsername: 原登录名,
+          rowVersion: 归档预览.user.rowVersion,
+        },
+        {
+          username: "org_integration_admin",
+          requestId: 前缀 + "_account_archive_" + 后缀,
+          role: "superadmin",
+        },
+      )) as { originalUsername: string; archivedUsername: string };
+      expect(归档结果).toMatchObject({
+        originalUsername: 原登录名,
+        archivedUsername: "archived--" + 来源账号.rows[0]!.id,
+      });
+      const 同名新账号 = await 连接池.query<{ id: string }>(
+        "INSERT INTO iam.users(username,display_name,status_code) VALUES($1,$2,'active') RETURNING id::text AS id",
+        [原登录名, "归档后复用登录名" + 后缀.slice(0, 8)],
+      );
+      新账号Id = 同名新账号.rows[0]!.id;
+    } finally {
+      await 连接池.query("DELETE FROM audit.audit_logs WHERE request_id IN ($1,$2)", [
+        前缀 + "_eteams_takeover_" + 后缀,
+        前缀 + "_account_archive_" + 后缀,
+      ]);
+      if (新账号Id) await 连接池.query("DELETE FROM iam.users WHERE id=$1::uuid", [新账号Id]);
+      await 连接池.query("DELETE FROM iam.account_archives WHERE user_id=$1::uuid", [
+        来源账号.rows[0]!.id,
+      ]);
+      await 连接池.query("DELETE FROM iam.external_identities WHERE id=ANY($1::uuid[])", [
+        [来源映射.rows[0]!.id, 新映射Id, 目标已有映射Id].filter(Boolean),
+      ]);
+      await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
+        来源账号.rows[0]!.id,
+      ]);
+      await 连接池.query("DELETE FROM org.offboarding_handover WHERE id=$1::uuid", [
+        交接单.rows[0]!.id,
+      ]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=ANY($1::uuid[])", [
+        [来源账号.rows[0]!.id, 目标账号.rows[0]!.id],
+      ]);
+    }
+  });
+
   it("已停用账号或无有效成员关系的账号不能颁发证书", async () => {
     const 已停用 = await 连接池.query<{ id: string }>(
       "INSERT INTO iam.users(username,display_name,status_code) VALUES($1,'已停用证书测试用户','disabled') RETURNING id::text AS id",

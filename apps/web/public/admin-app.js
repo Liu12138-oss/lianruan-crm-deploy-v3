@@ -19031,6 +19031,8 @@ function 组织更新泛微OA身份候选(userId, candidateId, 内容, 选项 = 
 function 组织确认泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/confirm', 'POST', 内容, 选项); }
 function 组织驳回泛微OA身份候选(userId, candidateId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity-candidates/' + 组织编码路径参数(candidateId) + '/reject', 'POST', 内容, 选项); }
 function 组织停用泛微OA身份(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity/disable', 'POST', 内容, 选项); }
+function 组织预览泛微OA身份接管(userId, externalSubject) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity/takeover-preview' + 组织构建查询参数({ externalSubject })); }
+function 组织接管泛微OA身份(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/eteams-identity/takeover', 'POST', 内容, 选项); }
 function 组织上传企业微信映射文件(路径, file, 选项 = {}) {
   const 表单 = new FormData();
   表单.append('file', file, file.name);
@@ -19083,6 +19085,8 @@ function 组织预览离职影响(userId) { return 组织读取('/api/org/staff/
 function 组织发起离职交接(内容, 选项 = {}) { return 组织写入('/api/org/offboarding', 'POST', 内容, 选项); }
 function 组织预览账号恢复(userId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/reactivation-preview'); }
 function 组织恢复账号(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/reactivate', 'POST', 内容, 选项); }
+function 组织预览账号归档清理(userId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/archive-preview'); }
+function 组织归档清理账号(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/archive', 'POST', 内容, 选项); }
 function 组织预览重复账号归并(userId, keepUserId) { return 组织读取('/api/org/users/' + 组织编码路径参数(userId) + '/merge-preview' + 组织构建查询参数({ keepUserId })); }
 function 组织归并重复账号(userId, 内容, 选项 = {}) { return 组织写入('/api/org/users/' + 组织编码路径参数(userId) + '/merge', 'POST', 内容, 选项); }
 function 组织读取企微同步状态() { return 组织读取('/api/integrations/directory-sync/status'); }
@@ -19868,6 +19872,7 @@ const OrganizationWorkspace = {
                 <el-button size="small" @click="重置密码">重置密码（123456）</el-button>
                 <el-button v-if="编辑用户.username !== 'admin' && String(编辑用户.username || '').toLowerCase() !== 当前用户名 && 编辑用户.status === 'active'" size="small" type="danger" plain :loading="提交中" @click="打开停用归档">删除（停用并交接）</el-button>
                 <el-button v-if="编辑用户.status === 'disabled'" size="small" type="success" plain :loading="提交中" @click="打开账号恢复">恢复并重新授权</el-button>
+                <el-button v-if="编辑用户.status === 'disabled'" size="small" type="warning" plain :loading="提交中" @click="打开账号归档清理">归档清理并释放登录名</el-button>
                 <el-button v-if="编辑用户.username !== 'admin' && String(编辑用户.username || '').toLowerCase() !== 当前用户名 && 编辑用户.status === 'active'" size="small" type="warning" plain :loading="提交中" @click="打开重复账号归并">归并到保留账号</el-button>
               </template>
               <span v-else class="组织抽屉空">渠道账号的基本信息、状态和成员职责请在渠道商管理维护。</span>
@@ -19888,6 +19893,9 @@ const OrganizationWorkspace = {
               </div>
             </div>
             <div v-else class="组织抽屉空">未记录已确认的泛微 OA 身份。</div>
+            <div v-if="!泛微OA身份?.formalIdentity && 编辑用户?.status === 'active'" style="margin-top:10px">
+              <el-button v-if="可写" size="small" type="warning" plain :loading="提交中" @click="接管停用账号泛微身份">接管已停用账号的泛微身份</el-button>
+            </div>
             <div v-if="泛微OA身份?.candidates.length" style="margin-top:10px">
               <div v-for="候选 in 泛微OA身份.candidates" :key="候选.id" class="组织抽屉小卡">
                 <div class="组织抽屉小卡主">
@@ -21566,6 +21574,66 @@ const OrganizationWorkspace = {
         提交中.value = false;
       }
     }
+    async function 打开账号归档清理() {
+      if (!编辑用户.value || 编辑用户.value.status !== 'disabled' || !可写.value) return;
+      提交中.value = true;
+      try {
+        const 预览 = await 组织预览账号归档清理(编辑用户.value.id);
+        if (!预览.canArchive) {
+          ElementPlus.ElMessage.warning(预览.notice || '该账号暂不能归档清理。');
+          return;
+        }
+        const 原账号 = 预览.user?.username || 编辑用户.value.username;
+        const 原因 = prompt('请填写归档清理原因：', '重复账号清理');
+        if (原因 === null || !原因.trim()) return;
+        const 确认账号 = prompt('请输入原登录账号以确认：', '');
+        if (确认账号 === null) return;
+        if (!confirm('归档后将释放“' + 原账号 + '”供新账号使用，历史业务和审计仍保留，且该账号不能恢复登录。确认继续？')) return;
+        await 组织归档清理账号(编辑用户.value.id, {
+          reason: 原因.trim(),
+          confirmationUsername: 确认账号.trim(),
+          rowVersion: 预览.user?.rowVersion,
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('账号已归档清理，原登录名已释放。');
+        关闭编辑抽屉();
+        await 加载页面();
+      } catch (error) {
+        ElementPlus.ElMessage.error('账号归档清理失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
+    async function 接管停用账号泛微身份() {
+      if (!编辑用户.value || 编辑用户.value.status !== 'active' || !可写.value) return;
+      const externalSubject = prompt('请输入要接管的泛微 OA userid：', '');
+      if (externalSubject === null || !externalSubject.trim()) return;
+      提交中.value = true;
+      try {
+        const 预览 = await 组织预览泛微OA身份接管(编辑用户.value.id, externalSubject.trim());
+        if (!预览.canTakeover) {
+          ElementPlus.ElMessage.warning(预览.notice || '当前泛微身份不满足接管条件。');
+          return;
+        }
+        const 来源 = 预览.sourceIdentity;
+        const 原因 = prompt('请填写泛微身份接管原因：', '停用账号身份接管');
+        if (原因 === null || !原因.trim()) return;
+        const 来源确认账号 = prompt('请输入来源登录账号“' + 来源.sourceUsername + '”以确认：', '');
+        if (来源确认账号 === null) return;
+        if (!confirm('确认将停用账号“' + 来源.sourceUsername + '”的泛微 userid ' + 来源.externalSubject + ' 接管给当前账号吗？')) return;
+        await 组织接管泛微OA身份(编辑用户.value.id, {
+          externalSubject: 来源.externalSubject,
+          reason: 原因.trim(),
+          confirmationUsername: 编辑用户.value.username,
+          sourceConfirmationUsername: 来源确认账号.trim(),
+        }, { 幂等键: 生成组织幂等键() });
+        ElementPlus.ElMessage.success('泛微 OA 身份已接管，旧映射已停用并保留历史。');
+        await 加载编辑详情(编辑用户.value.id);
+      } catch (error) {
+        ElementPlus.ElMessage.error('泛微身份接管失败：' + 读取错误信息(error, '未知错误'));
+      } finally {
+        提交中.value = false;
+      }
+    }
     async function 打开账号恢复() {
       if (!编辑用户.value || 编辑用户.value.status !== 'disabled' || !可写.value) return;
       提交中.value = true;
@@ -22301,11 +22369,13 @@ const OrganizationWorkspace = {
       确认当前泛微候选,
       驳回当前泛微候选,
       停用当前泛微正式身份,
+      接管停用账号泛微身份,
       泛微候选来源中文,
       泛微候选状态中文,
       重置密码,
       打开停用归档,
       确认停用归档,
+      打开账号归档清理,
       打开账号恢复,
       确认账号恢复,
       打开重复账号归并,
