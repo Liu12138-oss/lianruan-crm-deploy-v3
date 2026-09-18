@@ -70,6 +70,7 @@ describe("V2真实页面兼容接口", () => {
 
     expect(登录.body.success).toBe(true);
     expect(登录.body.user.username).toBe(用户.username);
+    expect(Array.isArray(登录.body.user.roleCodes)).toBe(true);
     expect(登录.body.token).toMatch(/^v2\./);
     expect(登录.headers["set-cookie"]?.[0]).toContain("HttpOnly");
 
@@ -312,18 +313,32 @@ describe("V2真实页面兼容接口", () => {
       expect(数据.rows[0]).toEqual({ assignment_count: 1, pending_eteams: 1, active_wecom: 1 });
     } finally {
       await pool
-        .query("DELETE FROM iam.external_identity_candidates WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.external_identity_candidates WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM iam.external_identities WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.external_identities WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM org.staff_assignments WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM org.staff_assignments WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM iam.user_roles WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.user_roles WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
-      await pool.query("DELETE FROM iam.users WHERE username=$1::citext", [登录账号]).catch(() => {});
+      await pool
+        .query("DELETE FROM iam.users WHERE username=$1::citext", [登录账号])
+        .catch(() => {});
       await pool.end();
     }
   });

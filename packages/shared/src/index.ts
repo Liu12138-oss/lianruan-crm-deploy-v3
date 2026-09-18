@@ -27,6 +27,20 @@ export {
   查找事件,
   查找到期数据源,
 } from "./message-catalog.js";
+export {
+  type 定点金额,
+  微盾收益公式版本,
+  type 微盾收益状态,
+  type 微盾收益缺失规则,
+  type 微盾收益范围,
+  type 微盾收益计算结果,
+  type 微盾收益计算输入,
+  type 微盾硬件收益明细,
+  type 微盾硬件收益行结果,
+  type 微盾软件收益明细,
+  type 微盾软件收益行结果,
+  计算微盾报价收益,
+} from "./quote-profit.js";
 
 export type 应用环境 = "development" | "test" | "staging" | "production";
 

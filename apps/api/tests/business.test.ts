@@ -411,6 +411,14 @@ describe("阶段9业务兼容接口", () => {
       [订单.body.data.id],
     );
     expect(调价后的预审.rows[0]?.count).toBe("1");
+    const 收益冻结事件 = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM ops.outbox_events
+       WHERE event_type='crm.quote.profit.freeze.requested'
+         AND payload_json->>'orderId'=$1`,
+      [订单.body.data.id],
+    );
+    expect(收益冻结事件.rows[0]?.count).toBe("1");
     await pool.end();
   });
 
@@ -835,6 +843,12 @@ describe("阶段9业务兼容接口", () => {
       );
       const 报价 = 报价结果.rows[0];
       if (!报价) throw new Error("创建二级订单审批测试报价失败。");
+      await pool.query(
+        `INSERT INTO crm.quote_items (
+           quote_id, product_ref_type, item_name, quantity, unit_price, line_amount, sort_order
+         ) VALUES ($1::uuid, 'manual', '二级审批测试模块', 1, 16800, 16800, 0)`,
+        [报价.id],
+      );
 
       const 一级渠道查询 = await request(app)
         .get(`/api/quotes/${报价.id}/parent-partners`)

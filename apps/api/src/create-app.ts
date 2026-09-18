@@ -27,6 +27,8 @@ import type { 消息数据服务 } from "./message-store.js";
 import { 创建组织路由 } from "./org-routes.js";
 import type { 组织数据服务 } from "./org-store.js";
 import { 创建目录同步路由 } from "./org-sync-routes.js";
+import { 创建收益路由 } from "./quote-profit-routes.js";
+import { 创建收益数据服务, type 收益数据服务 } from "./quote-profit-store.js";
 import type { Rbac数据服务 } from "./rbac.js";
 import { 创建Rbac路由 } from "./rbac-routes.js";
 import { 请求编号中间件 } from "./request-context.js";
@@ -51,6 +53,7 @@ export interface 创建应用参数 {
   orgService?: 组织数据服务;
   rbacService?: Rbac数据服务;
   sessionAccountStatusService?: 会话账号状态服务;
+  quoteProfitService?: 收益数据服务;
 }
 
 export function 创建应用(参数: 创建应用参数 = {}) {
@@ -101,6 +104,9 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const 会话账号状态服务 =
     参数.sessionAccountStatusService ||
     (config.database.url ? 创建会话账号状态服务(config.database.url) : undefined);
+  const 收益数据服务 =
+    参数.quoteProfitService ||
+    (config.database.url ? 创建收益数据服务(config.database.url) : undefined);
   if (停用账号会话防护已启用 && !会话账号状态服务)
     throw new 应用错误(
       "V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE",
@@ -109,6 +115,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
     );
   app.locals.关闭资源 = async () => {
     await 会话账号状态服务?.关闭?.();
+    await 收益数据服务?.关闭?.();
   };
   app.use(
     "/api",
@@ -143,6 +150,16 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
       ...(参数.env ? { env: 参数.env } : {}),
+    }),
+  );
+  app.use(
+    "/api",
+    创建收益路由({
+      build,
+      sessionSecret: config.session.secret,
+      ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
+      ...(收益数据服务 ? { service: 收益数据服务 } : {}),
     }),
   );
   app.use(
