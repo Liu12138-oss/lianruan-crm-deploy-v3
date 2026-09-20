@@ -170,9 +170,15 @@ run_compose --profile message --profile message-external --profile order-preappr
 echo "同步应用编排、Nginx、运维脚本与数据库迁移。"
 cp "${package_root}/files/compose/docker-compose.yml" "${install_root}/compose/docker-compose.yml"
 cp "${package_root}/files/config/nginx/default.conf" "${install_root}/config/nginx/default.conf"
+cp "${package_root}/files/config/nginx/mcp-https.conf.template" "${install_root}/config/nginx/mcp-https.conf.template"
 cp "${package_root}/files/scripts/"*.sh "${install_root}/scripts/"
 chmod 750 "${install_root}/scripts/"*.sh
 cp "${package_root}/database/migrations/"*.sql "${install_root}/database/migrations/"
+if [ ! -f "${install_root}/config/mcp.env" ]; then
+  cp "${package_root}/files/config/mcp.env.template" "${install_root}/config/mcp.env"
+  chmod 600 "${install_root}/config/mcp.env"
+fi
+INSTALL_ROOT="${install_root}" bash "${install_root}/scripts/generate-secrets.sh"
 
 更新变量() {
   local target_file="$1" key="$2" value="$3"
@@ -189,6 +195,12 @@ cp "${package_root}/database/migrations/"*.sql "${install_root}/database/migrati
 更新变量 "${install_root}/config/v3.env" V3_BUILD_TIME "${BUILD_TIME}"
 if ! grep -q '^V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED=' "${install_root}/config/v3.env"; then
   更新变量 "${install_root}/config/v3.env" V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED false
+fi
+if ! grep -q '^V3_MCP_API_ENABLED=' "${install_root}/config/v3.env"; then
+  更新变量 "${install_root}/config/v3.env" V3_MCP_API_ENABLED false
+fi
+if ! grep -q '^V3_MCP_API_PUBLIC_KEY_FILE=' "${install_root}/config/v3.env"; then
+  更新变量 "${install_root}/config/v3.env" V3_MCP_API_PUBLIC_KEY_FILE /app/secrets/mcp_principal_public.pem
 fi
 if ! grep -q '^MESSAGE_CHANNEL_CONFIG_ENCRYPTION_KEY=' "${install_root}/config/v3.env"; then
   command -v openssl >/dev/null 2>&1 || { echo "缺少 openssl，无法生成消息渠道配置加密密钥。" >&2; exit 1; }

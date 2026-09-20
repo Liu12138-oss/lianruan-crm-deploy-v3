@@ -274,10 +274,13 @@ mkdir -p "${output_dir}/images" "${output_dir}/files/compose" "${output_dir}/fil
 
 cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-api-${target_version}.docker-image" "${output_dir}/images/"
 cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-worker-${target_version}.docker-image" "${output_dir}/images/"
+cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-mcp-${target_version}.docker-image" "${output_dir}/images/"
 cp "${project_root}/deploy/single-server/images/lianruan-crm-v3-nginx-${target_version}.docker-image" "${output_dir}/images/"
 cp "${project_root}/deploy/single-server/compose/docker-compose.yml" "${output_dir}/files/compose/"
 cp "${project_root}/deploy/single-server/config/nginx/default.conf" "${output_dir}/files/config/nginx/"
-for name in health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh 导入订单预审OA与企微身份映射.sh; do
+cp "${project_root}/deploy/single-server/config/nginx/mcp-https.conf.template" "${output_dir}/files/config/nginx/"
+cp "${project_root}/deploy/single-server/config/mcp.env.template" "${output_dir}/files/config/"
+for name in generate-secrets.sh health-check.sh start.sh stop.sh migrate-db.sh backup.sh rollback.sh collect-diagnostics.sh message-observability.sh message-data-retention.sh 导入订单预审OA与企微身份映射.sh; do
   [ -f "${project_root}/deploy/single-server/scripts/${name}" ] && cp "${project_root}/deploy/single-server/scripts/${name}" "${output_dir}/files/scripts/"
 done
 cp -R "${project_root}/database/migrations" "${output_dir}/database/"
@@ -316,6 +319,7 @@ done
 
 api_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianruan-crm-v3-api:${target_version}" 2>/dev/null || true)"
 worker_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianruan-crm-v3-worker:${target_version}" 2>/dev/null || true)"
+mcp_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianruan-crm-v3-mcp:${target_version}" 2>/dev/null || true)"
 nginx_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianruan-crm-v3-nginx:${target_version}" 2>/dev/null || true)"
 {
   printf 'PACKAGE_ID=%s\n' "${package_id}"
@@ -324,7 +328,7 @@ nginx_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianru
   printf 'SOURCE_VERSION=%s\n' "${source_version}"
   printf 'ALLOWED_FROM_VERSIONS=%s\n' "${source_version}"
   printf 'TARGET_VERSION=%s\n' "${target_version}"
-  printf 'AFFECTED_COMPONENTS=api,worker,nginx,config,scripts,database\n'
+  printf 'AFFECTED_COMPONENTS=api,worker,mcp,nginx,config,scripts,database\n'
   printf 'REQUIRES_DB_MIGRATION=true\n'
   printf 'DATABASE_CHANGE_MODE=expand\n'
   printf 'AUTO_ROLLBACK_SCOPE=app\n'
@@ -335,11 +339,13 @@ nginx_digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "lianru
   printf 'SOURCE_API_IMAGE=%s\n' "${source_api_image}"
   printf 'SOURCE_API_IMAGE_ID=%s\n' "${source_api_image_id}"
   printf 'SOURCE_WORKER_IMAGE=%s\n' "${source_worker_image}"
+  printf 'MCP_IMAGE=lianruan-crm-v3-mcp:%s\n' "${target_version}"
   printf 'SOURCE_WORKER_IMAGE_ID=%s\n' "${source_worker_image_id}"
   printf 'SOURCE_NGINX_IMAGE=%s\n' "${source_nginx_image}"
   printf 'SOURCE_NGINX_IMAGE_ID=%s\n' "${source_nginx_image_id}"
   printf 'API_IMAGE_DIGEST=%s\n' "${api_digest}"
   printf 'WORKER_IMAGE_DIGEST=%s\n' "${worker_digest}"
+  printf 'MCP_IMAGE_DIGEST=%s\n' "${mcp_digest}"
   printf 'NGINX_IMAGE_DIGEST=%s\n' "${nginx_digest}"
 } > "${output_dir}/manifest/包元数据.env"
 

@@ -6,6 +6,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/mcp/package.json apps/mcp/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/config/package.json packages/config/package.json
@@ -19,12 +20,16 @@ COPY tsconfig.json tsconfig.base.json ./
 COPY scripts/run-workspaces.mjs scripts/run-workspaces.mjs
 COPY apps apps
 COPY packages packages
-RUN npm run build
+RUN npm --workspace @lianruan/shared run build \
+  && npm --workspace @lianruan/config run build \
+  && npm --workspace @lianruan/testing run build \
+  && npm --workspace @lianruan/worker run build
 
 FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
+COPY apps/mcp/package.json apps/mcp/package.json
 COPY apps/worker/package.json apps/worker/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/config/package.json packages/config/package.json

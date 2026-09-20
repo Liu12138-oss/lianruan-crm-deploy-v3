@@ -19,6 +19,7 @@ import {
   type 认证流程日志器,
   记录请求完成,
 } from "./logger.js";
+import { 创建Mcp路由 } from "./mcp-routes.js";
 import { 创建消息平台路由 } from "./message-platform-routes.js";
 import type { 消息平台数据服务 } from "./message-platform-store.js";
 import { 创建消息路由 } from "./message-routes.js";
@@ -70,6 +71,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const logger = 参数.logger || 创建日志器(config);
   const authFlowLogger = 参数.authFlowLogger || 创建认证流程日志器(config);
   const dependencyChecker = 参数.dependencyChecker || 创建依赖检查器(config);
+  const runtimeEnv = 参数.env || process.env;
   const app = express();
 
   app.disable("x-powered-by");
@@ -114,6 +116,20 @@ export function 创建应用(参数: 创建应用参数 = {}) {
     (config.database.url
       ? 创建业务数据服务({ databaseUrl: config.database.url })
       : 创建业务数据服务({}));
+  const mcpPublicKeyFile = runtimeEnv.V3_MCP_API_PUBLIC_KEY_FILE?.trim();
+  const mcpApiEnabled = runtimeEnv.V3_MCP_API_ENABLED === "true";
+  if (mcpApiEnabled && !mcpPublicKeyFile) {
+    throw new 应用错误("V3_MCP_API_KEY_REQUIRED", "启用MCP内部接口时必须配置主体断言公钥。", 500);
+  }
+  const mcpRoutes =
+    mcpApiEnabled && mcpPublicKeyFile && config.database.url
+      ? 创建Mcp路由({
+          service: 业务数据服务,
+          databaseUrl: config.database.url,
+          publicKeyFile: mcpPublicKeyFile,
+          auditRequired: runtimeEnv.V3_MCP_AUDIT_REQUIRED !== "false",
+        })
+      : null;
   if (停用账号会话防护已启用 && !会话账号状态服务)
     throw new 应用错误(
       "V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE",
@@ -121,9 +137,11 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       503,
     );
   app.locals.关闭资源 = async () => {
+    await mcpRoutes?.close();
     await 会话账号状态服务?.关闭?.();
     await 收益数据服务?.关闭?.();
   };
+  if (mcpRoutes) app.use("/internal/mcp", mcpRoutes.router);
   app.use(
     "/api",
     创建停用账号会话防护({

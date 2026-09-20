@@ -10,7 +10,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 mkdir -p "${secrets_dir}"
-chmod 700 "${secrets_dir}"
+chmod 711 "${secrets_dir}"
 
 create_secret_file() {
   local file_path="$1"
@@ -28,5 +28,23 @@ create_secret_file "${secrets_dir}/postgres_password" 24
 create_secret_file "${secrets_dir}/redis_password" 24
 create_secret_file "${secrets_dir}/session_secret" 48
 create_secret_file "${secrets_dir}/backup_encryption_key" 32
+
+if [ ! -f "${secrets_dir}/mcp_principal_private.pem" ]; then
+  openssl genpkey -algorithm ED25519 -out "${secrets_dir}/mcp_principal_private.pem"
+  echo "已生成：${secrets_dir}/mcp_principal_private.pem"
+else
+  echo "已存在，跳过：${secrets_dir}/mcp_principal_private.pem"
+fi
+chown 10001:10001 "${secrets_dir}/mcp_principal_private.pem"
+chmod 600 "${secrets_dir}/mcp_principal_private.pem"
+
+if [ ! -f "${secrets_dir}/mcp_principal_public.pem" ]; then
+  openssl pkey -in "${secrets_dir}/mcp_principal_private.pem" -pubout -out "${secrets_dir}/mcp_principal_public.pem"
+  echo "已生成：${secrets_dir}/mcp_principal_public.pem"
+else
+  echo "已存在，跳过：${secrets_dir}/mcp_principal_public.pem"
+fi
+chown 1000:1000 "${secrets_dir}/mcp_principal_public.pem"
+chmod 600 "${secrets_dir}/mcp_principal_public.pem"
 
 echo "密钥生成完成。请勿把 ${secrets_dir} 内容复制到代码仓库或普通日志。"

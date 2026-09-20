@@ -4,15 +4,15 @@
 
 ## 1. 目录说明
 
-| 路径 | 用途 |
-| --- | --- |
-| `docker/` | API、Worker、Nginx Web镜像构建文件 |
-| `compose/docker-compose.yml` | 单机生产编排文件 |
-| `config/` | 生产环境变量、Nginx和部署变量模板 |
-| `scripts/` | 构建、导出、安装、启动、停止、迁移、健康检查、备份、回退和诊断脚本 |
-| `images/` | 离线镜像目录 |
-| `runtime/` | Docker和Docker Compose离线运行时目录 |
-| `docs/` | 离线安装说明 |
+| 路径                         | 用途                                                               |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `docker/`                    | API、Worker、MCP、Nginx Web镜像构建文件                            |
+| `compose/docker-compose.yml` | 单机生产编排文件                                                   |
+| `config/`                    | 生产环境变量、Nginx和部署变量模板                                  |
+| `scripts/`                   | 构建、导出、安装、启动、停止、迁移、健康检查、备份、回退和诊断脚本 |
+| `images/`                    | 离线镜像目录                                                       |
+| `runtime/`                   | Docker和Docker Compose离线运行时目录                               |
+| `docs/`                      | 离线安装说明                                                       |
 
 ## 2. 构建机执行
 
@@ -57,5 +57,17 @@ admin / LrCRM@2026!
 
 - 阶段9只迁移V2已有业务能力，不新增公海池等后续功能。
 - 当前无域名证书时先使用HTTP加服务器IP；正式上线前必须补HTTPS。
+- MCP独立服务默认不启动，固定使用Compose `mcp` profile；外部800端口不代理MCP。
 - 暂不启用异机备份，但保留 `BACKUP_REMOTE_ENABLED` 和 `BACKUP_REMOTE_TARGET` 配置位。
 - V2密码和OpenAPI旧密钥不恢复，正式上线前需要初始化密码和重新签发密钥。
+
+## 5. MCP启用边界
+
+`config/mcp.env` 默认 `V3_MCP_ENABLED=false`。启用前必须同时：
+
+1. 在 `config/v3.env` 设置 `V3_MCP_API_ENABLED=true`。
+2. 确认 `secrets/mcp_principal_private.pem` 和 `secrets/mcp_principal_public.pem` 已生成。
+3. 完成阶段二真实只读工具和审计回归。
+4. 外部远程访问另有域名、证书和 OAuth/IAM 配置，复制 `config/nginx/mcp-https.conf.template` 并替换域名及证书路径后才允许开放443 MCP路径。
+
+证书未就绪时不得把MCP路径加入默认80端口Nginx配置。停止MCP只需执行 `docker compose --profile mcp stop mcp`，或运行 `scripts/stop.sh`。

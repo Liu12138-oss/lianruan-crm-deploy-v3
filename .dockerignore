@@ -28,5 +28,6 @@ upgrade_logs
 *.tar.gz
 *.tgz
 deploy/single-server/images/*.tar
+deploy/single-server/images/*.docker-image
 apps/web/test-results
 apps/web/playwright-report
