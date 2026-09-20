@@ -204,6 +204,16 @@ env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${inst
 echo "启动升级后的应用服务。"
 env -u V3_IMAGE_TAG -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME INSTALL_ROOT="${install_root}" bash "${install_root}/scripts/start.sh"
 run_compose --profile message --profile message-external --profile order-preapproval up -d --force-recreate api-1 api-2 worker nginx "${message_services[@]}" "${order_preapproval_services[@]}"
+for attempt in $(seq 1 30); do
+  if target_runtime_is_healthy; then
+    break
+  fi
+  if [ "${attempt}" = "30" ]; then
+    echo "升级后的应用服务未在60秒内全部健康。" >&2
+    false
+  fi
+  sleep 2
+done
 bash "${script_dir}/verify.sh" "${install_root}"
 trap - ERR
 
