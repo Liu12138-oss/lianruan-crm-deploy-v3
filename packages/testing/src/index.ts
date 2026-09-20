@@ -13,6 +13,8 @@ export function 创建测试环境变量(覆盖: NodeJS.ProcessEnv = {}): NodeJS
       "postgresql://lianruan:lianruan_dev_password@127.0.0.1:5432/lianruan_crm_v3_test",
     REDIS_URL: "redis://:lianruan_dev_redis@127.0.0.1:6379/15",
     SESSION_SECRET: "test-only-session-secret",
+    V3_BUSINESS_LEGACY_IDENTITY_ENABLED: "true",
+    V3_BUSINESS_LEGACY_DEFAULT_USER: "liulonghai",
     HEALTH_DEPENDENCY_MODE: "mock",
     V3_BUILD_VERSION: "3.0.0-test",
     V3_BUILD_COMMIT: "test",

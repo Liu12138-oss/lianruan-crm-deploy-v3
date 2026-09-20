@@ -2203,9 +2203,20 @@ describe("阶段9业务兼容接口", () => {
 
   it("可以使用PostgreSQL正式表维护OpenAPI客户端并完成授权调用", async () => {
     const app = 创建应用({ env: 测试环境变量 });
-    const 用户列表 = await request(app).get("/api/users?pageSize=1").expect(200);
-    const 绑定用户 = 用户列表.body.data.数据[0] as { id: string };
-    expect(绑定用户.id).toBeTruthy();
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 超级管理员结果 = await pool.query<{ id: string }>(
+      `
+      SELECT u.id::text AS id
+      FROM iam.users u
+      JOIN iam.user_roles ur ON ur.user_id = u.id
+      JOIN iam.roles r ON r.id = ur.role_id
+      WHERE u.status_code = 'active' AND r.role_code = 'superadmin'
+      ORDER BY u.created_at
+      LIMIT 1
+      `,
+    );
+    const 绑定用户 = 超级管理员结果.rows[0];
+    if (!绑定用户?.id) throw new Error("未找到用于OpenAPI绑定验收的超级管理员。");
 
     const 创建 = await request(app)
       .post("/api/open-api/clients")
@@ -2247,6 +2258,7 @@ describe("阶段9业务兼容接口", () => {
         `${项.path} ${项.resultMessage}`.includes("/api/open/v1/registrations"),
       ),
     ).toBe(true);
+    await pool.end();
   });
 
   it("可以维护工作量映射和交付规则，并影响报价工作量试算", async () => {

@@ -8,6 +8,7 @@ import express from "express";
 
 import { 创建认证路由, 创建门户单点登录路由 } from "./auth-routes.js";
 import { 创建业务路由 } from "./business-routes.js";
+import { type 业务数据服务, 创建业务数据服务 } from "./business-store.js";
 import type { 依赖检查器 } from "./dependencies.js";
 import { 创建依赖检查器 } from "./dependencies.js";
 import { 创建健康路由 } from "./health-routes.js";
@@ -54,6 +55,7 @@ export interface 创建应用参数 {
   rbacService?: Rbac数据服务;
   sessionAccountStatusService?: 会话账号状态服务;
   quoteProfitService?: 收益数据服务;
+  businessService?: 业务数据服务;
 }
 
 export function 创建应用(参数: 创建应用参数 = {}) {
@@ -107,6 +109,11 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const 收益数据服务 =
     参数.quoteProfitService ||
     (config.database.url ? 创建收益数据服务(config.database.url) : undefined);
+  const 业务数据服务 =
+    参数.businessService ||
+    (config.database.url
+      ? 创建业务数据服务({ databaseUrl: config.database.url })
+      : 创建业务数据服务({}));
   if (停用账号会话防护已启用 && !会话账号状态服务)
     throw new 应用错误(
       "V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE",
@@ -167,7 +174,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
     创建业务路由({
       build,
       sessionSecret: config.session.secret,
-      ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      service: 业务数据服务,
       ...(参数.env ? { env: 参数.env } : {}),
       logger,
     }),

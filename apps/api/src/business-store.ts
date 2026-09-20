@@ -56,6 +56,13 @@ interface 业务用户上下文 {
   partnerIds: string[];
   partnerExternalIds: string[];
   partnerName: string;
+  scopeBindings: 资源数据范围绑定[];
+}
+
+interface 资源数据范围绑定 {
+  resourceCode: string;
+  scopeType: "all" | "org_subtree" | "region" | "partner" | "self";
+  scopeRefId: string | null;
 }
 
 interface 业务归属结果 {
@@ -72,6 +79,8 @@ export interface 阶段9查询参数 {
   status?: string | undefined;
   level?: string | undefined;
   region?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
   userId?: string | undefined;
   partnerId?: string | undefined;
   operatorId?: string | undefined;
@@ -1440,6 +1449,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       extra_partner_id: string | null;
       extra_partner_name: string | null;
       extra_region_name: string | null;
+      scope_bindings: 资源数据范围绑定[] | null;
     }>(
       `
       SELECT
@@ -1499,7 +1509,23 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ) || CASE WHEN p_extra.partner_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[p_extra.partner_name] END AS partner_names,
         u.extra_json->>'partnerId' AS extra_partner_id,
         u.extra_json->>'partnerName' AS extra_partner_name,
-        u.extra_json->>'region' AS extra_region_name
+        u.extra_json->>'region' AS extra_region_name,
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'resourceCode', d.resource_code,
+                'scopeType', d.scope_type,
+                'scopeRefId', d.scope_ref_id::text
+              )
+              ORDER BY d.resource_code, d.scope_type, d.scope_ref_id
+            )
+            FROM iam.data_scope_bindings d
+            WHERE d.status_code = 'active'
+              AND d.role_id IN (SELECT ur_scope.role_id FROM iam.user_roles ur_scope WHERE ur_scope.user_id = u.id)
+          ),
+          '[]'::jsonb
+        ) AS scope_bindings
       FROM iam.users u
       LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
       LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
@@ -1556,11 +1582,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ...伙伴外部编号,
       ]),
       partnerName: row.partner_names?.[0] || row.extra_partner_name || 用户.partnerName || "",
+      scopeBindings: Array.isArray(row.scope_bindings) ? row.scope_bindings : [],
     };
   }
 
   private 构建数据范围条件(模块: 阶段9模块, 用户: 业务用户上下文 | null, 参数: unknown[]): string {
     if (!用户) return 模块 === "notifications" ? "false" : "true";
+    const 绑定条件 = 构建资源绑定范围条件(模块, 用户, 参数);
+    if (绑定条件 !== null) return 绑定条件;
     if (模块 === "partners") return 构建渠道商数据范围条件(用户, 参数);
     if (模块 === "users") return 构建账号数据范围条件(用户, 参数);
     if (模块 === "approvals") return 构建审核数据范围条件(用户, 参数);
@@ -1688,6 +1717,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     if (查询.region) {
       参数.push("%" + 查询.region + "%");
       条件.push(`("区域" ILIKE $${参数.length} OR "原始数据"->>'region' ILIKE $${参数.length})`);
+    }
+    if (查询.from) {
+      参数.push(查询.from);
+      条件.push(`substring("更新时间" FROM 1 FOR 10) >= $${参数.length}`);
+    }
+    if (查询.to) {
+      参数.push(查询.to);
+      条件.push(`substring("更新时间" FROM 1 FOR 10) <= $${参数.length}`);
     }
     if (查询.partnerId && 应使用渠道兼容过滤(上下文)) {
       参数.push(查询.partnerId);
@@ -4621,14 +4658,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       }
       失败阶段 = "issue_token";
       const ttl = 2 * 60 * 60;
-      const allowedResources = row.resources.length
-        ? row.resources
-        : 解析JSON数组(row.extra_json?.allowedResources);
+      const allowedResources = (
+        row.resources.length ? row.resources : 解析JSON数组(row.extra_json?.allowedResources)
+      ).filter((resource) => resource && resource !== "*");
       const accessToken = 签发开放接口访问令牌({
         clientId: row.client_id,
         clientName: row.client_name,
         appKey: row.client_code,
-        allowedResources: allowedResources.length ? allowedResources : ["*"],
+        allowedResources,
         boundUserId: row.bound_user_id || "",
         boundUserName: row.bound_user_name || "",
         ttl,
@@ -5371,7 +5408,7 @@ function 规范开放接口状态(value: string): string {
 
 function 读取开放接口资源(输入: Record<string, unknown>): string[] {
   const resources = 读取文本数组(输入, ["allowedResources", "resources"]);
-  if (!resources.length || resources.includes("*")) return ["*"];
+  if (!resources.length || resources.includes("*")) return [];
   return Array.from(new Set(resources));
 }
 
@@ -5400,7 +5437,7 @@ async function 重写开放接口权限(
   await client.query("DELETE FROM integration.open_api_permissions WHERE client_id = $1::uuid", [
     clientId,
   ]);
-  for (const resource of resources.length ? resources : ["*"]) {
+  for (const resource of resources) {
     await client.query(
       `
       INSERT INTO integration.open_api_permissions (client_id, resource_code, action_code)
@@ -6326,6 +6363,78 @@ function 数据范围表别名(模块: 阶段9模块): string {
   if (模块 === "opportunities") return "o";
   if (模块 === "quotes") return "q";
   if (模块 === "orders") return "o";
+  return "";
+}
+
+function 构建资源绑定范围条件(
+  模块: 阶段9模块,
+  用户: 业务用户上下文,
+  参数: unknown[],
+): string | null {
+  const resourceCode = 资源绑定代码(模块);
+  const alias = 数据范围表别名(模块);
+  if (!resourceCode || !alias) return null;
+  const bindings = 用户.scopeBindings.filter((binding) => binding.resourceCode === resourceCode);
+  if (!bindings.length) return null;
+  if (bindings.some((binding) => binding.scopeType === "all")) return "true";
+
+  const conditions = bindings.flatMap((binding) =>
+    构建单项绑定条件(模块, alias, binding, 用户, 参数),
+  );
+  return conditions.length ? `(${conditions.join(" OR ")})` : "false";
+}
+
+function 构建单项绑定条件(
+  模块: 阶段9模块,
+  alias: string,
+  binding: 资源数据范围绑定,
+  用户: 业务用户上下文,
+  参数: unknown[],
+): string[] {
+  if (binding.scopeType === "self") {
+    参数.push(用户.userId);
+    return [`${alias}.owner_user_id = $${参数.length}::uuid`];
+  }
+  if (binding.scopeType === "partner") {
+    if (!binding.scopeRefId) return [];
+    参数.push([binding.scopeRefId]);
+    return [`${alias}.partner_id = ANY($${参数.length}::uuid[])`];
+  }
+  if (binding.scopeType === "region") {
+    if (!binding.scopeRefId) return [];
+    if (模块 === "quotes" || 模块 === "orders") {
+      参数.push([binding.scopeRefId]);
+      return [
+        `EXISTS (
+          SELECT 1 FROM channel.partners p_scope
+          WHERE p_scope.id = ${alias}.partner_id
+            AND p_scope.region_id = ANY($${参数.length}::uuid[])
+        )`,
+      ];
+    }
+    参数.push([binding.scopeRefId]);
+    return [`${alias}.region_id = ANY($${参数.length}::uuid[])`];
+  }
+  if (binding.scopeType === "org_subtree") {
+    if (!binding.scopeRefId) return [];
+    参数.push([binding.scopeRefId]);
+    return [
+      `${alias}.owner_user_id IN (
+        SELECT assignment.user_id
+        FROM org.staff_assignments assignment
+        WHERE assignment.org_unit_id = ANY($${参数.length}::uuid[])
+          AND (assignment.expired_at IS NULL OR assignment.expired_at > now())
+      )`,
+    ];
+  }
+  return [];
+}
+
+function 资源绑定代码(模块: 阶段9模块): string {
+  if (模块 === "registrations") return "registration";
+  if (模块 === "opportunities") return "opportunity";
+  if (模块 === "quotes") return "quote";
+  if (模块 === "orders") return "order";
   return "";
 }
 
