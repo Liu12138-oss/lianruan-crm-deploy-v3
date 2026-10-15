@@ -184,8 +184,9 @@ PY
   (
     cd "${compose_dir}"
     docker compose stop nginx api-1 api-2 worker || true
-    docker compose --profile message --profile message-external stop \
-      worker-message-critical worker-message-maintenance worker-message-integration || true
+    docker compose --profile message --profile message-external --profile order-preapproval stop \
+      worker-message-critical worker-message-maintenance worker-message-integration \
+      worker-order-preapproval || true
     docker compose up -d postgres redis-state redis-cache
   )
 }
@@ -193,8 +194,8 @@ PY
 检查业务服务已停止() {
   local running_services
   local service_name
-  running_services="$(cd "${compose_dir}" && docker compose --profile message --profile message-external ps --status running --services || true)"
-  for service_name in nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration; do
+  running_services="$(cd "${compose_dir}" && docker compose --profile message --profile message-external --profile order-preapproval ps --status running --services || true)"
+  for service_name in nginx api-1 api-2 worker worker-message-critical worker-message-maintenance worker-message-integration worker-order-preapproval; do
     if printf '%s\n' "${running_services}" | grep -Fxq "${service_name}"; then
       echo "服务仍在运行，拒绝覆盖测试数据：${service_name}" >&2
       exit 1
@@ -277,12 +278,52 @@ with zipfile.ZipFile(archive) as zip_file:
 PY
   fi
   mkdir -p "${install_root}/data/uploads"
+  mkdir -p "${install_root}/data/uploads/order-preapproval"
+
+  # 应用容器以 node(1000:1000) 运行；导入包内的附件由 root 解压，需调整属主，
+  # 否则订单预审任务进程写入报价单 PDF 时会报 EACCES。
+  if [ "$(id -u)" = "0" ]; then
+    chown -R 1000:1000 "${install_root}/data/uploads"
+    echo "上传附件目录属主已调整为应用容器用户（1000:1000）。"
+  else
+    echo "警告：当前非 root，无法调整上传附件目录属主；请确认容器用户（1000:1000）可写 ${install_root}/data/uploads。" >&2
+  fi
 
   echo "清空测试导出文件，避免保留旧测试数据或复制生产导出文件。"
   if [ -e "${install_root}/data/exports" ]; then
     mv "${install_root}/data/exports" "${old_exports_dir}"
   fi
   mkdir -p "${install_root}/data/exports"
+}
+
+# 导入后的数据库会带回生产环境的发件箱历史事件。若任务进程直接启动，
+# 会把导入前的历史事件当作新事件回放（对外发起 OA、企微或通知），
+# 因此把事件截止时间推进到本次导入时刻，只允许处理导入之后产生的事件。
+更新事件截止时间() {
+  local env_file="${install_root}/config/v3.env"
+  if [ ! -f "${env_file}" ]; then
+    echo "警告：未找到测试环境配置 ${env_file}，跳过事件截止时间更新。" >&2
+    return 0
+  fi
+  local cutover_value
+  cutover_value="$(date '+%Y-%m-%dT%H:%M:%S%:z')"
+  local updated_keys=""
+  local key
+  for key in ORDER_PREAPPROVAL_EVENT_CUTOVER_AT MESSAGE_EVENT_CUTOVER_AT QUOTE_PROFIT_EVENT_CUTOVER_AT; do
+    if grep -qE "^${key}=" "${env_file}"; then
+      updated_keys="${updated_keys} ${key}"
+    fi
+  done
+  if [ -z "${updated_keys}" ]; then
+    echo "提示：配置中没有事件截止时间字段，跳过更新；启动任务进程前请人工核对存量事件。"
+    return 0
+  fi
+  cp -p "${env_file}" "${env_file}.bak-before-import-${timestamp}"
+  for key in ${updated_keys}; do
+    sed -i -E "s|^${key}=.*$|${key}=${cutover_value}|" "${env_file}"
+  done
+  echo "事件截止时间已更新为 ${cutover_value}（字段：${updated_keys# }），防止任务进程回放导入的历史事件。"
+  echo "配置备份：${env_file}.bak-before-import-${timestamp}"
 }
 
 输出验证结果() {
@@ -415,10 +456,12 @@ if [ "${restored_latest}" != "t" ]; then
 fi
 
 恢复测试附件
+更新事件截止时间
 输出验证结果
 
 echo "生产 V3 数据已导入测试环境，业务服务当前保持停止。"
 echo "测试环境回退备份：${backup_dir}"
+echo "提示：订单预审任务进程属于独立 profile，导入核对完成后如需启用，请先核对附件目录权限与事件截止时间，再按运维文档以 --profile order-preapproval 启动。"
 echo "如需启动测试服务，请先核对上述数据和迁移结果，再执行："
 echo "  sudo INSTALL_ROOT=${install_root} bash ${install_root}/scripts/start.sh"
 

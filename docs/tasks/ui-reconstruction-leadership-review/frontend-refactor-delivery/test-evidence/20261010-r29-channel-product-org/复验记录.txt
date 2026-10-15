@@ -1,0 +1,66 @@
+# R29 只读复验（生成时间：2026/10/10 10:32:44）
+
+## 1. 渠道档案扩展字段覆盖
+
+### 1.1 详情面板「有效展示覆盖」（核心档案优先、渠道主档回退，分母 227 家渠道）
+数据来源：测试环境 PostgreSQL 直查（只读 SQL）
+
+| 字段 | 已维护家数 | 占比 |
+| --- | --- | --- |
+| 成立时间 establishedAt | 87 | 38.3% |
+| 注册资本 registeredCapital | 65 | 28.6% |
+| 统一社会信用代码 unifiedSocialCreditCode | 65 | 28.6% |
+| 合作背景 cooperationBackground | 21 | 9.3% |
+| 业务范围 businessScope | 65 | 28.6% |
+| 典型客户 typicalCustomers | 205 | 90.3% |
+
+核对 SQL（节选）：
+```sql
+WITH 合并 AS (
+  SELECT p.id, p.extra_json AS b, COALESCE(pp.extra_json, '{}'::jsonb) AS pp
+  FROM channel.partners p
+  LEFT JOIN LATERAL (
+    SELECT extra_json FROM channel.partner_profiles
+    WHERE partner_id = p.id AND status_code = 'active' ORDER BY id LIMIT 1
+  ) pp ON true
+)
+SELECT count(*) FILTER (WHERE COALESCE(NULLIF(pp->>'establishedAt',''), NULLIF(b->>'establishedAt',''), '') <> '') AS 成立时间,
+       count(*) AS 渠道总数
+FROM 合并;
+```
+
+备注：列表接口 `/api/partners` 返回行的 `原始数据` 仅来自 `channel.partners.extra_json`（成立时间 23 / 注册资本 22 / 信用代码 22 / 合作背景 0），
+详情面板会再叠加 `/api/v2/partners/:id/profile` 的核心档案，因此以「有效展示覆盖」为准。
+未维护的记录在界面上统一显示「未维护」，属数据现状而非功能缺失。
+
+## 2. 渠道经营摘要对照
+- 渠道：联软科技长沙研发中心（编号 27107f49-2efb-89aa-2aaa-bafe3d81e07b）
+- 客户总数（接口）：40
+- 商机总数（接口）：26
+- 报价单总数（接口）：70
+- 订单总数（接口）：68
+- 界面摘要：客户 | 40 | 报备客户 | 商机 | 26 | 在管商机 | 报价单 | 70 | 累计报价 | 订单 | 68 | 累计订单
+- 工商主体含信用代码/成立时间/注册资本：true
+- 页面含合作背景面板：true
+- 合作背景面板含协议编号：true
+
+## 3. 产品目录统计
+- {"categories":6,"modules":9,"features":42,"hardware":22,"packages":6,"total":70}
+
+## 4. 导航与入口（超管桌面端）
+- 顶部导航实际渲染项（超管桌面端，1720×1000）：业务全景 / 工作台 / 客户 / 线索 / 商机 / 渠道 / 订单 / 产品 / 消息 / 配置 / 审计
+  （其中「配置」= 管理配置 → `/admin/organization`，「审计」= 审计日志 → `/admin/audit-logs`，导航展示的是简称）
+- 导航项「审计」可点击进入审计日志页：true
+- 导航项「配置」可点击进入组织与账号工作区：true（见 `顶部导航.png`）
+- 审计日志页 /admin/audit-logs → HTTP 200
+- 渠道管理页 /admin/partners → HTTP 200
+- 产品目录页 /admin/products → HTTP 200
+- 组织工作区页 /admin/organization → HTTP 200
+- 账号管理页 /admin/account-manage → HTTP 200
+
+以上均为只读复验，未写入任何测试数据。
+
+补充核对（2026-10-10 复核）：
+- 顶部导航超管可见项：业务全景 / 工作台 / 客户管理 / 线索管理 / 商机作战 / 渠道管理 / 订单中心 / 产品目录 / 消息中心 / 管理配置 / 审计日志。
+- 组织与账号维护入口为「管理配置」→ `/admin/organization`，其下含组织架构、部门岗位、账号管理、认证管理、开放接口等子页。
+- 产品统计口径：`/api/v2/products/stats` → categories 6、modules 9、features 42、hardware 22、packages 6、total 70。

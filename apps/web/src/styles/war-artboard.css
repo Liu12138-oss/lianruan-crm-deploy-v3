@@ -1,0 +1,269 @@
+/**
+ * 作战室画板：与 ui-demo 原型保持一致的画板排版。
+ *
+ * 原型几何（1440 视口，见 ui-demo/VISUAL-RULES.md 与 demo.css）：
+ * - 画板 1440px 宽、740px 高（内容盒），1px 边框 + 14px 圆角
+ * - 六项指标区距离画板顶部 73px、高 96px、左右边距 20px
+ * - 三栏区距离画板顶部 180px、列宽 304 / 自适应 / 342，列内滚动，整页不随内容撑高
+ * - 画板与指标区之间不得出现页面标题或面包屑
+ *
+ * R23 自适应口径：原型是 1440×742 的「设计画布」，原型中画板本身就是铺满画布的。
+ * 生产环境不应把这个画布尺寸当成固定尺寸做「信箱式」留白——那会在宽屏/高屏上
+ * 出现左右与下方的大面积空白。因此这里改为：画板铺满内容区，四周仅保留统一 10px 外边距。
+ *   - 宽度：calc(100% - 20px)，宽屏不再出现左右留白
+ *   - 高度：calc(100vh - 外壳顶栏 - 20px)，高屏不再出现底部留白
+ *     （外壳顶栏高度由 --v3-board-topbar-h 提供：顶部导航外壳 62px、无顶栏路由 0px）
+ *   - 三栏列宽、KPI 高度、列内滚动等原型几何全部保持不变
+ *
+ * R24 顶部偏移口径：原型 ui-demo 的画板内部含 62px 顶栏（实测 .top-nav 距板顶 1px、高 62px；
+ * .war-kpis 距板顶 74px、.war-layout 距板顶 181px），因此顶栏下方真实间距只有 11px / 118px。
+ * 生产外壳把顶栏放在画板之外，若仍按「距画板顶部 73px / 180px」留白，每页顶部会多出 62px 空白。
+ * 统一用 calc(原型值 - 外壳顶栏高度) 还原，无顶栏路由（--v3-board-topbar-h: 0px）保持原型值。
+ */
+.vui.war-artboard {
+  /* 窄屏收窄到 1180 以内再横向滚动，避免右栏被裁切 */
+  width: calc(100% - 20px) !important;
+  max-width: none !important;
+  min-width: 1180px !important;
+  height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px) !important;
+  min-height: 620px !important;
+  margin: 10px auto !important;
+  /* 顶栏下 11px + 96px 指标区 + 11px 间距 = 顶栏下 118px（对应原型距板顶 180px，含 1px 边框） */
+  padding: calc(73px - var(--v3-board-inner-topnav-h, var(--v3-board-topbar-h, 0px))) 0 0 !important;
+  box-sizing: border-box !important;
+  display: grid !important;
+  grid-template-rows: 96px minmax(0, 1fr) !important;
+  gap: 11px !important;
+  border: 1px solid #cadbed !important;
+  border-radius: 14px !important;
+  background: var(--page, #edf5fc) !important;
+  box-shadow: 0 26px 64px rgba(31, 69, 111, 0.16) !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard .war-kpis {
+  position: static !important;
+  inset: auto !important;
+  margin: 0 20px !important;
+  height: 96px !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.vui.war-artboard .war-layout {
+  position: static !important;
+  inset: auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  grid-template-columns: 304px minmax(0, 1fr) 342px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  background: transparent !important;
+}
+
+.vui.war-artboard .war-layout > .war-list,
+.vui.war-artboard .war-layout > .war-center,
+.vui.war-artboard .war-layout > .war-right {
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+}
+
+.vui.war-artboard .war-list-body {
+  flex: 1 !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+/* 画板内不再跟随内容无限增高 */
+.vui.war-artboard :is(.war-center, .war-right) {
+  height: 100% !important;
+}
+
+/* 专属布局页面（线索来源、证书、组织、新建流程）：只统一画板宽度与内边距，保留自身结构 */
+.vui.war-artboard-plain {
+  width: calc(100% - 20px) !important;
+  max-width: none !important;
+  min-width: 1180px !important;
+  /* 内容不足一屏时也铺满内容区，避免底部出现大块空白 */
+  min-height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px) !important;
+  margin: 10px auto !important;
+  /* 原型该页标题区距板顶 74px，扣除外壳顶栏后即顶栏下 12px */
+  padding: calc(73px - var(--v3-board-inner-topnav-h, var(--v3-board-topbar-h, 0px))) 20px 20px !important;
+  box-sizing: border-box !important;
+  position: relative !important;
+  border: 1px solid #cadbed !important;
+  border-radius: 14px !important;
+  background: var(--page, #edf5fc) !important;
+  box-shadow: 0 26px 64px rgba(31, 69, 111, 0.16) !important;
+}
+
+/* 专属画板内的六项指标区：不再使用原型里的绝对定位，随画板内边距落在 73px / 左右 20px。 */
+.vui.war-artboard-plain > .war-kpis {
+  position: static !important;
+  inset: auto !important;
+  margin: 0 !important;
+  height: 96px !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+/* 区域范围过滤：与原型列表头一致 */
+.vui.war-artboard .flow-inline {
+  margin: 12px 16px 0;
+  padding-bottom: 4px;
+}
+
+.vui.war-artboard .war-center {
+  display: flex;
+  flex-direction: column;
+}
+
+.vui.war-artboard .war-center > .extended-center-grid,
+.vui.war-artboard .war-center > .panel {
+  overflow-y: auto;
+}
+
+.vui.war-artboard .war-region {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.vui.war-artboard .war-region select {
+  flex: 1;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 11px;
+}
+
+/**
+ * 通栏面板页（产品目录、审核中心、OpenAPI、审计与系统、消息中心）。
+ *
+ * 原型 ui-demo 中这几页的画板结构与三栏作战室不同：
+ * - 画板高度固定 742px，内容超出时在画板内部滚动（与 VISUAL-RULES「固定画板」一致）；
+ * - 六项指标区绝对定位在画板顶部 73px；
+ * - 其余内容按 demo-content 的 180px 顶部内边距自上而下排列（实测首个子元素顶 181px、左 21px、宽 1398px）。
+ * 因此这里不再使用「96px + 1fr」的网格，而是沿用原型的 padding + 绝对定位 + 面板内部滚动。
+ */
+.vui.war-artboard.war-artboard-flow {
+  width: calc(100% - 20px) !important;
+  max-width: none !important;
+  min-width: 1180px !important;
+  height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px) !important;
+  min-height: 620px !important;
+  margin: 10px auto !important;
+  /* 原型该页首个子元素距板顶 181px，扣除外壳顶栏后即顶栏下 119px */
+  padding: calc(180px - var(--v3-board-inner-topnav-h, var(--v3-board-topbar-h, 0px))) 20px 20px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px !important;
+  position: relative !important;
+  border: 1px solid #cadbed !important;
+  border-radius: 14px !important;
+  background: var(--page, #edf5fc) !important;
+  box-shadow: 0 26px 64px rgba(31, 69, 111, 0.16) !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .war-kpis {
+  position: absolute !important;
+  /* R24：原型指标区绝对定位在板内 73px（含板内 62px 顶栏），生产外壳顶栏在板外，需扣减。 */
+  inset: calc(73px - var(--v3-board-inner-topnav-h, var(--v3-board-topbar-h, 0px))) 20px auto 20px !important;
+  margin: 0 !important;
+  height: 96px !important;
+  grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .workspace-switch {
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+}
+
+/* 通栏面板与两列网格在画板内平分剩余高度，面板正文自己滚动。 */
+.vui.war-artboard.war-artboard-flow > .panel {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+/* 两列网格保持原型的两列并排，不跟随 .panel 变成纵向排列。 */
+.vui.war-artboard.war-artboard-flow > .grid-2 {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .grid-2 > .panel {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .panel > .panel-head,
+.vui.war-artboard.war-artboard-flow > .grid-2 > .panel > .panel-head {
+  flex: 0 0 auto !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .panel > .panel-body,
+.vui.war-artboard.war-artboard-flow > .grid-2 > .panel > .panel-body {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+/* flush 面板：工具栏与表头固定，只有表格区域滚动。 */
+.vui.war-artboard.war-artboard-flow > .panel > .panel-body.flush,
+.vui.war-artboard.war-artboard-flow > .grid-2 > .panel > .panel-body.flush {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard.war-artboard-flow > .panel > .panel-body.flush > .table-wrap,
+.vui.war-artboard.war-artboard-flow > .grid-2 > .panel > .panel-body.flush > .table-wrap {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+/**
+ * 铺满高度画板（组织架构等工作区页）：画板高度铺满内容区，超出内容在画板内滚动。
+ */
+.vui.war-artboard-plain.war-artboard-fixed {
+  height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px) !important;
+  min-height: 620px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.vui.war-artboard-plain.war-artboard-fixed > .war-kpis {
+  flex: 0 0 auto !important;
+}
+
+.vui.war-artboard-plain.war-artboard-fixed > .组织画板滚动区 {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-right: 4px;
+}

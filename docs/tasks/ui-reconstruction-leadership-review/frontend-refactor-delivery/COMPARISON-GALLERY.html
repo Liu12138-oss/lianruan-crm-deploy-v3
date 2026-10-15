@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UI 重构前后对比画廊（r11）</title>
+    <style>
+      :root {
+        color: #172b4d;
+        background: #eef4fa;
+        font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 28px;
+      }
+      header {
+        max-width: 1500px;
+        margin: 0 auto 22px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+      p {
+        margin: 0;
+        color: #60748c;
+        line-height: 1.65;
+      }
+      main {
+        display: grid;
+        max-width: 1500px;
+        gap: 22px;
+        margin: auto;
+      }
+      section {
+        overflow: hidden;
+        border: 1px solid #d7e3f0;
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 12px 32px rgba(31, 65, 109, 0.08);
+      }
+      h2 {
+        margin: 0;
+        padding: 16px 18px;
+        border-bottom: 1px solid #e5edf6;
+        font-size: 17px;
+      }
+      .meta {
+        padding: 12px 18px;
+        color: #6a7d92;
+        background: #f8fbff;
+        font-size: 12px;
+      }
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+      figure {
+        min-width: 0;
+        margin: 0;
+        padding: 18px;
+      }
+      figure + figure {
+        border-left: 1px solid #e5edf6;
+      }
+      figcaption {
+        margin-bottom: 10px;
+        color: #40576f;
+        font-size: 13px;
+        font-weight: 800;
+      }
+      img {
+        display: block;
+        width: 100%;
+        border: 1px solid #dbe6f1;
+        border-radius: 8px;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>UI 重构前后对比画廊（r11）</h1>
+      <p>
+        重构前取旧镜像只读容器抓取的 1440×900 截图，重构后取当前测试环境同一路由截图。共
+        9 组重点页面对比。
+      </p>
+    </header>
+    <main>
+      <section>
+        <h2>工作台 · <code>/admin/dashboard</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-dashboard.png" alt="工作台 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-dashboard.png" alt="工作台 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>客户报备 · <code>/admin/registration</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-registration.png" alt="客户报备 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-registration.png" alt="客户报备 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>商机管理 · <code>/admin/opportunity</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-opportunity.png" alt="商机管理 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-opportunity.png" alt="商机管理 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>报价管理 · <code>/admin/quote</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-quote.png" alt="报价管理 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-quote.png" alt="报价管理 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>订单中心 · <code>/admin/order</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-order.png" alt="订单中心 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-order.png" alt="订单中心 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>产品目录 · <code>/admin/products</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-products.png" alt="产品目录 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-products.png" alt="产品目录 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>渠道商 · <code>/admin/partners</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-partners.png" alt="渠道商 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-partners.png" alt="渠道商 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>审核中心 · <code>/admin/admin-review</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-admin-review.png" alt="审核中心 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-admin-review.png" alt="审核中心 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+      <section>
+        <h2>消息中心 · <code>/admin/notifications</code></h2>
+        <p class="meta">左：重构前（旧镜像 3.0.0-stage10.20260920-mcpdeploy1）；右：重构后（uirefactor11，1440×900）</p>
+        <div class="compare">
+          <figure>
+            <figcaption><span>重构前</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/before-screenshots/superadmin-1440--admin-notifications.png" alt="消息中心 重构前" loading="lazy" />
+          </figure>
+          <figure>
+            <figcaption><span>重构后</span></figcaption>
+            <img src="test-evidence/20260923-refactor-verification-r11/screenshots/superadmin-1440--admin-notifications.png" alt="消息中心 重构后" loading="lazy" />
+          </figure>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

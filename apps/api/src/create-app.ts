@@ -8,6 +8,7 @@ import express from "express";
 
 import { 创建认证路由, 创建门户单点登录路由 } from "./auth-routes.js";
 import { 创建业务路由 } from "./business-routes.js";
+import { type 业务数据服务,创建业务数据服务 } from "./business-store.js";
 import type { 依赖检查器 } from "./dependencies.js";
 import { 创建依赖检查器 } from "./dependencies.js";
 import { 创建健康路由 } from "./health-routes.js";
@@ -18,6 +19,7 @@ import {
   type 认证流程日志器,
   记录请求完成,
 } from "./logger.js";
+import { 创建Mcp路由 } from "./mcp-routes.js";
 import { 创建消息平台路由 } from "./message-platform-routes.js";
 import type { 消息平台数据服务 } from "./message-platform-store.js";
 import { 创建消息路由 } from "./message-routes.js";
@@ -27,6 +29,8 @@ import type { 消息数据服务 } from "./message-store.js";
 import { 创建组织路由 } from "./org-routes.js";
 import type { 组织数据服务 } from "./org-store.js";
 import { 创建目录同步路由 } from "./org-sync-routes.js";
+import { 创建收益路由 } from "./quote-profit-routes.js";
+import { 创建收益数据服务, type 收益数据服务 } from "./quote-profit-store.js";
 import type { Rbac数据服务 } from "./rbac.js";
 import { 创建Rbac路由 } from "./rbac-routes.js";
 import { 请求编号中间件 } from "./request-context.js";
@@ -51,6 +55,8 @@ export interface 创建应用参数 {
   orgService?: 组织数据服务;
   rbacService?: Rbac数据服务;
   sessionAccountStatusService?: 会话账号状态服务;
+  quoteProfitService?: 收益数据服务;
+  businessService?: 业务数据服务;
 }
 
 export function 创建应用(参数: 创建应用参数 = {}) {
@@ -65,6 +71,7 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const logger = 参数.logger || 创建日志器(config);
   const authFlowLogger = 参数.authFlowLogger || 创建认证流程日志器(config);
   const dependencyChecker = 参数.dependencyChecker || 创建依赖检查器(config);
+  const runtimeEnv = 参数.env || process.env;
   const app = express();
 
   app.disable("x-powered-by");
@@ -101,6 +108,28 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const 会话账号状态服务 =
     参数.sessionAccountStatusService ||
     (config.database.url ? 创建会话账号状态服务(config.database.url) : undefined);
+  const 收益数据服务 =
+    参数.quoteProfitService ||
+    (config.database.url ? 创建收益数据服务(config.database.url) : undefined);
+  const 业务数据服务 =
+    参数.businessService ||
+    (config.database.url
+      ? 创建业务数据服务({ databaseUrl: config.database.url })
+      : 创建业务数据服务({}));
+  const mcpPublicKeyFile = runtimeEnv.V3_MCP_API_PUBLIC_KEY_FILE?.trim();
+  const mcpApiEnabled = runtimeEnv.V3_MCP_API_ENABLED === "true";
+  if (mcpApiEnabled && !mcpPublicKeyFile) {
+    throw new 应用错误("V3_MCP_API_KEY_REQUIRED", "启用MCP内部接口时必须配置主体断言公钥。", 500);
+  }
+  const mcpRoutes =
+    mcpApiEnabled && mcpPublicKeyFile && config.database.url
+      ? 创建Mcp路由({
+          service: 业务数据服务,
+          databaseUrl: config.database.url,
+          publicKeyFile: mcpPublicKeyFile,
+          auditRequired: runtimeEnv.V3_MCP_AUDIT_REQUIRED !== "false",
+        })
+      : null;
   if (停用账号会话防护已启用 && !会话账号状态服务)
     throw new 应用错误(
       "V3_AUTH_ACCOUNT_CHECK_UNAVAILABLE",
@@ -108,8 +137,11 @@ export function 创建应用(参数: 创建应用参数 = {}) {
       503,
     );
   app.locals.关闭资源 = async () => {
+    await mcpRoutes?.close();
     await 会话账号状态服务?.关闭?.();
+    await 收益数据服务?.关闭?.();
   };
+  if (mcpRoutes) app.use("/internal/mcp", mcpRoutes.router);
   app.use(
     "/api",
     创建停用账号会话防护({
@@ -147,10 +179,20 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   );
   app.use(
     "/api",
-    创建业务路由({
+    创建收益路由({
       build,
       sessionSecret: config.session.secret,
       ...(config.database.url ? { databaseUrl: config.database.url } : {}),
+      ...(参数.env ? { env: 参数.env } : {}),
+      ...(收益数据服务 ? { service: 收益数据服务 } : {}),
+    }),
+  );
+  app.use(
+    "/api",
+    创建业务路由({
+      build,
+      sessionSecret: config.session.secret,
+      service: 业务数据服务,
       ...(参数.env ? { env: 参数.env } : {}),
       logger,
     }),

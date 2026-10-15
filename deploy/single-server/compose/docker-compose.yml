@@ -7,6 +7,7 @@ services:
       - "${HTTP_PORT:-80}:80"
     volumes:
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/secrets:/etc/nginx/certs:ro
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/nginx:/var/log/nginx
     depends_on:
       api-1:
@@ -15,6 +16,7 @@ services:
         condition: service_healthy
     networks:
       - app_net
+      - mcp_net
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/health/live >/dev/null"]
       interval: 10s
@@ -33,6 +35,7 @@ services:
     volumes:
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/uploads:/app/uploads
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/exports:/app/exports
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/secrets:/app/secrets:ro
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/api-1:/app/logs
     depends_on:
       postgres:
@@ -44,6 +47,7 @@ services:
     networks:
       - app_net
       - data_net
+      - mcp_net
     healthcheck:
       test:
         [
@@ -67,6 +71,7 @@ services:
     volumes:
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/uploads:/app/uploads
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/data/exports:/app/exports
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/secrets:/app/secrets:ro
       - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/logs/api-2:/app/logs
     depends_on:
       postgres:
@@ -78,6 +83,7 @@ services:
     networks:
       - app_net
       - data_net
+      - mcp_net
     healthcheck:
       test:
         [
@@ -88,6 +94,44 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+
+  mcp:
+    profiles: ["mcp"]
+    image: lianruan-crm-v3-mcp:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    container_name: lianruan-crm-v3-mcp
+    restart: unless-stopped
+    env_file:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/config/mcp.env
+    volumes:
+      - ${INSTALL_ROOT:-/opt/lianruan-crm-v3}/secrets:/app/secrets:ro
+    depends_on:
+      api-1:
+        condition: service_healthy
+      api-2:
+        condition: service_healthy
+    expose:
+      - "3307"
+    networks:
+      - mcp_net
+    read_only: true
+    user: "10001:10001"
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 512m
+    cpus: "0.50"
+    pids_limit: 128
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'node -e "fetch(''http://127.0.0.1:3307/health/ready'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   worker:
     image: lianruan-crm-v3-worker:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
@@ -301,3 +345,6 @@ networks:
     internal: true
   maintenance_net:
     name: lianruan-crm-v3-maintenance
+  mcp_net:
+    name: lianruan-crm-v3-mcp
+    internal: true

@@ -20,7 +20,7 @@ describe("统一入口分流规则", () => {
 
   it("管理员桌面端进入管理首页", () => {
     const 用户 = 测试用户("/unified", ["/unified", "/admin", "/partner", "/mobile"]);
-    expect(选择登录后路径(用户, { 移动访问: false })).toBe("/admin.html");
+    expect(选择登录后路径(用户, { 移动访问: false })).toBe("/admin");
   });
 
   it("管理员移动端进入移动管理首页", () => {
@@ -30,7 +30,7 @@ describe("统一入口分流规则", () => {
 
   it("渠道账号桌面端进入渠道首页", () => {
     const 用户 = 测试用户("/partner/dashboard", ["/unified", "/partner", "/mobile"]);
-    expect(选择登录后路径(用户, { 移动访问: false })).toBe("/partner.html");
+    expect(选择登录后路径(用户, { 移动访问: false })).toBe("/partner");
   });
 
   it("渠道账号移动端进入移动渠道首页", () => {
@@ -41,10 +41,10 @@ describe("统一入口分流规则", () => {
   it("只接受当前账号可进入的跳转地址", () => {
     const 用户 = 测试用户("/partner/dashboard", ["/unified", "/partner", "/mobile"]);
     expect(选择登录后路径(用户, { 移动访问: false, 候选路径: "/partner/quote" })).toBe(
-      "/partner.html#/quote",
+      "/partner/quote",
     );
     expect(选择登录后路径(用户, { 移动访问: false, 候选路径: "/admin/dashboard" })).toBe(
-      "/partner.html",
+      "/partner",
     );
   });
 
@@ -65,28 +65,28 @@ describe("统一入口分流规则", () => {
         移动访问: false,
         候选路径: "/partner.html#/order",
       }),
-    ).toBe("/partner.html#/order");
+    ).toBe("/partner/order");
     expect(
       选择登录后路径(用户, {
         移动访问: false,
         候选路径: "/admin.html#/dashboard",
       }),
-    ).toBe("/partner.html");
+    ).toBe("/partner");
   });
 
   it("忽略外部跳转地址", () => {
     const 用户 = 测试用户("/admin/dashboard", ["/unified", "/admin", "/mobile"]);
     expect(选择登录后路径(用户, { 移动访问: false, 候选路径: "https://example.invalid" })).toBe(
-      "/admin.html",
+      "/admin",
     );
   });
 
-  it("只把四个现有页面识别为需要整页跳转的业务页面", () => {
+  it("识别新旧业务页面路径", () => {
     expect(是否业务页面路径("/admin.html#/dashboard")).toBe(true);
+    expect(是否业务页面路径("/admin/dashboard")).toBe(true);
     expect(是否业务页面路径("/admin-mobile.html")).toBe(true);
     expect(是否业务页面路径("/partner.html")).toBe(true);
     expect(是否业务页面路径("/partner-mobile.html#/partner/home")).toBe(true);
-    expect(是否业务页面路径("/admin/dashboard")).toBe(false);
     expect(是否业务页面路径("https://example.invalid/admin.html")).toBe(false);
   });
 });

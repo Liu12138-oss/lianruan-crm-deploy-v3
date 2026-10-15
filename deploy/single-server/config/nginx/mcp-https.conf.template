@@ -1,0 +1,32 @@
+server {
+    listen 443 ssl;
+    server_name __MCP_SERVER_NAME__;
+
+    ssl_certificate /etc/nginx/certs/mcp.crt;
+    ssl_certificate_key /etc/nginx/certs/mcp.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 1m;
+
+    location = /.well-known/oauth-protected-resource {
+        proxy_pass http://mcp:3307/.well-known/oauth-protected-resource;
+        proxy_set_header Host $host;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    location = /mcp {
+        proxy_pass http://mcp:3307/mcp;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Accel-Buffering no;
+        proxy_buffering off;
+        proxy_read_timeout 60s;
+    }
+}

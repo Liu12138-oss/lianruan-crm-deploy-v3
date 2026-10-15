@@ -3,6 +3,9 @@ import { ElMessage } from "element-plus";
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import WarKpis from "../../../components/war/WarKpis.vue";
+import type { 指标项 } from "../../../components/war/types.js";
+
 import {
   type 业务角色,
   type 任职,
@@ -104,6 +107,7 @@ interface 成员概要 extends 接口对象 {
   expiredAt: string | null;
   直属负责人: string;
   证书: 成员证书[];
+  所属部门: string;
 }
 
 interface 渠道成员概要 extends 接口对象 {
@@ -228,40 +232,30 @@ const 大区列表 = [
   { label: "大北区", regions: ["北区（政府企业）", "河南区", "东北区", "山东区", "晋冀区"] },
 ];
 
-const 导航项列表: 导航项[] = [
-  { 栏目: "units", 名称: "组织与岗位", 路径: "/workspace/admin/platform-admin/organization/units" },
-  { 栏目: "staff", 名称: "人员与任职", 路径: "/workspace/admin/platform-admin/organization/staff" },
-  {
-    栏目: "business-roles",
-    名称: "业务角色",
-    路径: "/workspace/admin/platform-admin/organization/business-roles",
-  },
-  {
-    栏目: "certifications",
-    名称: "证书管理",
-    路径: "/workspace/admin/platform-admin/organization/certifications",
-  },
-  {
-    栏目: "access",
-    名称: "权限与范围",
-    路径: "/workspace/admin/platform-admin/organization/data-scopes",
-  },
-  {
-    栏目: "offboarding",
-    名称: "离职交接",
-    路径: "/workspace/admin/platform-admin/organization/offboarding",
-  },
-  {
-    栏目: "directory-sync",
-    名称: "企微同步",
-    路径: "/workspace/admin/platform-admin/organization/directory-sync",
-  },
-  {
-    栏目: "external-identities",
-    名称: "外部身份映射",
-    路径: "/workspace/admin/platform-admin/organization/external-identities",
-  },
-];
+/**
+ * 工作区基础路径：独立全屏工作区走 /workspace/...，管理端内嵌走 /admin/organization，
+ * 页内栏目切换必须留在当前形态下，避免从顶部「配置」二级菜单进入后被弹出外壳。
+ */
+const 当前路径 = computed(() => 路由.path || "");
+const 内嵌管理端 = computed(() => 当前路径.value.startsWith("/admin/organization"));
+const 工作区前缀 = computed(() =>
+  内嵌管理端.value ? "/admin/organization" : "/workspace/admin/platform-admin/organization",
+);
+
+const 导航项列表 = computed<导航项[]>(() =>
+  (
+    [
+      { 栏目: "units", 名称: "组织与岗位", 片段: "units" },
+      { 栏目: "staff", 名称: "人员与任职", 片段: "staff" },
+      { 栏目: "business-roles", 名称: "业务角色", 片段: "business-roles" },
+      { 栏目: "certifications", 名称: "证书管理", 片段: "certifications" },
+      { 栏目: "access", 名称: "权限与范围", 片段: "data-scopes" },
+      { 栏目: "offboarding", 名称: "离职交接", 片段: "offboarding" },
+      { 栏目: "directory-sync", 名称: "企微同步", 片段: "directory-sync" },
+      { 栏目: "external-identities", 名称: "外部身份映射", 片段: "external-identities" },
+    ] as Array<{ 栏目: 页面栏目; 名称: string; 片段: string }>
+  ).map((项) => ({ 栏目: 项.栏目, 名称: 项.名称, 路径: `${工作区前缀.value}/${项.片段}` })),
+);
 
 const 新建表单 = reactive({
   unitCode: "",
@@ -287,10 +281,10 @@ const 新建表单 = reactive({
 const 当前栏目 = computed<页面栏目>(() => (路由.meta.组织栏目 as 页面栏目 | undefined) || "units");
 const 当前导航 = computed(
   () =>
-    导航项列表.find((item) => item.栏目 === 当前栏目.value) ?? {
+    导航项列表.value.find((item) => item.栏目 === 当前栏目.value) ?? {
       栏目: "units" as const,
       名称: "组织与岗位",
-      路径: "/workspace/admin/platform-admin/organization/units",
+      路径: `${工作区前缀.value}/units`,
     },
 );
 const 已启用 = computed(() => 组织功能状态.value?.enabled === true);
@@ -302,6 +296,50 @@ const 树数据 = computed<树节点数据[]>(() => 组织树.value.map(构建�
 const 平铺树数据 = computed(() => 展开树数据(树数据.value));
 const 渠道树数据 = computed<树节点数据[]>(() => 渠道组织树.value.map(构建渠道树节点));
 const _平铺渠道树数据 = computed(() => 展开树数据(渠道树数据.value));
+/** 组织工作区顶部指标：全部取当前已加载的真实组织数据。 */
+function 统计单元(节点列表: 组织单元[]): number {
+  return 节点列表.reduce((合计, 节点) => {
+    const 子节点 = (节点 as { children?: 组织单元[] }).children;
+    return 合计 + 1 + (Array.isArray(子节点) ? 统计单元(子节点) : 0);
+  }, 0);
+}
+
+const 外部身份映射汇总 = computed(() => {
+  const 汇总 = 外部身份映射数据.value?.summary;
+  return {
+    mappingTotal: 汇总?.mappingTotal ?? 0,
+    mappingActive: 汇总?.mappingActive ?? 0,
+    mappingEteamsActive: 汇总?.mappingEteamsActive ?? 0,
+    mappingWecomActive: 汇总?.mappingWecomActive ?? 0,
+  };
+});
+
+/** 与接口同口径：外部身份映射只统计当前有效归属联软内部组织的人员（见 external-identities-internal-scope 方案）。 */
+const 外部身份映射脚注 = computed(() => {
+  const 汇总 = 外部身份映射汇总.value;
+  if (!汇总.mappingActive) return "泛微 / 企微身份映射（仅内部组织人员）";
+  const 有效说明 = `有效映射（泛微 ${汇总.mappingEteamsActive} / 企微 ${汇总.mappingWecomActive}，仅内部组织人员）`;
+  return 汇总.mappingTotal > 汇总.mappingActive
+    ? `${有效说明}；含停用共 ${汇总.mappingTotal} 条`
+    : 有效说明;
+});
+
+const 组织指标 = computed<指标项[]>(() => [
+  { label: "组织单元", value: String(统计单元(组织树.value)), unit: "个", note: "含总部、大区与区域" },
+  { label: "岗位", value: String(岗位列表.value.length), unit: "个", note: "岗位主数据" },
+  { label: "任职记录", value: String(任职列表.value.length), unit: "条", note: "在岗与历史任职" },
+  { label: "业务角色", value: String(业务角色列表.value.length), unit: "个", note: "业务角色定义" },
+  { label: "成员证书", value: String(成员证书列表.value.length), unit: "条", note: "持证记录" },
+  {
+    label: "外部身份映射",
+    // 口径为「生效中的映射记录数」：不能取 summary.total（那是目录内账号数），
+    // 也不能只统计当前分页（默认 20 条）造成少报。
+    value: String(外部身份映射汇总.value.mappingActive),
+    unit: "条",
+    note: 外部身份映射脚注.value,
+  },
+]);
+
 const 证书按用户 = computed(() => {
   const 分组 = new Map<string, 成员证书[]>();
   for (const 证 of 成员证书列表.value) {
@@ -310,15 +348,18 @@ const 证书按用户 = computed(() => {
   }
   return 分组;
 });
-const 当前部门名称 = computed(() => {
-  const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
-  return 节点 ? 节点.label : "组织架构";
-});
+const 当前部门节点 = computed(() => 查找树节点(树数据.value, 选中部门Id.value));
+const 当前部门名称 = computed(() => 当前部门节点.value?.label || "组织架构");
+const 当前部门含下级 = computed(() => Boolean(当前部门节点.value?.children?.length));
+/** 成员口径与组织树计数一致：当前部门直属成员 + 全部子部门成员。 */
 const 当前部门成员 = computed(() => {
-  if (!选中部门Id.value) return [];
-  const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
-  if (!节点) return [];
-  return (节点.members || []).map(组装成员概要);
+  const 节点 = 当前部门节点.value;
+  if (!选中部门Id.value || !节点) return [];
+  const 收集成员 = (当前节点: 树节点数据): 成员概要[] => [
+    ...(当前节点.members || []).map((成员) => 组装成员概要(成员, 当前节点.label)),
+    ...(当前节点.children || []).flatMap(收集成员),
+  ];
+  return 收集成员(节点);
 });
 const 过滤后成员 = computed(() => {
   const 词 = 成员搜索词.value.trim().toLowerCase();
@@ -489,7 +530,7 @@ function 选择部门(节点: 树节点数据) {
   选中部门Id.value = 节点.id;
 }
 
-function 组装成员概要(成员: 接口对象): 成员概要 {
+function 组装成员概要(成员: 接口对象, 所属部门: string): 成员概要 {
   const 任职 = 任职列表.value.find((项) => 项.id === 成员.assignmentId);
   return {
     ...成员,
@@ -503,6 +544,7 @@ function 组装成员概要(成员: 接口对象): 成员概要 {
     expiredAt: 任职?.expiredAt || null,
     直属负责人: 直属负责人映射.value.get(String(成员.assignmentId)) || "",
     证书: 证书按用户.value.get(String(成员.userId || "")) || [],
+    所属部门,
   };
 }
 
@@ -579,7 +621,7 @@ async function 加载页面() {
     离职交接列表.value = 离职.items;
     区域列表.value = 区域.items;
     加载账号列表();
-    if (当前栏目.value === "external-identities") await 加载外部身份映射();
+    await 加载外部身份映射();
 
     if (状态.directorySyncEnabled) {
       try {
@@ -1609,7 +1651,8 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 </script>
 
 <template>
-  <main class="组织工作区">
+  <main class="vui war-artboard-plain 组织工作区">
+    <WarKpis :items="组织指标" />
     <header class="组织顶栏">
       <div>
         <p class="组织面包屑">平台管理 / 组织架构</p>
@@ -1627,7 +1670,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             组织功能状态?.accountStatusCheckEnabled ? "账号停权防护已开启" : "账号停权防护未开启"
           }}
         </el-tag>
-        <a class="返回工作台" href="/admin.html">返回管理工作台</a>
+        <a v-if="!内嵌管理端" class="返回工作台" href="/admin">返回管理工作台</a>
       </div>
     </header>
 
@@ -1768,9 +1811,9 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <section class="组织成员面板">
                 <div class="组织成员面板标题">
                   <h3>{{ 当前部门名称 }}</h3>
-                  <el-tag size="small" :type="当前部门成员.length ? 'success' : 'info'"
-                    >共 {{ 当前部门成员.length }} 名成员</el-tag
-                  >
+                  <el-tag size="small" :type="当前部门成员.length ? 'success' : 'info'">
+                    共 {{ 当前部门成员.length }} 名成员{{ 当前部门含下级 ? "（含子部门）" : "" }}
+                  </el-tag>
                   <el-input
                     v-model="成员搜索词"
                     placeholder="搜索成员姓名/用户名"
@@ -1800,6 +1843,10 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                       >
                     </div>
                     <dl class="组织成员概要">
+                      <div class="组织成员部门">
+                        <dt>所属部门</dt>
+                        <dd>{{ 成员.所属部门 || "—" }}</dd>
+                      </div>
                       <div>
                         <dt>岗位</dt>
                         <dd>{{ 成员.positionName || "—" }}</dd>
@@ -1830,7 +1877,10 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                     <p v-else class="组织无证书">暂无证书</p>
                   </article>
                 </div>
-                <el-empty v-else description="该部门暂无成员" />
+                <el-empty
+                  v-else
+                  :description="当前部门含下级 ? '该部门及子部门暂无成员' : '该部门暂无成员'"
+                />
               </section>
             </div>
           </article>
@@ -2985,10 +3035,13 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 
 <style scoped>
 .组织工作区 {
-  min-height: 100vh;
-  padding: 32px;
-  background: #f5f5f7;
-  color: #1d1d1f;
+  /* 与作战室画板同一口径：铺满内容区，四周保留 10px 外边距；内容超出在画板内滚动 */
+  height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px);
+  padding: 0;
+  background: transparent;
+  color: #172b4d;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .组织顶栏,
 .组织顶栏动作,
@@ -3001,70 +3054,65 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 }
 .组织顶栏 {
   justify-content: space-between;
-  max-width: 1440px;
-  margin: 0 auto 20px;
+  margin: 20px 0 12px;
   gap: 24px;
 }
 .组织顶栏 h1 {
   margin: 4px 0 0;
-  font-size: 28px;
+  font-size: 22px;
 }
 .组织面包屑,
 .组织卡片 p,
 .组织说明 {
   margin: 0;
-  color: #6e6e73;
-  font-size: 14px;
+  color: #60748c;
+  font-size: 11px;
   line-height: 1.6;
 }
 .组织顶栏动作 {
   gap: 12px;
 }
 .返回工作台 {
-  padding: 9px 14px;
-  border: 1px solid #d9d9de;
+  padding: 7px 12px;
+  border: 1px solid #dce7f3;
   border-radius: 8px;
   background: #fff;
-  color: #007aff;
-  font-size: 14px;
+  color: #2f69ed;
+  font-size: 11px;
 }
 .组织导航 {
-  max-width: 1440px;
-  margin: 0 auto 20px;
+  margin: 0 0 12px;
   gap: 8px;
   overflow-x: auto;
 }
 .组织导航 a {
   flex: none;
-  padding: 9px 12px;
+  padding: 7px 12px;
   border-radius: 8px;
-  color: #515154;
-  font-size: 14px;
+  color: #4f6178;
+  font-size: 11px;
 }
 .组织导航 a:hover,
 .组织导航-激活 {
-  background: #007aff;
+  background: #2f69ed;
   color: #fff !important;
 }
 .组织双栏 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  max-width: 1440px;
-  margin: 20px auto 0;
-  gap: 20px;
+  margin: 12px 0 0;
+  gap: 16px;
 }
 .组织卡片,
 .组织加载中 {
-  max-width: 1440px;
-  margin: 20px auto 0;
-  padding: 20px;
-  border: 1px solid #e5e5ea;
-  border-radius: 16px;
+  margin: 12px 0 0;
+  padding: 16px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 28px rgba(42, 82, 130, 0.07);
 }
 .组织双栏 .组织卡片 {
-  max-width: none;
   margin: 0;
 }
 .组织卡片标题 {
@@ -3075,7 +3123,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 .组织卡片 h2,
 .组织卡片 h3 {
   margin: 0 0 6px;
-  font-size: 18px;
+  font-size: 16px;
 }
 .组织卡片 h3 {
   margin-top: 28px;
@@ -3086,13 +3134,13 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   margin-top: 16px;
 }
 .组织错误 {
-  color: #ff3b30;
+  color: #ce4b58;
 }
 .组织空状态 {
-  padding: 20px;
+  padding: 16px;
   border-radius: 10px;
-  background: #f5f5f7;
-  color: #6e6e73;
+  background: #f6f9fd;
+  color: #60748c;
 }
 .证书统计,
 .同步状态 {
@@ -3101,15 +3149,327 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   margin: 16px 0;
   padding: 12px 14px;
   border-radius: 10px;
-  background: #fff8e8;
-  color: #7a4b00;
+  background: #fff7df;
+  color: #936409;
 }
 .同步状态 {
-  background: #edf6ff;
-  color: #145ca8;
+  background: #edf5ff;
+  color: #1557d6;
 }
 .组织全宽 {
   width: 100%;
+}
+/* 组织架构左树右成员：按老 UI 口径补齐新 UI 遗漏的布局与卡片样式 */
+.组织左右布局 {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-height: 420px;
+}
+.组织部门树 {
+  flex: 0 0 320px;
+  max-width: 320px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+.组织部门树 .el-tree {
+  background: transparent;
+}
+.组织部门树 :deep(.el-tree-node__content) {
+  height: 32px;
+  margin: 1px 0;
+  border-radius: 8px;
+}
+.组织部门树 :deep(.el-tree-node__content:hover) {
+  background: #eef4fb;
+}
+.组织部门树 :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
+  background: #e8f0fe;
+  color: #1a56db;
+  font-weight: 700;
+}
+.组织树节点 {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+.组织树计数 {
+  margin-left: auto;
+}
+.组织成员面板 {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  max-height: 560px;
+  flex-direction: column;
+  padding: 14px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #fff;
+}
+.组织成员面板标题 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef4fb;
+}
+.组织成员面板标题 h3 {
+  margin: 0;
+}
+.组织成员面板标题 .组织搜索框 {
+  width: 220px;
+  margin: 0 0 0 auto;
+}
+.组织成员网格 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  overflow: auto;
+}
+.组织成员卡片 {
+  padding: 14px;
+  border: 1px solid #e3ecf6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(36, 75, 119, 0.05);
+}
+.组织成员卡片:hover {
+  border-color: #b8cdea;
+  box-shadow: 0 6px 16px rgba(36, 75, 119, 0.1);
+}
+.组织成员头部 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.组织成员头像 {
+  display: inline-flex;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4d8df0, #2f6fe0);
+  color: #fff;
+}
+.组织成员身份 {
+  flex: 1;
+  min-width: 0;
+}
+.组织成员姓名 {
+  color: #172b4d;
+}
+.组织成员账号 {
+  color: #8391a5;
+}
+.组织成员概要 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 0 0 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织成员概要 div {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+.组织成员概要 .组织成员部门 {
+  grid-column: 1 / -1;
+}
+.组织成员概要 dt {
+  flex: 0 0 auto;
+  color: #8391a5;
+}
+.组织成员概要 dd {
+  margin: 0;
+  overflow: hidden;
+  color: #172b4d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.组织成员证书 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织无证书 {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+  color: #8391a5;
+}
+.组织筛选栏 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.组织筛选栏 .el-input,
+.组织筛选栏 .el-select {
+  width: 220px;
+}
+.外部身份统计 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f4f9ff;
+  color: #4f6178;
+}
+.外部身份统计 b {
+  color: #1557d6;
+}
+.组织账号检索结果 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.组织账号检索项 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgba(47, 105, 237, 0.25);
+  border-radius: 999px;
+  background: rgba(47, 105, 237, 0.06);
+  color: #1557d6;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.组织账号检索项:hover {
+  border-color: rgba(47, 105, 237, 0.45);
+  background: rgba(47, 105, 237, 0.12);
+}
+.组织账号检索提示 {
+  display: inline-flex;
+  align-items: center;
+  color: #8391a5;
+}
+.组织抽屉遮罩 {
+  position: fixed;
+  inset: 0;
+  /* Element Plus 的对话框与下拉浮层从 2000 起分配层级，抽屉必须低于它们 */
+  z-index: 1900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.45);
+}
+.组织抽屉 {
+  display: flex;
+  width: min(880px, 94vw);
+  height: min(86vh, 880px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18);
+}
+.组织抽屉头部 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #e6effa;
+  background: linear-gradient(135deg, #f7f9fc, #ffffff);
+}
+.组织抽屉头部 h3 {
+  margin: 0;
+}
+.组织抽屉头部 p {
+  margin: 6px 0 0;
+  color: #8391a5;
+}
+.组织抽屉主体 {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+.组织抽屉区块 {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #fff;
+}
+.组织抽屉区块 h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.组织抽屉区块 h4::before {
+  content: "";
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #2f69ed, #7254d8);
+}
+.组织抽屉小卡 {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e9f0f7;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+.组织抽屉小卡主 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.组织抽屉小卡主 b {
+  color: #172b4d;
+}
+.组织抽屉小卡主 span {
+  color: #60748c;
+}
+.组织抽屉小卡次 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  color: #8391a5;
+}
+.组织抽屉空 {
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px dashed #dce7f3;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: #8391a5;
+  text-align: center;
+}
+.组织抽屉新增行 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织说明文字 {
+  margin: 6px 0 0;
+  color: #8391a5;
 }
 @media (max-width: 900px) {
   .组织工作区 {
@@ -3121,6 +3481,18 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   }
   .组织双栏 {
     grid-template-columns: 1fr;
+  }
+  .组织左右布局 {
+    flex-direction: column;
+  }
+  .组织部门树 {
+    flex: none;
+    width: 100%;
+    max-width: none;
+    max-height: 260px;
+  }
+  .组织成员面板 {
+    max-height: none;
   }
 }
 </style>

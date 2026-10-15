@@ -2456,6 +2456,16 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       ), filtered AS (
         SELECT * FROM base WHERE TRUE ${provider条件} ${状态条件}
       )`;
+    // 外部身份映射的卡片口径必须是「映射记录数」，不能复用 total（total 是目录内账号数）。
+    const 映射统计结果 = await this.pool.query(
+      `${基础查询} SELECT
+          count(*)::int AS "mappingTotal",
+          count(*) FILTER (WHERE e.status_code='active')::int AS "mappingActive",
+          count(*) FILTER (WHERE e.status_code='active' AND e.provider_code='eteams')::int AS "mappingEteamsActive",
+          count(*) FILTER (WHERE e.status_code='active' AND e.provider_code='wecom')::int AS "mappingWecomActive"
+        FROM filtered f JOIN iam.external_identities e ON e.user_id = f.user_id::uuid`,
+      参数值,
+    );
     const countResult = await this.pool.query(
       `${基础查询} SELECT count(*)::int AS total,
         count(*) FILTER (WHERE eteams_status='active')::int AS "eteamsActive",
@@ -2481,10 +2491,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       [...参数值, 参数.pageSize, offset],
     );
     const summary = countResult.rows[0] || {};
+    const 映射统计 = 映射统计结果.rows[0] || {};
     return {
       items: rows.rows,
       summary: {
         total: Number(summary.total || 0),
+        mappingTotal: Number(映射统计.mappingTotal || 0),
+        mappingActive: Number(映射统计.mappingActive || 0),
+        mappingEteamsActive: Number(映射统计.mappingEteamsActive || 0),
+        mappingWecomActive: Number(映射统计.mappingWecomActive || 0),
         eteamsActive: Number(summary.eteamsActive || 0),
         eteamsMissing: Number(summary.eteamsMissing || 0),
         eteamsPending: Number(summary.eteamsPending || 0),

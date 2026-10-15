@@ -1,0 +1,12 @@
+/admin/products                    {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[{"顶":181,"左":21,"宽":1398,"高":540}],"横向溢出":false}
+/admin/notifications               {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[{"顶":235,"左":21,"宽":1398,"高":486}],"横向溢出":false}
+/admin/admin-review                {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[{"顶":181,"左":21,"宽":1398,"高":540}],"横向溢出":false}
+/admin/openapi-integration         {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[{"顶":181,"左":21,"宽":1398,"高":264},{"顶":457,"左":21,"宽":1398,"高":264}],"横向溢出":false}
+/admin/audit-logs                  {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[{"顶":181,"左":21,"宽":1398,"高":540}],"横向溢出":false}
+/admin/notifications/platform      {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[],"横向溢出":false}
+/admin/notifications/rules         {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[],"横向溢出":false}
+/admin/certifications              {"画板宽":1440,"画板高":742,"KPI数":6,"KPI行数":1,"面板":[],"横向溢出":false}
+控制台错误: [
+  'Failed to load resource: the server responded with a status of 500 (Internal Server Error)',
+  'Failed to load resource: the server responded with a status of 500 (Internal Server Error)'
+]

@@ -54,6 +54,7 @@ mkdir -p \
   "${install_root}/data/redis-state" \
   "${install_root}/data/redis-cache" \
   "${install_root}/data/uploads" \
+  "${install_root}/data/uploads/order-preapproval" \
   "${install_root}/data/exports" \
   "${install_root}/data/migration" \
   "${install_root}/database/migrations" \
@@ -69,6 +70,11 @@ mkdir -p \
 
 chmod 750 "${install_root}"
 chmod 700 "${install_root}/secrets"
+
+# 应用容器以 node(1000:1000) 运行；附件目录需归应用用户所有，否则订单预审写入报价单 PDF 会因 EACCES 失败。
+if [ "$(id -u)" = "0" ]; then
+  chown -R 1000:1000 "${install_root}/data/uploads"
+fi
 
 写入文件如不存在() {
   local source_file="$1"
@@ -273,6 +279,10 @@ if [ ! -f "${install_root}/config/v3.env" ]; then
   chmod 600 "${install_root}/config/v3.env"
 else
   echo "检测到已有 ${install_root}/config/v3.env，保留敏感配置并同步版本字段。"
+fi
+if [ ! -f "${install_root}/config/mcp.env" ]; then
+  cp "${package_root}/config/mcp.env.template" "${install_root}/config/mcp.env"
+  chmod 600 "${install_root}/config/mcp.env"
 fi
 更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_VERSION" "${build_version}"
 更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_COMMIT" "${build_commit}"

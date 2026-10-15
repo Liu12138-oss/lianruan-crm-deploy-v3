@@ -1,0 +1,448 @@
+[
+  {
+    "角色": "超管-liulonghai",
+    "登录状态": 200
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/dashboard",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/registration",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/leads",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/leads/sources",
+    "画板宽": 1440,
+    "画板类": "war-artboard-plain",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": "线索管理"
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/opportunity",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/quote",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/order",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/partners",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/products",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/products/pricing",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/notifications",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/certifications",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/admin-review",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/platform-admin",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/account-manage",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/openapi-integration",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/audit-logs",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/partner-report",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/workload-config",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/registration/new",
+    "画板宽": 1440,
+    "画板类": "war-artboard-plain",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 0,
+    "横向溢出": 0,
+    "标题": "新建客户与报备"
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/opportunity/new",
+    "画板宽": 1440,
+    "画板类": "war-artboard-plain",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 0,
+    "横向溢出": 0,
+    "标题": "新建商机"
+  },
+  {
+    "角色": "超管-liulonghai",
+    "网址": "/admin/quote/new",
+    "画板宽": 1440,
+    "画板类": "war-artboard-plain",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 0,
+    "横向溢出": 0,
+    "标题": "新建 / 编辑报价单"
+  },
+  {
+    "角色": "超管-liulonghai",
+    "控制台错误": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "接口异常": [
+      "401 http://10.9.86.66/api/auth/me"
+    ]
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "登录状态": 200
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/dashboard",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/registration",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/leads",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/opportunity",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/quote",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/order",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/partners",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/products",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "网址": "/admin/notifications",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "区管-chenqinyu",
+    "控制台错误": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "接口异常": [
+      "401 http://10.9.86.66/api/auth/me"
+    ]
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "登录状态": 200
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/dashboard",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/registration",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/opportunity",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/quote",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/order",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "网址": "/partner/products",
+    "画板宽": 1440,
+    "画板类": "war-artboard",
+    "导航高": 62,
+    "面包屑行": false,
+    "KPI数": 6,
+    "横向溢出": 0,
+    "标题": ""
+  },
+  {
+    "角色": "渠道-liulongfei",
+    "控制台错误": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ],
+    "接口异常": [
+      "401 http://10.9.86.66/api/auth/me"
+    ]
+  }
+]

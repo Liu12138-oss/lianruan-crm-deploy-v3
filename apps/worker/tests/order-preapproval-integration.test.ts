@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { 读取应用配置 } from "@lianruan/config";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,7 +12,7 @@ import {
   读取泛微附件编号,
 } from "../src/order-preapproval-eteams.js";
 import { 生成订单预审报价单PDF, 生成订单预审采购内容 } from "../src/order-preapproval-pdf.js";
-import { 订单预审事件领取查询 } from "../src/order-preapproval-store.js";
+import { 订单预审事件领取查询, 订单预审任务存储 } from "../src/order-preapproval-store.js";
 import { 企微订单预审群客户端 } from "../src/order-preapproval-wecom.js";
 import { 启动订单预审任务服务 } from "../src/order-preapproval-worker.js";
 
@@ -354,6 +358,69 @@ describe("订单预审外部集成", () => {
       manualConfirmationRequired: true,
       retryable: false,
     });
+  });
+
+  it("预审报价单目录自检：可写目录通过，指向普通文件时判定不可写并给出错误", async () => {
+    const 临时根目录 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "order-preapproval-dir-"));
+    try {
+      const 可写目录 = path.join(临时根目录, "nested", "order-preapproval");
+      const 可写存储 = new 订单预审任务存储(
+        读取应用配置({
+          APP_ENV: "test",
+          DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+          ORDER_PREAPPROVAL_FILE_DIR: 可写目录,
+        }),
+      );
+      const 可写结果 = await 可写存储.校验文件目录();
+      expect(可写结果.可写).toBe(true);
+      expect(可写结果.目录).toBe(可写目录);
+      expect(fs.existsSync(可写目录)).toBe(true);
+      await 可写存储.close();
+
+      const 占用文件 = path.join(临时根目录, "occupied-file");
+      await fs.promises.writeFile(占用文件, "occupied");
+      const 不可写存储 = new 订单预审任务存储(
+        读取应用配置({
+          APP_ENV: "test",
+          DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+          ORDER_PREAPPROVAL_FILE_DIR: 占用文件,
+        }),
+      );
+      const 不可写结果 = await 不可写存储.校验文件目录();
+      expect(不可写结果.可写).toBe(false);
+      expect(不可写结果.错误).not.toBe("");
+      await 不可写存储.close();
+    } finally {
+      await fs.promises.rm(临时根目录, { recursive: true, force: true });
+    }
+  });
+
+  it("预审附件目录不可写时拒绝启动预审进程", async () => {
+    const 临时根目录 = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "order-preapproval-start-"),
+    );
+    const 占用文件 = path.join(临时根目录, "occupied-file");
+    await fs.promises.writeFile(占用文件, "occupied");
+    try {
+      await expect(
+        启动订单预审任务服务(
+          读取应用配置({
+            APP_ENV: "test",
+            DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+            ORDER_PREAPPROVAL_WORKER_ENABLED: "true",
+            ORDER_PREAPPROVAL_EVENT_CUTOVER_AT: "2026-08-27T00:00:00.000Z",
+            ORDER_PREAPPROVAL_FILE_DIR: 占用文件,
+            ORDER_PREAPPROVAL_ETEAMS_ORIGIN: "https://oa.example.com",
+            ORDER_PREAPPROVAL_ETEAMS_CORP_ID: "test-corp",
+            ORDER_PREAPPROVAL_ETEAMS_APP_KEY: "test-app-key",
+            ORDER_PREAPPROVAL_ETEAMS_APP_SECRET: "test-app-secret-value",
+            MESSAGE_CHANNEL_CONFIG_ENCRYPTION_KEY: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+          }),
+        ),
+      ).rejects.toThrow("订单预审文件目录不可写");
+    } finally {
+      await fs.promises.rm(临时根目录, { recursive: true, force: true });
+    }
   });
 });
 

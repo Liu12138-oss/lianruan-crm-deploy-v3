@@ -1,0 +1,12 @@
+本次核对产生的临时对象清理记录（测试环境 10.9.86.66）
+
+1. 接口测试临时库：lianruan_crm_v3_aitest
+   用途：以 lianruan_crm_v3 为模板克隆，运行 apps/api/tests/v2-compat.test.ts，避免污染正式测试库。
+   状态：已 DROP，pg_database 中已不存在。
+
+2. 停用渠道成员探测账号：d10probe564661user、d10fix266554user
+   用途：D-10 修复前后对比复验。
+   状态：已通过 DELETE /api/v2/partners/:id/staff/:id 归档成员关系，账号状态为 disabled。
+
+3. 业务流程回归账号：flow20260929-65609user、flow20260929-07910user 等
+   用途：项目自带 tools/verify-business-flows.mjs 的正常产物，沿用既有做法保留。

@@ -1,0 +1,1725 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>联软渠道管理平台 UI 重构方案｜领导评审稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --品牌蓝: #2f69ed;
+      --品牌亮蓝: #55c8ff;
+      --品牌深蓝: #17345e;
+      --品牌浅蓝: #edf6ff;
+      --页面背景: #eef5fc;
+      --内容背景: #ffffff;
+      --边框: #dbe7f3;
+      --浅边框: #e7eef5;
+      --正文: #203652;
+      --次要文字: #6f8097;
+      --成功: #168864;
+      --成功背景: #ecfbf6;
+      --警告: #9b7200;
+      --警告背景: #fff9e7;
+      --危险: #c8464f;
+      --危险背景: #fff1f1;
+      --阴影: 0 18px 48px rgba(43, 91, 150, 0.14);
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-width: 320px;
+      background: #dce8f5;
+    }
+
+    body {
+      margin: 0;
+      color: var(--正文);
+      background:
+        radial-gradient(circle at 10% 0%, rgba(85, 200, 255, 0.18), transparent 28%),
+        linear-gradient(180deg, #eaf3fc, #dce8f5);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .演示页 {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      min-height: 100vh;
+    }
+
+    .演示顶栏 {
+      position: sticky;
+      z-index: 100;
+      top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 58px;
+      padding: 0 22px;
+      border-bottom: 1px solid rgba(210, 225, 240, 0.9);
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(18px);
+    }
+
+    .演示品牌,
+    .演示操作,
+    .页码区,
+    .横向组 {
+      display: flex;
+      align-items: center;
+    }
+
+    .演示品牌 {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .演示品牌标识,
+    .平台标识 {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      background: linear-gradient(145deg, var(--品牌亮蓝), var(--品牌蓝));
+      box-shadow: 0 8px 18px rgba(47, 105, 237, 0.22);
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .演示品牌标识 {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+    }
+
+    .演示品牌文字 strong,
+    .演示品牌文字 span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .演示品牌文字 strong {
+      color: #1c4e9e;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .演示品牌文字 span {
+      margin-top: 2px;
+      color: #7c8da4;
+      font-size: 11px;
+    }
+
+    .演示操作 {
+      gap: 8px;
+    }
+
+    .演示按钮 {
+      min-height: 34px;
+      padding: 0 13px;
+      border: 1px solid #cfdeeb;
+      border-radius: 7px;
+      background: #ffffff;
+      color: #52647c;
+    }
+
+    .演示按钮:hover {
+      border-color: var(--品牌蓝);
+      color: var(--品牌蓝);
+    }
+
+    .演示按钮-主要 {
+      border-color: var(--品牌蓝);
+      background: var(--品牌蓝);
+      color: #ffffff;
+    }
+
+    .演示主体 {
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .画布 {
+      position: relative;
+      width: min(100%, 1440px);
+      aspect-ratio: 16 / 9;
+      overflow: hidden;
+      border: 1px solid #d2e1ef;
+      border-radius: 14px;
+      background: #ffffff;
+      box-shadow: var(--阴影);
+    }
+
+    .页面 {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .页面.当前页 {
+      display: block;
+      animation: 页面进入 220ms ease-out;
+    }
+
+    @keyframes 页面进入 {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .演示底栏 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 54px;
+      padding: 0 24px;
+      color: #61728a;
+      font-size: 12px;
+    }
+
+    .页码区 {
+      gap: 8px;
+    }
+
+    .页码点 {
+      width: 7px;
+      height: 7px;
+      border: 0;
+      border-radius: 50%;
+      background: #b7c7d8;
+    }
+
+    .页码点.当前页码 {
+      width: 22px;
+      border-radius: 5px;
+      background: var(--品牌蓝);
+    }
+
+    .评审标记 {
+      display: inline-flex;
+      align-items: center;
+      min-height: 25px;
+      padding: 0 9px;
+      border: 1px solid #bcd7fb;
+      border-radius: 13px;
+      background: #eff7ff;
+      color: var(--品牌蓝);
+      font-size: 11px;
+    }
+
+    .封面 {
+      display: grid;
+      grid-template-columns: 43% 57%;
+      height: 100%;
+    }
+
+    .封面视觉 {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 30% 18%, rgba(255, 255, 255, 0.95) 0 2px, transparent 3px),
+        radial-gradient(circle at 74% 25%, rgba(255, 255, 255, 0.9) 0 3px, transparent 4px),
+        linear-gradient(145deg, #cbeeff 0%, #e7f7ff 45%, #d8e9ff 100%);
+    }
+
+    .封面视觉::before,
+    .封面视觉::after {
+      position: absolute;
+      border: 2px solid rgba(255, 255, 255, 0.75);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .封面视觉::before {
+      right: -8%;
+      bottom: -10%;
+      width: 74%;
+      aspect-ratio: 1;
+      box-shadow:
+        0 0 0 17px rgba(85, 200, 255, 0.14),
+        0 0 0 44px rgba(47, 105, 237, 0.08),
+        0 0 0 78px rgba(255, 255, 255, 0.38);
+    }
+
+    .封面视觉::after {
+      top: 11%;
+      left: -12%;
+      width: 80%;
+      aspect-ratio: 1;
+      opacity: 0.55;
+    }
+
+    .封面平台名 {
+      position: absolute;
+      z-index: 2;
+      top: 11%;
+      left: 10%;
+      color: #2f7fe8;
+      font-size: clamp(24px, 3vw, 48px);
+      font-style: italic;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-shadow: 0 2px 0 #ffffff;
+    }
+
+    .封面平台名 span {
+      display: block;
+      margin-top: 8px;
+      color: #68aaf1;
+      font-size: clamp(11px, 1.3vw, 19px);
+      font-style: normal;
+      letter-spacing: 4px;
+    }
+
+    .封面轨道 {
+      position: absolute;
+      z-index: 2;
+      right: 12%;
+      bottom: 16%;
+      width: 35%;
+      aspect-ratio: 1;
+      border: 12px solid rgba(255, 255, 255, 0.76);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 7px rgba(53, 125, 241, 0.5),
+        0 18px 34px rgba(57, 105, 167, 0.22);
+    }
+
+    .封面轨道::before,
+    .封面轨道::after {
+      position: absolute;
+      border-radius: 50%;
+      content: "";
+    }
+
+    .封面轨道::before {
+      top: -34%;
+      left: 44%;
+      width: 28%;
+      aspect-ratio: 1;
+      background: linear-gradient(145deg, #6be7be, #11ac79);
+      box-shadow:
+        -20px 55px 0 -4px #2f69ed,
+        22px 105px 0 -8px #e8bc2e,
+        -5px 155px 0 -10px #58c7ff;
+    }
+
+    .封面轨道::after {
+      inset: 24%;
+      border: 8px solid rgba(47, 105, 237, 0.23);
+      background: rgba(255, 255, 255, 0.62);
+    }
+
+    .封面内容 {
+      display: grid;
+      align-content: center;
+      padding: 7% 9%;
+      background:
+        radial-gradient(circle at 95% 8%, rgba(85, 200, 255, 0.12), transparent 24%),
+        #ffffff;
+    }
+
+    .封面内容 h1 {
+      margin: 22px 0 14px;
+      color: #2463e6;
+      font-size: clamp(27px, 3.7vw, 56px);
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
+
+    .封面副标题 {
+      margin: 0;
+      color: #667890;
+      font-size: clamp(14px, 1.6vw, 25px);
+    }
+
+    .封面说明 {
+      max-width: 630px;
+      margin: 32px 0 0;
+      color: #8290a3;
+      font-size: clamp(11px, 1.05vw, 16px);
+      line-height: 1.9;
+    }
+
+    .封面底部 {
+      margin-top: 54px;
+      color: #7890ae;
+      font-size: 12px;
+    }
+
+    .方案页 {
+      height: 100%;
+      padding: 5% 6%;
+      background:
+        radial-gradient(circle at 95% 0%, rgba(85, 200, 255, 0.14), transparent 27%),
+        #f7fbff;
+    }
+
+    .方案页头 {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 4%;
+    }
+
+    .方案页头 h2 {
+      margin: 0;
+      color: var(--品牌深蓝);
+      font-size: clamp(24px, 3vw, 44px);
+      font-weight: 500;
+    }
+
+    .方案页头 p {
+      margin: 10px 0 0;
+      color: var(--次要文字);
+      font-size: clamp(12px, 1.1vw, 17px);
+    }
+
+    .序号 {
+      color: rgba(47, 105, 237, 0.14);
+      font-size: clamp(50px, 7vw, 105px);
+      font-weight: 700;
+      line-height: 0.8;
+    }
+
+    .三栏,
+    .四栏,
+    .两栏 {
+      display: grid;
+      gap: 18px;
+    }
+
+    .三栏 {
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .四栏 {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .两栏 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .方案卡片 {
+      padding: 22px;
+      border: 1px solid var(--边框);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 8px 24px rgba(52, 91, 136, 0.07);
+    }
+
+    .方案卡片 h3 {
+      margin: 14px 0 9px;
+      color: #24466e;
+      font-size: clamp(14px, 1.35vw, 20px);
+      font-weight: 600;
+    }
+
+    .方案卡片 p,
+    .方案卡片 li {
+      color: #718198;
+      font-size: clamp(11px, 0.95vw, 14px);
+      line-height: 1.7;
+    }
+
+    .方案卡片 ul {
+      margin: 8px 0 0;
+      padding-left: 19px;
+    }
+
+    .方案图标 {
+      display: grid;
+      width: 40px;
+      height: 40px;
+      place-items: center;
+      border-radius: 10px;
+      background: linear-gradient(145deg, #e3f4ff, #edf3ff);
+      color: var(--品牌蓝);
+      font-size: 18px;
+    }
+
+    .色板 {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .色块 {
+      min-height: 80px;
+      padding: 12px;
+      border-radius: 9px;
+      color: #ffffff;
+      font-size: 11px;
+    }
+
+    .色块 strong,
+    .色块 span {
+      display: block;
+    }
+
+    .色块 span {
+      margin-top: 5px;
+      opacity: 0.82;
+    }
+
+    .色块-主色 { background: #2f69ed; }
+    .色块-亮蓝 { background: #55bdf2; }
+    .色块-深蓝 { background: #17345e; }
+    .色块-绿色 { background: #18a678; }
+    .色块-金色 { background: #d5a710; }
+
+    .约束条 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 20px;
+      padding: 15px 18px;
+      border: 1px solid #c9dff8;
+      border-radius: 9px;
+      background: #eef7ff;
+      color: #315b8f;
+      font-size: clamp(11px, 1vw, 15px);
+    }
+
+    .产品页 {
+      display: grid;
+      grid-template-columns: 178px minmax(0, 1fr);
+      height: 100%;
+      background: #f5f9fe;
+    }
+
+    .产品侧栏 {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      padding: 18px 12px;
+      border-right: 1px solid #dce8f5;
+      background: linear-gradient(180deg, #eef8ff 0%, #f8fbff 52%, #ffffff 100%);
+    }
+
+    .产品品牌 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 7px 15px;
+      border-bottom: 1px solid #dfeaf5;
+    }
+
+    .平台标识 {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+    }
+
+    .产品品牌 strong,
+    .产品品牌 span {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .产品品牌 strong {
+      color: #1f4f9f;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .产品品牌 span {
+      margin-top: 2px;
+      color: #8190a3;
+      font-size: 10px;
+    }
+
+    .产品导航 {
+      display: grid;
+      gap: 3px;
+      margin-top: 16px;
+    }
+
+    .导航分组 {
+      padding: 8px 9px 4px;
+      color: #8d9aab;
+      font-size: 10px;
+    }
+
+    .导航项 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 37px;
+      padding: 0 10px;
+      border-radius: 7px;
+      color: #52637b;
+      font-size: 12px;
+    }
+
+    .导航项.导航激活 {
+      background: linear-gradient(90deg, #e1f1ff, #edf5ff);
+      box-shadow: inset 3px 0 var(--品牌蓝);
+      color: var(--品牌蓝);
+      font-weight: 600;
+    }
+
+    .产品主体 {
+      min-width: 0;
+      background:
+        radial-gradient(circle at 93% 0%, rgba(85, 200, 255, 0.13), transparent 22%),
+        #f5f9fe;
+    }
+
+    .产品顶栏 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      min-height: 56px;
+      padding: 0 20px;
+      border-bottom: 1px solid #dfe9f4;
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .产品顶栏 strong {
+      color: #3d526f;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .用户区 {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: #5e6f85;
+      font-size: 11px;
+    }
+
+    .头像 {
+      display: grid;
+      width: 29px;
+      height: 29px;
+      place-items: center;
+      border-radius: 50%;
+      background: #ddecff;
+      color: var(--品牌蓝);
+      font-weight: 600;
+    }
+
+    .产品内容 {
+      padding: 18px 20px;
+    }
+
+    .内容页头 {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .内容页头 h2 {
+      margin: 0;
+      color: #17345e;
+      font-size: clamp(17px, 1.6vw, 25px);
+      font-weight: 600;
+    }
+
+    .内容页头 p {
+      margin: 5px 0 0;
+      color: #77879d;
+      font-size: 11px;
+    }
+
+    .主按钮,
+    .次按钮 {
+      min-height: 34px;
+      padding: 0 14px;
+      border-radius: 7px;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .主按钮 {
+      border: 0;
+      background: linear-gradient(135deg, #3777f4, var(--品牌蓝));
+      box-shadow: 0 7px 16px rgba(47, 105, 237, 0.2);
+      color: #ffffff;
+    }
+
+    .次按钮 {
+      border: 1px solid #cfdeeb;
+      background: #ffffff;
+      color: #53647b;
+    }
+
+    .筛选区 {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 150px 150px auto auto;
+      gap: 9px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border: 1px solid var(--边框);
+      border-radius: 9px;
+      background: #ffffff;
+      box-shadow: 0 6px 18px rgba(51, 91, 135, 0.05);
+    }
+
+    .输入框 {
+      width: 100%;
+      min-width: 0;
+      height: 34px;
+      padding: 0 11px;
+      border: 1px solid #d5e0ec;
+      border-radius: 6px;
+      outline: none;
+      background: #ffffff;
+      color: #2e405b;
+      font-size: 11px;
+    }
+
+    .数据面板,
+    .指标卡片,
+    .图表卡片 {
+      border: 1px solid var(--边框);
+      border-radius: 9px;
+      background: #ffffff;
+      box-shadow: 0 6px 18px rgba(51, 91, 135, 0.06);
+    }
+
+    .数据面板 {
+      overflow: hidden;
+    }
+
+    .数据头 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 43px;
+      padding: 0 13px;
+      border-bottom: 1px solid var(--浅边框);
+    }
+
+    .数据头 strong {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .数据头 span {
+      color: #7a899c;
+      font-size: 10px;
+    }
+
+    .状态标签 {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 0 7px;
+      border-radius: 5px;
+      font-size: 10px;
+    }
+
+    .状态-蓝 {
+      border: 1px solid #bad7ff;
+      background: #edf5ff;
+      color: var(--品牌蓝);
+    }
+
+    .状态-绿 {
+      border: 1px solid #abe3d2;
+      background: var(--成功背景);
+      color: var(--成功);
+    }
+
+    .状态-黄 {
+      border: 1px solid #efd88e;
+      background: var(--警告背景);
+      color: var(--警告);
+    }
+
+    .状态-灰 {
+      border: 1px solid #d7dfe8;
+      background: #f5f7fa;
+      color: #6d798a;
+    }
+
+    .表格容器 {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .业务表格 {
+      width: 100%;
+      min-width: 780px;
+      border-collapse: collapse;
+      color: #33455f;
+      font-size: 10.5px;
+    }
+
+    .业务表格 th,
+    .业务表格 td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--浅边框);
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    .业务表格 th {
+      background: #f7fbff;
+      color: #62738a;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
+    .业务表格 tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .记录编号,
+    .金额 {
+      color: #213b60;
+      font-weight: 600;
+    }
+
+    .操作文字 {
+      margin-right: 9px;
+      color: var(--品牌蓝);
+    }
+
+    .分页 {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-height: 38px;
+      padding: 0 12px;
+      border-top: 1px solid var(--浅边框);
+      color: #7b899b;
+      font-size: 10px;
+    }
+
+    .分页当前 {
+      display: grid;
+      width: 24px;
+      height: 24px;
+      place-items: center;
+      border: 1px solid var(--品牌蓝);
+      border-radius: 5px;
+      color: var(--品牌蓝);
+    }
+
+    .指标网格 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 11px;
+      margin-bottom: 12px;
+    }
+
+    .指标卡片 {
+      padding: 14px;
+    }
+
+    .指标卡片 span {
+      color: #77869b;
+      font-size: 10px;
+    }
+
+    .指标卡片 strong {
+      display: block;
+      margin-top: 7px;
+      color: #1d3c67;
+      font-size: clamp(17px, 2vw, 30px);
+      font-weight: 600;
+    }
+
+    .指标卡片 small {
+      color: #8c99a9;
+      font-size: 9px;
+    }
+
+    .工作台网格 {
+      display: grid;
+      grid-template-columns: 1.45fr 0.95fr;
+      gap: 12px;
+    }
+
+    .图表卡片 {
+      min-height: 250px;
+      padding: 14px;
+    }
+
+    .图表标题 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .图表标题 strong {
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .柱形图 {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      align-items: end;
+      gap: 10px;
+      height: 155px;
+      padding: 14px 4px 0;
+      border-bottom: 1px solid #dce7f2;
+      background: repeating-linear-gradient(to top, transparent 0 36px, #edf3f8 37px);
+    }
+
+    .柱 {
+      position: relative;
+      border-radius: 5px 5px 0 0;
+      background: linear-gradient(180deg, #61ccff, #3474ee);
+    }
+
+    .柱 span {
+      position: absolute;
+      right: 0;
+      bottom: -22px;
+      left: 0;
+      color: #7c899a;
+      font-size: 9px;
+      text-align: center;
+    }
+
+    .待办列表 {
+      display: grid;
+      gap: 9px;
+    }
+
+    .待办项 {
+      display: grid;
+      grid-template-columns: 7px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      padding: 10px 0;
+      border-bottom: 1px solid #edf2f7;
+    }
+
+    .待办点 {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--品牌蓝);
+    }
+
+    .待办项 strong {
+      display: block;
+      font-size: 10.5px;
+      font-weight: 600;
+    }
+
+    .待办项 span {
+      color: #8996a7;
+      font-size: 9px;
+    }
+
+    .登录原型 {
+      display: grid;
+      grid-template-columns: 45% 55%;
+      height: 100%;
+    }
+
+    .登录视觉 {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(150deg, #c9edff, #eff9ff 55%, #d8e7ff);
+    }
+
+    .登录视觉::before {
+      position: absolute;
+      right: -10%;
+      bottom: -18%;
+      width: 78%;
+      aspect-ratio: 1;
+      border: 14px solid rgba(255, 255, 255, 0.78);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 8px rgba(47, 105, 237, 0.55),
+        0 0 0 38px rgba(85, 200, 255, 0.16),
+        0 0 0 72px rgba(255, 255, 255, 0.38);
+      content: "";
+    }
+
+    .登录视觉标题 {
+      position: absolute;
+      z-index: 2;
+      top: 12%;
+      left: 10%;
+    }
+
+    .登录视觉标题 strong {
+      display: block;
+      color: #2e7fe9;
+      font-size: clamp(24px, 3vw, 46px);
+      font-style: italic;
+      text-shadow: 0 2px #ffffff;
+    }
+
+    .登录视觉标题 span {
+      display: block;
+      margin-top: 8px;
+      color: #6faaf0;
+      font-size: clamp(11px, 1.15vw, 17px);
+      letter-spacing: 4px;
+    }
+
+    .登录粒子 {
+      position: absolute;
+      z-index: 2;
+      right: 26%;
+      bottom: 21%;
+      width: 12%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #78e7c2, #19ac7c);
+      box-shadow:
+        -40px 70px 0 -8px #2f69ed,
+        28px 122px 0 -13px #edbd27,
+        -5px 176px 0 -17px #58c8ff;
+    }
+
+    .登录区 {
+      display: grid;
+      align-content: center;
+      justify-items: center;
+      padding: 7%;
+      background: #ffffff;
+    }
+
+    .登录表单 {
+      width: min(78%, 470px);
+    }
+
+    .登录表单 h2 {
+      margin: 0;
+      color: #2c66e8;
+      font-size: clamp(25px, 3vw, 44px);
+      font-weight: 500;
+      text-align: center;
+    }
+
+    .登录表单 p {
+      margin: 12px 0 34px;
+      color: #76879e;
+      font-size: clamp(12px, 1.2vw, 18px);
+      text-align: center;
+    }
+
+    .登录输入 {
+      width: 100%;
+      height: 48px;
+      margin-bottom: 14px;
+      padding: 0 15px;
+      border: 1px solid #d6dfe9;
+      border-radius: 5px;
+      outline: none;
+      color: #31445f;
+    }
+
+    .登录输入:focus {
+      border-color: var(--品牌蓝);
+      box-shadow: 0 0 0 3px rgba(47, 105, 237, 0.1);
+    }
+
+    .登录按钮 {
+      width: 100%;
+      height: 48px;
+      margin-top: 10px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--品牌蓝);
+      color: #ffffff;
+      font-size: 15px;
+    }
+
+    .登录提示 {
+      margin-top: 20px;
+      color: #8a98aa;
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .移动展示 {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 7%;
+      align-items: center;
+      height: 100%;
+      padding: 5% 8%;
+      background:
+        radial-gradient(circle at 88% 12%, rgba(85, 200, 255, 0.16), transparent 27%),
+        #f7fbff;
+    }
+
+    .移动说明 h2 {
+      margin: 0 0 16px;
+      color: var(--品牌深蓝);
+      font-size: clamp(25px, 3.4vw, 50px);
+      font-weight: 500;
+    }
+
+    .移动说明 p {
+      color: var(--次要文字);
+      font-size: clamp(12px, 1.15vw, 17px);
+      line-height: 1.85;
+    }
+
+    .移动说明 ul {
+      margin: 24px 0 0;
+      padding-left: 20px;
+      color: #566b86;
+      font-size: clamp(11px, 1vw, 15px);
+      line-height: 2;
+    }
+
+    .手机组 {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+    }
+
+    .手机 {
+      width: min(36%, 250px);
+      aspect-ratio: 9 / 18.5;
+      padding: 9px;
+      border: 4px solid #2f405b;
+      border-radius: 28px;
+      background: #1d2d45;
+      box-shadow: 0 22px 44px rgba(31, 65, 104, 0.2);
+    }
+
+    .手机:nth-child(2) {
+      transform: translateY(28px);
+    }
+
+    .手机屏幕 {
+      height: 100%;
+      overflow: hidden;
+      border-radius: 19px;
+      background: #f3f8fe;
+    }
+
+    .手机顶栏 {
+      padding: 18px 13px 12px;
+      background: linear-gradient(135deg, #3d80f6, #2f69ed);
+      color: #ffffff;
+    }
+
+    .手机顶栏 strong {
+      display: block;
+      font-size: 12px;
+    }
+
+    .手机顶栏 span {
+      font-size: 9px;
+      opacity: 0.82;
+    }
+
+    .手机内容 {
+      padding: 10px;
+    }
+
+    .手机卡片 {
+      margin-bottom: 8px;
+      padding: 10px;
+      border: 1px solid #dde8f3;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .手机卡片 strong {
+      display: block;
+      font-size: 9.5px;
+      font-weight: 600;
+    }
+
+    .手机卡片 span {
+      display: block;
+      margin-top: 4px;
+      color: #8492a4;
+      font-size: 8px;
+    }
+
+    .手机底栏 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
+      padding: 8px 4px;
+      border-top: 1px solid #dfe8f2;
+      background: #ffffff;
+      color: #7f8da0;
+      font-size: 7px;
+      text-align: center;
+    }
+
+    .实施路线 {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 13px;
+      margin-top: 5%;
+    }
+
+    .实施路线::before {
+      position: absolute;
+      top: 25px;
+      right: 8%;
+      left: 8%;
+      height: 2px;
+      background: linear-gradient(90deg, #62cbff, var(--品牌蓝));
+      content: "";
+    }
+
+    .阶段 {
+      position: relative;
+      z-index: 2;
+      padding: 15px;
+      border: 1px solid var(--边框);
+      border-radius: 10px;
+      background: #ffffff;
+      box-shadow: 0 7px 18px rgba(51, 91, 135, 0.06);
+    }
+
+    .阶段编号 {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      margin: -4px auto 16px;
+      place-items: center;
+      border: 4px solid #eff7ff;
+      border-radius: 50%;
+      background: var(--品牌蓝);
+      color: #ffffff;
+      font-weight: 600;
+    }
+
+    .阶段 strong {
+      display: block;
+      color: #274b76;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .阶段 span {
+      display: block;
+      margin-top: 8px;
+      color: #7b899b;
+      font-size: 10px;
+      line-height: 1.65;
+      text-align: center;
+    }
+
+    .结论框 {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 24px;
+      margin-top: 5%;
+      padding: 24px 28px;
+      border: 1px solid #bad7fb;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #eef8ff, #f7faff);
+    }
+
+    .结论框 strong {
+      display: block;
+      color: #2358a6;
+      font-size: clamp(15px, 1.55vw, 23px);
+    }
+
+    .结论框 span {
+      display: block;
+      margin-top: 8px;
+      color: #607894;
+      font-size: clamp(11px, 0.95vw, 14px);
+    }
+
+    .结论框 .主按钮 {
+      min-width: 126px;
+    }
+
+    .目录遮罩 {
+      position: fixed;
+      z-index: 200;
+      inset: 0;
+      display: none;
+      align-items: flex-start;
+      justify-content: flex-end;
+      padding: 68px 18px 18px;
+      background: rgba(23, 35, 61, 0.28);
+    }
+
+    .目录遮罩.显示目录 {
+      display: flex;
+    }
+
+    .目录面板 {
+      width: min(390px, calc(100vw - 36px));
+      max-height: calc(100vh - 86px);
+      overflow: auto;
+      padding: 16px;
+      border: 1px solid #d7e4f0;
+      border-radius: 11px;
+      background: #ffffff;
+      box-shadow: 0 22px 54px rgba(32, 63, 103, 0.22);
+    }
+
+    .目录面板 h3 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    .目录项 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 38px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #52647c;
+      text-align: left;
+    }
+
+    .目录项:hover,
+    .目录项.目录当前 {
+      background: #edf6ff;
+      color: var(--品牌蓝);
+    }
+
+    .目录项 span {
+      color: #97a4b3;
+      font-size: 10px;
+    }
+
+    @media (max-width: 900px) {
+      .演示主体 {
+        padding: 12px;
+      }
+
+      .演示顶栏 {
+        padding: 0 12px;
+      }
+
+      .演示品牌文字 span,
+      .演示按钮-可隐藏,
+      .演示底栏 > span:first-child {
+        display: none;
+      }
+
+      .画布 {
+        aspect-ratio: 4 / 3;
+      }
+
+      .四栏 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .产品页 {
+        grid-template-columns: 140px minmax(0, 1fr);
+      }
+
+      .筛选区 {
+        grid-template-columns: 1fr 120px 120px;
+      }
+
+      .筛选区 .主按钮,
+      .筛选区 .次按钮 {
+        display: none;
+      }
+
+      .工作台网格 {
+        grid-template-columns: 1fr;
+      }
+
+      .工作台网格 .图表卡片:last-child {
+        display: none;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .画布 {
+        aspect-ratio: 9 / 15;
+      }
+
+      .封面,
+      .登录原型 {
+        grid-template-columns: 1fr;
+      }
+
+      .封面视觉,
+      .登录视觉 {
+        display: none;
+      }
+
+      .三栏,
+      .两栏,
+      .四栏 {
+        grid-template-columns: 1fr;
+      }
+
+      .方案卡片:nth-child(n + 4),
+      .实施路线 .阶段:nth-child(n + 4) {
+        display: none;
+      }
+
+      .方案页 {
+        overflow: auto;
+      }
+
+      .产品页 {
+        display: block;
+        overflow: auto;
+      }
+
+      .产品侧栏 {
+        display: none;
+      }
+
+      .筛选区 {
+        grid-template-columns: 1fr;
+      }
+
+      .指标网格 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .移动展示 {
+        display: block;
+        overflow: auto;
+      }
+
+      .手机组 {
+        margin-top: 22px;
+      }
+
+      .手机 {
+        width: 42%;
+      }
+
+      .实施路线 {
+        grid-template-columns: 1fr;
+      }
+
+      .实施路线::before {
+        display: none;
+      }
+
+      .结论框 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media print {
+      @page {
+        size: landscape;
+        margin: 0;
+      }
+
+      body {
+        background: #ffffff;
+      }
+
+      .演示顶栏,
+      .演示底栏,
+      .目录遮罩 {
+        display: none !important;
+      }
+
+      .演示页,
+      .演示主体 {
+        display: block;
+        min-height: auto;
+        padding: 0;
+      }
+
+      .画布 {
+        width: 100%;
+        aspect-ratio: auto;
+        overflow: visible;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .页面,
+      .页面.当前页 {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 100vh;
+        break-after: page;
+        page-break-after: always;
+        animation: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="演示页">
+    <header class="演示顶栏">
+      <div class="演示品牌">
+        <span class="演示品牌标识">L</span>
+        <div class="演示品牌文字">
+          <strong>联软渠道管理平台 UI 重构方案</strong>
+          <span>领导评审概念稿 · 业务规则与权限边界保持不变</span>
+        </div>
+      </div>
+      <div class="演示操作">
+        <span class="评审标记">内部评审</span>
+        <button class="演示按钮 演示按钮-可隐藏" id="目录按钮" type="button">目录</button>
+        <button class="演示按钮 演示按钮-可隐藏" id="打印按钮" type="button">打印 / PDF</button>
+        <button class="演示按钮 演示按钮-主要" id="全屏按钮" type="button">全屏演示</button>
+      </div>
+    </header>
+
+    <main class="演示主体">
+      <div class="画布" id="演示画布">
+        <section class="页面 当前页" data-title="封面">
+          <div class="封面">
+            <div class="封面视觉">
+              <div class="封面平台名">ESPP 同源设计<span>明亮 · 专业 · 科技</span></div>
+              <div class="封面轨道"></div>
+            </div>
+            <div class="封面内容">
+              <span class="评审标记">联软科技 · V3 工程化应用</span>
+              <h1>渠道管理平台<br />UI 重构方案</h1>
+              <p class="封面副标题">构建专业、统一、高效的业务协同体验</p>
+              <p class="封面说明">以联软 ESPP 产品的明亮科技蓝为品牌基准，结合企业级数据管理场景，统一桌面端与移动端视觉体系，并通过渐进迁移降低业务回归风险。</p>
+              <div class="封面底部">领导评审概念稿 · 2026 年 9 月</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="页面" data-title="目标与边界">
+          <div class="方案页">
+            <div class="方案页头">
+              <div><h2>为什么要重构</h2><p>这不是一次简单换色，而是统一设计体系与前端工程化能力。</p></div>
+              <span class="序号">01</span>
+            </div>
+            <div class="三栏">
+              <article class="方案卡片"><span class="方案图标">◇</span><h3>当前问题</h3><ul><li>正式页面与工程化页面并存</li><li>样式规则分散、视觉不统一</li><li>超长脚本导致维护和迭代成本高</li></ul></article>
+              <article class="方案卡片"><span class="方案图标">◎</span><h3>重构目标</h3><ul><li>建立联软品牌化设计体系</li><li>统一表格、表单、详情和状态表达</li><li>逐页迁入 Vue 3 工程化结构</li></ul></article>
+              <article class="方案卡片"><span class="方案图标">✓</span><h3>保持不变</h3><ul><li>登录、角色、权限与数据范围</li><li>既有业务字段、状态机与接口契约</li><li>四个正式入口和设备分流规则</li></ul></article>
+            </div>
+            <div class="约束条"><strong>实施原则</strong><span>先确认设计系统和代表性页面，再分模块迁移；每个页面均保留可回退能力，不一次性整体切换。</span></div>
+          </div>
+        </section>
+
+        <section class="页面" data-title="视觉设计体系">
+          <div class="方案页">
+            <div class="方案页头">
+              <div><h2>ESPP 同源视觉体系</h2><p>从现有优秀产品提取品牌语言，再适配 CRM 高密度业务场景。</p></div>
+              <span class="序号">02</span>
+            </div>
+            <div class="两栏">
+              <article class="方案卡片">
+                <span class="方案图标">◐</span><h3>色彩策略</h3><p>白色内容区和浅蓝页面背景为主，科技蓝用于主操作与选中态，绿色与金色用于业务状态，避免大面积深色带来的压迫感。</p>
+                <div class="色板"><div class="色块 色块-主色"><strong>科技蓝</strong><span>#2F69ED</span></div><div class="色块 色块-亮蓝"><strong>亮蓝</strong><span>#55BDF2</span></div><div class="色块 色块-深蓝"><strong>深蓝</strong><span>#17345E</span></div><div class="色块 色块-绿色"><strong>成功</strong><span>#18A678</span></div><div class="色块 色块-金色"><strong>提醒</strong><span>#D5A710</span></div></div>
+              </article>
+              <article class="方案卡片">
+                <span class="方案图标">▦</span><h3>界面策略</h3><ul><li>左侧导航保持稳定，内容区采用清晰的信息层级</li><li>列表页面统一为页头、筛选区、状态标签和数据表格</li><li>详情优先使用抽屉，减少页面跳转和上下文丢失</li><li>桌面端面向数据效率，移动端面向查询与关键动作</li><li>采用 Ant Design Vue 的交互模式，并进行联软主题定制</li></ul>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="页面" data-title="登录页原型">
+          <div class="登录原型">
+            <div class="登录视觉"><div class="登录视觉标题"><strong>联软渠道管理平台</strong><span>安全 · 高效 · 协同</span></div><div class="登录粒子"></div></div>
+            <div class="登录区">
+              <div class="登录表单">
+                <span class="评审标记">统一身份入口</span>
+                <h2>欢迎登录</h2>
+                <p>联软渠道管理平台</p>
+                <input class="登录输入" aria-label="登录账号" placeholder="请输入账号" />
+                <input class="登录输入" aria-label="登录密码" placeholder="请输入密码" type="password" />
+                <button class="登录按钮" type="button">登 录</button>
+                <div class="登录提示">支持 IAM、UniSDP 与本地受控登录 · 登录后按账号权限和设备自动分流</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="页面" data-title="管理工作台原型">
+          <div class="产品页">
+            <aside class="产品侧栏"><div class="产品品牌"><span class="平台标识">L</span><div><strong>联软渠道管理平台</strong><span>安全 · 高效 · 协同</span></div></div><nav class="产品导航"><span class="导航分组">业务中心</span><span class="导航项 导航激活">⌂ 工作台</span><span class="导航项">▤ 客户报备</span><span class="导航项">◫ 商机管理</span><span class="导航项">▧ 报价管理</span><span class="导航项">▣ 订单管理</span><span class="导航分组">渠道与配置</span><span class="导航项">◇ 渠道商管理</span><span class="导航项">◈ 产品目录</span><span class="导航项">✓ 审核中心</span></nav></aside>
+            <main class="产品主体"><header class="产品顶栏"><strong>厂商管理后台</strong><div class="用户区"><span>○</span><span class="头像">刘</span>刘管理员</div></header><div class="产品内容">
+              <div class="内容页头"><div><h2>工作台</h2><p>上午好，刘管理员。以下是当前业务概览与待办事项。</p></div><span class="评审标记">演示数据</span></div>
+              <div class="指标网格"><article class="指标卡片"><span>本月新增报备</span><strong>86</strong><small>较上月增加 12%</small></article><article class="指标卡片"><span>进行中商机</span><strong>42</strong><small>预计金额 ¥ 628 万</small></article><article class="指标卡片"><span>待处理订单</span><strong>20</strong><small>其中待审核 12 项</small></article><article class="指标卡片"><span>活跃渠道商</span><strong>128</strong><small>本月新增 6 家</small></article></div>
+              <div class="工作台网格"><article class="图表卡片"><div class="图表标题"><strong>近六个月业务趋势</strong><span class="评审标记">报备数量</span></div><div class="柱形图"><div class="柱" style="height:46%"><span>4 月</span></div><div class="柱" style="height:58%"><span>5 月</span></div><div class="柱" style="height:52%"><span>6 月</span></div><div class="柱" style="height:72%"><span>7 月</span></div><div class="柱" style="height:66%"><span>8 月</span></div><div class="柱" style="height:86%"><span>9 月</span></div></div></article><article class="图表卡片"><div class="图表标题"><strong>我的待办</strong><span>共 20 项</span></div><div class="待办列表"><div class="待办项"><span class="待办点"></span><div><strong>客户报备待审核</strong><span>华南某智能制造集团</span></div><span class="状态标签 状态-黄">9 项</span></div><div class="待办项"><span class="待办点"></span><div><strong>订单待审核</strong><span>需核对合同金额和产品明细</span></div><span class="状态标签 状态-黄">12 项</span></div><div class="待办项"><span class="待办点"></span><div><strong>渠道协议即将到期</strong><span>30 天内到期</span></div><span class="状态标签 状态-蓝">5 家</span></div></div></article></div>
+            </div></main>
+          </div>
+        </section>
+
+        <section class="页面" data-title="渠道商管理原型">
+          <div class="产品页">
+            <aside class="产品侧栏"><div class="产品品牌"><span class="平台标识">L</span><div><strong>联软渠道管理平台</strong><span>安全 · 高效 · 协同</span></div></div><nav class="产品导航"><span class="导航分组">业务中心</span><span class="导航项">⌂ 工作台</span><span class="导航项">▤ 客户报备</span><span class="导航项">◫ 商机管理</span><span class="导航项">▧ 报价管理</span><span class="导航项">▣ 订单管理</span><span class="导航分组">渠道与配置</span><span class="导航项 导航激活">◇ 渠道商管理</span><span class="导航项">◈ 产品目录</span><span class="导航项">✓ 审核中心</span></nav></aside>
+            <main class="产品主体"><header class="产品顶栏"><strong>厂商管理后台</strong><div class="用户区"><span>○</span><span class="头像">刘</span>刘管理员</div></header><div class="产品内容">
+              <div class="内容页头"><div><h2>渠道商管理</h2><p>统一维护渠道档案、层级关系、企业管理员和合作状态。</p></div><button class="主按钮" type="button">＋ 新建渠道商</button></div>
+              <div class="筛选区"><input class="输入框" placeholder="渠道商名称、统一社会信用代码" /><select class="输入框"><option>全部区域</option></select><select class="输入框"><option>全部状态</option></select><button class="主按钮">查询</button><button class="次按钮">重置</button></div>
+              <div class="数据面板"><div class="数据头"><strong>渠道商列表</strong><span>共 128 家渠道商 · 演示数据</span></div><div class="表格容器"><table class="业务表格"><thead><tr><th>渠道商名称</th><th>渠道等级</th><th>所属区域</th><th>企业管理员</th><th>成员数</th><th>合作状态</th><th>操作</th></tr></thead><tbody><tr><td class="记录编号">⊟ 深圳示例数字科技有限公司</td><td><span class="状态标签 状态-蓝">核心渠道</span></td><td>华南区域</td><td>刘海峰</td><td>24</td><td><span class="状态标签 状态-绿">合作中</span></td><td><span class="操作文字">查看</span><span class="操作文字">编辑</span></td></tr><tr><td>　└ 东莞区域服务中心</td><td><span class="状态标签 状态-灰">二级渠道</span></td><td>广东</td><td>陈晓宇</td><td>8</td><td><span class="状态标签 状态-绿">合作中</span></td><td><span class="操作文字">查看</span></td></tr><tr><td>　└ 厦门产品交付中心</td><td><span class="状态标签 状态-灰">二级渠道</span></td><td>福建</td><td>林舒雅</td><td>5</td><td><span class="状态标签 状态-黄">待续签</span></td><td><span class="操作文字">查看</span></td></tr><tr><td class="记录编号">· 上海启辰信息技术有限公司</td><td><span class="状态标签 状态-蓝">核心渠道</span></td><td>华东区域</td><td>周明远</td><td>18</td><td><span class="状态标签 状态-绿">合作中</span></td><td><span class="操作文字">查看</span><span class="操作文字">编辑</span></td></tr></tbody></table></div><div class="分页"><span>第 1—4 条，共 128 条</span><span class="分页当前">1</span><span>2</span><span>3</span></div></div>
+            </div></main>
+          </div>
+        </section>
+
+        <section class="页面" data-title="客户报备管理原型">
+          <div class="产品页">
+            <aside class="产品侧栏"><div class="产品品牌"><span class="平台标识">L</span><div><strong>联软渠道管理平台</strong><span>安全 · 高效 · 协同</span></div></div><nav class="产品导航"><span class="导航分组">业务中心</span><span class="导航项">⌂ 工作台</span><span class="导航项 导航激活">▤ 客户报备</span><span class="导航项">◫ 商机管理</span><span class="导航项">▧ 报价管理</span><span class="导航项">▣ 订单管理</span><span class="导航分组">渠道与配置</span><span class="导航项">◇ 渠道商管理</span><span class="导航项">◈ 产品目录</span><span class="导航项">✓ 审核中心</span></nav></aside>
+            <main class="产品主体"><header class="产品顶栏"><strong>厂商管理后台</strong><div class="用户区"><span>○</span><span class="头像">刘</span>刘管理员</div></header><div class="产品内容">
+              <div class="内容页头"><div><h2>客户报备管理</h2><p>统一处理客户查重、渠道归属、报备审核与有效期管理。</p></div><button class="主按钮">＋ 新建客户报备</button></div>
+              <div class="筛选区"><input class="输入框" placeholder="客户名称、信用代码或报备编号" /><select class="输入框"><option>全部状态</option></select><select class="输入框"><option>全部区域</option></select><button class="主按钮">查询</button><button class="次按钮">重置</button></div>
+              <div class="数据面板"><div class="数据头"><div class="横向组" style="gap:20px"><strong style="color:#2f69ed">全部 86</strong><span>待审核 9</span><span>已通过 58</span><span>即将到期 15</span></div><span>演示数据</span></div><div class="表格容器"><table class="业务表格"><thead><tr><th>报备编号</th><th>客户名称</th><th>所属行业</th><th>报备渠道商</th><th>负责人</th><th>有效期至</th><th>状态</th><th>操作</th></tr></thead><tbody><tr><td class="记录编号">REG202609150021</td><td>华南某智能制造集团</td><td>制造</td><td>深圳示例数字科技有限公司</td><td>张明</td><td>—</td><td><span class="状态标签 状态-黄">待审核</span></td><td><span class="操作文字">查看</span><span class="操作文字">审核</span></td></tr><tr><td class="记录编号">REG202609140016</td><td>华东某商业银行</td><td>金融</td><td>上海启辰信息技术有限公司</td><td>陈佳</td><td>2026-12-14</td><td><span class="状态标签 状态-绿">已通过</span></td><td><span class="操作文字">查看</span><span class="操作文字">建商机</span></td></tr><tr><td class="记录编号">REG202606180008</td><td>某省级政务服务中心</td><td>政府</td><td>北京中安网络技术有限公司</td><td>周宁</td><td>2026-09-18</td><td><span class="状态标签 状态-黄">即将到期</span></td><td><span class="操作文字">查看</span><span class="操作文字">延期</span></td></tr><tr><td class="记录编号">REG202609100027</td><td>某能源集团信息中心</td><td>能源</td><td>深圳示例数字科技有限公司</td><td>王卓</td><td>2026-12-10</td><td><span class="状态标签 状态-绿">已通过</span></td><td><span class="操作文字">查看</span><span class="操作文字">建商机</span></td></tr></tbody></table></div><div class="分页"><span>第 1—4 条，共 86 条</span><span class="分页当前">1</span><span>2</span><span>3</span></div></div>
+            </div></main>
+          </div>
+        </section>
+
+        <section class="页面" data-title="订单管理原型">
+          <div class="产品页">
+            <aside class="产品侧栏"><div class="产品品牌"><span class="平台标识">L</span><div><strong>联软渠道管理平台</strong><span>安全 · 高效 · 协同</span></div></div><nav class="产品导航"><span class="导航分组">业务中心</span><span class="导航项">⌂ 工作台</span><span class="导航项">▤ 客户报备</span><span class="导航项">◫ 商机管理</span><span class="导航项">▧ 报价管理</span><span class="导航项 导航激活">▣ 订单管理</span><span class="导航分组">渠道与配置</span><span class="导航项">◇ 渠道商管理</span><span class="导航项">◈ 产品目录</span><span class="导航项">✓ 审核中心</span></nav></aside>
+            <main class="产品主体"><header class="产品顶栏"><strong>厂商管理后台</strong><div class="用户区"><span>○</span><span class="头像">刘</span>刘管理员</div></header><div class="产品内容">
+              <div class="内容页头"><div><h2>订单管理</h2><p>查看订单状态、合同金额、履约进度和审批记录。</p></div><button class="主按钮">＋ 新建订单</button></div>
+              <div class="筛选区"><input class="输入框" placeholder="订单编号、客户名称或渠道商" /><select class="输入框"><option>全部状态</option></select><input class="输入框" type="date" value="2026-09-01" /><button class="主按钮">查询</button><button class="次按钮">重置</button></div>
+              <div class="数据面板"><div class="数据头"><div class="横向组" style="gap:20px"><strong style="color:#2f69ed">全部 128</strong><span>待审核 12</span><span>待确认 8</span><span>履约中 36</span></div><span>演示数据</span></div><div class="表格容器"><table class="业务表格"><thead><tr><th>订单编号</th><th>客户名称</th><th>渠道商</th><th>合同金额</th><th>订单状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody><tr><td class="记录编号">SO202609150018</td><td>华南某大型制造企业</td><td>深圳示例数字科技有限公司</td><td class="金额">¥ 328,600.00</td><td><span class="状态标签 状态-黄">待审核</span></td><td>2026-09-15 10:28</td><td><span class="操作文字">查看</span><span class="操作文字">审核</span></td></tr><tr><td class="记录编号">SO202609140032</td><td>华东某金融服务机构</td><td>上海启辰信息技术有限公司</td><td class="金额">¥ 189,000.00</td><td><span class="状态标签 状态-蓝">待确认</span></td><td>2026-09-14 16:42</td><td><span class="操作文字">查看</span><span class="操作文字">确认</span></td></tr><tr><td class="记录编号">SO202609120009</td><td>某省政务数据中心</td><td>北京中安网络技术有限公司</td><td class="金额">¥ 516,800.00</td><td><span class="状态标签 状态-绿">履约中</span></td><td>2026-09-12 09:16</td><td><span class="操作文字">查看</span><span class="操作文字">履约</span></td></tr><tr><td class="记录编号">SO202609080026</td><td>华北某医疗集团</td><td>北京中安网络技术有限公司</td><td class="金额">¥ 246,000.00</td><td><span class="状态标签 状态-灰">已完成</span></td><td>2026-09-08 14:35</td><td><span class="操作文字">查看</span></td></tr></tbody></table></div><div class="分页"><span>第 1—4 条，共 128 条</span><span class="分页当前">1</span><span>2</span><span>3</span></div></div>
+            </div></main>
+          </div>
+        </section>
+
+        <section class="页面" data-title="移动端原型">
+          <div class="移动展示">
+            <div class="移动说明"><span class="评审标记">移动端独立布局</span><h2>同一品牌体系<br />不同使用方式</h2><p>移动端不直接压缩桌面表格，而是围绕快速查询、详情查看、审核确认和业务跟进重新组织信息。</p><ul><li>管理员：待办、审核、业务查询、渠道详情</li><li>渠道用户：报备、商机、报价、订单、我的</li><li>共享接口、状态和权限，不复制业务规则</li></ul></div>
+            <div class="手机组"><div class="手机"><div class="手机屏幕"><div class="手机顶栏"><strong>上午好，刘管理员</strong><span>今日待处理 12 项</span></div><div class="手机内容"><article class="手机卡片"><strong>待审核订单</strong><span>SO202609150018 · ¥ 328,600.00</span></article><article class="手机卡片"><strong>客户报备待审核</strong><span>华南某智能制造集团</span></article><article class="手机卡片"><strong>渠道协议即将到期</strong><span>5 家渠道商需跟进</span></article></div><div class="手机底栏"><span>首页</span><span>审核</span><span>业务</span><span>我的</span></div></div></div><div class="手机"><div class="手机屏幕"><div class="手机顶栏"><strong>客户报备</strong><span>本渠道共 28 条</span></div><div class="手机内容"><article class="手机卡片"><strong>华东某商业银行</strong><span>已通过 · 有效期至 2026-12-14</span></article><article class="手机卡片"><strong>某省级政务服务中心</strong><span>即将到期 · 2026-09-18</span></article><article class="手机卡片"><strong>某能源集团信息中心</strong><span>已通过 · 可创建商机</span></article></div><div class="手机底栏"><span>首页</span><span>报备</span><span>订单</span><span>我的</span></div></div></div></div>
+          </div>
+        </section>
+
+        <section class="页面" data-title="实施路线与评审结论">
+          <div class="方案页">
+            <div class="方案页头"><div><h2>建议实施路线</h2><p>先试点、再固化、后迁移，确保视觉升级不影响业务连续性。</p></div><span class="序号">09</span></div>
+            <div class="实施路线"><article class="阶段"><span class="阶段编号">1</span><strong>基线冻结</strong><span>盘点页面、字段、权限、接口和关键流程</span></article><article class="阶段"><span class="阶段编号">2</span><strong>设计系统</strong><span>确认品牌色、组件规范、布局和状态表达</span></article><article class="阶段"><span class="阶段编号">3</span><strong>试点开发</strong><span>登录、工作台、渠道商、报备、订单</span></article><article class="阶段"><span class="阶段编号">4</span><strong>分批迁移</strong><span>管理端、渠道端、移动端按模块切换</span></article><article class="阶段"><span class="阶段编号">5</span><strong>灰度验收</strong><span>权限、业务、视觉、性能和回退验证</span></article></div>
+            <div class="结论框"><div><strong>本次建议只确认设计方向和试点范围</strong><span>确认后再形成正式设计规范、迁移清单、任务拆分与排期；当前原型中的数据均为演示数据，不代表业务口径调整。</span></div><button class="主按钮" type="button">建议批准试点</button></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="演示底栏">
+      <span>使用键盘 ← → 翻页，按 F 进入全屏，按 Esc 退出。</span>
+      <div class="页码区" id="页码区"></div>
+      <span id="页码文字">1 / 10 · 封面</span>
+    </footer>
+  </div>
+
+  <div class="目录遮罩" id="目录遮罩" aria-hidden="true">
+    <aside class="目录面板">
+      <h3>评审文档目录</h3>
+      <div id="目录列表"></div>
+    </aside>
+  </div>
+
+  <script>
+    const 页面列表 = Array.from(document.querySelectorAll(".页面"));
+    const 页码区 = document.getElementById("页码区");
+    const 页码文字 = document.getElementById("页码文字");
+    const 目录遮罩 = document.getElementById("目录遮罩");
+    const 目录列表 = document.getElementById("目录列表");
+    let 当前索引 = 0;
+
+    function 显示页面(索引) {
+      当前索引 = Math.max(0, Math.min(页面列表.length - 1, 索引));
+      页面列表.forEach((页面, 页面索引) => 页面.classList.toggle("当前页", 页面索引 === 当前索引));
+      Array.from(页码区.children).forEach((按钮, 页面索引) => 按钮.classList.toggle("当前页码", 页面索引 === 当前索引));
+      Array.from(目录列表.children).forEach((按钮, 页面索引) => 按钮.classList.toggle("目录当前", 页面索引 === 当前索引));
+      页码文字.textContent = `${当前索引 + 1} / ${页面列表.length} · ${页面列表[当前索引].dataset.title}`;
+    }
+
+    页面列表.forEach((页面, 索引) => {
+      const 页码按钮 = document.createElement("button");
+      页码按钮.className = "页码点";
+      页码按钮.type = "button";
+      页码按钮.setAttribute("aria-label", `第 ${索引 + 1} 页：${页面.dataset.title}`);
+      页码按钮.addEventListener("click", () => 显示页面(索引));
+      页码区.appendChild(页码按钮);
+
+      const 目录按钮项 = document.createElement("button");
+      目录按钮项.className = "目录项";
+      目录按钮项.type = "button";
+      目录按钮项.innerHTML = `<strong>${页面.dataset.title}</strong><span>${String(索引 + 1).padStart(2, "0")}</span>`;
+      目录按钮项.addEventListener("click", () => {
+        显示页面(索引);
+        目录遮罩.classList.remove("显示目录");
+        目录遮罩.setAttribute("aria-hidden", "true");
+      });
+      目录列表.appendChild(目录按钮项);
+    });
+
+    document.getElementById("目录按钮").addEventListener("click", () => {
+      目录遮罩.classList.add("显示目录");
+      目录遮罩.setAttribute("aria-hidden", "false");
+    });
+
+    目录遮罩.addEventListener("click", (事件) => {
+      if (事件.target === 目录遮罩) {
+        目录遮罩.classList.remove("显示目录");
+        目录遮罩.setAttribute("aria-hidden", "true");
+      }
+    });
+
+    document.getElementById("打印按钮").addEventListener("click", () => window.print());
+
+    document.getElementById("全屏按钮").addEventListener("click", async () => {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    });
+
+    document.addEventListener("keydown", (事件) => {
+      if (事件.key === "ArrowRight" || 事件.key === "PageDown" || 事件.key === " ") {
+        事件.preventDefault();
+        显示页面(当前索引 + 1);
+      }
+      if (事件.key === "ArrowLeft" || 事件.key === "PageUp") {
+        事件.preventDefault();
+        显示页面(当前索引 - 1);
+      }
+      if (事件.key.toLowerCase() === "f") document.getElementById("全屏按钮").click();
+      if (事件.key === "Escape") {
+        目录遮罩.classList.remove("显示目录");
+        目录遮罩.setAttribute("aria-hidden", "true");
+      }
+    });
+
+    显示页面(0);
+  </script>
+</body>
+</html>

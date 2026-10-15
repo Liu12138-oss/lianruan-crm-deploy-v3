@@ -1,0 +1,26 @@
+{
+  "name": "@lianruan/mcp",
+  "version": "3.0.0-stage10.20260906-prod1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run tests --maxWorkers=1 --minWorkers=1",
+    "test:protocol": "vitest run tests/protocol.test.ts --maxWorkers=1 --minWorkers=1",
+    "test:redclaw": "vitest run tests/redclaw.test.ts --maxWorkers=1 --minWorkers=1",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "2.0.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "jose": "6.2.12",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}

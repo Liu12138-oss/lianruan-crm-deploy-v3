@@ -1,0 +1,32 @@
+D-10 复验：停用渠道成员是否真正停用登录账号
+目标环境：http://10.9.86.66（protofix9 暴露问题，protofix10 修复）
+复验脚本：test-evidence/20260929-data-consistency-r17/tools/probe-staff-disable2-20260929.mjs
+
+一、修复前（protofix9，2026-09-29 11:46）
+操作：POST /api/v2/partners/P-IMP-1789716160096-9C137C/staff（status=active）
+      PUT  /api/v2/partners/P-IMP-1789716160096-9C137C/staff/d10probe564661user（status=disabled）
+数据库结果：
+  username            | 账号状态 | 快照状态 | 成员状态
+  d10probe564661user  | active   | disabled | disabled
+结论：渠道成员已停用，登录账号仍为 active，且 extra_json.status 与 status_code 互相矛盾。
+
+二、修复后（protofix10，2026-09-29 11:57）
+操作：新建成员（active）→ PUT status=inactive → PUT status=active → PUT status=disabled
+接口返回：新增 200 / 停用(inactive) 200 / 启用 200 / 再停用(disabled) 200
+数据库结果：
+  username          | 账号状态 | 快照状态 | 成员状态
+  d10fix266554user  | disabled | disabled | disabled
+结论：三项状态同步；旧版前端使用的 inactive 取值同样正确映射为 disabled。
+
+三、真实业务回归复验（protofix10，批次 FLOW20260929-07910）
+该批次回归中的「新增渠道成员 → 停用渠道成员」两步执行后：
+  username               | 账号状态 | 快照状态 | 成员状态
+  flow20260929-07910user | disabled | disabled | disabled
+对比修复前的历史批次：
+  flow20260929-23217user | active   | active   | disabled   ← 停用未生效
+  flow20260929-65609user | active   | disabled | disabled   ← 状态互相矛盾
+
+四、历史残留数据对齐（D-10 余量）
+范围：渠道成员关系全部停用/归档，但登录账号仍为 active 的账号，共 11 个（均为历史业务回归产生的 flow* 账号）。
+处理：status_code 置为 disabled，extra_json.status 同步为 disabled，row_version + 1（脚本 db/fix-d10-residual-20260929.sql）。
+结果：同口径矛盾数 11 → 0。

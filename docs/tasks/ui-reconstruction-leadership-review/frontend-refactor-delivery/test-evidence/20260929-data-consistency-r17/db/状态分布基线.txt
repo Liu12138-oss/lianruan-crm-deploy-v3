@@ -1,0 +1,169 @@
+
+Authorized users only. All activities may be monitored and reported.
+### 客户报备状态
+ status_code | count 
+-------------+-------
+ approved    |   227
+ pending     |    12
+ rejected    |    11
+(3 rows)
+
+### 已通过报备保护期
+ 已通过 | 保护期内 | 三十天内到期 | 本月新增 
+--------+----------+--------------+----------
+    227 |      226 |          111 |       26
+(1 row)
+
+ 本月新增全部 
+--------------
+           42
+(1 row)
+
+### 报价状态
+ status_code | count 
+-------------+-------
+ converted   |    64
+ draft       |     9
+(2 rows)
+
+### 订单状态
+        status_code         | count 
+----------------------------+-------
+ returned_to_secondary      |    18
+ completed                  |    11
+ confirmed                  |    11
+ primary_confirmed          |    10
+ pending_superadmin_confirm |    10
+ returned_to_region         |     1
+ cancelled                  |     1
+ pending_primary_confirm    |     1
+(8 rows)
+
+### 商机状态/阶段
+ status_code | count 
+-------------+-------
+ active      |    75
+ won         |     7
+ cancelled   |     1
+(3 rows)
+
+      stage_code       | count 
+-----------------------+-------
+ registered            |    18
+ 10%见到客户并且感兴趣 |    12
+ design                |    11
+ contacted             |     9
+ won                   |     8
+ testing               |     5
+ 1%已联系上客户        |     4
+ 1%联系上客户          |     3
+ 20%有预算             |     3
+ 10%客户见面并有兴趣   |     2
+ 10%见面并明确需求     |     2
+ negotiation           |     2
+ cancelled             |     1
+ quoted                |     1
+ 30%客户进行测试       |     1
+ budget                |     1
+(16 rows)
+
+### 渠道成员
+ERROR:  column "status" does not exist
+LINE 1: ...lect count(*) as 成员总数, count(*) filter (where status='ac...
+                                                             ^
+    column_name     
+--------------------
+ id
+ partner_id
+ user_id
+ member_role_code
+ status_code
+ started_at
+ ended_at
+ is_primary
+ effective_at
+ expired_at
+ source_code
+ sync_status_code
+ created_by_user_id
+ row_version
+ updated_at
+ archived_at
+ archive_reason
+(17 rows)
+
+### 渠道分级
+     column_name      
+----------------------
+ id
+ v2_source_id
+ partner_code
+ partner_name
+ normalized_name
+ partner_level_code
+ region_id
+ city_name
+ contact_name
+ contact_phone
+ contact_email
+ status_code
+ joined_on
+ created_by_user_id
+ created_at
+ updated_at
+ row_version
+ extra_json
+ agreement_no
+ country_calling_code
+(20 rows)
+
+### 消息
+ 通知总数 | 未读 
+----------+------
+      149 |  146
+(1 row)
+
+    column_name    
+-------------------
+ id
+ recipient_user_id
+ source_event_id
+ event_code
+ category_code
+ priority_code
+ aggregate_type
+ aggregate_id
+ target_action
+ template_version
+ title
+ body
+ status_code
+ payload_snapshot
+ read_at
+ archived_at
+ expires_at
+ created_at
+ updated_at
+(19 rows)
+
+ status_code | count 
+-------------+-------
+ success     |   175
+ failed      |     2
+(2 rows)
+
+### 审计
+ count 
+-------
+  1428
+(1 row)
+
+ count 
+-------
+  1428
+(1 row)
+
+### 账号
+ERROR:  column "status" does not exist
+LINE 1: select status, count(*) from iam.users group by 1 order by 2...
+               ^

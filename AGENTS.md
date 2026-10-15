@@ -57,13 +57,14 @@ V3 迁移兼容资产必须保留，包括：
 用户进入统一入口后，由 V3 登录态、账号权限路径和访问设备共同决定实际页面：
 
 - 未登录：进入 `/login`
-- 已登录管理员账号：桌面端必须进入 `/admin.html`，移动端必须进入 `/admin-mobile.html`
-- 已登录渠道账号：桌面端必须进入 `/partner.html`，移动端必须进入 `/partner-mobile.html`
+- 已登录管理员账号：桌面端必须进入 `/admin`，移动端必须进入 `/admin-mobile.html`
+- 已登录渠道账号：桌面端必须进入 `/partner`，移动端必须进入 `/partner-mobile.html`
+- 旧桌面入口 `/login.html`、`/admin.html`、`/partner.html`：必须 301 重定向到 `/login`、`/admin`、`/partner`，不得再作为登录或业务落点
 - 带有安全 `redirect` 参数时：仅当目标路径在当前账号允许访问范围内才跳转
 
-以上四个页面位于 `apps/web/public`，属于 V3 当前正式业务页面，不等同于根目录历史 V2 的 `frontend` 页面。统一入口不得把用户导向 `/admin/dashboard`、`/partner/dashboard`、`/mobile/admin/home`、`/mobile/partner/home` 等工程化迁移中的未替换页面。
+桌面端正式业务页面由 Vue 路由 `/admin`、`/partner` 承载（`apps/web/src/layouts/AdminLayout.vue`、`apps/web/src/layouts/PartnerLayout.vue`），`/admin` 下的业务子路由（如 `/admin/dashboard`、`/admin/registration`、`/admin/opportunity`）属于重构后正式页面，可以正常作为落点。移动端一期的 `/admin-mobile.html`、`/partner-mobile.html` 仍位于 `apps/web/public`。以上页面均不等同于根目录历史 V2 的 `frontend` 页面。
 
-统一登录成功后必须同时建立 HttpOnly Cookie 会话和四套正式业务页面所需的本地页面会话，然后使用浏览器整页跳转，禁止使用 Vue Router 在单页应用内部跳转到上述 `.html` 页面。入口分流规则集中维护在 `apps/web/src/router/entry-target.ts`。任何人调整登录、单点登录、根路径、移动端落点、角色落点或认证响应时，必须先阅读并同步更新该文件、`apps/web/src/api/auth-client.ts` 及其测试。
+统一登录成功后必须同时建立 HttpOnly Cookie 会话和正式业务页面所需的本地页面会话，然后使用浏览器整页跳转；移动端 `.html` 页面禁止使用 Vue Router 在单页应用内部跳转。入口分流规则集中维护在 `apps/web/src/router/entry-target.ts`，旧入口重定向在 `deploy/single-server/config/nginx/default.conf`。任何人调整登录、单点登录、根路径、移动端落点、角色落点或认证响应时，必须先阅读并同步更新该文件、`apps/web/src/api/auth-client.ts` 及其测试。
 
 ## 升级包自检规则
 

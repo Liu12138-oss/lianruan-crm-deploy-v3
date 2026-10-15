@@ -1,0 +1,60 @@
+/**
+ * 字体与应用外壳基线：与 ui-demo 原型保持一致。
+ * 原型使用 PingFang SC / 13px；应用外壳（theme.css）此前使用 -apple-system / 14px，
+ * 会导致「字体不对」；这里统一为原型字体，并把 Element Plus 的字体变量指向同一族。
+ *
+ * R22 口径：全站只保留一套字体族。
+ *   - 西文与数字：Times New Roman
+ *   - 中文：内嵌「霞鹜文楷 GB」（R26 起），Windows 与 macOS 使用同一份字体文件；
+ *     未覆盖的生僻字依次回退 KaiTi / 楷体 / STKaiti / Kaiti SC / 全字库正楷体。
+ *   CSS 字体族按「先西文、后中文」排序，浏览器按字符逐个回退，
+ *   因此同一个 font-family 声明即可同时满足西文与中文两种字形要求。
+ */
+:root {
+  --font: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
+  /* Element Plus 默认字族为 Helvetica / PingFang，这里在根部改写，
+     保证挂载到 body 的弹窗、下拉、气泡等浮层同样使用统一字族。 */
+  --el-font-family: var(--font);
+}
+
+body,
+.v2-桌面布局,
+.v2-移动端布局 {
+  font-family: var(--font) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 桌面端业务外壳统一按 11px 正文基准继承，未显式声明字号的元素不再落到 13px */
+.v2-桌面布局,
+.v2-移动端布局 {
+  font-size: 11px;
+}
+
+.vui {
+  --el-font-family: var(--font);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* 顶部导航与面包屑沿用原型字体与字号 */
+.v2-顶部业务导航,
+.v2-一级导航,
+.v2-页内标题栏,
+.v2-用户信息 {
+  font-family: var(--font) !important;
+}
+
+/* Element Plus 组件（弹窗、消息、分页等）统一字体 */
+.el-button,
+.el-input,
+.el-select,
+.el-table,
+.el-message,
+.el-message-box,
+.el-pagination,
+.el-form,
+.el-tag {
+  font-family: var(--font) !important;
+}

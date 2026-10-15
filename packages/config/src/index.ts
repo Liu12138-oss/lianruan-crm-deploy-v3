@@ -57,6 +57,10 @@ const 环境结构 = z.object({
   ORDER_PREAPPROVAL_ETEAMS_CORP_ID: z.string().trim().min(1).max(256).optional(),
   ORDER_PREAPPROVAL_ETEAMS_APP_KEY: z.string().trim().min(1).max(256).optional(),
   ORDER_PREAPPROVAL_ETEAMS_APP_SECRET: z.string().trim().min(16).max(1024).optional(),
+  QUOTE_PROFIT_WORKER_ENABLED: z.enum(["true", "false"]).default("false"),
+  QUOTE_PROFIT_EVENT_CUTOVER_AT: z.string().datetime({ offset: true }).optional(),
+  QUOTE_PROFIT_POLL_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
+  QUOTE_PROFIT_MAX_RETRIES: z.coerce.number().int().min(1).max(100).default(5),
   MESSAGE_WORKER_ENABLED: z.enum(["true", "false"]).default("false"),
   MESSAGE_WORKER_ROLE: z.enum(["critical", "integration", "maintenance"]).default("critical"),
   MESSAGE_EVENT_CUTOVER_AT: z.string().datetime({ offset: true }).optional(),
@@ -165,6 +169,12 @@ export interface 应用配置 {
       appKey?: string;
       appSecret?: string;
     };
+  };
+  quoteProfit: {
+    enabled: boolean;
+    eventCutoverAt?: string;
+    pollIntervalMs: number;
+    maxRetries: number;
   };
   message: {
     enabled: boolean;
@@ -307,6 +317,7 @@ export function 读取应用配置(env: NodeJS.ProcessEnv = process.env): 应用
       offboardingPollIntervalMs: 原始.V3_ORGANIZATION_OFFBOARDING_POLL_INTERVAL_MS,
     },
     orderPreapproval: 构建订单预审配置(原始),
+    quoteProfit: 构建收益核算配置(原始),
     message: 构建消息配置(原始),
     health: {
       dependencyMode: 原始.HEALTH_DEPENDENCY_MODE,
@@ -359,6 +370,9 @@ function 校验运行时配置(原始: 已解析环境变量): string[] {
         "启用订单预审任务进程时必须配置 MESSAGE_CHANNEL_CONFIG_ENCRYPTION_KEY，以受控读取企微建群应用",
       );
     }
+  }
+  if (原始.QUOTE_PROFIT_WORKER_ENABLED === "true" && !原始.QUOTE_PROFIT_EVENT_CUTOVER_AT) {
+    问题.push("启用报价收益任务进程时必须配置 QUOTE_PROFIT_EVENT_CUTOVER_AT");
   }
   if (原始.MESSAGE_WECOM_GROUP_ENABLED === "true" && !原始.MESSAGE_WECOM_GROUP_WEBHOOK) {
     问题.push("启用企微群机器人时必须配置 MESSAGE_WECOM_GROUP_WEBHOOK");
@@ -478,6 +492,17 @@ function 构建订单预审配置(原始: 已解析环境变量): 应用配置["
         ? { appSecret: 原始.ORDER_PREAPPROVAL_ETEAMS_APP_SECRET }
         : {}),
     },
+  };
+}
+
+function 构建收益核算配置(原始: 已解析环境变量): 应用配置["quoteProfit"] {
+  return {
+    enabled: 原始.QUOTE_PROFIT_WORKER_ENABLED === "true",
+    ...(原始.QUOTE_PROFIT_EVENT_CUTOVER_AT
+      ? { eventCutoverAt: 原始.QUOTE_PROFIT_EVENT_CUTOVER_AT }
+      : {}),
+    pollIntervalMs: 原始.QUOTE_PROFIT_POLL_INTERVAL_MS,
+    maxRetries: 原始.QUOTE_PROFIT_MAX_RETRIES,
   };
 }
 

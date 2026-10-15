@@ -422,6 +422,7 @@ function persistAdminLogin(user, token) {
     id: user.id,
     name: user.name,
     role: user.role,
+    roleCodes: Array.isArray(user.roleCodes) ? [...user.roleCodes] : [],
     avatar: (user.name || user.username || 'U').slice(0, 1),
     username: user.username,
     region: user.region,
@@ -537,6 +538,7 @@ const LoginPage = {
           id: res.user.id,
           name: res.user.name,
           role: res.user.role,
+          roleCodes: Array.isArray(res.user.roleCodes) ? [...res.user.roleCodes] : [],
           avatar: res.user.name.slice(0, 1),
           username: username.value,
           region: res.user.region,
@@ -804,6 +806,9 @@ const MainLayout = {
         <div class="nav-item" :class="{active:$route.path==='/products'}" @click="go('/products')">
           <span class="nav-icon">🗂️</span> 产品目录
         </div>
+        <div class="nav-item" v-if="isSuperAdmin" :class="{active:$route.path==='/workload-config'}" @click="go('/workload-config')">
+          <span class="nav-icon">🛠️</span> 人天与工作量配置
+        </div>
 
         <template v-if="isAdmin">
           <div class="nav-group-title">管理后台</div>
@@ -820,6 +825,10 @@ const MainLayout = {
           <div class="nav-item" :class="{active:$route.path==='/admin-review'}" @click="go('/admin-review')">
             <span class="nav-icon">✅</span> 审核中心
             <span class="nav-badge" v-if="reviewCount">{{ reviewCount }}</span>
+          </div>
+          <div class="nav-item" :class="{active:$route.path==='/notifications'}" @click="go('/notifications')">
+            <span class="nav-icon">🔔</span> 消息中心
+            <span class="nav-badge" v-if="messageUnreadCount">{{ messageUnreadCount }}</span>
           </div>
           <div class="nav-item" v-if="isSuperAdmin && !账号入口已合并" :class="{active:$route.path==='/account-manage'}" @click="go('/account-manage')">
             <span class="nav-icon">👤</span> 账号管理
@@ -927,7 +936,7 @@ const MainLayout = {
           <span class="current">{{ pageTitle }}</span>
         </div>
         <div class="header-actions">
-          <button class="header-btn" @click="toggleMessageDrawer" title="通知" aria-label="打开通知中心">
+          <button class="header-btn" @click="toggleMessageDrawer" title="消息中心" aria-label="打开消息中心">
             🔔
             <span class="notif-dot" v-if="messageUnreadCount"></span>
           </button>
@@ -941,10 +950,10 @@ const MainLayout = {
     </div>
 
     <!-- 通知面板 -->
-    <div class="notif-panel" :class="{open:showNotif}">
+    <div class="notif-panel" aria-label="消息中心" :class="{open:showNotif}">
       <div style="padding:16px 20px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center">
-        <strong style="font-size:15px">通知中心<span v-if="messageUnreadCount">（{{ messageUnreadCount }} 条未读）</span></strong>
-        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="openNotificationsPage">查看全部</span>
+        <strong style="font-size:15px">消息中心<span v-if="messageUnreadCount">（{{ messageUnreadCount }} 条未读）</span></strong>
+        <span style="font-size:13px;color:#1677ff;cursor:pointer" @click="openNotificationsPage">查看全部消息</span>
       </div>
       <div style="flex:1;overflow-y:auto">
         <p v-if="messageLoading" style="padding:20px;color:#6e6e73;font-size:13px">正在加载通知…</p>
@@ -1050,7 +1059,8 @@ const MainLayout = {
       '/quote/new': '新建报价',
       '/order': '订单管理',
       '/products': '产品目录',
-      '/notifications': '通知中心',
+      '/notifications': '消息中心',
+      '/workload-config': '人天与工作量配置',
       '/partner-report': '经营报表',
       '/partners': '渠道商管理',
       '/partners/import': '渠道商导入',
@@ -1262,8 +1272,8 @@ const MainLayout = {
 const NotificationsPage = {
   template: `
   <section>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-      <div><h2 style="font-size:18px;font-weight:700;color:#1a1a1a">通知中心</h2><p style="font-size:13px;color:#888;margin-top:4px">仅展示当前账号有权查看的站内通知</p></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <div><h2 style="font-size:18px;font-weight:700;color:#1a1a1a">消息中心</h2><p style="font-size:13px;color:#888;margin-top:4px">仅展示当前账号有权查看的站内消息和通知</p></div>
       <button class="btn btn-default" :disabled="loading" @click="load">刷新</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
@@ -2927,8 +2937,174 @@ const RegistrationNew = {
   }
 };
 
+function 当前用户可查看收益() {
+  const roleCodes = Array.isArray(store.user?.roleCodes) ? store.user.roleCodes : [];
+  return store.user?.role === 'superadmin' || roleCodes.includes('superadmin')
+    || roleCodes.includes('region_manager') || (store.user?.role === 'admin' && !!store.user?.region);
+}
+
+function 当前用户可冻结收益() {
+  const roleCodes = Array.isArray(store.user?.roleCodes) ? store.user.roleCodes : [];
+  return store.user?.role === 'superadmin' || roleCodes.includes('superadmin');
+}
+
+function 收益状态样式(statusCode) {
+  if (statusCode === 'frozen') return 'tag-green';
+  if (statusCode === 'estimated' || statusCode === 'draft') return 'tag-blue';
+  if (statusCode === 'incomplete' || statusCode === 'not_applicable') return 'tag-orange';
+  return '';
+}
+
+// ── 共享收益核算面板 ─────────────────────────────────────────
+const QuoteProfitPanel = {
+  props: {
+    quoteId: { type: String, default: '' },
+    readonly: { type: Boolean, default: false },
+    context: { type: String, default: 'quote' }
+  },
+  setup(props) {
+    const quoteProfit = ref(null);
+    const quoteProfitLoading = ref(false);
+    const quoteProfitSaving = ref(false);
+    const quoteProfitError = ref('');
+    const quoteProfitWarrantyYears = ref(3);
+    const quoteProfitMaintenanceYears = ref(0);
+    const canViewQuoteProfit = computed(() => 当前用户可查看收益());
+    const canFreezeQuoteProfit = computed(() => 当前用户可冻结收益());
+    const isFrozen = computed(() => quoteProfit.value?.statusCode === 'frozen');
+    const isNotApplicable = computed(() => quoteProfit.value?.statusCode === 'not_applicable');
+    const showEditActions = computed(() => !props.readonly && !isFrozen.value && !isNotApplicable.value);
+    const readonlyNotice = computed(() => {
+      if (isFrozen.value) return '该订单已形成正式收益快照，以下金额只读且不可覆盖。';
+      if (isNotApplicable.value) return '该报价包含非微盾范围产品，不适用本收益核算。';
+      return '订单尚未形成正式收益快照，以下为最新核算结果，仅供内部参考。';
+    });
+
+    async function loadQuoteProfit() {
+      quoteProfit.value = null;
+      quoteProfitError.value = '';
+      if (!canViewQuoteProfit.value || !props.quoteId || !apiClient.getQuoteProfit) return;
+      quoteProfitLoading.value = true;
+      try {
+        const response = await apiClient.getQuoteProfit(props.quoteId);
+        if (!response?.success) throw new Error(response?.error || '收益数据加载失败');
+        quoteProfit.value = response.data || null;
+        quoteProfitWarrantyYears.value = Number(response.data?.warrantyYears) || 3;
+        quoteProfitMaintenanceYears.value = Number(response.data?.procurementMaintenanceYears) || 0;
+      } catch (error) {
+        quoteProfitError.value = error?.message || '收益暂时无法读取';
+      } finally {
+        quoteProfitLoading.value = false;
+      }
+    }
+
+    async function saveQuoteProfit(recalculate = false) {
+      if (props.readonly || !quoteProfit.value?.quoteId || !canViewQuoteProfit.value) return;
+      quoteProfitSaving.value = true;
+      quoteProfitError.value = '';
+      try {
+        const payload = {
+          warrantyYears: Number(quoteProfitWarrantyYears.value),
+          procurementMaintenanceYears: Number(quoteProfitMaintenanceYears.value),
+          expectedRowVersion: quoteProfit.value.quoteRowVersion
+        };
+        const response = recalculate
+          ? await apiClient.recalculateQuoteProfit(quoteProfit.value.quoteId, payload)
+          : await apiClient.saveQuoteProfitDraft(quoteProfit.value.quoteId, payload);
+        if (!response?.success) throw new Error(response?.error || '收益保存失败');
+        quoteProfit.value = response.data || quoteProfit.value;
+        quoteProfitWarrantyYears.value = Number(quoteProfit.value.warrantyYears) || 3;
+        quoteProfitMaintenanceYears.value = Number(quoteProfit.value.procurementMaintenanceYears) || 0;
+      } catch (error) {
+        quoteProfitError.value = error?.message || '收益保存失败';
+      } finally {
+        quoteProfitSaving.value = false;
+      }
+    }
+
+    async function freezeQuoteProfit() {
+      if (props.readonly || !quoteProfit.value?.quoteId || !canViewQuoteProfit.value) return;
+      quoteProfitSaving.value = true;
+      quoteProfitError.value = '';
+      try {
+        const response = await apiClient.freezeQuoteProfit(quoteProfit.value.quoteId, {
+          expectedRowVersion: quoteProfit.value.quoteRowVersion
+        });
+        if (!response?.success) throw new Error(response?.error || '正式收益冻结请求提交失败');
+        await loadQuoteProfit();
+      } catch (error) {
+        quoteProfitError.value = error?.message || '正式收益冻结请求提交失败';
+      } finally {
+        quoteProfitSaving.value = false;
+      }
+    }
+
+    watch(
+      [() => props.quoteId, canViewQuoteProfit],
+      ([quoteId, canView]) => {
+        if (canView && quoteId) void loadQuoteProfit();
+        else {
+          quoteProfit.value = null;
+          quoteProfitError.value = '';
+        }
+      },
+      { immediate: true }
+    );
+
+    return {
+      quoteProfit, quoteProfitLoading, quoteProfitSaving, quoteProfitError,
+      quoteProfitWarrantyYears, quoteProfitMaintenanceYears,
+      canViewQuoteProfit, canFreezeQuoteProfit, isFrozen, isNotApplicable,
+      showEditActions, readonlyNotice, loadQuoteProfit, saveQuoteProfit,
+      freezeQuoteProfit, quoteProfitStatusClass: 收益状态样式, fmt
+    };
+  },
+  template: `
+  <div v-if="canViewQuoteProfit && quoteId" class="quote-profit-panel" :data-context="context" style="margin-top:20px;padding:18px;border:1px solid #d6e4ff;border-radius:10px;background:#f8fbff">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#1d39c4">内部收益核算</div>
+        <div style="font-size:12px;color:#666;margin-top:4px">仅区管和超级管理员可见，金额由服务端计算。</div>
+      </div>
+      <span v-if="quoteProfit" class="tag" :class="quoteProfitStatusClass(quoteProfit.statusCode)">{{ quoteProfit.statusName }}</span>
+    </div>
+    <div v-if="quoteProfitLoading" style="padding:20px;text-align:center;color:#888">收益数据加载中…</div>
+    <div v-else-if="quoteProfitError" style="padding:12px;border-radius:6px;background:#fff1f0;color:#cf1322;font-size:13px">{{ quoteProfitError }}</div>
+    <template v-else-if="quoteProfit">
+      <div v-if="readonly" :style="{padding:'10px 12px',borderRadius:'6px',background:isFrozen ? '#f6ffed' : '#fff7e6',color:isFrozen ? '#237804' : '#ad4e00',fontSize:'13px',marginBottom:'12px'}">
+        {{ readonlyNotice }}
+      </div>
+      <div v-if="!readonly" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <label style="font-size:13px;color:#555">质保年限
+          <input type="number" min="1" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitWarrantyYears" :disabled="isFrozen || isNotApplicable">
+        </label>
+        <label style="font-size:13px;color:#555">采购维保年限
+          <input type="number" min="0" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitMaintenanceYears" :disabled="isFrozen || isNotApplicable">
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px">
+        <div class="stat-card" style="padding:12px"><small>产品合同额</small><strong>{{ fmt(quoteProfit.summary.productContractAmount || 0) }}</strong></div>
+        <div class="stat-card" style="padding:12px"><small>服务合同额</small><strong>{{ fmt(quoteProfit.summary.serviceContractAmount || 0) }}</strong></div>
+        <div class="stat-card" style="padding:12px"><small>合同有效收入</small><strong>{{ fmt(quoteProfit.summary.effectiveContractIncome || 0) }}</strong></div>
+        <div class="stat-card" style="padding:12px"><small>项目收益</small><strong :style="{ color: Number(quoteProfit.summary.projectProfit || 0) < 0 ? '#cf1322' : '#237804' }">{{ fmt(quoteProfit.summary.projectProfit || 0) }}</strong></div>
+      </div>
+      <div v-if="quoteProfit.statusCode === 'incomplete'" style="padding:10px 12px;border-radius:6px;background:#fff7e6;color:#ad4e00;font-size:13px;margin-bottom:12px">
+        当前核算不完整，不能冻结正式收益。
+        <span v-if="quoteProfit.missingRules?.length">缺少：{{ quoteProfit.missingRules.map(item => item.message).join('；') }}</span>
+      </div>
+      <div v-if="isNotApplicable && !readonly" style="padding:10px 12px;border-radius:6px;background:#fff7e6;color:#ad4e00;font-size:13px;margin-bottom:12px">该报价包含非微盾范围产品，不适用本收益核算。</div>
+      <div v-if="showEditActions" style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button class="btn btn-default" :disabled="quoteProfitSaving" @click="saveQuoteProfit(false)">保存草稿</button>
+        <button class="btn btn-default" :disabled="quoteProfitSaving" @click="saveQuoteProfit(true)">重新计算</button>
+        <button class="btn btn-primary" v-if="quoteProfit.statusCode === 'incomplete' && canFreezeQuoteProfit" :disabled="quoteProfitSaving" @click="freezeQuoteProfit">重试冻结</button>
+      </div>
+    </template>
+  </div>`
+};
+
 // ── 报价管理列表 ─────────────────────────────────────────────
 const QuoteList = {
+  components: { QuoteProfitPanel },
   template: `
   <div>
     <div class="search-bar">
@@ -3139,6 +3315,9 @@ const QuoteList = {
               </div>
             </div>
           </div>
+        </div>
+        <div style="padding:0 32px 20px">
+          <QuoteProfitPanel :quote-id="detail.id || ''" />
         </div>
         <div class="modal-footer">
           <button class="btn btn-default" @click="detail=null">关闭</button>
@@ -3472,6 +3651,18 @@ const QuoteList = {
       return maxPoints || baseEndpoints;
     }
 
+    function getQuoteHardwareItems(quote) {
+      if (Array.isArray(quote?.hardwareItems) && quote.hardwareItems.length) {
+        return quote.hardwareItems.map(item => ({
+          productId: item.productId || item.productCode || item.hardwareId,
+          quantity: Math.max(1, Math.floor(Number(item.quantity) || 1))
+        })).filter(item => item.productId);
+      }
+      return Array.isArray(quote?.hardwareIds)
+        ? quote.hardwareIds.map(productId => ({ productId, quantity: 1 }))
+        : [];
+    }
+
     function getComplimentaryWarrantyItem() {
       return {
         id: 'gift-standard-warranty-1y',
@@ -3488,11 +3679,33 @@ const QuoteList = {
     
     function isQuoteServiceItem(item) {
       const itemId = typeof item === 'string' ? item : item?.id;
-      return itemId === 'gift-standard-warranty-1y' || isStandardMaintenanceFeature(itemId);
+      return (typeof item === 'object' && item?.type === 'service')
+        || itemId === 'gift-standard-warranty-1y'
+        || isStandardMaintenanceFeature(itemId);
     }
 
     const detailItems = computed(() => {
       if (!detail.value) return [];
+      const storedItems = Array.isArray(detail.value.items) ? detail.value.items : [];
+      const storedTotal = roundMoney(storedItems.reduce((sum, item) => sum + (Number(item.lineAmount) || 0), 0));
+      const quoteTotal = Number(detail.value.total ?? detail.value['金额'] ?? 0) || 0;
+      if (storedItems.length && Math.abs(storedTotal - quoteTotal) <= 0.01) {
+        return storedItems.map((item, index) => {
+          const qty = Number(item.quantity) || 0;
+          const typeText = String(item.type || '');
+          const type = typeText.includes('硬件') ? 'hardware' : (typeText.includes('服务') ? 'service' : 'feature');
+          return {
+            id: item.id || item.productRefId || `stored-quote-item-${index}`,
+            productCode: item.productCode || '',
+            name: item.name || item.itemName || '',
+            type,
+            unitPrice: Number(item.unitPrice) || 0,
+            subtotal: Number(item.lineAmount) || 0,
+            qty,
+            qtyLabel: item.quantityLabel || `${qty} 点`
+          };
+        });
+      }
       const endpoints = detail.value.endpoints || 0;
       const overrideMap = detail.value.featurePointOverrides || {};
       const items = [];
@@ -4019,6 +4232,10 @@ const QuoteNew = {
               <div class="hw-model">{{ hw.model }}</div>
               <div class="hw-specs">{{ hw.specs }}</div>
               <div class="hw-price">{{ fmt(hw.priceFixed) }}/{{ hw.unit }}</div>
+              <div v-if="selectedHardware.includes(hw.id)" style="margin-top:8px;display:flex;align-items:center;gap:6px" @click.stop>
+                <span style="font-size:12px;color:#888">数量</span>
+                <input type="number" min="1" max="9999" step="1" class="form-control" style="width:84px;padding:4px 8px" :value="getHardwareQuantity(hw.id)" @input="setHardwareQuantity(hw.id, $event.target.value)">
+              </div>
             </div>
           </div>
         </div>
@@ -4042,6 +4259,10 @@ const QuoteNew = {
               <div class="hw-model">{{ hw.model }}</div>
               <div class="hw-specs">{{ hw.specs }}</div>
               <div class="hw-price">{{ fmt(hw.priceFixed) }}/{{ hw.unit }}</div>
+              <div v-if="selectedHardware.includes(hw.id)" style="margin-top:8px;display:flex;align-items:center;gap:6px" @click.stop>
+                <span style="font-size:12px;color:#888">数量</span>
+                <input type="number" min="1" max="9999" step="1" class="form-control" style="width:84px;padding:4px 8px" :value="getHardwareQuantity(hw.id)" @input="setHardwareQuantity(hw.id, $event.target.value)">
+              </div>
             </div>
           </div>
         </div>
@@ -4134,8 +4355,8 @@ const QuoteNew = {
         <div v-if="selectedHardware.length" class="summary-section hardware">
           <div class="summary-title">🖥️ 硬件设备</div>
           <div v-for="hid in selectedHardware" :key="hid" class="summary-row">
-            <span>{{ getHardwareName(hid) }}</span>
-            <span style="font-weight:600;color:#fa8c16">{{ fmt(getHardwarePrice(hid)) }}</span>
+            <span>{{ getHardwareName(hid) }} × {{ getHardwareQuantity(hid) }}</span>
+            <span style="font-weight:600;color:#fa8c16">{{ fmt(getHardwareSubtotal(hid)) }}</span>
           </div>
         </div>
         
@@ -4320,6 +4541,7 @@ const QuoteNew = {
     const supplementFeatures = ref([]);
     const customFeatures = ref([]);
     const selectedHardware = ref([]);
+    const hardwareQuantities = reactive({});
     const featurePointOverrides = reactive({});
     const hasSensitiveKeywordWorkload = ref(false);
     const workloadPreview = ref(null);
@@ -4810,6 +5032,23 @@ const QuoteNew = {
       const hw = publishedHardware.value.find(h => h.id === hid);
       return hw?.priceFixed || 0;
     }
+
+    function getHardwareQuantity(hid) {
+      const quantity = Number(hardwareQuantities[hid]);
+      return Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+    }
+
+    function setHardwareQuantity(hid, value) {
+      hardwareQuantities[hid] = Math.max(1, Math.min(9999, Math.floor(Number(value) || 1)));
+    }
+
+    function getHardwareSubtotal(hid) {
+      return getHardwarePrice(hid) * getHardwareQuantity(hid);
+    }
+
+    function buildHardwareItems() {
+      return selectedHardware.value.map(hid => ({ productId: hid, quantity: getHardwareQuantity(hid) }));
+    }
     
     // 获取可添加的功能（套餐内没有的）
     function getAvailableFeatures(catId) {
@@ -4872,8 +5111,10 @@ const QuoteNew = {
       const idx = selectedHardware.value.indexOf(hid);
       if (idx === -1) {
         selectedHardware.value.push(hid);
+        hardwareQuantities[hid] = 1;
       } else {
         selectedHardware.value.splice(idx, 1);
+        delete hardwareQuantities[hid];
       }
     }
     
@@ -5017,6 +5258,7 @@ const QuoteNew = {
       supplementFeatures.value = [];
       customFeatures.value = [];
       selectedHardware.value = [];
+      Object.keys(hardwareQuantities).forEach(key => delete hardwareQuantities[key]);
       applyFeaturePointOverrides(quote.featurePointOverrides);
 
       if (allIds.length) {
@@ -5031,8 +5273,17 @@ const QuoteNew = {
           customFeatures.value = [...allIds];
         }
       }
-      if (quote.hardwareIds?.length) {
+      if (Array.isArray(quote.hardwareItems) && quote.hardwareItems.length) {
+        selectedHardware.value = quote.hardwareItems
+          .map(item => item.productId || item.productCode || item.hardwareId)
+          .filter(Boolean);
+        quote.hardwareItems.forEach(item => {
+          const id = item.productId || item.productCode || item.hardwareId;
+          if (id) hardwareQuantities[id] = Math.max(1, Math.floor(Number(item.quantity) || 1));
+        });
+      } else if (quote.hardwareIds?.length) {
         selectedHardware.value = [...quote.hardwareIds];
+        quote.hardwareIds.forEach(id => { hardwareQuantities[id] = 1; });
       }
       hasSensitiveKeywordWorkload.value = false;
     }
@@ -5055,6 +5306,7 @@ const QuoteNew = {
         const result = await apiClient.previewQuoteWorkload({
           products: selectedQuoteProductIds.value,
           hardwareIds: [...selectedHardware.value],
+          hardwareItems: buildHardwareItems(),
           endpoints: form.endpoints,
           featurePointOverrides: { ...featurePointOverrides },
           hasSensitiveKeywordWorkload: false
@@ -5082,6 +5334,7 @@ const QuoteNew = {
         const result = await apiClient.previewIpgQuote({
           featureIds: selectedQuoteProductIds.value,
           hardwareIds: [...selectedHardware.value],
+          hardwareItems: buildHardwareItems(),
           endpoints: form.endpoints,
           lianruanTotal: grandTotal.value,
           projectParams: {
@@ -5118,7 +5371,7 @@ const QuoteNew = {
     });
     
     const hardwareTotal = computed(() => {
-      return selectedHardware.value.reduce((sum, hid) => sum + getHardwarePrice(hid), 0);
+      return selectedHardware.value.reduce((sum, hid) => sum + getHardwareSubtotal(hid), 0);
     });
     
     const grandTotal = computed(() => subTotal.value + hardwareTotal.value);
@@ -5324,6 +5577,7 @@ const QuoteNew = {
       
       // 添加硬件ID
       const hardwareIds = [...selectedHardware.value];
+      const hardwareItems = buildHardwareItems();
       const payloadFeaturePointOverrides = { ...featurePointOverrides };
       
       try {
@@ -5337,6 +5591,7 @@ const QuoteNew = {
             endpoints: form.endpoints,
             products: productIds,
             hardwareIds: hardwareIds,
+            hardwareItems,
             quoteMode: quoteMode.value,
             packageId: selectedPackageId.value,
             featurePointOverrides: payloadFeaturePointOverrides,
@@ -5380,6 +5635,7 @@ const QuoteNew = {
           endpoints: form.endpoints,
           products: productIds,
           hardwareIds: hardwareIds,
+          hardwareItems,
           quoteMode: quoteMode.value,
           packageId: selectedPackageId.value,
           featurePointOverrides: payloadFeaturePointOverrides,
@@ -5468,6 +5724,7 @@ const QuoteNew = {
       supplementFeatures,
       customFeatures,
       selectedHardware,
+      hardwareQuantities,
       featurePointOverrides,
       () => form.endpoints,
       () => grandTotal.value,
@@ -5479,11 +5736,11 @@ const QuoteNew = {
     
     return {
       form, quoteMode, publishedPackages, publishedHardware, categories, loadingPackages,
-      selectedPackageId, selectedPackage, supplementFeatures, customFeatures, selectedHardware,
+      selectedPackageId, selectedPackage, supplementFeatures, customFeatures, selectedHardware, hardwareQuantities,
       approvedRegs, relatedOpportunities, selectedReg, customerSearch, showCustomerDropdown, filteredRegs, selectedOpps, subTotal, hardwareTotal, grandTotal, channelPriceReference, quotePricingRegionLabel, canSave,
       ipgQuotePreview, ipgQuoteLoading, ipgQuoteError,
       setMode, selectPackage, toggleSupplementFeature, toggleCustomFeature, toggleHardware,
-      getFeatureName, getFeaturePrice, getFeatureTotalPrice, getFeaturePoints, setFeaturePointOverride, getFeaturePriceDisplay, getFeatureQuantityUnit, getHardwareName, getHardwarePrice,
+      getFeatureName, getFeaturePrice, getFeatureTotalPrice, getFeaturePoints, setFeaturePointOverride, getFeaturePriceDisplay, getFeatureQuantityUnit, getHardwareName, getHardwarePrice, getHardwareQuantity, setHardwareQuantity, getHardwareSubtotal,
       getAvailableFeatures, supplementCategories, packagePrice, recalcAll,
       onCustomerChange, openCustomerDropdown, onCustomerBlur, selectReg, clearRegSelection, toggleOppSelection, saveQuote, fmt, quickQuoteMsg, stageLabel, stageColor,
       isManagerQuoteView,
@@ -5501,6 +5758,7 @@ const QuoteNew = {
 
 // ── 订单管理 ─────────────────────────────────────────────────
 const OrderList = {
+  components: { QuoteProfitPanel },
   template: `
   <div>
     <div class="search-bar">
@@ -5668,6 +5926,7 @@ const OrderList = {
               </div>
             </div>
           </div>
+          <QuoteProfitPanel :quote-id="detail.quoteId || detail.quoteNo || ''" readonly context="order" />
           <!-- 价格调整区域（仅管理员可见） -->
           <div v-if="isAdmin" style="margin-top:20px;padding:16px;background:#fffbe6;border-radius:8px;border:1px solid #ffe58f">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -6311,7 +6570,7 @@ const ProductCatalog = {
         📦 套餐管理
       </div>
       <div v-if="isSuperAdmin" class="tab-item" :class="{active: currentTab === 'workload-config'}" @click="currentTab = 'workload-config'">
-        🛠️ 工作量配置
+        🛠️ 人天与工作量配置
       </div>
     </div>
 
@@ -6544,10 +6803,18 @@ const ProductCatalog = {
     <div v-else-if="currentTab === 'manage-hardware' && isSuperAdmin">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
         <h3 style="font-size:16px;font-weight:600">🖥️ 硬件产品管理</h3>
-        <button class="btn btn-primary" @click="openHardwareDialog()">+ 新增硬件</button>
+        <div style="display:flex;align-items:center;gap:12px">
+          <label style="font-size:12px;color:#666;display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" v-model="hardwareCostMissingOnly"> 只看成本缺失
+          </label>
+          <button class="btn btn-primary" @click="openHardwareDialog()">+ 新增硬件</button>
+        </div>
+      </div>
+      <div v-if="costError && !showHardwareCostDialog" style="padding:10px 12px;margin-bottom:14px;border-radius:6px;background:#fff1f0;color:#cf1322;font-size:13px">
+        成本规则暂时无法读取：{{ costError }}。硬件资料仍可维护，收益冻结前请先确认成本规则。
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(350px,1fr));gap:16px">
-        <div v-for="hw in hardware" :key="hw.id" class="feature-card" :class="{'feature-card-unpublished': !hw.published}">
+        <div v-for="hw in hardwareForDisplay" :key="hw.id" class="feature-card" :class="{'feature-card-unpublished': !hw.published}">
           <div style="display:flex;align-items:flex-start;gap:12px">
             <div class="module-icon">{{ hw.icon }}</div>
             <div style="flex:1">
@@ -6565,10 +6832,14 @@ const ProductCatalog = {
               <div style="font-size:20px;font-weight:700;color:#f5222d;margin-top:8px">
                 ¥{{ hw.priceFixed?.toLocaleString() }}<span style="font-size:12px;font-weight:400;color:#888">/{{ hw.unit }}</span>
               </div>
+              <div style="margin-top:8px">
+                <span class="tag" :class="hardwareCostStatusClass(hw)">{{ hardwareCostStatusLabel(hw) }}</span>
+              </div>
             </div>
           </div>
           <div class="category-card-actions" @click.stop style="margin-top:12px;padding-top:12px;border-top:1px solid #f0f0f0">
             <button class="btn btn-text btn-sm" @click="openHardwareDialog(hw)">编辑</button>
+            <button class="btn btn-text btn-sm" @click="openHardwareCostDialog(hw)">成本配置</button>
             <button class="btn btn-text btn-sm" :style="{color: hw.published ? '#fa8c16' : '#52c41a'}" @click="toggleHardwarePublish(hw)">
               {{ hw.published ? '取消发布' : '发布' }}
             </button>
@@ -6576,9 +6847,9 @@ const ProductCatalog = {
           </div>
         </div>
       </div>
-      <div v-if="!hardware.length" class="empty-state">
+      <div v-if="!hardwareForDisplay.length" class="empty-state">
         <div class="empty-icon">🖥️</div>
-        <p>暂无硬件产品</p>
+        <p>{{ hardware.length ? '暂无成本缺失的硬件产品' : '暂无硬件产品' }}</p>
       </div>
     </div>
 
@@ -7296,6 +7567,69 @@ const ProductCatalog = {
       </div>
     </div>
 
+    <!-- ===== 硬件成本配置弹窗（仅超级管理员） ===== -->
+    <div v-if="showHardwareCostDialog && isSuperAdmin" class="modal-overlay" @click.self="closeHardwareCostDialog">
+      <div class="modal-content" style="max-width:680px">
+        <div class="modal-header">
+          <div class="modal-title">成本配置：{{ costHardware?.name || '硬件产品' }}</div>
+          <button class="modal-close" @click="closeHardwareCostDialog">×</button>
+        </div>
+        <div class="modal-body" style="max-height:70vh;overflow-y:auto">
+          <div v-if="costLoading" style="text-align:center;padding:28px;color:#999">加载成本规则中...</div>
+          <template v-else>
+            <div v-if="costError" style="padding:10px 12px;margin-bottom:14px;border-radius:6px;background:#fff1f0;color:#cf1322;font-size:13px">{{ costError }}</div>
+            <div style="padding:12px;background:#f8f9fa;border-radius:8px;margin-bottom:16px">
+              <div style="font-size:13px;color:#666">当前生效规则</div>
+              <div v-if="costCurrentRule" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;font-size:13px">
+                <div><span style="color:#888">内部销售成本：</span><strong>¥{{ formatCostAmount(costCurrentRule.internalSaleCost ?? costCurrentRule.internal_sale_cost) }}</strong></div>
+                <div><span style="color:#888">年度质保/维保成本：</span><strong>{{ formatOptionalCostAmount(costCurrentRule.annualWarrantyMaintenanceCost ?? costCurrentRule.annual_warranty_maintenance_cost) }}</strong></div>
+                <div><span style="color:#888">生效时间：</span>{{ formatBusinessDateTime(costCurrentRule.effectiveFrom ?? costCurrentRule.effective_from) }}</div>
+                <div><span style="color:#888">来源说明：</span>{{ (costCurrentRule.sourceReference ?? costCurrentRule.source_reference) || '—' }}</div>
+              </div>
+              <div v-else style="margin-top:8px;color:#d46b08;font-size:13px">尚未配置成本规则</div>
+              <div v-if="isAnnualCostMissing(costCurrentRule)" style="margin-top:8px;color:#d46b08;font-size:12px">年度质保/维保成本为空，引用该硬件的收益不能冻结。</div>
+            </div>
+
+            <div style="font-size:14px;font-weight:600;margin-bottom:10px">新增成本版本</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group">
+                <label>内部销售成本（元）<span style="color:#ff4d4f">*</span></label>
+                <input type="number" min="0" step="0.01" class="form-control" v-model="costForm.internalSaleCost" placeholder="如：13000.00">
+              </div>
+              <div class="form-group">
+                <label>年度质保/维保成本（元）</label>
+                <input type="number" min="0" step="0.01" class="form-control" v-model="costForm.annualWarrantyMaintenanceCost" placeholder="未知时留空，不要填 0">
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+              <div class="form-group">
+                <label>生效时间<span style="color:#ff4d4f">*</span></label>
+                <input type="datetime-local" class="form-control" v-model="costForm.effectiveFrom">
+              </div>
+              <div class="form-group">
+                <label>来源说明<span style="color:#ff4d4f">*</span></label>
+                <input class="form-control" v-model="costForm.sourceReference" placeholder="如：2026收益表第2行">
+              </div>
+            </div>
+
+            <div v-if="costHistory.length" style="margin-top:16px">
+              <div style="font-size:14px;font-weight:600;margin-bottom:8px">历史版本（只读）</div>
+              <div v-for="rule in costHistory" :key="rule.id || rule.versionNo || rule.version_no" style="display:grid;grid-template-columns:80px 1fr 1fr 1.2fr;gap:8px;padding:8px 10px;border-bottom:1px solid #f0f0f0;font-size:12px;color:#666">
+                <span>第{{ rule.versionNo ?? rule.version_no ?? '—' }}版</span>
+                <span>内部 ¥{{ formatCostAmount(rule.internalSaleCost ?? rule.internal_sale_cost) }}</span>
+                <span>年度 {{ formatOptionalCostAmount(rule.annualWarrantyMaintenanceCost ?? rule.annual_warranty_maintenance_cost) }}</span>
+                <span>{{ formatBusinessDateTime(rule.effectiveFrom ?? rule.effective_from) }}</span>
+              </div>
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-default" @click="closeHardwareCostDialog">取消</button>
+          <button class="btn btn-primary" @click="saveHardwareCostRule" :disabled="costLoading || costSaving">{{ costSaving ? '保存中...' : '新增版本' }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== 套餐编辑弹窗 ===== -->
     <div v-if="showPackageDialog" class="modal-overlay" @click.self="showPackageDialog=false">
       <div class="modal modal-xl" style="width:900px">
@@ -7457,8 +7791,9 @@ const ProductCatalog = {
     const saving = ref(false);
     const currentTab = ref('products'); // 默认打开产品目录（与合作伙伴端一致）
     
-    // 超级管理员判断
-    const isSuperAdmin = computed(() => store.user?.role === 'superadmin');
+    // 超级管理员判断：优先兼容登录返回的原始 roleCodes，不能把展示角色 admin 当成超管。
+    const isSuperAdmin = computed(() => store.user?.role === 'superadmin'
+      || (Array.isArray(store.user?.roleCodes) && store.user.roleCodes.includes('superadmin')));
     
     // 弹窗层级式预览状态
     const showModulesModal = ref(false);
@@ -7702,6 +8037,23 @@ const ProductCatalog = {
     const showHardwareDialog = ref(false);
     const editingHardware = ref(null);
     const hardwareForm = reactive({ name: '', model: '', icon: '🖥️', priceFixed: 0, unit: '台', specs: '', desc: '' });
+
+    // 硬件成本规则（仅超级管理员加载和维护，独立于对外硬件目录）
+    const showHardwareCostDialog = ref(false);
+    const costHardware = ref(null);
+    const costCurrentRule = ref(null);
+    const costHistory = ref([]);
+    const costRules = ref([]);
+    const costLoading = ref(false);
+    const costSaving = ref(false);
+    const costError = ref('');
+    const hardwareCostMissingOnly = ref(false);
+    const costForm = reactive({
+      internalSaleCost: '',
+      annualWarrantyMaintenanceCost: '',
+      effectiveFrom: '',
+      sourceReference: ''
+    });
     
     // 套餐
     const showPackageDialog = ref(false);
@@ -7718,6 +8070,168 @@ const ProductCatalog = {
       if (!filterModuleId.value) return features.value;
       return features.value.filter(f => f.moduleId === filterModuleId.value);
     });
+
+    function normalizeCostRuleEntry(item) {
+      if (!item || typeof item !== 'object') return null;
+      const looksLikeRule = Object.prototype.hasOwnProperty.call(item, 'internalSaleCost')
+        || Object.prototype.hasOwnProperty.call(item, 'internal_sale_cost')
+        || Object.prototype.hasOwnProperty.call(item, 'annualWarrantyMaintenanceCost')
+        || Object.prototype.hasOwnProperty.call(item, 'annual_warranty_maintenance_cost');
+      const history = item.history || item.historyRules || item.versions || item.rules || (looksLikeRule ? [item] : []);
+      const currentRule = item.currentRule || item.current || item.activeRule
+        || (item.statusCode || item.status_code || looksLikeRule ? item : null);
+      const hardwareProductId = item.hardwareProductId || item.hardware_product_id || item.productId || item.hardwareId
+        || currentRule?.hardwareProductId || currentRule?.hardware_product_id || '';
+      if (!hardwareProductId && !currentRule) return null;
+      return {
+        hardwareProductId: String(hardwareProductId || ''),
+        currentRule,
+        history: Array.isArray(history) ? history : []
+      };
+    }
+
+    function normalizeCostRuleResponse(response, fallbackHardwareProductId = '') {
+      const data = response?.data ?? response;
+      const rows = Array.isArray(data)
+        ? data
+        : (data?.rules || data?.items || data?.data || (data?.hardwareProductId || data?.currentRule || data?.current || data?.activeRule || data?.history ? [data] : []));
+      return (Array.isArray(rows) ? rows : [rows]).map(item => {
+        const entry = normalizeCostRuleEntry(item);
+        if (entry && !entry.hardwareProductId && fallbackHardwareProductId) entry.hardwareProductId = String(fallbackHardwareProductId);
+        return entry;
+      }).filter(Boolean);
+    }
+
+    function getHardwareCostEntry(hw) {
+      const id = String(hw?.id || '');
+      return costRules.value.find(entry => entry.hardwareProductId === id
+        || String(entry.currentRule?.hardwareProductId || entry.currentRule?.hardware_product_id || '') === id) || null;
+    }
+
+    function getHardwareCurrentCostRule(hw) {
+      return getHardwareCostEntry(hw)?.currentRule || null;
+    }
+
+    function hardwareCostStatusLabel(hw) {
+      const rule = getHardwareCurrentCostRule(hw);
+      if (!rule) return '未配置';
+      return isAnnualCostMissing(rule) ? '缺少年度成本' : '成本完整';
+    }
+
+    function isAnnualCostMissing(rule) {
+      if (!rule) return true;
+      const annual = rule.annualWarrantyMaintenanceCost ?? rule.annual_warranty_maintenance_cost;
+      return annual === null || annual === undefined || annual === '';
+    }
+
+    function hardwareCostStatusClass(hw) {
+      const label = hardwareCostStatusLabel(hw);
+      return label === '成本完整' ? 'tag-green' : (label === '缺少年度成本' ? 'tag-orange' : 'tag-red');
+    }
+
+    const hardwareForDisplay = computed(() => {
+      if (!hardwareCostMissingOnly.value || !isSuperAdmin.value) return hardware.value;
+      return hardware.value.filter(hw => hardwareCostStatusLabel(hw) !== '成本完整');
+    });
+
+    function formatCostAmount(value) {
+      if (value === null || value === undefined || value === '') return '—';
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : String(value);
+    }
+
+    function formatOptionalCostAmount(value) {
+      return value === null || value === undefined || value === '' ? '未配置' : `¥${formatCostAmount(value)}`;
+    }
+
+    function fillCostDialogFromEntry(entry) {
+      costCurrentRule.value = entry?.currentRule || null;
+      costHistory.value = Array.isArray(entry?.history) ? entry.history : [];
+      const current = costCurrentRule.value;
+      costForm.internalSaleCost = '';
+      costForm.annualWarrantyMaintenanceCost = '';
+      costForm.effectiveFrom = '';
+      costForm.sourceReference = '';
+      if (current) {
+        costForm.internalSaleCost = current.internalSaleCost ?? current.internal_sale_cost ?? '';
+        costForm.annualWarrantyMaintenanceCost = current.annualWarrantyMaintenanceCost ?? current.annual_warranty_maintenance_cost ?? '';
+        costForm.effectiveFrom = String(current.effectiveFrom ?? current.effective_from ?? '').slice(0, 16);
+        costForm.sourceReference = current.sourceReference ?? current.source_reference ?? '';
+      }
+    }
+
+    async function loadHardwareCostRules(filters = {}) {
+      if (!isSuperAdmin.value || typeof apiClient === 'undefined' || typeof apiClient.getHardwareCostRules !== 'function') return;
+      costLoading.value = true;
+      costError.value = '';
+      try {
+        const response = await apiClient.getHardwareCostRules(filters);
+        if (!response?.success) throw new Error(response?.error || '成本规则加载失败');
+        costRules.value = normalizeCostRuleResponse(response, filters.hardwareProductId || '');
+      } catch (error) {
+        costRules.value = [];
+        costError.value = error?.message || '成本规则加载失败';
+      } finally {
+        costLoading.value = false;
+      }
+    }
+
+    async function openHardwareCostDialog(hw) {
+      if (!isSuperAdmin.value) return;
+      costHardware.value = hw;
+      costError.value = '';
+      showHardwareCostDialog.value = true;
+      const entry = getHardwareCostEntry(hw);
+      fillCostDialogFromEntry(entry);
+      if (!entry) {
+        await loadHardwareCostRules({ hardwareProductId: hw.id });
+        fillCostDialogFromEntry(getHardwareCostEntry(hw));
+      }
+    }
+
+    function closeHardwareCostDialog() {
+      showHardwareCostDialog.value = false;
+      costHardware.value = null;
+      costCurrentRule.value = null;
+      costHistory.value = [];
+      costError.value = '';
+    }
+
+    function validateCostAmount(value, required = false) {
+      const text = String(value ?? '').trim();
+      if (!text) return required ? '请填写内部销售成本' : null;
+      if (!/^\d+(?:\.\d{1,2})?$/.test(text)) return '金额必须为非负数且最多保留两位小数';
+      return null;
+    }
+
+    async function saveHardwareCostRule() {
+      if (!isSuperAdmin.value || !costHardware.value) return;
+      const internalError = validateCostAmount(costForm.internalSaleCost, true);
+      const annualError = validateCostAmount(costForm.annualWarrantyMaintenanceCost, false);
+      if (internalError || annualError) { alert(internalError || annualError); return; }
+      if (!String(costForm.effectiveFrom || '').trim()) { alert('请选择生效时间'); return; }
+      if (!String(costForm.sourceReference || '').trim()) { alert('请填写来源说明'); return; }
+      if (typeof apiClient === 'undefined' || typeof apiClient.createHardwareCostRule !== 'function') { alert('成本规则接口不可用'); return; }
+      costSaving.value = true;
+      costError.value = '';
+      try {
+        const response = await apiClient.createHardwareCostRule({
+          hardwareProductId: costHardware.value.id,
+          internalSaleCost: String(costForm.internalSaleCost).trim(),
+          annualWarrantyMaintenanceCost: String(costForm.annualWarrantyMaintenanceCost ?? '').trim() || null,
+          effectiveFrom: String(costForm.effectiveFrom).trim(),
+          sourceReference: String(costForm.sourceReference).trim()
+        });
+        if (!response?.success) throw new Error(response?.error || '成本规则保存失败');
+        await loadHardwareCostRules();
+        fillCostDialogFromEntry(getHardwareCostEntry(costHardware.value));
+        alert('成本版本已新增');
+      } catch (error) {
+        costError.value = error?.message || '成本规则保存失败';
+      } finally {
+        costSaving.value = false;
+      }
+    }
     
     // 加载数据
     async function loadAll() {
@@ -7739,6 +8253,8 @@ const ProductCatalog = {
         const rawFeatures = featData.data || [];
         features.value = rawFeatures.map(feature => normalizeFeatureRecord(feature, rawFeatures));
         hardware.value = hwData.data || [];
+        // 成本规则属于收益附属能力，异步加载失败不阻断产品目录页面。
+        void loadHardwareCostRules();
         packages.value = pkgData.data || [];
         stats.value = statsData.data || {};
       } catch (err) {
@@ -8238,6 +8754,10 @@ const ProductCatalog = {
       getMaintenanceModuleLabel,
       getMaintenanceFeatureLabel,
       showHardwareDialog, editingHardware, hardwareForm,
+      showHardwareCostDialog, costHardware, costCurrentRule, costHistory, costLoading, costSaving, costError, costForm,
+      hardwareCostMissingOnly, hardwareForDisplay, hardwareCostStatusLabel, hardwareCostStatusClass,
+      formatCostAmount, formatOptionalCostAmount, openHardwareCostDialog, closeHardwareCostDialog, saveHardwareCostRule,
+      isAnnualCostMissing,
       showPackageDialog, editingPackage, packageForm,
       getCategoryName, getCategoryModules, getModuleCount, getFeatureCount, getModuleFeatureCount, getModuleName, selectCategory,
       toggleModuleInPackage, toggleFeatureInPackage, toggleHardwareInPackage,
@@ -13273,6 +13793,7 @@ const AdminReview = {
 // STAGES, stageLabel, stageDot, stageTagClass, probColor 已在前面定义
 
 const OpportunityList = {
+  components: { QuoteProfitPanel },
   template: `
   <div>
     <!-- 顶部筛选 -->
@@ -13809,6 +14330,7 @@ const OpportunityList = {
                 @click="toggleInlineHardware(h.id)">
                 <span>{{ h.name }}</span>
                 <span style="color:#fa8c16;font-weight:600">{{ fmt(h.price || 0) }}</span>
+                <input v-if="inlineSelectedHardware.includes(h.id)" type="number" min="1" max="9999" step="1" class="form-control" style="width:70px;padding:2px 6px" :value="getInlineHardwareQuantity(h.id)" @click.stop @input="setInlineHardwareQuantity(h.id, $event.target.value)">
               </div>
             </div>
           </div>
@@ -13856,8 +14378,8 @@ const OpportunityList = {
             <div v-if="inlineSelectedHardware.length" style="margin-bottom:12px;padding:10px 12px;background:#fff;border-radius:8px">
               <div style="font-size:12px;color:#888;margin-bottom:6px">硬件设备</div>
               <div v-for="hid in inlineSelectedHardware" :key="hid" style="display:flex;justify-content:space-between;font-size:13px">
-                <span>{{ getHardwareName(hid) }}</span>
-                <span style="color:#fa8c16;font-weight:600">{{ fmt(getHardwarePrice(hid)) }}</span>
+                <span>{{ getHardwareName(hid) }} × {{ getInlineHardwareQuantity(hid) }}</span>
+                <span style="color:#fa8c16;font-weight:600">{{ fmt(getHardwarePrice(hid) * getInlineHardwareQuantity(hid)) }}</span>
               </div>
             </div>
             
@@ -13961,6 +14483,7 @@ const OpportunityList = {
             <div style="font-size:13px;font-weight:500">{{ $formatBusinessDateTime(quoteDetailData?.createdAt || quoteDetailData?.date) }}</div>
           </div>
         </div>
+        <QuoteProfitPanel :quote-id="quoteDetailData?.id || ''" />
       </div>
       <div class="modal-footer">
         <button class="btn btn-default" @click="showQuoteDetailModal=false">关闭</button>
@@ -14083,12 +14606,12 @@ const OpportunityList = {
     const inlineSupplementFeatures = ref([]);
     const inlineCustomFeatures = ref([]);
     const inlineSelectedHardware = ref([]);
+    const inlineHardwareQuantities = reactive({});
     
     // 报价单详情弹窗
     const showQuoteDetailModal = ref(false);
     const quoteDetailData = ref(null);
     const quoteDetailItems = ref([]);
-
     const STANDARD_MAINTENANCE_FEATURE_ID = 'FEAT-MOD-MAINTENANCE-01-01';
     const DEFAULT_MAINTENANCE_MONTHS = 12;
     const DEFAULT_STANDARD_MAINTENANCE_RATE = 15;
@@ -14253,9 +14776,9 @@ const OpportunityList = {
       const ep = quote.endpoints || 100;
       const overrideMap = quote.featurePointOverrides || {};
       const detailFeatures = (quote.products || []).map(pid => allFeatures.value.find(f => f.id === pid)).filter(Boolean);
-      const detailHardwareTotal = (quote.hardwareIds || []).reduce((sum, hid) => {
-        const hw = publishedHardware.value.find(h => h.id === hid);
-        return sum + (hw?.priceFixed || 0);
+      const detailHardwareTotal = getQuoteHardwareItems(quote).reduce((sum, item) => {
+        const hw = publishedHardware.value.find(h => h.id === item.productId);
+        return sum + (hw?.priceFixed || 0) * item.quantity;
       }, 0);
       try {
         (quote.products || []).forEach(pid => {
@@ -14288,16 +14811,16 @@ const OpportunityList = {
             });
           }
         });
-        (quote.hardwareIds || []).forEach(hid => {
-          const hw = publishedHardware.value.find(h => h.id === hid);
+        getQuoteHardwareItems(quote).forEach(item => {
+          const hw = publishedHardware.value.find(h => h.id === item.productId);
           if (hw) {
             items.push({
               name: hw.name,
               productCode: hw.model || hw.productCode || hw.id,
               type: 'hardware',
-              qty: 1,
+              qty: item.quantity,
               unitPrice: hw.priceFixed || 0,
-              subtotal: hw.priceFixed || 0
+              subtotal: (hw.priceFixed || 0) * item.quantity
             });
           }
         });
@@ -14350,16 +14873,16 @@ const OpportunityList = {
             });
           }
         });
-        (quote.hardwareIds || []).forEach(hid => {
-          const hw = publishedHardware.value.find(h => h.id === hid);
+        getQuoteHardwareItems(quote).forEach(item => {
+          const hw = publishedHardware.value.find(h => h.id === item.productId);
           if (!hw) return;
           items.push({
             name: hw.name,
             productCode: hw.model || hw.productCode || hw.id,
             type: 'hardware',
-            qty: 1,
+            qty: item.quantity,
             unitPrice: hw.priceFixed || 0,
-            subtotal: hw.priceFixed || 0
+            subtotal: (hw.priceFixed || 0) * item.quantity
           });
         });
         items.push(getComplimentaryWarrantyItem());
@@ -14385,7 +14908,7 @@ const OpportunityList = {
       return calculateOpportunityFeatureSetTotal(featureIds, inlineQuoteForm.endpoints);
     });
     const inlineHardwareTotal = computed(() => {
-      return inlineSelectedHardware.value.reduce((sum, hid) => sum + getHardwarePrice(hid), 0);
+      return inlineSelectedHardware.value.reduce((sum, hid) => sum + getHardwarePrice(hid) * Math.max(1, Math.floor(Number(inlineHardwareQuantities[hid]) || 1)), 0);
     });
     const inlineGrandTotal = computed(() => inlineSubTotal.value + inlineHardwareTotal.value);
     const inlineCanSave = computed(() => {
@@ -14407,6 +14930,7 @@ const OpportunityList = {
       inlineSupplementFeatures.value = [];
       inlineCustomFeatures.value = [];
       inlineSelectedHardware.value = [];
+      Object.keys(inlineHardwareQuantities).forEach(key => delete inlineHardwareQuantities[key]);
       inlineQuoteMode.value = 'package';
       showInlineQuote.value = true;
     }
@@ -14432,9 +14956,16 @@ const OpportunityList = {
     }
     function toggleInlineHardware(hid) {
       const idx = inlineSelectedHardware.value.indexOf(hid);
-      if (idx >= 0) inlineSelectedHardware.value.splice(idx, 1);
-      else inlineSelectedHardware.value.push(hid);
+      if (idx >= 0) {
+        inlineSelectedHardware.value.splice(idx, 1);
+        delete inlineHardwareQuantities[hid];
+      } else {
+        inlineSelectedHardware.value.push(hid);
+        inlineHardwareQuantities[hid] = 1;
+      }
     }
+    function getInlineHardwareQuantity(hid) { return Math.max(1, Math.floor(Number(inlineHardwareQuantities[hid]) || 1)); }
+    function setInlineHardwareQuantity(hid, value) { inlineHardwareQuantities[hid] = Math.max(1, Math.min(9999, Math.floor(Number(value) || 1))); }
     async function saveInlineQuote() {
       if (!inlineQuoteOpp.value) return;
       const o = inlineQuoteOpp.value;
@@ -14447,6 +14978,7 @@ const OpportunityList = {
         productIds = [...inlineCustomFeatures.value];
       }
       const hardwareIds = [...inlineSelectedHardware.value];
+      const hardwareItems = hardwareIds.map(hid => ({ productId: hid, quantity: getInlineHardwareQuantity(hid) }));
       
       try {
         const result = await apiClient.createQuote({
@@ -14457,6 +14989,7 @@ const OpportunityList = {
           endpoints: inlineQuoteForm.endpoints,
           products: productIds,
           hardwareIds: hardwareIds,
+          hardwareItems,
           quoteMode: inlineQuoteMode.value,
           packageId: inlineSelectedPackageId.value,
           total: inlineGrandTotal.value,
@@ -15169,7 +15702,7 @@ const OpportunityList = {
       showWonConfirmModal, wonDeliveryForm, currentWonOpp, wonQuoteData, openWonConfirmModal, editQuoteFromWonConfirm, confirmWonAndCreateOrder,
       // 内嵌报价单
       showInlineQuote, inlineQuoteOpp, inlineQuoteForm, inlineQuoteMode, inlineSelectedPackageId, inlineSelectedPackage,
-      inlineSupplementFeatures, inlineCustomFeatures, inlineSelectedHardware,
+      inlineSupplementFeatures, inlineCustomFeatures, inlineSelectedHardware, inlineHardwareQuantities, getInlineHardwareQuantity, setInlineHardwareQuantity,
       inlinePackagePrice, inlineSubTotal, inlineHardwareTotal, inlineGrandTotal, inlineCanSave,
       openInlineQuoteModal, noQuoteAlert, inlineQuoteSetMode, inlineSelectPackage, toggleInlineSupplement, toggleInlineCustom, toggleInlineHardware, saveInlineQuote,
       // 报价单详情
@@ -22666,6 +23199,34 @@ function showLoginDueReminderDialog(reminders) {
 }
 
 // ── 恢复登录状态 ─────────────────────────────────────────────
+async function refreshAdminSessionState() {
+  if (!store.user) return;
+  try {
+    const response = await adminFetch(`${window.API_BASE}/auth/me`);
+    if (response.status === 401) {
+      clearAdminLoginState();
+      return;
+    }
+    if (!response.ok) return;
+    const result = await response.json().catch(() => null);
+    if (!result?.success || !result.user) return;
+    if (result.user.role !== 'admin' && result.user.role !== 'superadmin') return;
+    const refreshedUser = {
+      ...store.user,
+      ...result.user,
+      roleCodes: Array.isArray(result.user.roleCodes) ? [...result.user.roleCodes] : (store.user.roleCodes || []),
+      _storagePrefix: 'admin_'
+    };
+    store.user = refreshedUser;
+    localStorage.setItem('admin_user_info', JSON.stringify(refreshedUser));
+    const token = result.token || getAdminAuthToken();
+    if (token) localStorage.setItem('admin_api_user', JSON.stringify({ user: refreshedUser, token }));
+    if (typeof syncUser === 'function') syncUser(refreshedUser);
+  } catch (error) {
+    console.warn('刷新管理员会话失败，继续使用本地登录状态:', error);
+  }
+}
+
 function restoreLoginState() {
   try {
     // 使用独立前缀读取登录状态
@@ -22697,6 +23258,7 @@ function restoreLoginState() {
 }
 restoreLoginState();
 if (store.user) {
+  void refreshAdminSessionState();
   loadNotificationsFromServer();
 }
 

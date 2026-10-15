@@ -4,6 +4,8 @@ export interface 登录用户 {
   roleName: string;
   defaultPath: string;
   allowedPaths: string[];
+  roles?: string[];
+  permissions?: string[];
 }
 
 export type 业务页面角色 = "superadmin" | "admin" | "partner_admin" | "staff";

@@ -1,0 +1,121 @@
+{
+  "generatedAt": "2026-09-23T06:11:06.878Z",
+  "通过": 10,
+  "总数": 10,
+  "失败项": [],
+  "明细": [
+    {
+      "role": "superadmin",
+      "name": "商机七阶段文案",
+      "route": "/admin/opportunity",
+      "命中七阶段": [
+        "客户建联",
+        "需求挖掘",
+        "客户方案",
+        "招投标",
+        "成单"
+      ],
+      "残留旧阶段": [],
+      "通过": true
+    },
+    {
+      "role": "superadmin",
+      "name": "价格规则展示与筛选",
+      "route": "/admin/products/pricing",
+      "阶梯价展示": true,
+      "渠道比例展示": true,
+      "区域覆盖展示": true,
+      "命中顺序": true,
+      "筛选-区域覆盖": true,
+      "筛选-阶梯计价": true,
+      "通过": true
+    },
+    {
+      "role": "superadmin",
+      "name": "证书模板弹窗",
+      "route": "/admin/certifications",
+      "弹窗打开": true,
+      "通过": true
+    },
+    {
+      "role": "superadmin",
+      "name": "提醒规则真实数据",
+      "route": "/admin/notifications/rules",
+      "status": 200,
+      "条数": 9,
+      "表格行": 9,
+      "通过": true
+    },
+    {
+      "role": "region",
+      "name": "客户档案编辑与跟进",
+      "route": "/admin/registration/5b14287e-8ae8-4352-af87-acf400f705a1/followup",
+      "编辑按钮": 1,
+      "编辑态打开": true,
+      "跟进入口": 1,
+      "通过": true
+    },
+    {
+      "role": "region",
+      "name": "渠道成员新增弹窗",
+      "route": "/admin/partners/d8373e54-7b2a-4fdc-8c19-9fd342fa1b3f/members",
+      "新增按钮": 1,
+      "弹窗打开": true,
+      "通过": true
+    },
+    {
+      "role": "region",
+      "name": "订单动作中心按状态与角色显示动作",
+      "route": "/admin/order",
+      "明细": [
+        {
+          "订单": "71a352a1-92e0-42dd-890f-bf5ebc294eba",
+          "状态": "pending_superadmin_confirm",
+          "动作按钮": 0,
+          "无动作提示": true
+        },
+        {
+          "订单": "f86b379e-0344-4843-8b31-53cc7069b174",
+          "状态": "confirmed",
+          "动作按钮": 1,
+          "无动作提示": false
+        }
+      ],
+      "可执行动作订单数": 1,
+      "状态边界提示": true,
+      "通过": true
+    },
+    {
+      "role": "superadmin",
+      "name": "超管确认与退回动作",
+      "route": "/admin/order",
+      "订单": "71a352a1-92e0-42dd-890f-bf5ebc294eba",
+      "状态": "pending_superadmin_confirm",
+      "动作卡": [
+        "超管确认\n\n最终确认订单并触发后续履约流程。\n\n执行",
+        "超管退回\n\n选择退回目标并填写退回原因。\n\n执行"
+      ],
+      "超管确认动作": 1,
+      "超管退回动作": 1,
+      "审批说明存在": true,
+      "通过": true
+    },
+    {
+      "role": "region",
+      "name": "渠道核心档案可编辑",
+      "route": "/admin/partners/d8373e54-7b2a-4fdc-8c19-9fd342fa1b3f/profile",
+      "关键文案": [
+        "渠道核心档案",
+        "工商主体"
+      ],
+      "表单控件": 9,
+      "通过": true
+    },
+    {
+      "role": "channel",
+      "name": "渠道端报价与订单入口",
+      "route": "/partner/order",
+      "通过": true
+    }
+  ]
+}

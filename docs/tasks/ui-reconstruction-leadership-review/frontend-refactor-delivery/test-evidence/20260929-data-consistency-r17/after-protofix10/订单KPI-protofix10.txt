@@ -1,0 +1,22 @@
+[
+  "订单总数 | 73 | 笔 | 当前数据范围内订单",
+  "待一级确认 | 1 | 笔 | pending / pending_primary_confirm",
+  "待区管确认 | 10 | 笔 | region_pending / primary_confirmed",
+  "待超管确认 | 13 | 笔 | pending_superadmin_confirm",
+  "已确认 | 11 | 笔 | confirmed",
+  "已完成 / 已退回 / 取消 | 14 / 22 / 2 | 笔 | completed / returned_to_primary·secondary·region / cancelled"
+]
+接口: {
+  "总数": 73,
+  "本页": 73,
+  "状态分布": {
+    "pending_superadmin_confirm": 13,
+    "returned_to_secondary": 21,
+    "completed": 14,
+    "returned_to_region": 1,
+    "primary_confirmed": 10,
+    "confirmed": 11,
+    "cancelled": 2,
+    "pending": 1
+  }
+}

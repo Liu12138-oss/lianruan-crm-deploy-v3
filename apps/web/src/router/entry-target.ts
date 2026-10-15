@@ -2,9 +2,9 @@ import type { 登录用户 } from "../api/auth-client.js";
 
 const 登录页 = "/login";
 const 统一入口页 = "/unified";
-const 管理端页面 = "/admin.html";
+const 管理端页面 = "/admin";
 const 管理移动端页面 = "/admin-mobile.html";
-const 渠道端页面 = "/partner.html";
+const 渠道端页面 = "/partner";
 const 渠道移动端页面 = "/partner-mobile.html";
 const 管理移动端首页 = `${管理移动端页面}#/admin/home`;
 const 渠道移动端首页 = `${渠道移动端页面}#/partner/home`;
@@ -61,6 +61,8 @@ function 选择账号工作区(defaultPath: string, allowedPaths: string[]): "ad
 
 function 用户可进入路径(path: string, allowedPaths: string[]): boolean {
   if (!path) return false;
+  if (path === "/admin.html") return 可进入管理端(allowedPaths);
+  if (path === "/partner.html") return 可进入渠道端(allowedPaths);
   if (path === 管理移动端页面 || 是移动管理端路径(path)) {
     return 可进入管理端(allowedPaths) && 可进入移动端(allowedPaths);
   }
@@ -101,18 +103,28 @@ function 是移动渠道端路径(path: string): boolean {
 }
 
 function 是实际业务页面(path: string): boolean {
-  return [管理端页面, 管理移动端页面, 渠道端页面, 渠道移动端页面].includes(path);
+  return (
+    [管理端页面, 管理移动端页面, 渠道端页面, 渠道移动端页面].includes(path) ||
+    path.startsWith(`${管理端页面}/`) ||
+    path.startsWith(`${渠道端页面}/`) ||
+    path === "/admin.html" ||
+    path === "/partner.html"
+  );
 }
 
 function 转换为实际页面(地址: URL): string {
   const 原地址 = `${地址.pathname}${地址.search}${地址.hash}`;
+  const 旧管理深链 = 转换旧哈希深链(地址, "/admin.html", 管理端页面);
+  if (旧管理深链) return 旧管理深链;
+  const 旧渠道深链 = 转换旧哈希深链(地址, "/partner.html", 渠道端页面);
+  if (旧渠道深链) return 旧渠道深链;
   if (地址.pathname === 管理移动端页面 && !地址.hash) {
     return `${地址.pathname}${地址.search}#/admin/home`;
   }
   if (地址.pathname === 渠道移动端页面 && !地址.hash) {
     return `${地址.pathname}${地址.search}#/partner/home`;
   }
-  if (是实际业务页面(地址.pathname)) return 原地址;
+  if (是实际业务页面(地址.pathname)) return `${地址.pathname}${地址.search}`;
 
   if (是移动管理端路径(地址.pathname)) {
     return 构建移动页面地址(管理移动端页面, 地址, "/mobile/");
@@ -129,10 +141,17 @@ function 转换为实际页面(地址: URL): string {
   return 原地址;
 }
 
+function 转换旧哈希深链(地址: URL, 旧页面: string, 新页面: string): string {
+  if (地址.pathname !== 旧页面) return "";
+  const 哈希路径 = 地址.hash.startsWith("#/") ? 地址.hash.slice(2) : "";
+  if (!哈希路径) return `${新页面}${地址.search}`;
+  return `${新页面}/${哈希路径}${地址.search}`.replace(/\/+/g, "/");
+}
+
 function 构建桌面页面地址(页面: string, 地址: URL, 前缀: string): string {
   const 子路径 = 地址.pathname.slice(前缀.length).replace(/^\//, "");
   if (!子路径 && !地址.search) return 页面;
-  return `${页面}#/${子路径}${地址.search}`;
+  return `${页面}/${子路径}${地址.search}`.replace(/\/+/g, "/");
 }
 
 function 构建移动页面地址(页面: string, 地址: URL, 前缀: string): string {

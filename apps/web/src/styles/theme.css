@@ -1,9 +1,28 @@
+/**
+ * 内嵌楷体（R26）：Windows 默认命中中易楷体、macOS 默认命中华文楷体，两者字形并不相同。
+ * 为了让两端显示完全一致，这里内嵌「霞鹜文楷 GB」简体字形子集：
+ *   - 覆盖 GB2312 全集 + 前端文案用字，共 7593 字，woff2 体积 1.54MB；
+ *   - 许可为 SIL OFL 1.1，允许子集化后作为 Web 字体分发（见 public/fonts/OFL-LXGWWenKaiGB.txt）；
+ *   - 未覆盖的生僻字仍按字体栈回退到系统楷体与 serif，不会出现方框。
+ */
+@font-face {
+  font-family: "LXGW WenKai GB";
+  src: url("/fonts/lxgwwenkai-gb-regular.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color: #162033;
   background: #f4f7fb;
-  font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  font-family: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  /* 作战室画板铺满内容区时用于扣减外壳顶栏高度；无顶栏的独立路由由这里的 0 兜底。 */
+  --v3-board-topbar-h: 0px;
+  /* 画板内边距扣减口径：只对应原型画板内的 62px 顶栏，不随二级菜单条变化。 */
+  --v3-board-inner-topnav-h: 0px;
 }
 
 * {
@@ -141,7 +160,12 @@ a {
   color: #69798d;
 }
 
-.主按钮 {
+/*
+ * 旧版状态页专用样式：仅 403 / 404 / 维护 / 会话失效页的「返回入口」按钮需要
+ * 顶部间距与青色底。业务页面各自维护 .主按钮 样式，不能再继承这里的 margin-top，
+ * 否则页头同排按钮（如渠道成员维护的「核心档案 + 新增成员」）会上下错位。
+ */
+.状态页 .主按钮 {
   margin-top: 18px;
   background: #1f7a8c;
   color: #ffffff;
@@ -724,7 +748,7 @@ a {
   color: #ffffff;
   font-size: 11px;
   font-style: normal;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
 }
 
@@ -752,7 +776,7 @@ a {
   border-radius: 50%;
   background: #eef2ff;
   color: #1f7a8c;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .v2-用户信息 {
@@ -982,7 +1006,7 @@ a {
   place-items: center;
   border-radius: 4px;
   color: #ffffff;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .stat-icon.blue {
@@ -1594,9 +1618,7 @@ tbody tr:hover {
   --radius-full: 9999px;
   color: var(--text-primary);
   background: var(--bg);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+  font-family: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
 }
 
 body {
@@ -1655,7 +1677,7 @@ body {
   margin: 0 0 4px;
   color: #ffffff;
   font-size: 24px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
@@ -1734,7 +1756,7 @@ body {
 .role-option .title {
   color: #ffffff;
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .role-option .desc {
@@ -1874,7 +1896,7 @@ body {
   border-radius: 12px;
   color: #ffffff;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .admin-badge {
@@ -1901,7 +1923,7 @@ body {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   text-align: center;
   transition: all 0.2s;
 }
@@ -2029,7 +2051,7 @@ body {
   overflow: hidden;
   color: #ffffff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2059,7 +2081,7 @@ body {
   padding: 20px 20px 8px;
   color: rgba(255, 255, 255, 0.35);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
@@ -2076,7 +2098,7 @@ body {
   color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.2;
   transition: all 0.15s ease;
 }
@@ -2119,7 +2141,7 @@ body {
   color: #ffffff;
   font-size: 11px;
   font-style: normal;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-侧边底部 {
@@ -2154,7 +2176,7 @@ body {
   background: linear-gradient(135deg, var(--primary), #5856d6);
   color: #ffffff;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-用户信息 {
@@ -2167,7 +2189,7 @@ body {
   overflow: hidden;
   color: #ffffff;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2246,7 +2268,7 @@ body {
   overflow: hidden;
   color: var(--text-primary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2485,7 +2507,7 @@ body {
 .form-label {
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.2px;
 }
 
@@ -2542,7 +2564,7 @@ select.form-control[multiple] {
   cursor: pointer;
   font: inherit;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1;
   letter-spacing: 0;
   white-space: nowrap;
@@ -2645,7 +2667,7 @@ th {
   border-bottom: 1px solid var(--divider);
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.3px;
   text-align: left;
   text-transform: uppercase;
@@ -2702,7 +2724,7 @@ tbody tr:hover td {
   padding: 4px 12px;
   border-radius: var(--radius-full);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
 }
@@ -2776,7 +2798,7 @@ tbody tr:hover td {
   min-width: 0;
   color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-表单 label span {
@@ -2955,7 +2977,7 @@ tbody tr:hover td {
 
 .quote-meta-item span {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .quote-body {
@@ -3080,6 +3102,7 @@ tbody tr:hover td {
   flex-direction: column;
   background: var(--surface);
   box-shadow: -4px 0 32px rgba(0, 0, 0, 0.12);
+  font-family: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -3098,7 +3121,8 @@ tbody tr:hover td {
 
 .notif-panel__header strong {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .notif-panel__header button {
@@ -3107,7 +3131,7 @@ tbody tr:hover td {
   color: var(--primary);
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .notif-panel__body {
@@ -3124,6 +3148,8 @@ tbody tr:hover td {
   border-bottom: 1px solid var(--divider);
   background: #ffffff;
   cursor: pointer;
+  /* 原生 button 不继承字族，这里显式继承，避免通知面板落到浏览器默认 Arial */
+  font: inherit;
   text-align: left;
   transition: background 0.15s;
 }
@@ -3138,20 +3164,20 @@ tbody tr:hover td {
 
 .ni-title {
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .ni-desc {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .ni-time,
 .notif-empty {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .notif-empty {
@@ -3262,7 +3288,7 @@ tbody tr:hover td {
 .qa-title {
   color: var(--text-primary);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .qa-desc {
@@ -3464,7 +3490,7 @@ tbody tr:hover td {
   background: rgba(0, 122, 255, 0.12);
   color: var(--primary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .product-card strong {
@@ -3513,7 +3539,7 @@ tbody tr:hover td {
   cursor: pointer;
   font: inherit;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   transition: all 0.2s ease;
   white-space: nowrap;
 }
@@ -3659,7 +3685,7 @@ tbody tr:hover td {
   margin: 0;
   color: var(--text-primary);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .feature-card-grid,
@@ -3839,7 +3865,7 @@ tbody tr:hover td {
 .module-card-v b {
   color: var(--primary);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .v2-product-modal__title {
@@ -3915,7 +3941,7 @@ tbody tr:hover td {
   padding-left: 4px;
   color: #555555;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .timeline {
@@ -3969,7 +3995,7 @@ tbody tr:hover td {
 .timeline-content .tl-title {
   color: var(--text-primary);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .timeline-content .tl-desc {
@@ -4232,7 +4258,7 @@ tbody tr:hover td {
 
 .v2-opportunity-linked b {
   color: #1677ff;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .v2-opportunity-main {
@@ -4355,7 +4381,7 @@ tbody tr:hover td {
   background: #fafafa;
   color: #888888;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-form-steps b,
@@ -4441,7 +4467,7 @@ tbody tr:hover td {
   gap: 10px;
   color: #333333;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-inline-option input {
@@ -4508,7 +4534,7 @@ tbody tr:hover td {
   color: #333333;
   cursor: pointer;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-review-tabs button.active {
@@ -4642,7 +4668,7 @@ tbody tr:hover td {
 .v2-quote-subtitle small {
   color: #1677ff;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .v2-quote-product-grid,
@@ -4779,7 +4805,7 @@ tbody tr:hover td {
   overflow-x: hidden;
   background: #f5f7fb;
   color: #1f2937;
-  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
 }
 
 .移动端壳 {
@@ -4848,7 +4874,7 @@ tbody tr:hover td {
   margin-top: 2px;
   color: #718198;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .移动端内容 {
@@ -5316,7 +5342,7 @@ tbody tr:hover td {
 
 .todo-list b {
   color: #356cd0;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .record-card {
@@ -5392,7 +5418,7 @@ tbody tr:hover td {
   background: #ffffff;
   color: #3169c2;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .segment-control {
@@ -5501,9 +5527,7 @@ tbody tr:hover td {
   max-width: 100%;
   overflow-wrap: anywhere;
   color: #1f2937;
-  font-family:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
-    monospace;
+  font-family: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
   font-size: 12px;
   line-height: 1.55;
 }
@@ -5810,5 +5834,582 @@ tbody tr:hover td {
 
   .quote-sign {
     flex-direction: column;
+  }
+}
+
+/* UI 重构后的桌面顶部业务导航。1280px 以下保留结构，由导航自身横向滚动。 */
+.v2-顶部导航布局.v2-桌面布局 {
+  display: grid;
+  min-width: 1280px;
+  min-height: 100vh;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 62px minmax(0, 1fr);
+  background: #eef5fc;
+  /* 画板高度需要扣掉顶栏外壳（带二级菜单条时为 104px） */
+  --v3-board-topbar-h: 62px;
+  /* 画板内边距只按原型画板内的 62px 顶栏扣减 */
+  --v3-board-inner-topnav-h: 62px;
+}
+
+.v2-顶部业务导航 {
+  position: sticky;
+  top: 0;
+  z-index: 120;
+  display: grid;
+  min-width: 1280px;
+  height: 62px;
+  grid-template-columns: 238px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 0 28px;
+  border-bottom: 1px solid #d7e5f2;
+  background: linear-gradient(
+    90deg,
+    rgba(237, 246, 255, 0.99),
+    rgba(255, 255, 255, 0.98) 50%,
+    rgba(239, 249, 255, 0.99)
+  );
+  box-shadow: 0 8px 24px rgba(38, 78, 123, 0.06);
+}
+
+.v2-导航品牌 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.v2-导航品牌标识 {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #55c8ff, #2f69ed);
+  box-shadow: 0 8px 18px rgba(47, 105, 237, 0.22);
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.v2-导航品牌文字 {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.v2-导航品牌文字 strong,
+.v2-导航品牌文字 small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-导航品牌文字 strong {
+  color: #172b4d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.v2-导航品牌文字 small {
+  color: #8391a5;
+  font-size: 10px;
+}
+
+/* R30：一级导航不再使用自身滚动容器，否则「配置」二级菜单浮层会被 overflow 裁掉。
+   顶部外壳本身 min-width: 1280px，导航项在支持的最小宽度下不会溢出。 */
+.v2-一级导航 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.v2-一级导航项 {
+  display: inline-flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 9px;
+  border-radius: 8px;
+  color: #60748c;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition:
+    background 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.v2-一级导航项:hover {
+  background: rgba(47, 105, 237, 0.07);
+  color: #1557d6;
+}
+
+.v2-一级导航项.active {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 7px 18px rgba(47, 105, 237, 0.12);
+  color: #1557d6;
+}
+
+.v2-一级导航项.active::after {
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: #2f69ed;
+  content: "";
+}
+
+.v2-顶部业务动作 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.v2-顶部主操作 {
+  display: inline-flex;
+  min-height: 34px;
+  padding: 0 13px;
+  align-items: center;
+  gap: 5px;
+  border-radius: 9px;
+  background: #2f69ed;
+  color: #ffffff;
+  font-size: 11px;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(47, 105, 237, 0.28);
+}
+
+.v2-顶部主操作:hover {
+  background: #1557d6;
+  color: #ffffff;
+}
+
+.v2-顶部业务动作 .v2-顶部动作 {
+  display: none;
+}
+
+.v2-顶部图标 {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #d8e6f3;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #61748c;
+  font-size: 15px;
+}
+
+.v2-顶部用户 {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding-left: 8px;
+  border-left: 1px solid #dce7f3;
+}
+
+.v2-顶部头像 {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #dcecff, #f8fbff);
+  color: #1557d6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.v2-顶部用户文案 {
+  display: grid;
+  min-width: 0;
+  max-width: 88px;
+  gap: 1px;
+}
+
+.v2-顶部用户文案 strong,
+.v2-顶部用户文案 small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-顶部用户文案 strong {
+  color: #172b4d;
+  font-size: 12px;
+}
+
+.v2-顶部用户文案 small {
+  color: #8391a5;
+  font-size: 10px;
+}
+
+.v2-顶部退出,
+.v2-修改密码 {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #60748c;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.v2-顶部退出:hover,
+.v2-修改密码:hover {
+  background: #edf4fc;
+  color: #1557d6;
+}
+
+/* 管理配置二级菜单：顶栏下拉浮层 + 常驻二级菜单条（R30）。 */
+.v2-一级导航组 {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.v2-一级导航箭头 {
+  width: 0;
+  height: 0;
+  margin-left: 5px;
+  border-top: 4px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  opacity: 0.55;
+}
+
+.v2-二级导航浮层 {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 130;
+  width: 320px;
+  padding: 8px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d7e5f2;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(38, 78, 123, 0.18);
+  transform: translateX(-50%);
+}
+
+.v2-二级导航浮层::before {
+  position: absolute;
+  top: -8px;
+  left: 0;
+  width: 100%;
+  height: 8px;
+  content: "";
+}
+
+.v2-二级导航项 {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 9px;
+}
+
+.v2-二级导航项 strong {
+  color: #172b4d;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.v2-二级导航项 small {
+  color: #8391a5;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.v2-二级导航项:hover {
+  background: #f2f7fe;
+}
+
+.v2-二级导航项.active {
+  background: #edf5ff;
+}
+
+.v2-二级导航项.active strong {
+  color: #1557d6;
+}
+
+.v2-二级导航条 {
+  display: flex;
+  min-width: 1280px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 28px;
+  border-bottom: 1px solid #d7e5f2;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.v2-二级导航条标题 {
+  margin-right: 6px;
+  color: #8391a5;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.v2-二级导航条项 {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #60748c;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.v2-二级导航条项:hover {
+  background: rgba(47, 105, 237, 0.07);
+  color: #1557d6;
+}
+
+.v2-二级导航条项.active {
+  background: #edf5ff;
+  color: #1557d6;
+}
+
+/* 带二级菜单条时，顶栏占位高度与画板高度口径同步扩展。 */
+.v2-顶部导航布局.v2-桌面布局.v2-带二级导航 {
+  grid-template-rows: 62px 42px minmax(0, 1fr);
+  --v3-board-topbar-h: 104px;
+}
+
+.v2-顶部导航布局.v2-带二级导航 > .v2-内容区 {
+  min-height: calc(100vh - 104px);
+}
+
+.v2-顶部导航布局 > .v2-内容区 {
+  min-width: 1280px;
+  min-height: calc(100vh - 62px);
+  margin-left: 0;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(85, 200, 255, 0.1), transparent 22%),
+    linear-gradient(180deg, #eef6fd 0%, #e8f0f8 100%);
+}
+
+.v2-顶部导航布局 .v2-页面内容 {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 24px 28px 32px;
+}
+
+/* 原型要求：业务画板直接铺满内容区，画板与 war-kpis / war-layout 之间不得再有页面标题或面包屑。 */
+.v2-顶部导航布局 .v2-页面内容:has(> .vui.war-artboard),
+.v2-顶部导航布局 .v2-页面内容:has(> .vui.war-artboard-plain) {
+  padding: 0;
+  /* R23：画板页取消 1680px 内容区上限，避免宽屏下画板被二次收窄、两侧继续留白 */
+  max-width: none;
+}
+
+.v2-顶部导航布局 .v2-业务页,
+.v2-顶部导航布局 .v2-工作台,
+.v2-顶部导航布局 .v2-列表页 {
+  gap: 18px;
+}
+
+.v2-顶部导航布局 .card,
+.v2-顶部导航布局 .stat-card,
+.v2-顶部导航布局 .search-bar {
+  border-radius: 10px;
+  box-shadow:
+    0 10px 28px rgba(42, 82, 130, 0.08),
+    0 0 0 1px rgba(220, 231, 243, 0.9);
+}
+
+.v2-顶部导航布局 .stat-card {
+  min-height: 112px;
+  padding: 20px;
+}
+
+.v2-顶部导航布局 .stat-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  font-size: 20px;
+}
+
+.v2-顶部导航布局 .stat-value {
+  font-size: 26px;
+}
+
+.v2-顶部导航布局 .stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.v2-顶部导航布局 .btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.v2-顶部导航布局 .form-control {
+  min-height: 38px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.v2-顶部导航布局 table {
+  table-layout: fixed;
+}
+
+.v2-顶部导航布局 th,
+.v2-顶部导航布局 td {
+  padding: 12px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.v2-顶部导航布局 td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.v2-顶部导航布局 .tag,
+.v2-顶部导航布局 .badge {
+  border-radius: 6px;
+}
+
+@media (min-width: 1680px) {
+  .v2-顶部业务导航 {
+    padding-right: 34px;
+    padding-left: 34px;
+  }
+
+  .v2-一级导航 {
+    gap: 4px;
+  }
+
+  .v2-一级导航项 {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
+.v2-action-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.v2-action-tile {
+  display: grid;
+  min-height: 76px;
+  align-content: center;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #d8e5f3;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: #173b68;
+  text-align: left;
+}
+
+.v2-action-tile:hover {
+  border-color: #8bb6ee;
+  background: #eef6ff;
+}
+
+.v2-action-tile.danger {
+  border-color: #f1c8cd;
+  background: #fff7f8;
+  color: #a8323f;
+}
+
+.v2-action-tile strong,
+.v2-action-tile small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-resubmit-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.v2-resubmit-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 130px 150px 150px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #e1eaf4;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.v2-resubmit-row label {
+  display: grid;
+  gap: 4px;
+}
+
+.v2-resubmit-row label span {
+  color: #677b92;
+  font-size: 11px;
+}
+
+.v2-member-editor {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid #d9e7f5;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+
+.v2-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.v2-顶部导航布局 .empty-state.compact {
+  min-height: 56px;
+  padding: 14px;
+  font-size: 12px;
+}
+
+@media (max-width: 1439px) {
+  .v2-顶部业务导航 {
+    min-width: 1280px;
+  }
+
+  .v2-页面内容,
+  .v2-业务页,
+  .v2-列表页,
+  .v2-admin-config-page {
+    min-width: 1240px;
+  }
+
+  .v2-顶部导航布局 .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

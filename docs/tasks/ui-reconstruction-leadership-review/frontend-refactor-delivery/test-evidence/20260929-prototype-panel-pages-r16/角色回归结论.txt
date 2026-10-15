@@ -1,0 +1,43 @@
+🔑 超管-liulonghai 登录 = 200
+✅ 超管-liulonghai /admin/dashboard
+✅ 超管-liulonghai /admin/registration
+✅ 超管-liulonghai /admin/leads
+✅ 超管-liulonghai /admin/leads/sources
+✅ 超管-liulonghai /admin/opportunity
+✅ 超管-liulonghai /admin/quote
+✅ 超管-liulonghai /admin/order
+✅ 超管-liulonghai /admin/partners
+✅ 超管-liulonghai /admin/products
+✅ 超管-liulonghai /admin/products/pricing
+✅ 超管-liulonghai /admin/notifications
+✅ 超管-liulonghai /admin/certifications
+✅ 超管-liulonghai /admin/admin-review
+✅ 超管-liulonghai /admin/platform-admin
+✅ 超管-liulonghai /admin/account-manage
+✅ 超管-liulonghai /admin/openapi-integration
+✅ 超管-liulonghai /admin/audit-logs
+✅ 超管-liulonghai /admin/partner-report
+✅ 超管-liulonghai /admin/workload-config
+✅ 超管-liulonghai /admin/registration/new
+✅ 超管-liulonghai /admin/opportunity/new
+✅ 超管-liulonghai /admin/quote/new
+⚠️  超管-liulonghai 控制台=["Failed to load resource: the server responded with a status of 401 (Unauthorized)"] 接口=["401 http://10.9.86.66/api/auth/me"]
+🔑 区管-chenqinyu 登录 = 200
+✅ 区管-chenqinyu /admin/dashboard
+✅ 区管-chenqinyu /admin/registration
+✅ 区管-chenqinyu /admin/leads
+✅ 区管-chenqinyu /admin/opportunity
+✅ 区管-chenqinyu /admin/quote
+✅ 区管-chenqinyu /admin/order
+✅ 区管-chenqinyu /admin/partners
+✅ 区管-chenqinyu /admin/products
+✅ 区管-chenqinyu /admin/notifications
+⚠️  区管-chenqinyu 控制台=["Failed to load resource: the server responded with a status of 401 (Unauthorized)"] 接口=["401 http://10.9.86.66/api/auth/me"]
+🔑 渠道-liulongfei 登录 = 200
+✅ 渠道-liulongfei /partner/dashboard
+✅ 渠道-liulongfei /partner/registration
+✅ 渠道-liulongfei /partner/opportunity
+✅ 渠道-liulongfei /partner/quote
+✅ 渠道-liulongfei /partner/order
+✅ 渠道-liulongfei /partner/products
+⚠️  渠道-liulongfei 控制台=["Failed to load resource: the server responded with a status of 401 (Unauthorized)"] 接口=["401 http://10.9.86.66/api/auth/me"]

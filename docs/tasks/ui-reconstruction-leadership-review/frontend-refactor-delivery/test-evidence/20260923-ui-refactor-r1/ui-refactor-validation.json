@@ -1,0 +1,267 @@
+{
+  "testedAt": "2026-09-23T03:53:19.310Z",
+  "baseURL": "http://10.9.86.66",
+  "roles": [
+    {
+      "role": "region_manager",
+      "loginURL": "http://10.9.86.66/admin",
+      "paths": [
+        {
+          "requested": "/admin/dashboard",
+          "actual": "/admin/dashboard",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n管理端仪表盘\n修改密码\n管理端仪表盘\n\n客户报备、商机、报价、订单和待办汇总。\n\n🤝\n227\n渠道商 · 正式渠道主档\n📋\n218\n客户报备 · 正式客户报备\n🎯\n61\n商机 "
+        },
+        {
+          "requested": "/admin/opportunity",
+          "actual": "/admin/opportunity",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n商机管理\n修改密码\n🔍\n全部阶段\n推进中\n已赢单\n已丢单\n已取消\n📋 列表视图\n📌 看板视图\n查询\n➕ 新建商机\n📤 导出\n📥 批量导入\n商机编号\t商机名称\t客户\t合作伙伴"
+        },
+        {
+          "requested": "/admin/leads",
+          "actual": "/admin/leads",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n线索管理\n修改密码\n独立业务板块\n线索管理\n\n集中检索、筛选和查看外部招投标线索；第一版不联动客户与商机。\n\n线索检索\n数据来源\n导出结果\n线索总量\n5\n当前仅展示原型 mock 数"
+        },
+        {
+          "requested": "/admin/leads/sources",
+          "actual": "/admin/leads/sources",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n数据来源与采集\n修改密码\n独立业务板块\n线索管理\n\n集中检索、筛选和查看外部招投标线索；第一版不联动客户与商机。\n\n线索检索\n数据来源\n导出结果\n来源总数\n4\n含公共资源、政府采购和"
+        },
+        {
+          "requested": "/admin/notifications",
+          "actual": "/admin/notifications",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n消息中心\n修改密码\n业务协同\n消息中心\n\n统一展示审批待办、业务提醒、系统通知和业务详情跳转。\n\n全部标记已读\n未读消息\n2\n待办事项\n1\n审批消息\n1\n业务提醒\n1\n全部\n待办\n审"
+        },
+        {
+          "requested": "/admin/partners",
+          "actual": "/admin/partners",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n🔔\n陈\n陈沁雨\n区域管理员\n退出\n联软渠道管理平台\n›\n渠道商\n修改密码\n🔍\n全部级别\n💎 LEP\n🔷 钻石\n🥇 金牌\n🥈 银牌\n🥉 铜牌\n全部区域\n华东区\n华北区\n华南区\n西南区\n全部状态\n启用\n停用\n查询\n📤 导出\n📥"
+        },
+        {
+          "requested": "/admin/account-manage",
+          "actual": "/403",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "403\n\n无权限\n\n当前账号没有访问该页面的权限。\n\n返回入口"
+        },
+        {
+          "requested": "/admin/openapi-integration",
+          "actual": "/403",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "403\n\n无权限\n\n当前账号没有访问该页面的权限。\n\n返回入口"
+        },
+        {
+          "requested": "/admin/organization",
+          "actual": "/403",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "403\n\n无权限\n\n当前账号没有访问该页面的权限。\n\n返回入口"
+        }
+      ],
+      "errors": [
+        "console: Failed to load resource: the server responded with a status of 403 (Forbidden)"
+      ]
+    },
+    {
+      "role": "superadmin",
+      "loginURL": "http://10.9.86.66/admin",
+      "paths": [
+        {
+          "requested": "/admin/dashboard",
+          "actual": "/admin/dashboard",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n配置\n🔔\n联\n联软科技超级管理员\n超级管理员\n退出\n联软渠道管理平台\n›\n管理端仪表盘\n修改密码\n管理端仪表盘\n\n客户报备、商机、报价、订单和待办汇总。\n\n🤝\n227\n渠道商 · 正式渠道主档\n📋\n218\n客户报备 · 正式客户报备\n"
+        },
+        {
+          "requested": "/admin/platform-admin",
+          "actual": "/admin/platform-admin",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n配置\n🔔\n联\n联软科技超级管理员\n超级管理员\n退出\n联软渠道管理平台\n›\n管理配置\n修改密码\n平台治理\n管理配置\n\n按业务板块集中进入组织、账号、审核、消息、产品、审计和开放接口配置。\n\n内部账号\n组织与账号\n\n组织、岗位、人员、角色、权"
+        },
+        {
+          "requested": "/admin/account-manage",
+          "actual": "/admin/account-manage",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n配置\n🔔\n联\n联软科技超级管理员\n超级管理员\n退出\n联软渠道管理平台\n›\n账号管理\n修改密码\n🔍\n全部状态\n待审核\n已通过\n正常\n草稿\n已确认\n已转订单\n查询\n📤 导出\n编号\t标题\t类型\t状态\t创建时间\t操作\nshujianming\t"
+        },
+        {
+          "requested": "/admin/openapi-integration",
+          "actual": "/admin/openapi-integration",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nChannel Management\n业务全景\n工作台\n客户\n线索\n商机\n渠道\n订单\n产品\n消息\n配置\n🔔\n联\n联软科技超级管理员\n超级管理员\n退出\n联软渠道管理平台\n›\n开放接口\n修改密码\nOpenAPI 对接总览\n\n给 AI-agent / 第三方系统使用的标准接口入口、鉴权参数和对接文档下载入口。\n\n刷新\nBase URL\nht"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "role": "partner_user",
+      "loginURL": "http://10.9.86.66/partner",
+      "paths": [
+        {
+          "requested": "/partner/dashboard",
+          "actual": "/partner/dashboard",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nPartner Workspace\n工作台\n客户管理\n商机作战\n报价管理\n订单中心\n产品目录\n刘\n刘龙飞\n销售代表\n退出\n联软渠道管理平台\n›\n总览仪表盘\n修改密码\n总览仪表盘\n\n本渠道报备、商机、报价和订单汇总。\n\n🤝\n227\n渠道商 · 正式渠道主档\n📋\n218\n客户报备 · 正式客户报备\n🎯\n61\n商机 · 正式商机\n💰\n"
+        },
+        {
+          "requested": "/partner/opportunity",
+          "actual": "/partner/opportunity",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nPartner Workspace\n工作台\n客户管理\n商机作战\n报价管理\n订单中心\n产品目录\n刘\n刘龙飞\n销售代表\n退出\n联软渠道管理平台\n›\n商机管理\n修改密码\n🔍\n全部阶段\n推进中\n已赢单\n已丢单\n已取消\n📋 列表视图\n📌 看板视图\n查询\n➕ 新建商机\n📤 导出\n商机编号\t商机名称\t客户\t阶段\t金额\t预计关闭\t最近跟进\t负责"
+        },
+        {
+          "requested": "/partner/order",
+          "actual": "/partner/order",
+          "overflow": {
+            "clientWidth": 1440,
+            "scrollWidth": 1440
+          },
+          "text": "L\n联软渠道管理平台\nPartner Workspace\n工作台\n客户管理\n商机作战\n报价管理\n订单中心\n产品目录\n刘\n刘龙飞\n销售代表\n退出\n联软渠道管理平台\n›\n订单管理\n修改密码\n🔍\n全部状态\n待一级确认\n一级已确认\n待超管确认\n已确认\n已完成\n已驳回\n查询\n📤 导出\n订单编号\t关联报价\t客户\t金额\t状态\t下单日期\t收货地址\t操作\nleagsoft"
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "pages": [],
+  "widths": [
+    {
+      "width": 1280,
+      "path": "/admin/dashboard",
+      "clientWidth": 1280,
+      "scrollWidth": 1280
+    },
+    {
+      "width": 1280,
+      "path": "/admin/opportunity",
+      "clientWidth": 1280,
+      "scrollWidth": 1280
+    },
+    {
+      "width": 1280,
+      "path": "/admin/leads",
+      "clientWidth": 1280,
+      "scrollWidth": 1280
+    },
+    {
+      "width": 1366,
+      "path": "/admin/dashboard",
+      "clientWidth": 1366,
+      "scrollWidth": 1366
+    },
+    {
+      "width": 1366,
+      "path": "/admin/opportunity",
+      "clientWidth": 1366,
+      "scrollWidth": 1366
+    },
+    {
+      "width": 1366,
+      "path": "/admin/leads",
+      "clientWidth": 1366,
+      "scrollWidth": 1366
+    },
+    {
+      "width": 1440,
+      "path": "/admin/dashboard",
+      "clientWidth": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "width": 1440,
+      "path": "/admin/opportunity",
+      "clientWidth": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "width": 1440,
+      "path": "/admin/leads",
+      "clientWidth": 1440,
+      "scrollWidth": 1440
+    },
+    {
+      "width": 1600,
+      "path": "/admin/dashboard",
+      "clientWidth": 1600,
+      "scrollWidth": 1600
+    },
+    {
+      "width": 1600,
+      "path": "/admin/opportunity",
+      "clientWidth": 1600,
+      "scrollWidth": 1600
+    },
+    {
+      "width": 1600,
+      "path": "/admin/leads",
+      "clientWidth": 1600,
+      "scrollWidth": 1600
+    },
+    {
+      "width": 1920,
+      "path": "/admin/dashboard",
+      "clientWidth": 1920,
+      "scrollWidth": 1920
+    },
+    {
+      "width": 1920,
+      "path": "/admin/opportunity",
+      "clientWidth": 1920,
+      "scrollWidth": 1920
+    },
+    {
+      "width": 1920,
+      "path": "/admin/leads",
+      "clientWidth": 1920,
+      "scrollWidth": 1920
+    }
+  ],
+  "issues": []
+}

@@ -73,6 +73,18 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   const 读取用户 = (req: Request) => 读取当前业务用户(req, 参数);
   const 读取移动用户 = (req: Request) => 读取当前移动端业务用户(req, 参数);
 
+  router.use((req, _res, next) => {
+    if (!是受保护业务路由(req) || 是公开业务路由(req) || 使用独立认证的业务路由(req)) {
+      next();
+      return;
+    }
+    if (!读取用户(req)) {
+      next(new 应用错误("V3_AUTH_REQUIRED", "请先登录后再访问业务接口。", 401));
+      return;
+    }
+    next();
+  });
+
   router.get("/dashboard/stats", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.读取概览()));
@@ -123,13 +135,29 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.put("/notifications/read", (_req, res) => {
-    res.json(
-      成功(_req, 参数.build, {
-        updated: true,
-        message: "通知已标记为已读。",
-      }),
-    );
+  router.put("/notifications/read", async (req, res, next) => {
+    try {
+      const 用户 = 读取用户(req);
+      if (!用户) {
+        next(new 应用错误("V3_AUTH_REQUIRED", "请先登录后再访问业务接口。", 401));
+        return;
+      }
+      // 历史实现直接返回成功但不落库，属于静默假成功；这里改为真实更新当前数据源。
+      const 正文 = (req.body || {}) as Record<string, unknown>;
+      // notificationId 为 V2 兼容页面（admin-app.js）沿用的字段名，只取通知主键；
+      // 请求体里的 userId 一律忽略，接收人只能取自登录会话，避免越权改他人通知。
+      const 通知编号 = String(正文.id || 正文.通知编号 || 正文.notificationId || "").trim();
+      const 结果 = await service.标记通知已读(用户, 通知编号 || undefined);
+      res.json(
+        成功(req, 参数.build, {
+          updated: 结果.更新数 > 0,
+          更新数: 结果.更新数,
+          message: 结果.更新数 > 0 ? "通知已标记为已读。" : "没有需要标记的未读通知。",
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
   });
 
   router.get("/registrations", 列表处理器(service, 参数.build, "registrations", 读取用户));
@@ -147,7 +175,8 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          // 状态流转：只改报备状态并同步审批记录，与 V2 兼容路由保持一致。
+          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -160,7 +189,8 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          // 资料更新：维护客户档案等字段，未显式传状态时保持当前状态不变。
+          await service.更新报备(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -715,7 +745,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       clientId = 身份.clientId;
       校验开放接口资源权限(身份.allowedResources, resource);
       const 模块 = 读取开放资源模块(resource);
-      const 数据 = await service.查询列表(模块, 读取查询(req));
+      const 数据 = await service.查询列表(模块, 读取查询(req), 读取开放接口业务用户(req, 身份));
       await service.记录开放接口调用({
         clientId,
         requestId: req.requestId,
@@ -998,6 +1028,7 @@ function 读取路由参数(req: Request, key: string): string {
 function 读取查询(req: Request) {
   return {
     keyword: 读取查询文本(req, "keyword") || 读取查询文本(req, "q"),
+    module: 读取查询文本(req, "module"),
     status: 读取查询文本(req, "status"),
     level: 读取查询文本(req, "level"),
     region: 读取查询文本(req, "region"),
@@ -1126,6 +1157,49 @@ function 读取正整数(req: Request, key: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function 是公开业务路由(req: Request): boolean {
+  const path = req.path;
+  if (req.method !== "GET") return false;
+  return (
+    path === "/products" ||
+    path === "/products/stats" ||
+    path === "/product-tree" ||
+    path === "/features" ||
+    path === "/hardware" ||
+    path === "/packages"
+  );
+}
+
+function 使用独立认证的业务路由(req: Request): boolean {
+  return (
+    req.path.startsWith("/open/v1/") ||
+    req.path === "/open/v1" ||
+    req.path.startsWith("/mobile/")
+  );
+}
+
+function 是受保护业务路由(req: Request): boolean {
+  const path = req.path;
+  return [
+    "/dashboard/stats",
+    "/stage9",
+    "/notifications",
+    "/registrations",
+    "/opportunities",
+    "/quotes",
+    "/orders",
+    "/order-revision-requests",
+    "/partners",
+    "/users",
+    "/audit-logs",
+    "/workload",
+    "/open-api",
+    "/openapi-integration",
+    "/approvals",
+    "/import-export",
+  ].some((prefix) => path === prefix || path.startsWith(prefix + "/"));
+}
+
 function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当前业务用户 | null {
   const 会话用户名 = 读取请求会话用户名(req, {
     sessionSecret: 参数.sessionSecret || "",
@@ -1139,14 +1213,20 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
       roleName: "V3登录用户",
     };
   }
+  if (参数.env?.V3_BUSINESS_LEGACY_IDENTITY_ENABLED === "true") {
+    return 读取兼容业务用户(req, 参数.env);
+  }
+  return null;
+}
 
+function 读取兼容业务用户(req: Request, env: NodeJS.ProcessEnv): 当前业务用户 | null {
   const v2用户名 = 读取V2令牌用户名(req);
   if (v2用户名) {
     return {
       requestId: req.requestId,
       username: v2用户名,
       displayName: v2用户名,
-      roleName: "V2页面用户",
+      roleName: "V2兼容用户",
     };
   }
 
@@ -1162,13 +1242,41 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
   }
 
   const operatorId = 读取查询文本(req, "operatorId") || 读取请求体文本(req, "operatorId");
-  if (!operatorId) return null;
+  if (operatorId) {
+    return {
+      requestId: req.requestId,
+      username: operatorId,
+      externalUserId: operatorId,
+      displayName: 读取请求体文本(req, "operatorName") || operatorId,
+      roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
+    };
+  }
+  const 测试默认用户 = env.V3_BUSINESS_LEGACY_DEFAULT_USER?.trim();
+  const 是测试环境 = env.NODE_ENV === "test" || env.APP_ENV === "test";
+  if (测试默认用户 && 是测试环境) {
+    return {
+      requestId: req.requestId,
+      username: 测试默认用户,
+      displayName: "测试兼容用户",
+      roleName: "兼容测试用户",
+    };
+  }
+  return null;
+}
+
+function 读取开放接口业务用户(
+  req: Request,
+  身份: { boundUserId: string; boundUserName: string },
+): 当前业务用户 {
+  if (!身份.boundUserId) {
+    throw new 应用错误("V3_OPEN_API_USER_REQUIRED", "开放接口未绑定有效业务用户。", 403);
+  }
   return {
     requestId: req.requestId,
-    username: operatorId,
-    externalUserId: operatorId,
-    displayName: 读取请求体文本(req, "operatorName") || operatorId,
-    roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
+    userId: 身份.boundUserId,
+    username: 身份.boundUserName,
+    displayName: 身份.boundUserName,
+    roleName: "OpenAPI绑定用户",
   };
 }
 

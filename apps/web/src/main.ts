@@ -1,5 +1,11 @@
 import "element-plus/dist/index.css";
 import "./styles/theme.css";
+import "./styles/war-typography.css";
+import "./styles/visual-ui.css";
+import "./styles/war-artboard.css";
+import "./styles/war-form.css";
+import "./styles/war-demo.css";
+import "./styles/war-typography-lock.css";
 
 import ElementPlus from "element-plus";
 import { createPinia } from "pinia";

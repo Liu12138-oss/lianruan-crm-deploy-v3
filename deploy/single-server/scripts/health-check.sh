@@ -22,6 +22,14 @@ http_port="${HTTP_PORT:-80}"
   fi
 }
 
+读取MCP配置() {
+  local key="$1"
+  local config_file="${install_root}/config/mcp.env"
+  if [ -f "${config_file}" ]; then
+    awk -F '=' -v key="${key}" '$1 == key { value=substr($0, length(key) + 2) } END { print value }' "${config_file}" | tr -d '\r'
+  fi
+}
+
 检查消息容器() {
   local service="$1"
   local container_id
@@ -89,6 +97,24 @@ cd "${install_root}/compose"
 
 echo "检查容器状态。"
 docker compose ps
+
+mcp_enabled="$(读取MCP配置 V3_MCP_ENABLED)"
+if [ "${mcp_enabled}" = "true" ]; then
+  mcp_container_id="$(docker compose --profile mcp ps -q mcp 2>/dev/null || true)"
+  if [ -z "${mcp_container_id}" ]; then
+    echo "MCP已启用但容器未运行。" >&2
+    exit 1
+  fi
+  mcp_state="$(docker inspect -f '{{.State.Status}}' "${mcp_container_id}" 2>/dev/null || true)"
+  mcp_health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}未配置{{end}}' "${mcp_container_id}" 2>/dev/null || true)"
+  if [ "${mcp_state}" != "running" ] || { [ "${mcp_health}" != "healthy" ] && [ "${mcp_health}" != "未配置" ]; }; then
+    echo "MCP容器状态异常：状态=${mcp_state:-未知}，健康=${mcp_health:-未知}" >&2
+    exit 1
+  fi
+  echo "MCP容器健康检查通过。"
+else
+  echo "MCP未启用，跳过MCP容器检查。"
+fi
 
 等待HTTP接口 "API存活状态" "http://127.0.0.1:${http_port}/health/live"
 等待HTTP接口 "API就绪状态" "http://127.0.0.1:${http_port}/health/ready"

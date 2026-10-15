@@ -16,6 +16,19 @@ export async function 启动订单预审任务服务(config: 应用配置 = 读�
     return { enabled: false as const, close: async () => undefined };
   }
   const 存储 = new 订单预审任务存储(config);
+  const 文件目录自检 = await 存储.校验文件目录();
+  if (!文件目录自检.可写) {
+    await 存储.close();
+    const 文件目录错误 = new Error(
+      `订单预审文件目录不可写：${文件目录自检.目录}。请将目录属主调整为容器运行用户（1000:1000）后重启。`,
+    );
+    logger.error("订单预审文件目录不可写，已拒绝启动预审进程，避免无效外呼与请求失败", {
+      event: "order_preapproval.worker.file_dir_unwritable",
+      fileDir: 文件目录自检.目录,
+      errorMessage: 脱敏错误消息(new Error(文件目录自检.错误)),
+    });
+    throw 文件目录错误;
+  }
   let 正在执行 = false;
   const 执行 = async () => {
     if (正在执行) return;

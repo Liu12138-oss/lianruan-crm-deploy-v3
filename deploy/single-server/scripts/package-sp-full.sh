@@ -44,6 +44,7 @@ done
 for image_file in \
   "${image_dir}/lianruan-crm-v3-api-${target_version}.docker-image" \
   "${image_dir}/lianruan-crm-v3-worker-${target_version}.docker-image" \
+  "${image_dir}/lianruan-crm-v3-mcp-${target_version}.docker-image" \
   "${image_dir}/lianruan-crm-v3-nginx-${target_version}.docker-image" \
   "${image_dir}/postgres-16.4-alpine.docker-image" \
   "${image_dir}/redis-7.2.5-alpine.docker-image"; do
@@ -274,10 +275,13 @@ mkdir -p "${output_dir}/compose" \
 cp "${project_root}/deploy/single-server/compose/docker-compose.yml" "${output_dir}/compose/"
 cp "${project_root}/deploy/single-server/config/deploy.env.example" "${output_dir}/config/"
 cp "${project_root}/deploy/single-server/config/v3.env.template" "${output_dir}/config/"
+cp "${project_root}/deploy/single-server/config/mcp.env.template" "${output_dir}/config/"
 cp "${project_root}/deploy/single-server/config/nginx/default.conf" "${output_dir}/config/nginx/"
+cp "${project_root}/deploy/single-server/config/nginx/mcp-https.conf.template" "${output_dir}/config/nginx/"
 
 cp "${image_dir}/lianruan-crm-v3-api-${target_version}.docker-image" "${output_dir}/images/"
 cp "${image_dir}/lianruan-crm-v3-worker-${target_version}.docker-image" "${output_dir}/images/"
+cp "${image_dir}/lianruan-crm-v3-mcp-${target_version}.docker-image" "${output_dir}/images/"
 cp "${image_dir}/lianruan-crm-v3-nginx-${target_version}.docker-image" "${output_dir}/images/"
 cp "${image_dir}/postgres-16.4-alpine.docker-image" "${output_dir}/images/"
 cp "${image_dir}/redis-7.2.5-alpine.docker-image" "${output_dir}/images/"
@@ -367,7 +371,7 @@ done
   printf 'ALLOWED_FROM_VERSIONS=recognized-v3-migration-lineage\n'
   printf 'UPGRADE_SOURCE_POLICY=existing-v3-install-and-migration-lineage\n'
   printf 'TARGET_VERSION=%s\n' "${target_version}"
-  printf 'AFFECTED_COMPONENTS=api,worker,nginx,postgres,redis,docker,compose,config,scripts,database,runtime\n'
+  printf 'AFFECTED_COMPONENTS=api,worker,mcp,nginx,postgres,redis,docker,compose,config,scripts,database,runtime\n'
   printf 'REQUIRES_DB_MIGRATION=true\n'
   printf 'DATABASE_CHANGE_MODE=expand\n'
   printf 'AUTO_ROLLBACK_SCOPE=app\n'
@@ -377,6 +381,7 @@ done
   printf 'DEFAULT_INSTALL_ROOT=/opt/lianruan-crm-v3\n'
   printf 'API_IMAGE=lianruan-crm-v3-api:%s\n' "${target_version}"
   printf 'WORKER_IMAGE=lianruan-crm-v3-worker:%s\n' "${target_version}"
+  printf 'MCP_IMAGE=lianruan-crm-v3-mcp:%s\n' "${target_version}"
   printf 'NGINX_IMAGE=lianruan-crm-v3-nginx:%s\n' "${target_version}"
   printf 'POSTGRES_IMAGE=postgres:16.4-alpine\n'
   printf 'REDIS_IMAGE=redis:7.2.5-alpine\n'

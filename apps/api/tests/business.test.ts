@@ -325,6 +325,13 @@ describe("阶段9业务兼容接口", () => {
       .send({ quoteId: 报价.body.data.id })
       .expect(200);
     expect(订单.body.data.状态).toBe("primary_confirmed");
+    const 建单审计 = await pool.query<{ action_code: string }>(
+      `SELECT action_code FROM audit.audit_logs
+       WHERE module_code = 'orders' AND target_id = $1::text
+       ORDER BY created_at DESC LIMIT 1`,
+      [订单.body.data.id],
+    );
+    expect(建单审计.rows[0]?.action_code).toBe("create_from_quote");
 
     const V2订单列表 = await request(app).get("/api/v2/orders?pageSize=20").expect(200);
     const V2订单 = V2订单列表.body.data.find(
@@ -382,6 +389,13 @@ describe("阶段9业务兼容接口", () => {
     expect(普通路径预审.rows).toEqual([
       { trigger_code: "region_confirmed", status_code: "pending" },
     ]);
+    const 区管确认审计 = await pool.query<{ action_code: string }>(
+      `SELECT action_code FROM audit.audit_logs
+       WHERE module_code = 'orders' AND target_id = $1::text
+       ORDER BY created_at DESC LIMIT 1`,
+      [订单.body.data.id],
+    );
+    expect(区管确认审计.rows[0]?.action_code).toBe("region_confirm");
 
     const 区管正式页面会话 = request.agent(app);
     await 区管正式页面会话
@@ -406,11 +420,26 @@ describe("阶段9业务兼容接口", () => {
       .set("Authorization", 签发测试V2令牌(超级管理员.username))
       .expect(200);
     expect(超管确认.body.data.状态).toBe("confirmed");
+    const 超管确认审计 = await pool.query<{ action_code: string }>(
+      `SELECT action_code FROM audit.audit_logs
+       WHERE module_code = 'orders' AND target_id = $1::text
+       ORDER BY created_at DESC LIMIT 1`,
+      [订单.body.data.id],
+    );
+    expect(超管确认审计.rows[0]?.action_code).toBe("superadmin_confirm");
     const 调价后的预审 = await pool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
       [订单.body.data.id],
     );
     expect(调价后的预审.rows[0]?.count).toBe("1");
+    const 收益冻结事件 = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM ops.outbox_events
+       WHERE event_type='crm.quote.profit.freeze.requested'
+         AND payload_json->>'orderId'=$1`,
+      [订单.body.data.id],
+    );
+    expect(收益冻结事件.rows[0]?.count).toBe("1");
     await pool.end();
   });
 
@@ -835,6 +864,12 @@ describe("阶段9业务兼容接口", () => {
       );
       const 报价 = 报价结果.rows[0];
       if (!报价) throw new Error("创建二级订单审批测试报价失败。");
+      await pool.query(
+        `INSERT INTO crm.quote_items (
+           quote_id, product_ref_type, item_name, quantity, unit_price, line_amount, sort_order
+         ) VALUES ($1::uuid, 'manual', '二级审批测试模块', 1, 16800, 16800, 0)`,
+        [报价.id],
+      );
 
       const 一级渠道查询 = await request(app)
         .get(`/api/quotes/${报价.id}/parent-partners`)
@@ -2189,9 +2224,20 @@ describe("阶段9业务兼容接口", () => {
 
   it("可以使用PostgreSQL正式表维护OpenAPI客户端并完成授权调用", async () => {
     const app = 创建应用({ env: 测试环境变量 });
-    const 用户列表 = await request(app).get("/api/users?pageSize=1").expect(200);
-    const 绑定用户 = 用户列表.body.data.数据[0] as { id: string };
-    expect(绑定用户.id).toBeTruthy();
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 超级管理员结果 = await pool.query<{ id: string }>(
+      `
+      SELECT u.id::text AS id
+      FROM iam.users u
+      JOIN iam.user_roles ur ON ur.user_id = u.id
+      JOIN iam.roles r ON r.id = ur.role_id
+      WHERE u.status_code = 'active' AND r.role_code = 'superadmin'
+      ORDER BY u.created_at
+      LIMIT 1
+      `,
+    );
+    const 绑定用户 = 超级管理员结果.rows[0];
+    if (!绑定用户?.id) throw new Error("未找到用于OpenAPI绑定验收的超级管理员。");
 
     const 创建 = await request(app)
       .post("/api/open-api/clients")
@@ -2233,6 +2279,7 @@ describe("阶段9业务兼容接口", () => {
         `${项.path} ${项.resultMessage}`.includes("/api/open/v1/registrations"),
       ),
     ).toBe(true);
+    await pool.end();
   });
 
   it("可以维护工作量映射和交付规则，并影响报价工作量试算", async () => {
@@ -2284,6 +2331,58 @@ describe("阶段9业务兼容接口", () => {
       .expect(200);
     expect(试算.body.data.workloadDays).toBe(新人天);
     expect(试算.body.data.workloadSummary).toContain("EPP");
+  });
+
+  it("操作审计支持按客户、线索、商机、渠道、订单和后台管理分类筛选", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `R36-AUDIT-${Date.now()}`;
+    const 插入 = async (模块: string, 动作: string) => {
+      await pool.query(
+        `
+        INSERT INTO audit.audit_logs (
+          created_at, module_code, action_code, result_code, message, actor_username, actor_name
+        )
+        VALUES (now(), $1, $2, 'success', $3, 'r36-automation', '分类筛选验收')
+        `,
+        [模块, 动作, `${批次}-${模块}`],
+      );
+    };
+    try {
+      await Promise.all([
+        插入("partner", "r36.test.partner"),
+        插入("lead", "r36.test.lead"),
+        插入("message_platform", "r36.test.message"),
+      ]);
+
+      const 查询分类 = async (分类: string) => {
+        const 响应 = await request(app)
+          .get(`/api/stage9/audit?module=${encodeURIComponent(分类)}&keyword=${批次}&pageSize=50`)
+          .expect(200);
+        return 响应.body.data.数据 as Array<{ 标题: string; 原始数据: Record<string, unknown> }>;
+      };
+
+      const 渠道操作 = await 查询分类("渠道操作");
+      expect(渠道操作).toHaveLength(1);
+      expect(渠道操作[0]?.原始数据.moduleCode).toBe("partner");
+
+      const 线索操作 = await 查询分类("线索操作");
+      expect(线索操作).toHaveLength(1);
+      expect(线索操作[0]?.原始数据.moduleCode).toBe("lead");
+
+      const 后台管理操作 = await 查询分类("后台管理操作");
+      expect(后台管理操作).toHaveLength(1);
+      expect(后台管理操作[0]?.原始数据.moduleCode).toBe("message_platform");
+
+      // 不带分类时仍能检索到全部三条，保证分类筛选没有改变默认口径。
+      const 全部 = await request(app)
+        .get(`/api/stage9/audit?keyword=${批次}&pageSize=50`)
+        .expect(200);
+      expect(全部.body.data.数据).toHaveLength(3);
+    } finally {
+      await pool.query("DELETE FROM audit.audit_logs WHERE actor_username = 'r36-automation'");
+      await pool.end();
+    }
   });
 });
 

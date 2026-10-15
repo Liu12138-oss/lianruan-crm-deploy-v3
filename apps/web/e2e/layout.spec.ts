@@ -6,7 +6,7 @@ const 测试用户 = {
     user: {
       username: "admin",
       displayName: "产品交付验收账号",
-      roleName: "产品交付总监",
+      roleName: "超级管理员",
       defaultPath: "/unified",
       allowedPaths: ["/unified", "/admin", "/partner", "/mobile"],
     },
@@ -632,7 +632,16 @@ test("显式入口参数仍使用统一账号密码表单", async ({ page }) => 
 });
 
 test("统一登录后进入现有管理员页面并写入页面会话", async ({ page }, testInfo) => {
+  let 已登录 = false;
   await page.route("**/api/auth/me", async (route) => {
+    if (已登录) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(测试用户),
+      });
+      return;
+    }
     await route.fulfill({
       status: 401,
       contentType: "application/json",
@@ -640,6 +649,7 @@ test("统一登录后进入现有管理员页面并写入页面会话", async ({
     });
   });
   await page.route("**/api/auth/login", async (route) => {
+    已登录 = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -662,7 +672,7 @@ test("统一登录后进入现有管理员页面并写入页面会话", async ({
   if (testInfo.project.name === "移动浏览器") {
     await expect(page).toHaveURL(/\/mobile\.html\?scope=admin#\/admin\/home$/);
   } else {
-    await expect(page).toHaveURL(/\/admin\.html#\/dashboard$/);
+    await expect(page).toHaveURL(/\/admin$/);
   }
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("admin_auth_token")))
@@ -670,7 +680,16 @@ test("统一登录后进入现有管理员页面并写入页面会话", async ({
 });
 
 test("统一登录后进入现有渠道页面并写入页面会话", async ({ page }, testInfo) => {
+  let 已登录 = false;
   await page.route("**/api/auth/me", async (route) => {
+    if (已登录) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(渠道测试用户),
+      });
+      return;
+    }
     await route.fulfill({
       status: 401,
       contentType: "application/json",
@@ -678,6 +697,7 @@ test("统一登录后进入现有渠道页面并写入页面会话", async ({ pa
     });
   });
   await page.route("**/api/auth/login", async (route) => {
+    已登录 = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -700,7 +720,7 @@ test("统一登录后进入现有渠道页面并写入页面会话", async ({ pa
   if (testInfo.project.name === "移动浏览器") {
     await expect(page).toHaveURL(/\/mobile\.html\?scope=partner#\/partner\/home$/);
   } else {
-    await expect(page).toHaveURL(/\/partner\.html#\/dashboard$/);
+    await expect(page).toHaveURL(/\/partner$/);
   }
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("partner_auth_token")))
@@ -723,18 +743,21 @@ test("手机渠道路由使用渠道端一期底部导航", async ({ page }) => 
   await expect(导航.getByText("审核")).toHaveCount(0);
 });
 
-test("桌面工作台展示V2快捷入口和通知抽屉", async ({ page }) => {
+test("桌面工作台展示一级导航、快捷入口和消息入口", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/partner/dashboard");
+  await page.goto("/admin/dashboard");
 
-  await expect(page.locator(".quick-action", { hasText: "客户报备" })).toBeVisible();
-  await expect(page.getByText("近期商机")).toBeVisible();
+  await expect(page.locator(".quick-action", { hasText: "审核中心" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "最近业务" })).toBeVisible();
   await expect(page.getByText("主力产品线")).toBeVisible();
 
-  await page.getByTitle("通知").click();
-  await expect(page.locator(".notif-panel[aria-label='通知中心']")).toHaveClass(/open/);
-  await expect(page.getByText("报备审核通过")).toBeVisible();
+  await expect(page.getByRole("link", { name: "业务全景" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "工作台" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "线索" })).toBeVisible();
+  await page.locator(".v2-顶部图标").click();
+  await expect(page).toHaveURL(/\/admin\/notifications$/);
+  await expect(page.getByRole("heading", { name: "消息中心" })).toBeVisible();
 });
 
 test("产品目录展示V2标签页、大类卡和模块弹窗", async ({ page }) => {
@@ -764,7 +787,7 @@ test("商机管理展示V2列表看板和分栏详情", async ({ page }) => {
 
   await page.locator("select", { hasText: "看板视图" }).selectOption("kanban");
   await expect(page.locator(".opportunity-kanban")).toBeVisible();
-  await expect(page.locator(".kanban-column", { hasText: "70% 招投标/商务谈判" })).toBeVisible();
+  await expect(page.locator(".kanban-column", { hasText: "招投标（80%-90%）" })).toBeVisible();
 
   await page.locator(".kanban-card", { hasText: "北京启明终端安全改造项目" }).click();
   await expect(page.locator(".v2-opportunity-modal")).toBeVisible();
@@ -842,6 +865,36 @@ test("管理端工作量配置展示V2映射规则和交付规则", async ({ pag
   await expect(page.getByRole("row", { name: /终端安全管理/ })).toBeVisible();
   await expect(page.getByRole("cell", { name: "EPP（仅DLP基础）" }).last()).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "标题" })).toHaveCount(0);
+});
+
+test("管理端侧栏直接展示消息中心和人天与工作量配置", async ({ page }) => {
+  await 模拟已登录(page);
+  await page.addInitScript((user) => {
+    const token = user.data.pageSession.token;
+    localStorage.setItem("admin_auth_token", token);
+    localStorage.setItem("admin_user_info", JSON.stringify(user.data.pageSession.user));
+    localStorage.setItem(
+      "admin_api_user",
+      JSON.stringify({ user: user.data.pageSession.user, token }),
+    );
+  }, 测试用户);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin.html#/dashboard");
+
+  const 侧栏 = page.locator(".sidebar-nav");
+  const 消息入口 = 侧栏.locator(".nav-item", { hasText: "消息中心" });
+  const 工作量入口 = 侧栏.locator(".nav-item", { hasText: "人天与工作量配置" });
+
+  await expect(消息入口).toBeVisible();
+  await expect(工作量入口).toBeVisible();
+
+  await 消息入口.click();
+  await expect(page).toHaveURL(/\/admin\.html#\/notifications$/);
+  await expect(page.getByRole("heading", { name: "消息中心" })).toBeVisible();
+
+  await 工作量入口.click();
+  await expect(page).toHaveURL(/\/admin\.html#\/workload-config$/);
+  await expect(page.getByText("标准工作量配置")).toBeVisible();
 });
 
 test("管理端新建商机展示V2业务字段", async ({ page }) => {

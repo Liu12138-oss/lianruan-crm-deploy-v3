@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { constants as 文件常量 } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -143,6 +144,21 @@ export class 订单预审任务存储 {
 
   public async close(): Promise<void> {
     await this.数据库连接池.end();
+  }
+
+  /**
+   * 启动自检：确认报价单目录存在且当前进程可写。
+   * 目录不可写时预审请求会在落 PDF 阶段失败，必须在启动阶段暴露，避免消耗业务请求。
+   */
+  public async 校验文件目录(): Promise<{ 可写: boolean; 目录: string; 错误: string }> {
+    const 目录 = this.报价单目录();
+    try {
+      await fs.mkdir(目录, { recursive: true });
+      await fs.access(目录, 文件常量.W_OK);
+      return { 可写: true, 目录, 错误: "" };
+    } catch (错误) {
+      return { 可写: false, 目录, 错误: (错误 as Error).message || "未知错误" };
+    }
   }
 
   public async 处理下一事件(): Promise<boolean> {
@@ -479,10 +495,7 @@ export class 订单预审任务存储 {
     });
     const 目录 = this.报价单目录();
     const 存储路径 = path.join(目录, 请求.requestId, fileName);
-    await fs.mkdir(path.dirname(存储路径), { recursive: true });
-    await fs.writeFile(存储路径, content, { flag: "wx" }).catch(async (错误: unknown) => {
-      if ((错误 as NodeJS.ErrnoException).code !== "EEXIST") throw 错误;
-    });
+    await 写入订单预审文件(存储路径, content, 目录);
     const 实际内容 = await fs.readFile(存储路径);
     const sha256 = crypto.createHash("sha256").update(实际内容).digest("hex");
     await this.数据库连接池.query(
@@ -948,6 +961,30 @@ function 转换为正式报价单明细(明细: 订单预审请求详情["items"
 
 function 规范文件片段(值: string): string {
   return 值.replace(/[^\p{L}\p{N}_-]+/gu, "_").slice(0, 100) || "order";
+}
+
+/** 报价单落盘失败时给出可运维定位的错误编码，避免与业务校验错误混淆。 */
+async function 写入订单预审文件(存储路径: string, 内容: Buffer, 目录: string): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(存储路径), { recursive: true });
+    await fs.writeFile(存储路径, 内容, { flag: "wx" }).catch((错误: unknown) => {
+      if ((错误 as NodeJS.ErrnoException).code !== "EEXIST") throw 错误;
+    });
+  } catch (错误) {
+    const 错误码 = (错误 as NodeJS.ErrnoException).code;
+    if (错误码 === "EACCES" || 错误码 === "EPERM" || 错误码 === "EROFS") {
+      throw new 订单预审外部错误(
+        "ORDER_PREAPPROVAL_FILE_DIR_UNWRITABLE",
+        `订单预审报价单目录不可写：${目录}。请检查目录属主与权限（容器运行用户 1000:1000）。`,
+        { retryable: true },
+      );
+    }
+    throw new 订单预审外部错误(
+      "ORDER_PREAPPROVAL_FILE_WRITE_FAILED",
+      `订单预审报价单文件写入失败：${错误码 || "未知错误"}。`,
+      {},
+    );
+  }
 }
 
 function 脱敏错误摘要(错误: unknown): string {

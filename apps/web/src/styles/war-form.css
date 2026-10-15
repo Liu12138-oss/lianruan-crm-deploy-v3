@@ -1,0 +1,226 @@
+/* 由 ui-demo/demo.css 抽取的表单/向导/报价构建器样式，作用域 .vui，请勿手工修改。 */
+
+.vui .nav-caption {display: block;
+  padding: 0 9px 6px;
+  color: #9aa8b9;
+  font-size: 9px;
+  font-weight: 700;}
+
+.vui .quote-builder-layout {display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
+  gap: 12px;
+  align-items: start;}
+
+.vui .quote-builder-side, .vui .quote-builder-main, .vui .quote-builder-summary {min-width: 0;}
+
+.vui .quote-field-list, .vui .quote-summary-lines, .vui .quote-document-lines {display: grid;
+  gap: 8px;}
+
+.vui .quote-field-list > div, .vui .quote-summary-lines > div, .vui .quote-document-lines > div {display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: 8px;}
+
+.vui .quote-field-list > div {align-items: flex-start;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--line-soft);}
+
+.vui .quote-field-list > div:last-child {padding-bottom: 0;
+  border-bottom: 0;}
+
+.vui .quote-field-list strong {max-width: 170px;
+  color: var(--text-2);
+  font-size: 9px;
+  text-align: right;}
+
+.vui .quote-mode-grid {display: grid;
+  gap: 7px;}
+
+.vui .quote-mode {display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--text-2);
+  text-align: left;}
+
+.vui .quote-mode strong {font-size: 9px;}
+
+.vui .quote-mode span {color: var(--text-3);
+  font-size: 8px;}
+
+.vui .quote-mode.active {border-color: #c7dcfa;
+  background: var(--blue-soft);
+  color: var(--blue-strong);}
+
+.vui .quote-add-row {display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: #fbfdff;}
+
+.vui .flow-step small, .vui .step-item small {display: block;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 7px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;}
+
+.vui .step-item small {width: 100%;}
+
+.vui .list-stack {display: grid;
+  gap: 8px;}
+
+.vui .callout {padding: 10px;
+  border: 1px solid #dfeaf7;
+  border-radius: 8px;
+  background: #f8fbff;
+  color: var(--text-2);
+  font-size: 9px;
+  line-height: 1.6;}
+
+.vui .callout.warning {border-color: #f0dfb3;
+  background: #fffaf0;}
+
+.vui .callout.success {border-color: #cbeadd;
+  background: #f4fcf9;}
+
+.vui .form-grid {display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;}
+
+.vui .form-field {min-width: 0;}
+
+.vui .form-field.full {grid-column: 1 / -1;}
+
+.vui .form-control {display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d8e3ef;
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--text-2);
+  font-size: 9px;}
+
+.vui .form-control.textarea {align-items: flex-start;
+  min-height: 72px;
+  padding-top: 8px;
+  color: var(--text-3);
+  line-height: 1.55;}
+
+.vui .form-control.readonly {background: #f5f8fc;}
+
+.vui .helper {margin-top: 4px;
+  color: var(--text-3);
+  font-size: 8px;}
+
+.vui .wizard-layout {display: grid;
+  grid-template-columns: 195px minmax(0, 1fr) 300px;
+  min-height: 640px;}
+
+.vui .wizard-steps, .vui .wizard-aside {background: #f8fbff;}
+
+.vui .wizard-steps {padding: 14px 12px;
+  border-right: 1px solid var(--line);}
+
+.vui .wizard-aside {padding: 14px;
+  border-left: 1px solid var(--line);}
+
+.vui .wizard-main {padding: 14px;}
+
+.vui .step-list {display: grid;
+  gap: 5px;}
+
+.vui .step-item {position: relative;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  gap: 9px;
+  min-height: 54px;
+  padding: 8px 6px;
+  border: 1px solid transparent;
+  border-radius: 7px;}
+
+.vui .step-item::after {content: "";
+  position: absolute;
+  top: 33px;
+  bottom: -7px;
+  left: 18px;
+  width: 1px;
+  background: #dce7f3;}
+
+.vui .step-item:last-child::after {display: none;}
+
+.vui .step-item .step-no {display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border: 1px solid #d5e2f2;
+  border-radius: 50%;
+  background: #ffffff;
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 700;}
+
+.vui .step-item strong, .vui .step-item span {display: block;}
+
+.vui .step-item strong {color: var(--text-2);
+  font-size: 9px;}
+
+.vui .step-item span {margin-top: 2px;
+  color: var(--text-3);
+  font-size: 8px;
+  line-height: 1.4;}
+
+.vui .step-item.active {border-color: #cfe1fa;
+  background: #edf5ff;}
+
+.vui .step-item.active .step-no, .vui .step-item.done .step-no {border-color: var(--blue);
+  background: var(--blue);
+  color: #ffffff;}
+
+.vui .step-item.active strong {color: var(--blue-strong);}
+
+.vui .step-dots .step-item {display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;}
+
+.vui .step-dots .step-item::after {display: none;}
+
+.vui .step-dots .step-item strong {font-size: 8px;}
+
+.vui .step-dots .step-item small {font-size: 7px;}
+
+.vui .wizard-aside .flow-step strong {font-size: 7px;}
+
+.vui .wizard-aside .flow-step small {font-size: 6px;}
+
+.vui .section-head {display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #fafcff;}
+
+.vui .section-head strong {font-size: 10px;}
+
+.vui .section-head span {color: var(--text-3);
+  font-size: 8px;}
+
+.vui .section-body {padding: 12px;}

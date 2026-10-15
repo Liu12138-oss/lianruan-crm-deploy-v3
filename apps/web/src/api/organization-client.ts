@@ -262,6 +262,12 @@ export interface 外部身份映射结果 {
   items: 外部身份映射项[];
   summary: {
     total: number;
+    /** 目录内账号数（受筛选条件影响），不等同于映射记录数。 */
+    mappingTotal: number;
+    /** 状态为生效的映射记录数。 */
+    mappingActive: number;
+    mappingEteamsActive: number;
+    mappingWecomActive: number;
     eteamsActive: number;
     eteamsMissing: number;
     eteamsPending: number;
@@ -847,25 +853,27 @@ export function 读取用户列表(): Promise<{ 数据: 接口对象[]; 分页: 
 }
 
 export function 创建用户(内容: 接口对象): Promise<接口对象> {
-  return 发送请求<接口对象>("/api/users", { method: "POST", body: JSON.stringify(内容) });
+  // V3 主线未提供 POST /api/users；账号写入与老 UI 保持同一套 V2 兼容接口，
+  // 避免出现「界面可点、后端 404」的不可用入口。
+  return 发送请求<接口对象>("/api/v2/users", { method: "POST", body: JSON.stringify(内容) });
 }
 
 export function 更新用户(id: string, 内容: 接口对象): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}`, {
     method: "PUT",
     body: JSON.stringify(内容),
   });
 }
 
 export function 更新用户状态(id: string, 状态: string): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}/status`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}/status`, {
     method: "PUT",
     body: JSON.stringify({ status: 状态 }),
   });
 }
 
 export function 重置用户密码(id: string, 密码: string): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}/password`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}/password`, {
     method: "PUT",
     body: JSON.stringify({ password: 密码 }),
   });

@@ -20,6 +20,10 @@ export interface 通道公开配置 {
   configuredBy?: string;
   lastTestStatus?: string;
   lastTestedAt?: string;
+  /** 历史密文与当前加密密钥不匹配时为 true，表示通道必须重新保存配置后才能使用。 */
+  needsReconfigure?: boolean;
+  /** 配置不可用时的中文原因，直接面向管理员。 */
+  configurationError?: string;
   detail: Record<string, string | number | boolean>;
 }
 
@@ -146,7 +150,10 @@ class PostgreSQL消息平台数据服务 implements 消息平台数据服务 {
           WHERE channel_code = $1 FOR UPDATE`,
         [通道],
       );
-      const 旧配置 = 当前.rows[0] ? 解密通道配置(当前.rows[0], this.encryptionKey) : {};
+      // 密钥轮换或历史密文损坏时，旧配置无法解密。此时以空配置为基线，
+      // 让管理员能够重新填写并保存，而不是被 500 卡死无法自救。
+      const 旧配置 =
+        (当前.rows[0] && 尝试解密通道配置(当前.rows[0], this.encryptionKey)) || {};
       const 新配置 = 校验并合并通道配置(通道, 旧配置, 输入);
       const 密文 = 加密消息通道配置(新配置, this.encryptionKey);
       const 摘要 = crypto.createHash("sha256").update(JSON.stringify(新配置)).digest("hex");
@@ -194,11 +201,21 @@ class PostgreSQL消息平台数据服务 implements 消息平台数据服务 {
   ): Promise<通道公开配置> {
     const 操作人 = await this.读取超级管理员(用户);
     if (启用) {
-      const 测试结果 = await this.pool.query<{ last_test_status: string | null }>(
-        "SELECT last_test_status FROM message.channel_accounts WHERE channel_code = $1",
+      const 测试结果 = await this.pool.query<通道行>(
+        `SELECT channel_code, enabled, config_version, cipher_text, nonce, auth_tag, configured_at,
+                last_test_status, last_tested_at, ''::text AS configured_by
+           FROM message.channel_accounts WHERE channel_code = $1`,
         [通道],
       );
-      if (测试结果.rows[0]?.last_test_status !== "success") {
+      const 待启用行 = 测试结果.rows[0];
+      if (待启用行 && !尝试解密通道配置(待启用行, this.encryptionKey)) {
+        throw new 应用错误(
+          "V3_MESSAGE_CHANNEL_CONFIG_UNREADABLE",
+          "该通道的历史配置无法用当前密钥解密，请重新保存配置并完成测试后再启用。",
+          409,
+        );
+      }
+      if (待启用行?.last_test_status !== "success") {
         throw new 应用错误(
           "V3_MESSAGE_CHANNEL_TEST_REQUIRED",
           "通道须先完成一次成功的测试发送后才能启用。",
@@ -366,7 +383,24 @@ class PostgreSQL消息平台数据服务 implements 消息平台数据服务 {
   private 转换公开配置(row: 通道行 | undefined): 通道公开配置 {
     if (!row)
       throw new 应用错误("V3_MESSAGE_CHANNEL_CONFIG_UNAVAILABLE", "通道配置读取失败。", 500);
-    const 配置 = 解密通道配置(row, this.encryptionKey);
+    const 配置 = 尝试解密通道配置(row, this.encryptionKey);
+    if (!配置) {
+      // 单条历史密文不可解密时只降级该通道，不能让整个通道列表接口 500。
+      // 除「配置不可用」外，其余字段仍按数据库真实值返回，避免 UI 与数据出现第二处偏差。
+      return {
+        channelCode: row.channel_code,
+        configured: false,
+        enabled: row.enabled,
+        needsReconfigure: true,
+        configurationError: "该通道的历史配置无法用当前加密密钥解密，请重新保存配置。",
+        configVersion: row.config_version,
+        ...(row.configured_at ? { configuredAt: row.configured_at.toISOString() } : {}),
+        ...(row.configured_by ? { configuredBy: row.configured_by } : {}),
+        ...(row.last_test_status ? { lastTestStatus: row.last_test_status } : {}),
+        ...(row.last_tested_at ? { lastTestedAt: row.last_tested_at.toISOString() } : {}),
+        detail: {},
+      };
+    }
     return {
       channelCode: row.channel_code,
       configured: true,
@@ -394,11 +428,19 @@ interface 通道行 {
   last_tested_at: Date | null;
 }
 
-function 解密通道配置(row: 通道行, key: Buffer): Record<string, string | number> {
-  return 解密消息通道配置<Record<string, string | number>>(
-    { cipherText: row.cipher_text, nonce: row.nonce, authTag: row.auth_tag },
-    key,
-  );
+/**
+ * 容错解密：密钥轮换或历史密文损坏时返回 null，由调用方决定降级展示或允许重新保存。
+ * 严格模式仍由 解密消息通道配置 负责，避免把「解密失败」当成「没有配置」。
+ */
+function 尝试解密通道配置(row: 通道行, key: Buffer): Record<string, string | number> | null {
+  try {
+    return 解密消息通道配置<Record<string, string | number>>(
+      { cipherText: row.cipher_text, nonce: row.nonce, authTag: row.auth_tag },
+      key,
+    );
+  } catch {
+    return null;
+  }
 }
 
 function 默认公开配置(channelCode: 平台通道代码): 通道公开配置 {

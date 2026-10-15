@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>V3 UI 原型画廊</title>
+    <style>
+      :root { color-scheme: light; --blue:#2f69ed; --deep:#17345e; --text:#172b4d; --muted:#7d8da2; --line:#dce7f3; --page:#eef4fa; }
+      * { box-sizing:border-box; }
+      body { margin:0; background:linear-gradient(180deg,#eef6fd,#e5eef8); color:var(--text); font:13px/1.45 "PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+      header { position:sticky; z-index:5; top:0; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:18px 24px; border-bottom:1px solid var(--line); background:rgba(255,255,255,.95); backdrop-filter:blur(12px); }
+      h1 { margin:0; color:var(--deep); font-size:21px; }
+      header p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+      .actions { display:flex; gap:8px; }
+      .actions a, .actions button { min-height:34px; padding:0 14px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--deep); font-weight:800; text-decoration:none; }
+      .actions a.primary { border-color:var(--blue); background:var(--blue); color:#fff; }
+      main { padding:22px 24px 48px; }
+      .tabs { display:flex; gap:8px; margin-bottom:18px; }
+      .tabs button { min-height:38px; padding:0 18px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--muted); font-weight:800; }
+      .tabs button.active { border-color:var(--blue); background:var(--blue); color:#fff; }
+      .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+      .card { overflow:hidden; padding:0; border:1px solid var(--line); border-radius:10px; background:#fff; text-align:left; box-shadow:0 10px 24px rgba(36,75,119,.06); }
+      .card:hover { transform:translateY(-2px); border-color:#adc9f4; }
+      .card img { display:block; width:100%; aspect-ratio:16/10; object-fit:cover; object-position:top center; background:var(--page); }
+      .card-no { display:block; margin:10px 11px 0; color:var(--blue); font-size:9px; font-weight:900; }
+      .card strong { display:block; margin:5px 11px 0; font-size:11px; }
+      .card small { display:block; margin:3px 11px 11px; overflow:hidden; color:var(--muted); font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+      .hidden { display:none !important; }
+      .viewer { position:fixed; z-index:20; inset:0; display:grid; place-items:center; padding:28px; background:rgba(15,35,61,.82); }
+      .viewer img { max-width:min(1500px,96vw); max-height:90vh; border-radius:8px; background:#fff; box-shadow:0 30px 80px rgba(0,0,0,.3); }
+      .viewer button { position:fixed; top:18px; right:22px; width:38px; height:38px; border:0; border-radius:9px; background:#fff; color:var(--deep); font-size:20px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div><h1>V3 UI 原型画廊</h1><p>56 个主页面 · 96 个关键窗口 · 2026-09-23T02:34:11.232Z</p></div>
+      <div class="actions"><a class="primary" href="index.html">打开交互原型</a><a href="PROTOTYPE-EVIDENCE.json" target="_blank">查看证据清单</a></div>
+    </header>
+    <main>
+      <div class="tabs"><button class="active" type="button" data-target="pages">主页面 56</button><button type="button" data-target="windows">关键窗口 96</button></div>
+      <section id="pages" class="grid"><button class="card" type="button" data-image="screenshots/01-overview.png">
+      <span class="card-no">PAGE 01</span>
+      <img src="screenshots/01-overview.png" alt="overview" loading="lazy" />
+      <strong>overview</strong>
+      <small>01-overview.png</small>
+    </button><button class="card" type="button" data-image="screenshots/02-design-system.png">
+      <span class="card-no">PAGE 02</span>
+      <img src="screenshots/02-design-system.png" alt="design system" loading="lazy" />
+      <strong>design system</strong>
+      <small>02-design-system.png</small>
+    </button><button class="card" type="button" data-image="screenshots/03-windows.png">
+      <span class="card-no">PAGE 03</span>
+      <img src="screenshots/03-windows.png" alt="windows" loading="lazy" />
+      <strong>windows</strong>
+      <small>03-windows.png</small>
+    </button><button class="card" type="button" data-image="screenshots/04-business-map.png">
+      <span class="card-no">PAGE 04</span>
+      <img src="screenshots/04-business-map.png" alt="business map" loading="lazy" />
+      <strong>business map</strong>
+      <small>04-business-map.png</small>
+    </button><button class="card" type="button" data-image="screenshots/05-business-flows.png">
+      <span class="card-no">PAGE 05</span>
+      <img src="screenshots/05-business-flows.png" alt="business flows" loading="lazy" />
+      <strong>business flows</strong>
+      <small>05-business-flows.png</small>
+    </button><button class="card" type="button" data-image="screenshots/06-state-machines.png">
+      <span class="card-no">PAGE 06</span>
+      <img src="screenshots/06-state-machines.png" alt="state machines" loading="lazy" />
+      <strong>state machines</strong>
+      <small>06-state-machines.png</small>
+    </button><button class="card" type="button" data-image="screenshots/07-channel-members.png">
+      <span class="card-no">PAGE 07</span>
+      <img src="screenshots/07-channel-members.png" alt="channel members" loading="lazy" />
+      <strong>channel members</strong>
+      <small>07-channel-members.png</small>
+    </button><button class="card" type="button" data-image="screenshots/08-order-actions.png">
+      <span class="card-no">PAGE 08</span>
+      <img src="screenshots/08-order-actions.png" alt="order actions" loading="lazy" />
+      <strong>order actions</strong>
+      <small>08-order-actions.png</small>
+    </button><button class="card" type="button" data-image="screenshots/09-pricing-rules.png">
+      <span class="card-no">PAGE 09</span>
+      <img src="screenshots/09-pricing-rules.png" alt="pricing rules" loading="lazy" />
+      <strong>pricing rules</strong>
+      <small>09-pricing-rules.png</small>
+    </button><button class="card" type="button" data-image="screenshots/10-dashboard.png">
+      <span class="card-no">PAGE 10</span>
+      <img src="screenshots/10-dashboard.png" alt="dashboard" loading="lazy" />
+      <strong>dashboard</strong>
+      <small>10-dashboard.png</small>
+    </button><button class="card" type="button" data-image="screenshots/11-customers.png">
+      <span class="card-no">PAGE 11</span>
+      <img src="screenshots/11-customers.png" alt="customers" loading="lazy" />
+      <strong>customers</strong>
+      <small>11-customers.png</small>
+    </button><button class="card" type="button" data-image="screenshots/12-customer-new.png">
+      <span class="card-no">PAGE 12</span>
+      <img src="screenshots/12-customer-new.png" alt="customer new" loading="lazy" />
+      <strong>customer new</strong>
+      <small>12-customer-new.png</small>
+    </button><button class="card" type="button" data-image="screenshots/13-customer-followup.png">
+      <span class="card-no">PAGE 13</span>
+      <img src="screenshots/13-customer-followup.png" alt="customer followup" loading="lazy" />
+      <strong>customer followup</strong>
+      <small>13-customer-followup.png</small>
+    </button><button class="card" type="button" data-image="screenshots/14-opportunities.png">
+      <span class="card-no">PAGE 14</span>
+      <img src="screenshots/14-opportunities.png" alt="opportunities" loading="lazy" />
+      <strong>opportunities</strong>
+      <small>14-opportunities.png</small>
+    </button><button class="card" type="button" data-image="screenshots/15-opportunity-new.png">
+      <span class="card-no">PAGE 15</span>
+      <img src="screenshots/15-opportunity-new.png" alt="opportunity new" loading="lazy" />
+      <strong>opportunity new</strong>
+      <small>15-opportunity-new.png</small>
+    </button><button class="card" type="button" data-image="screenshots/16-quotes.png">
+      <span class="card-no">PAGE 16</span>
+      <img src="screenshots/16-quotes.png" alt="quotes" loading="lazy" />
+      <strong>quotes</strong>
+      <small>16-quotes.png</small>
+    </button><button class="card" type="button" data-image="screenshots/17-quote-new.png">
+      <span class="card-no">PAGE 17</span>
+      <img src="screenshots/17-quote-new.png" alt="quote new" loading="lazy" />
+      <strong>quote new</strong>
+      <small>17-quote-new.png</small>
+    </button><button class="card" type="button" data-image="screenshots/18-orders.png">
+      <span class="card-no">PAGE 18</span>
+      <img src="screenshots/18-orders.png" alt="orders" loading="lazy" />
+      <strong>orders</strong>
+      <small>18-orders.png</small>
+    </button><button class="card" type="button" data-image="screenshots/19-channels.png">
+      <span class="card-no">PAGE 19</span>
+      <img src="screenshots/19-channels.png" alt="channels" loading="lazy" />
+      <strong>channels</strong>
+      <small>19-channels.png</small>
+    </button><button class="card" type="button" data-image="screenshots/20-products.png">
+      <span class="card-no">PAGE 20</span>
+      <img src="screenshots/20-products.png" alt="products" loading="lazy" />
+      <strong>products</strong>
+      <small>20-products.png</small>
+    </button><button class="card" type="button" data-image="screenshots/21-approvals.png">
+      <span class="card-no">PAGE 21</span>
+      <img src="screenshots/21-approvals.png" alt="approvals" loading="lazy" />
+      <strong>approvals</strong>
+      <small>21-approvals.png</small>
+    </button><button class="card" type="button" data-image="screenshots/22-messages.png">
+      <span class="card-no">PAGE 22</span>
+      <img src="screenshots/22-messages.png" alt="messages" loading="lazy" />
+      <strong>messages</strong>
+      <small>22-messages.png</small>
+    </button><button class="card" type="button" data-image="screenshots/23-organization.png">
+      <span class="card-no">PAGE 23</span>
+      <img src="screenshots/23-organization.png" alt="organization" loading="lazy" />
+      <strong>organization</strong>
+      <small>23-organization.png</small>
+    </button><button class="card" type="button" data-image="screenshots/24-roles.png">
+      <span class="card-no">PAGE 24</span>
+      <img src="screenshots/24-roles.png" alt="roles" loading="lazy" />
+      <strong>roles</strong>
+      <small>24-roles.png</small>
+    </button><button class="card" type="button" data-image="screenshots/25-openapi.png">
+      <span class="card-no">PAGE 25</span>
+      <img src="screenshots/25-openapi.png" alt="openapi" loading="lazy" />
+      <strong>openapi</strong>
+      <small>25-openapi.png</small>
+    </button><button class="card" type="button" data-image="screenshots/26-audit-system.png">
+      <span class="card-no">PAGE 26</span>
+      <img src="screenshots/26-audit-system.png" alt="audit system" loading="lazy" />
+      <strong>audit system</strong>
+      <small>26-audit-system.png</small>
+    </button><button class="card" type="button" data-image="screenshots/27-partner-dashboard.png">
+      <span class="card-no">PAGE 27</span>
+      <img src="screenshots/27-partner-dashboard.png" alt="partner dashboard" loading="lazy" />
+      <strong>partner dashboard</strong>
+      <small>27-partner-dashboard.png</small>
+    </button><button class="card" type="button" data-image="screenshots/28-mobile.png">
+      <span class="card-no">PAGE 28</span>
+      <img src="screenshots/28-mobile.png" alt="mobile" loading="lazy" />
+      <strong>mobile</strong>
+      <small>28-mobile.png</small>
+    </button><button class="card" type="button" data-image="screenshots/29-auth-flows.png">
+      <span class="card-no">PAGE 29</span>
+      <img src="screenshots/29-auth-flows.png" alt="auth flows" loading="lazy" />
+      <strong>auth flows</strong>
+      <small>29-auth-flows.png</small>
+    </button><button class="card" type="button" data-image="screenshots/30-partner-report.png">
+      <span class="card-no">PAGE 30</span>
+      <img src="screenshots/30-partner-report.png" alt="partner report" loading="lazy" />
+      <strong>partner report</strong>
+      <small>30-partner-report.png</small>
+    </button><button class="card" type="button" data-image="screenshots/31-channel-profile.png">
+      <span class="card-no">PAGE 31</span>
+      <img src="screenshots/31-channel-profile.png" alt="channel profile" loading="lazy" />
+      <strong>channel profile</strong>
+      <small>31-channel-profile.png</small>
+    </button><button class="card" type="button" data-image="screenshots/32-certificate-management.png">
+      <span class="card-no">PAGE 32</span>
+      <img src="screenshots/32-certificate-management.png" alt="certificate management" loading="lazy" />
+      <strong>certificate management</strong>
+      <small>32-certificate-management.png</small>
+    </button><button class="card" type="button" data-image="screenshots/33-message-platform.png">
+      <span class="card-no">PAGE 33</span>
+      <img src="screenshots/33-message-platform.png" alt="message platform" loading="lazy" />
+      <strong>message platform</strong>
+      <small>33-message-platform.png</small>
+    </button><button class="card" type="button" data-image="screenshots/34-message-rules.png">
+      <span class="card-no">PAGE 34</span>
+      <img src="screenshots/34-message-rules.png" alt="message rules" loading="lazy" />
+      <strong>message rules</strong>
+      <small>34-message-rules.png</small>
+    </button><button class="card" type="button" data-image="screenshots/35-account-management.png">
+      <span class="card-no">PAGE 35</span>
+      <img src="screenshots/35-account-management.png" alt="account management" loading="lazy" />
+      <strong>account management</strong>
+      <small>35-account-management.png</small>
+    </button><button class="card" type="button" data-image="screenshots/36-organization-admin.png">
+      <span class="card-no">PAGE 36</span>
+      <img src="screenshots/36-organization-admin.png" alt="organization admin" loading="lazy" />
+      <strong>organization admin</strong>
+      <small>36-organization-admin.png</small>
+    </button><button class="card" type="button" data-image="screenshots/37-product-admin.png">
+      <span class="card-no">PAGE 37</span>
+      <img src="screenshots/37-product-admin.png" alt="product admin" loading="lazy" />
+      <strong>product admin</strong>
+      <small>37-product-admin.png</small>
+    </button><button class="card" type="button" data-image="screenshots/38-workload-config.png">
+      <span class="card-no">PAGE 38</span>
+      <img src="screenshots/38-workload-config.png" alt="workload config" loading="lazy" />
+      <strong>workload config</strong>
+      <small>38-workload-config.png</small>
+    </button><button class="card" type="button" data-image="screenshots/39-import-export.png">
+      <span class="card-no">PAGE 39</span>
+      <img src="screenshots/39-import-export.png" alt="import export" loading="lazy" />
+      <strong>import export</strong>
+      <small>39-import-export.png</small>
+    </button><button class="card" type="button" data-image="screenshots/40-quote-actions.png">
+      <span class="card-no">PAGE 40</span>
+      <img src="screenshots/40-quote-actions.png" alt="quote actions" loading="lazy" />
+      <strong>quote actions</strong>
+      <small>40-quote-actions.png</small>
+    </button><button class="card" type="button" data-image="screenshots/41-audit-operations.png">
+      <span class="card-no">PAGE 41</span>
+      <img src="screenshots/41-audit-operations.png" alt="audit operations" loading="lazy" />
+      <strong>audit operations</strong>
+      <small>41-audit-operations.png</small>
+    </button><button class="card" type="button" data-image="screenshots/42-mobile-full.png">
+      <span class="card-no">PAGE 42</span>
+      <img src="screenshots/42-mobile-full.png" alt="mobile full" loading="lazy" />
+      <strong>mobile full</strong>
+      <small>42-mobile-full.png</small>
+    </button><button class="card" type="button" data-image="screenshots/43-admin-settings.png">
+      <span class="card-no">PAGE 43</span>
+      <img src="screenshots/43-admin-settings.png" alt="admin settings" loading="lazy" />
+      <strong>admin settings</strong>
+      <small>43-admin-settings.png</small>
+    </button><button class="card" type="button" data-image="screenshots/44-extensions.png">
+      <span class="card-no">PAGE 44</span>
+      <img src="screenshots/44-extensions.png" alt="extensions" loading="lazy" />
+      <strong>extensions</strong>
+      <small>44-extensions.png</small>
+    </button><button class="card" type="button" data-image="screenshots/45-architecture.png">
+      <span class="card-no">PAGE 45</span>
+      <img src="screenshots/45-architecture.png" alt="architecture" loading="lazy" />
+      <strong>architecture</strong>
+      <small>45-architecture.png</small>
+    </button><button class="card" type="button" data-image="screenshots/46-mcp-management.png">
+      <span class="card-no">PAGE 46</span>
+      <img src="screenshots/46-mcp-management.png" alt="mcp management" loading="lazy" />
+      <strong>mcp management</strong>
+      <small>46-mcp-management.png</small>
+    </button><button class="card" type="button" data-image="screenshots/47-message-monitoring.png">
+      <span class="card-no">PAGE 47</span>
+      <img src="screenshots/47-message-monitoring.png" alt="message monitoring" loading="lazy" />
+      <strong>message monitoring</strong>
+      <small>47-message-monitoring.png</small>
+    </button><button class="card" type="button" data-image="screenshots/48-contracts.png">
+      <span class="card-no">PAGE 48</span>
+      <img src="screenshots/48-contracts.png" alt="contracts" loading="lazy" />
+      <strong>contracts</strong>
+      <small>48-contracts.png</small>
+    </button><button class="card" type="button" data-image="screenshots/49-receipts.png">
+      <span class="card-no">PAGE 49</span>
+      <img src="screenshots/49-receipts.png" alt="receipts" loading="lazy" />
+      <strong>receipts</strong>
+      <small>49-receipts.png</small>
+    </button><button class="card" type="button" data-image="screenshots/50-deposits.png">
+      <span class="card-no">PAGE 50</span>
+      <img src="screenshots/50-deposits.png" alt="deposits" loading="lazy" />
+      <strong>deposits</strong>
+      <small>50-deposits.png</small>
+    </button><button class="card" type="button" data-image="screenshots/51-customer-pool.png">
+      <span class="card-no">PAGE 51</span>
+      <img src="screenshots/51-customer-pool.png" alt="customer pool" loading="lazy" />
+      <strong>customer pool</strong>
+      <small>51-customer-pool.png</small>
+    </button><button class="card" type="button" data-image="screenshots/52-ai-analytics.png">
+      <span class="card-no">PAGE 52</span>
+      <img src="screenshots/52-ai-analytics.png" alt="ai analytics" loading="lazy" />
+      <strong>ai analytics</strong>
+      <small>52-ai-analytics.png</small>
+    </button><button class="card" type="button" data-image="screenshots/53-backup-recovery.png">
+      <span class="card-no">PAGE 53</span>
+      <img src="screenshots/53-backup-recovery.png" alt="backup recovery" loading="lazy" />
+      <strong>backup recovery</strong>
+      <small>53-backup-recovery.png</small>
+    </button><button class="card" type="button" data-image="screenshots/54-lead-management.png">
+      <span class="card-no">PAGE 54</span>
+      <img src="screenshots/54-lead-management.png" alt="lead management" loading="lazy" />
+      <strong>lead management</strong>
+      <small>54-lead-management.png</small>
+    </button><button class="card" type="button" data-image="screenshots/55-lead-detail.png">
+      <span class="card-no">PAGE 55</span>
+      <img src="screenshots/55-lead-detail.png" alt="lead detail" loading="lazy" />
+      <strong>lead detail</strong>
+      <small>55-lead-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/56-lead-sources.png">
+      <span class="card-no">PAGE 56</span>
+      <img src="screenshots/56-lead-sources.png" alt="lead sources" loading="lazy" />
+      <strong>lead sources</strong>
+      <small>56-lead-sources.png</small>
+    </button></section>
+      <section id="windows" class="grid hidden"><button class="card" type="button" data-image="screenshots/windows-v3/01-account-archive.png">
+      <span class="card-no">WINDOW 01</span>
+      <img src="screenshots/windows-v3/01-account-archive.png" alt="account archive" loading="lazy" />
+      <strong>account archive</strong>
+      <small>01-account-archive.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/02-account-merge.png">
+      <span class="card-no">WINDOW 02</span>
+      <img src="screenshots/windows-v3/02-account-merge.png" alt="account merge" loading="lazy" />
+      <strong>account merge</strong>
+      <small>02-account-merge.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/03-account-restore.png">
+      <span class="card-no">WINDOW 03</span>
+      <img src="screenshots/windows-v3/03-account-restore.png" alt="account restore" loading="lazy" />
+      <strong>account restore</strong>
+      <small>03-account-restore.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/04-api-client.png">
+      <span class="card-no">WINDOW 04</span>
+      <img src="screenshots/windows-v3/04-api-client.png" alt="api client" loading="lazy" />
+      <strong>api client</strong>
+      <small>04-api-client.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/05-approval-detail.png">
+      <span class="card-no">WINDOW 05</span>
+      <img src="screenshots/windows-v3/05-approval-detail.png" alt="approval detail" loading="lazy" />
+      <strong>approval detail</strong>
+      <small>05-approval-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/06-auth-login.png">
+      <span class="card-no">WINDOW 06</span>
+      <img src="screenshots/windows-v3/06-auth-login.png" alt="auth login" loading="lazy" />
+      <strong>auth login</strong>
+      <small>06-auth-login.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/07-auth-sso.png">
+      <span class="card-no">WINDOW 07</span>
+      <img src="screenshots/windows-v3/07-auth-sso.png" alt="auth sso" loading="lazy" />
+      <strong>auth sso</strong>
+      <small>07-auth-sso.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/08-backup-now.png">
+      <span class="card-no">WINDOW 08</span>
+      <img src="screenshots/windows-v3/08-backup-now.png" alt="backup now" loading="lazy" />
+      <strong>backup now</strong>
+      <small>08-backup-now.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/09-bulk-approve.png">
+      <span class="card-no">WINDOW 09</span>
+      <img src="screenshots/windows-v3/09-bulk-approve.png" alt="bulk approve" loading="lazy" />
+      <strong>bulk approve</strong>
+      <small>09-bulk-approve.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/10-certificate-extend.png">
+      <span class="card-no">WINDOW 10</span>
+      <img src="screenshots/windows-v3/10-certificate-extend.png" alt="certificate extend" loading="lazy" />
+      <strong>certificate extend</strong>
+      <small>10-certificate-extend.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/11-certificate-issue.png">
+      <span class="card-no">WINDOW 11</span>
+      <img src="screenshots/windows-v3/11-certificate-issue.png" alt="certificate issue" loading="lazy" />
+      <strong>certificate issue</strong>
+      <small>11-certificate-issue.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/12-certificate-revoke.png">
+      <span class="card-no">WINDOW 12</span>
+      <img src="screenshots/windows-v3/12-certificate-revoke.png" alt="certificate revoke" loading="lazy" />
+      <strong>certificate revoke</strong>
+      <small>12-certificate-revoke.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/13-certificate-template.png">
+      <span class="card-no">WINDOW 13</span>
+      <img src="screenshots/windows-v3/13-certificate-template.png" alt="certificate template" loading="lazy" />
+      <strong>certificate template</strong>
+      <small>13-certificate-template.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/14-change-password.png">
+      <span class="card-no">WINDOW 14</span>
+      <img src="screenshots/windows-v3/14-change-password.png" alt="change password" loading="lazy" />
+      <strong>change password</strong>
+      <small>14-change-password.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/15-channel-detail.png">
+      <span class="card-no">WINDOW 15</span>
+      <img src="screenshots/windows-v3/15-channel-detail.png" alt="channel detail" loading="lazy" />
+      <strong>channel detail</strong>
+      <small>15-channel-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/16-channel-edit.png">
+      <span class="card-no">WINDOW 16</span>
+      <img src="screenshots/windows-v3/16-channel-edit.png" alt="channel edit" loading="lazy" />
+      <strong>channel edit</strong>
+      <small>16-channel-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/17-collect-diagnostics.png">
+      <span class="card-no">WINDOW 17</span>
+      <img src="screenshots/windows-v3/17-collect-diagnostics.png" alt="collect diagnostics" loading="lazy" />
+      <strong>collect diagnostics</strong>
+      <small>17-collect-diagnostics.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/18-confirm-action.png">
+      <span class="card-no">WINDOW 18</span>
+      <img src="screenshots/windows-v3/18-confirm-action.png" alt="confirm action" loading="lazy" />
+      <strong>confirm action</strong>
+      <small>18-confirm-action.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/19-convert-order.png">
+      <span class="card-no">WINDOW 19</span>
+      <img src="screenshots/windows-v3/19-convert-order.png" alt="convert order" loading="lazy" />
+      <strong>convert order</strong>
+      <small>19-convert-order.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/20-cost-rule.png">
+      <span class="card-no">WINDOW 20</span>
+      <img src="screenshots/windows-v3/20-cost-rule.png" alt="cost rule" loading="lazy" />
+      <strong>cost rule</strong>
+      <small>20-cost-rule.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/21-customer-detail.png">
+      <span class="card-no">WINDOW 21</span>
+      <img src="screenshots/windows-v3/21-customer-detail.png" alt="customer detail" loading="lazy" />
+      <strong>customer detail</strong>
+      <small>21-customer-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/22-customer-editor.png">
+      <span class="card-no">WINDOW 22</span>
+      <img src="screenshots/windows-v3/22-customer-editor.png" alt="customer editor" loading="lazy" />
+      <strong>customer editor</strong>
+      <small>22-customer-editor.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/23-export-scope.png">
+      <span class="card-no">WINDOW 23</span>
+      <img src="screenshots/windows-v3/23-export-scope.png" alt="export scope" loading="lazy" />
+      <strong>export scope</strong>
+      <small>23-export-scope.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/24-followup-form.png">
+      <span class="card-no">WINDOW 24</span>
+      <img src="screenshots/windows-v3/24-followup-form.png" alt="followup form" loading="lazy" />
+      <strong>followup form</strong>
+      <small>24-followup-form.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/25-forbidden.png">
+      <span class="card-no">WINDOW 25</span>
+      <img src="screenshots/windows-v3/25-forbidden.png" alt="forbidden" loading="lazy" />
+      <strong>forbidden</strong>
+      <small>25-forbidden.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/26-import-center.png">
+      <span class="card-no">WINDOW 26</span>
+      <img src="screenshots/windows-v3/26-import-center.png" alt="import center" loading="lazy" />
+      <strong>import center</strong>
+      <small>26-import-center.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/27-mark-read.png">
+      <span class="card-no">WINDOW 27</span>
+      <img src="screenshots/windows-v3/27-mark-read.png" alt="mark read" loading="lazy" />
+      <strong>mark read</strong>
+      <small>27-mark-read.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/28-mcp-client.png">
+      <span class="card-no">WINDOW 28</span>
+      <img src="screenshots/windows-v3/28-mcp-client.png" alt="mcp client" loading="lazy" />
+      <strong>mcp client</strong>
+      <small>28-mcp-client.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/29-mcp-tool-auth.png">
+      <span class="card-no">WINDOW 29</span>
+      <img src="screenshots/windows-v3/29-mcp-tool-auth.png" alt="mcp tool auth" loading="lazy" />
+      <strong>mcp tool auth</strong>
+      <small>29-mcp-tool-auth.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/30-member-cert.png">
+      <span class="card-no">WINDOW 30</span>
+      <img src="screenshots/windows-v3/30-member-cert.png" alt="member cert" loading="lazy" />
+      <strong>member cert</strong>
+      <small>30-member-cert.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/31-member-detail.png">
+      <span class="card-no">WINDOW 31</span>
+      <img src="screenshots/windows-v3/31-member-detail.png" alt="member detail" loading="lazy" />
+      <strong>member detail</strong>
+      <small>31-member-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/32-member-disable.png">
+      <span class="card-no">WINDOW 32</span>
+      <img src="screenshots/windows-v3/32-member-disable.png" alt="member disable" loading="lazy" />
+      <strong>member disable</strong>
+      <small>32-member-disable.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/33-member-editor.png">
+      <span class="card-no">WINDOW 33</span>
+      <img src="screenshots/windows-v3/33-member-editor.png" alt="member editor" loading="lazy" />
+      <strong>member editor</strong>
+      <small>33-member-editor.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/34-member-reset.png">
+      <span class="card-no">WINDOW 34</span>
+      <img src="screenshots/windows-v3/34-member-reset.png" alt="member reset" loading="lazy" />
+      <strong>member reset</strong>
+      <small>34-member-reset.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/35-message-channel-edit.png">
+      <span class="card-no">WINDOW 35</span>
+      <img src="screenshots/windows-v3/35-message-channel-edit.png" alt="message channel edit" loading="lazy" />
+      <strong>message channel edit</strong>
+      <small>35-message-channel-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/36-message-channel-test.png">
+      <span class="card-no">WINDOW 36</span>
+      <img src="screenshots/windows-v3/36-message-channel-test.png" alt="message channel test" loading="lazy" />
+      <strong>message channel test</strong>
+      <small>36-message-channel-test.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/37-message-detail.png">
+      <span class="card-no">WINDOW 37</span>
+      <img src="screenshots/windows-v3/37-message-detail.png" alt="message detail" loading="lazy" />
+      <strong>message detail</strong>
+      <small>37-message-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/38-message-monitor-detail.png">
+      <span class="card-no">WINDOW 38</span>
+      <img src="screenshots/windows-v3/38-message-monitor-detail.png" alt="message monitor detail" loading="lazy" />
+      <strong>message monitor detail</strong>
+      <small>38-message-monitor-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/39-message-monitor-export.png">
+      <span class="card-no">WINDOW 39</span>
+      <img src="screenshots/windows-v3/39-message-monitor-export.png" alt="message monitor export" loading="lazy" />
+      <strong>message monitor export</strong>
+      <small>39-message-monitor-export.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/40-message-preferences.png">
+      <span class="card-no">WINDOW 40</span>
+      <img src="screenshots/windows-v3/40-message-preferences.png" alt="message preferences" loading="lazy" />
+      <strong>message preferences</strong>
+      <small>40-message-preferences.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/41-message-task-create.png">
+      <span class="card-no">WINDOW 41</span>
+      <img src="screenshots/windows-v3/41-message-task-create.png" alt="message task create" loading="lazy" />
+      <strong>message task create</strong>
+      <small>41-message-task-create.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/42-message-template-edit.png">
+      <span class="card-no">WINDOW 42</span>
+      <img src="screenshots/windows-v3/42-message-template-edit.png" alt="message template edit" loading="lazy" />
+      <strong>message template edit</strong>
+      <small>42-message-template-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/43-messages-panel.png">
+      <span class="card-no">WINDOW 43</span>
+      <img src="screenshots/windows-v3/43-messages-panel.png" alt="messages panel" loading="lazy" />
+      <strong>messages panel</strong>
+      <small>43-messages-panel.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/44-mobile-guide.png">
+      <span class="card-no">WINDOW 44</span>
+      <img src="screenshots/windows-v3/44-mobile-guide.png" alt="mobile guide" loading="lazy" />
+      <strong>mobile guide</strong>
+      <small>44-mobile-guide.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/45-opportunity-detail.png">
+      <span class="card-no">WINDOW 45</span>
+      <img src="screenshots/windows-v3/45-opportunity-detail.png" alt="opportunity detail" loading="lazy" />
+      <strong>opportunity detail</strong>
+      <small>45-opportunity-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/46-order-detail.png">
+      <span class="card-no">WINDOW 46</span>
+      <img src="screenshots/windows-v3/46-order-detail.png" alt="order detail" loading="lazy" />
+      <strong>order detail</strong>
+      <small>46-order-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/47-order-fulfillment.png">
+      <span class="card-no">WINDOW 47</span>
+      <img src="screenshots/windows-v3/47-order-fulfillment.png" alt="order fulfillment" loading="lazy" />
+      <strong>order fulfillment</strong>
+      <small>47-order-fulfillment.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/48-order-primary-confirm.png">
+      <span class="card-no">WINDOW 48</span>
+      <img src="screenshots/windows-v3/48-order-primary-confirm.png" alt="order primary confirm" loading="lazy" />
+      <strong>order primary confirm</strong>
+      <small>48-order-primary-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/49-order-primary-reject.png">
+      <span class="card-no">WINDOW 49</span>
+      <img src="screenshots/windows-v3/49-order-primary-reject.png" alt="order primary reject" loading="lazy" />
+      <strong>order primary reject</strong>
+      <small>49-order-primary-reject.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/50-order-region-confirm.png">
+      <span class="card-no">WINDOW 50</span>
+      <img src="screenshots/windows-v3/50-order-region-confirm.png" alt="order region confirm" loading="lazy" />
+      <strong>order region confirm</strong>
+      <small>50-order-region-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/51-order-region-price.png">
+      <span class="card-no">WINDOW 51</span>
+      <img src="screenshots/windows-v3/51-order-region-price.png" alt="order region price" loading="lazy" />
+      <strong>order region price</strong>
+      <small>51-order-region-price.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/52-order-resubmit.png">
+      <span class="card-no">WINDOW 52</span>
+      <img src="screenshots/windows-v3/52-order-resubmit.png" alt="order resubmit" loading="lazy" />
+      <strong>order resubmit</strong>
+      <small>52-order-resubmit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/53-order-revision.png">
+      <span class="card-no">WINDOW 53</span>
+      <img src="screenshots/windows-v3/53-order-revision.png" alt="order revision" loading="lazy" />
+      <strong>order revision</strong>
+      <small>53-order-revision.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/54-order-revision-review.png">
+      <span class="card-no">WINDOW 54</span>
+      <img src="screenshots/windows-v3/54-order-revision-review.png" alt="order revision review" loading="lazy" />
+      <strong>order revision review</strong>
+      <small>54-order-revision-review.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/55-order-superadmin-confirm.png">
+      <span class="card-no">WINDOW 55</span>
+      <img src="screenshots/windows-v3/55-order-superadmin-confirm.png" alt="order superadmin confirm" loading="lazy" />
+      <strong>order superadmin confirm</strong>
+      <small>55-order-superadmin-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/56-order-superadmin-return.png">
+      <span class="card-no">WINDOW 56</span>
+      <img src="screenshots/windows-v3/56-order-superadmin-return.png" alt="order superadmin return" loading="lazy" />
+      <strong>order superadmin return</strong>
+      <small>56-order-superadmin-return.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/57-org-sync.png">
+      <span class="card-no">WINDOW 57</span>
+      <img src="screenshots/windows-v3/57-org-sync.png" alt="org sync" loading="lazy" />
+      <strong>org sync</strong>
+      <small>57-org-sync.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/58-org-unit-edit.png">
+      <span class="card-no">WINDOW 58</span>
+      <img src="screenshots/windows-v3/58-org-unit-edit.png" alt="org unit edit" loading="lazy" />
+      <strong>org unit edit</strong>
+      <small>58-org-unit-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/59-parent-partner-select.png">
+      <span class="card-no">WINDOW 59</span>
+      <img src="screenshots/windows-v3/59-parent-partner-select.png" alt="parent partner select" loading="lazy" />
+      <strong>parent partner select</strong>
+      <small>59-parent-partner-select.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/60-permission-audit.png">
+      <span class="card-no">WINDOW 60</span>
+      <img src="screenshots/windows-v3/60-permission-audit.png" alt="permission audit" loading="lazy" />
+      <strong>permission audit</strong>
+      <small>60-permission-audit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/61-planned-roadmap.png">
+      <span class="card-no">WINDOW 61</span>
+      <img src="screenshots/windows-v3/61-planned-roadmap.png" alt="planned roadmap" loading="lazy" />
+      <strong>planned roadmap</strong>
+      <small>61-planned-roadmap.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/62-pricing-editor.png">
+      <span class="card-no">WINDOW 62</span>
+      <img src="screenshots/windows-v3/62-pricing-editor.png" alt="pricing editor" loading="lazy" />
+      <strong>pricing editor</strong>
+      <small>62-pricing-editor.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/63-print-help.png">
+      <span class="card-no">WINDOW 63</span>
+      <img src="screenshots/windows-v3/63-print-help.png" alt="print help" loading="lazy" />
+      <strong>print help</strong>
+      <small>63-print-help.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/64-product-category.png">
+      <span class="card-no">WINDOW 64</span>
+      <img src="screenshots/windows-v3/64-product-category.png" alt="product category" loading="lazy" />
+      <strong>product category</strong>
+      <small>64-product-category.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/65-product-detail.png">
+      <span class="card-no">WINDOW 65</span>
+      <img src="screenshots/windows-v3/65-product-detail.png" alt="product detail" loading="lazy" />
+      <strong>product detail</strong>
+      <small>65-product-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/66-product-edit.png">
+      <span class="card-no">WINDOW 66</span>
+      <img src="screenshots/windows-v3/66-product-edit.png" alt="product edit" loading="lazy" />
+      <strong>product edit</strong>
+      <small>66-product-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/67-product-feature.png">
+      <span class="card-no">WINDOW 67</span>
+      <img src="screenshots/windows-v3/67-product-feature.png" alt="product feature" loading="lazy" />
+      <strong>product feature</strong>
+      <small>67-product-feature.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/68-product-package.png">
+      <span class="card-no">WINDOW 68</span>
+      <img src="screenshots/windows-v3/68-product-package.png" alt="product package" loading="lazy" />
+      <strong>product package</strong>
+      <small>68-product-package.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/69-product-picker.png">
+      <span class="card-no">WINDOW 69</span>
+      <img src="screenshots/windows-v3/69-product-picker.png" alt="product picker" loading="lazy" />
+      <strong>product picker</strong>
+      <small>69-product-picker.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/70-quote-confirm.png">
+      <span class="card-no">WINDOW 70</span>
+      <img src="screenshots/windows-v3/70-quote-confirm.png" alt="quote confirm" loading="lazy" />
+      <strong>quote confirm</strong>
+      <small>70-quote-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/71-quote-delete.png">
+      <span class="card-no">WINDOW 71</span>
+      <img src="screenshots/windows-v3/71-quote-delete.png" alt="quote delete" loading="lazy" />
+      <strong>quote delete</strong>
+      <small>71-quote-delete.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/72-quote-detail.png">
+      <span class="card-no">WINDOW 72</span>
+      <img src="screenshots/windows-v3/72-quote-detail.png" alt="quote detail" loading="lazy" />
+      <strong>quote detail</strong>
+      <small>72-quote-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/73-quote-expire.png">
+      <span class="card-no">WINDOW 73</span>
+      <img src="screenshots/windows-v3/73-quote-expire.png" alt="quote expire" loading="lazy" />
+      <strong>quote expire</strong>
+      <small>73-quote-expire.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/74-quote-profit.png">
+      <span class="card-no">WINDOW 74</span>
+      <img src="screenshots/windows-v3/74-quote-profit.png" alt="quote profit" loading="lazy" />
+      <strong>quote profit</strong>
+      <small>74-quote-profit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/75-quote-send.png">
+      <span class="card-no">WINDOW 75</span>
+      <img src="screenshots/windows-v3/75-quote-send.png" alt="quote send" loading="lazy" />
+      <strong>quote send</strong>
+      <small>75-quote-send.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/76-quote-submit.png">
+      <span class="card-no">WINDOW 76</span>
+      <img src="screenshots/windows-v3/76-quote-submit.png" alt="quote submit" loading="lazy" />
+      <strong>quote submit</strong>
+      <small>76-quote-submit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/77-quote-withdraw.png">
+      <span class="card-no">WINDOW 77</span>
+      <img src="screenshots/windows-v3/77-quote-withdraw.png" alt="quote withdraw" loading="lazy" />
+      <strong>quote withdraw</strong>
+      <small>77-quote-withdraw.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/78-region-filter.png">
+      <span class="card-no">WINDOW 78</span>
+      <img src="screenshots/windows-v3/78-region-filter.png" alt="region filter" loading="lazy" />
+      <strong>region filter</strong>
+      <small>78-region-filter.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/79-reset-secret.png">
+      <span class="card-no">WINDOW 79</span>
+      <img src="screenshots/windows-v3/79-reset-secret.png" alt="reset secret" loading="lazy" />
+      <strong>reset secret</strong>
+      <small>79-reset-secret.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/80-restore-confirm.png">
+      <span class="card-no">WINDOW 80</span>
+      <img src="screenshots/windows-v3/80-restore-confirm.png" alt="restore confirm" loading="lazy" />
+      <strong>restore confirm</strong>
+      <small>80-restore-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/81-role-editor.png">
+      <span class="card-no">WINDOW 81</span>
+      <img src="screenshots/windows-v3/81-role-editor.png" alt="role editor" loading="lazy" />
+      <strong>role editor</strong>
+      <small>81-role-editor.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/82-screen-map.png">
+      <span class="card-no">WINDOW 82</span>
+      <img src="screenshots/windows-v3/82-screen-map.png" alt="screen map" loading="lazy" />
+      <strong>screen map</strong>
+      <small>82-screen-map.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/83-session-expired.png">
+      <span class="card-no">WINDOW 83</span>
+      <img src="screenshots/windows-v3/83-session-expired.png" alt="session expired" loading="lazy" />
+      <strong>session expired</strong>
+      <small>83-session-expired.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/84-state-gallery.png">
+      <span class="card-no">WINDOW 84</span>
+      <img src="screenshots/windows-v3/84-state-gallery.png" alt="state gallery" loading="lazy" />
+      <strong>state gallery</strong>
+      <small>84-state-gallery.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/85-submit-confirm.png">
+      <span class="card-no">WINDOW 85</span>
+      <img src="screenshots/windows-v3/85-submit-confirm.png" alt="submit confirm" loading="lazy" />
+      <strong>submit confirm</strong>
+      <small>85-submit-confirm.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/86-token-export.png">
+      <span class="card-no">WINDOW 86</span>
+      <img src="screenshots/windows-v3/86-token-export.png" alt="token export" loading="lazy" />
+      <strong>token export</strong>
+      <small>86-token-export.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/87-user-detail.png">
+      <span class="card-no">WINDOW 87</span>
+      <img src="screenshots/windows-v3/87-user-detail.png" alt="user detail" loading="lazy" />
+      <strong>user detail</strong>
+      <small>87-user-detail.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/88-user-editor.png">
+      <span class="card-no">WINDOW 88</span>
+      <img src="screenshots/windows-v3/88-user-editor.png" alt="user editor" loading="lazy" />
+      <strong>user editor</strong>
+      <small>88-user-editor.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/89-workload-rule-edit.png">
+      <span class="card-no">WINDOW 89</span>
+      <img src="screenshots/windows-v3/89-workload-rule-edit.png" alt="workload rule edit" loading="lazy" />
+      <strong>workload rule edit</strong>
+      <small>89-workload-rule-edit.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/90-lead-associate.png">
+      <span class="card-no">WINDOW 90</span>
+      <img src="screenshots/windows-v3/90-lead-associate.png" alt="lead associate" loading="lazy" />
+      <strong>lead associate</strong>
+      <small>90-lead-associate.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/91-lead-change.png">
+      <span class="card-no">WINDOW 91</span>
+      <img src="screenshots/windows-v3/91-lead-change.png" alt="lead change" loading="lazy" />
+      <strong>lead change</strong>
+      <small>91-lead-change.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/92-lead-export.png">
+      <span class="card-no">WINDOW 92</span>
+      <img src="screenshots/windows-v3/92-lead-export.png" alt="lead export" loading="lazy" />
+      <strong>lead export</strong>
+      <small>92-lead-export.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/93-lead-follow.png">
+      <span class="card-no">WINDOW 93</span>
+      <img src="screenshots/windows-v3/93-lead-follow.png" alt="lead follow" loading="lazy" />
+      <strong>lead follow</strong>
+      <small>93-lead-follow.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/94-lead-ignore.png">
+      <span class="card-no">WINDOW 94</span>
+      <img src="screenshots/windows-v3/94-lead-ignore.png" alt="lead ignore" loading="lazy" />
+      <strong>lead ignore</strong>
+      <small>94-lead-ignore.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/95-lead-source-log.png">
+      <span class="card-no">WINDOW 95</span>
+      <img src="screenshots/windows-v3/95-lead-source-log.png" alt="lead source log" loading="lazy" />
+      <strong>lead source log</strong>
+      <small>95-lead-source-log.png</small>
+    </button><button class="card" type="button" data-image="screenshots/windows-v3/96-lead-source-run.png">
+      <span class="card-no">WINDOW 96</span>
+      <img src="screenshots/windows-v3/96-lead-source-run.png" alt="lead source run" loading="lazy" />
+      <strong>lead source run</strong>
+      <small>96-lead-source-run.png</small>
+    </button></section>
+    </main>
+    <div id="viewer" class="viewer hidden"><button type="button" aria-label="关闭">×</button><img src="screenshots/01-overview.png" alt="原型大图" /></div>
+    <script>
+      document.querySelectorAll(".tabs button").forEach((button) => button.addEventListener("click", () => {
+        document.querySelectorAll(".tabs button").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("main > section").forEach((section) => section.classList.toggle("hidden", section.id !== button.dataset.target));
+      }));
+      const viewer = document.querySelector("#viewer");
+      const viewerImage = viewer.querySelector("img");
+      document.querySelectorAll(".card").forEach((card) => card.addEventListener("click", () => {
+        viewerImage.src = card.dataset.image;
+        viewer.classList.remove("hidden");
+      }));
+      viewer.addEventListener("click", () => viewer.classList.add("hidden"));
+      document.addEventListener("keydown", (event) => { if (event.key === "Escape") viewer.classList.add("hidden"); });
+    </script>
+  </body>
+</html>

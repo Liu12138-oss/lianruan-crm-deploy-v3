@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  保存渠道成员,
   下载报价PDF,
   type 交付工作量规则项,
   保存交付工作量规则,
@@ -13,6 +14,7 @@ import {
   创建报价,
   创建报备,
   创建订单,
+  调整订单价格,
   type 工作量映射项,
   type 开放接口客户端,
   type 开放接口密钥结果,
@@ -20,10 +22,16 @@ import {
   type 开放接口日志,
   type 报价试算结果,
   更新商机,
+  更新报备资料,
   更新开放接口客户端,
   更新报价状态,
   更新报备状态,
   更新订单状态,
+  更新渠道成员状态,
+  申请订单修订,
+  确认订单一级,
+  驳回订单一级,
+  重新提交订单,
   查询交付工作量规则,
   查询工作量映射,
   查询开放接口客户端,
@@ -38,6 +46,16 @@ import {
   type 阶段9模块,
   type 阶段9记录,
 } from "../api/business-client.js";
+import { 判断平台角色 } from "../shared/permission/role.js";
+import {
+  查找商机阶段,
+  映射商机阶段,
+  商机七阶段,
+  商机阶段进度,
+  商机阶段文案,
+  商机终止状态,
+  type 商机阶段键,
+} from "../shared/stages/opportunity-stage.js";
 import { useSessionStore } from "../stores/session.js";
 
 type 页面动作 = "overview" | "list" | "create" | "import" | "platform";
@@ -46,6 +64,34 @@ type 产品目录标签 = "products" | "packages";
 type 商机视图 = "list" | "kanban";
 type 报价模式 = "package" | "supplement" | "custom";
 type 审核标签 = "registration" | "partner" | "staff";
+type 订单动作 =
+  | ""
+  | "primary_confirm"
+  | "primary_reject"
+  | "region_confirm"
+  | "price_adjust"
+  | "superadmin_confirm"
+  | "return_region"
+  | "return_primary"
+  | "return_secondary"
+  | "resubmit"
+  | "revision"
+  | "shipped"
+  | "completed"
+  | "cancelled";
+
+interface 渠道成员记录 {
+  id: string;
+  userId: string;
+  username: string;
+  name: string;
+  role: string;
+  accountRole: string;
+  phone: string;
+  email: string;
+  status: string;
+  certifications: unknown[];
+}
 
 interface 列定义 {
   标题: string;
@@ -123,6 +169,33 @@ const 工作量映射列表 = ref<工作量映射项[]>([]);
 const 工作量规则列表 = ref<交付工作量规则项[]>([]);
 const 工作量规则弹窗 = ref(false);
 const 工作量规则编辑编号 = ref("");
+const 客户编辑弹窗 = ref(false);
+const 客户跟进弹窗 = ref(false);
+const 商机跟进弹窗 = ref(false);
+const 订单动作弹窗 = ref(false);
+const 订单动作 = ref<订单动作>("");
+const 订单动作原因 = ref("");
+const 订单调价金额 = ref<number | null>(null);
+const 重提订单明细 = ref<
+  Array<{
+    itemName: string;
+    quantity: number;
+    unitPrice: number;
+    productRefId?: string;
+    productRefType?: string;
+  }>
+>([]);
+const 渠道成员弹窗 = ref(false);
+const 渠道成员编辑中 = ref(false);
+const 渠道成员列表 = ref<渠道成员记录[]>([]);
+const 产品价格弹窗 = ref(false);
+const 产品价格标签 = ref("tiers");
+const 产品价格标签列表 = [
+  ["tiers", "阶梯价格"],
+  ["regions", "区域覆盖"],
+  ["channel", "渠道比例"],
+  ["cost", "内部成本"],
+] as const;
 
 const 筛选 = reactive({
   keyword: "",
@@ -187,6 +260,36 @@ const 工作量规则表单 = reactive({
   comboPersonDays: null as number | null,
   remark: "",
   active: true,
+});
+
+const 客户编辑表单 = reactive({
+  customer: "",
+  creditCode: "",
+  industry: "",
+  city: "",
+  address: "",
+  contact: "",
+  phone: "",
+  email: "",
+  legalPerson: "",
+  notes: "",
+});
+
+const 跟进表单 = reactive({
+  类型: "电话",
+  内容: "",
+  下一步: "",
+  下次跟进: "",
+});
+
+const 渠道成员表单 = reactive({
+  id: "",
+  username: "",
+  name: "",
+  phone: "",
+  email: "",
+  partnerRole: "销售",
+  status: "active",
 });
 
 const 开放接口资源选项 = [
@@ -271,6 +374,18 @@ const 是工作量配置页 = computed(() => 当前业务模块.value === "workl
 const 可新建 = computed(() =>
   ["registrations", "opportunities", "quotes"].includes(当前业务模块.value || ""),
 );
+const 平台角色 = computed(() => 判断平台角色(会话.user));
+const 是超级管理员 = computed(() => 平台角色.value === "superadmin");
+const 是区域管理员 = computed(() => 平台角色.value === "region_manager");
+const 是渠道用户 = computed(() => 平台角色.value === "partner");
+const 可编辑客户 = computed(() =>
+  ["superadmin", "region_manager", "partner"].includes(平台角色.value),
+);
+const 可维护渠道成员 = computed(() => 是超级管理员.value || 是区域管理员.value);
+const 当前详情标题 = computed(() => (详情.value ? 主标题(详情.value) : "当前记录"));
+const 当前详情金额 = computed(() =>
+  详情.value ? 数字字段(详情.value, "金额", "amount", "total") : 0,
+);
 const 新建按钮文案 = computed(() => {
   const 映射: Record<string, string> = {
     registrations: "新建报备",
@@ -285,18 +400,7 @@ const 管理业务标签列表: Array<{ 名称: string; 模块: 阶段9模块 }>
   { 名称: "报价", 模块: "quotes" },
   { 名称: "订单", 模块: "orders" },
 ];
-const 商机阶段列表 = [
-  { 键: "contacted", 名称: "1% 已联系上客户", 背景: "#e6f4ff", 点色: "#1677ff" },
-  { 键: "registered", 名称: "10% 商机明确并报备", 背景: "#fff7e6", 点色: "#faad14" },
-  { 键: "quoted", 名称: "20% 正式报价", 背景: "#fff0f6", 点色: "#eb2f96" },
-  { 键: "budget", 名称: "30% 明确预算", 背景: "#f9f0ff", 点色: "#722ed1" },
-  { 键: "design", 名称: "40% 技术交流/方案设计", 背景: "#f6ffed", 点色: "#52c41a" },
-  { 键: "testing", 名称: "50% 产品测试", 背景: "#fff1f0", 点色: "#cf1322" },
-  { 键: "negotiation", 名称: "70% 招投标/商务谈判", 背景: "#f0faff", 点色: "#0891b2" },
-  { 键: "won", 名称: "100% 赢单", 背景: "#f6ffed", 点色: "#389e0d" },
-  { 键: "cancelled", 名称: "项目取消", 背景: "#f5f5f5", 点色: "#8c8c8c" },
-  { 键: "lost", 名称: "输单", 背景: "#fff1f0", 点色: "#cf1322" },
-];
+const 商机阶段列表 = [...商机七阶段, ...商机终止状态];
 const 移动欢迎卡类 = computed(() =>
   是移动管理端.value ? "welcome-card--admin" : "welcome-card--partner",
 );
@@ -416,16 +520,11 @@ const 产品分类列表 = computed<产品目录分类[]>(() => {
 });
 const 商机漏斗 = computed(() => {
   const 数据 = (概览.value?.最近业务 || []).filter((item) => item.类型.includes("商机"));
-  const 阶段 = [
-    { 键: "registered", 名称: "已报备", 颜色: "#1890ff" },
-    { 键: "quoted", 名称: "已报价", 颜色: "#4096ff" },
-    { 键: "testing", 名称: "产品测试", 颜色: "#faad14" },
-    { 键: "closing", 名称: "签约中", 颜色: "#52c41a" },
-  ];
-  return 阶段.map((item) => ({
+  return 商机七阶段.map((item) => ({
     ...item,
-    数量: 数据.filter((row) => `${row.状态} ${row.状态名称}`.toLowerCase().includes(item.键))
-      .length,
+    名称: item.名称.replace(/（.*?）/, ""),
+    颜色: item.点色,
+    数量: 数据.filter((row) => 商机阶段键(row) === item.键).length,
   }));
 });
 const 状态选项列表 = computed<状态选项[]>(() => {
@@ -738,6 +837,7 @@ async function 加载页面() {
         page: 筛选.page,
         pageSize: 是移动.value ? 10 : 20,
       });
+      同步详情引用();
     }
     if (当前页面动作.value === "create") await 加载表单候选();
   } catch (error) {
@@ -745,6 +845,14 @@ async function 加载页面() {
   } finally {
     加载中.value = false;
   }
+}
+
+function 同步详情引用() {
+  if (!详情.value) return;
+  const 最新 = 列表结果.value.数据.find(
+    (row) => row.id === 详情.value?.id || row.编号 === (详情.value?.编号 || 详情.value?.id),
+  );
+  if (最新) 详情.value = 最新;
 }
 
 async function 加载表单候选() {
@@ -770,6 +878,15 @@ async function 加载表单候选() {
       表单.phone = 字段(命中报备, "phone", "联系电话");
       表单.industry = 字段(命中报备, "industry", "行业");
       表单.opportunityName = `${命中报备.客户名称}商机`;
+    }
+  }
+  const 商机编号 = String(路由.query.opportunityId || 路由.query.oppId || "");
+  if (模块.value === "quotes" && 商机编号 && !表单.opportunityId) {
+    const 命中商机 = 商机.数据.find((item) => item.id === 商机编号 || item.编号 === 商机编号);
+    if (命中商机) {
+      表单.opportunityId = 命中商机.id;
+      表单.customer = 命中商机.客户名称;
+      表单.endpoints = 数字字段(命中商机, "endpoints", "端点数") || 表单.endpoints;
     }
   }
 }
@@ -1194,7 +1311,7 @@ async function 驳回报备(row: 阶段9记录) {
 
 async function 跟进商机(row: 阶段9记录) {
   await 更新商机(row.id, {
-    stage: "contacted",
+    stage: 字段(row, "stage", "阶段", "状态") || "registered",
     followup: "页面记录跟进",
     changeReason: "页面记录跟进",
   });
@@ -1202,17 +1319,17 @@ async function 跟进商机(row: 阶段9记录) {
   await 加载页面();
 }
 
-async function 推进商机阶段(row: 阶段9记录, stage: (typeof 商机阶段列表)[number]) {
+async function 推进商机阶段(row: 阶段9记录, stage: (typeof 商机七阶段)[number]) {
   if (stage.键 === 商机阶段键(row)) return;
   await 更新商机(row.id, {
-    stage: stage.键,
+    stage: stage.提交阶段,
     followup: `阶段推进：${stage.名称}`,
     changeReason: `页面推进到${stage.名称}`,
   });
   ElMessage.success("商机阶段已更新。");
   await 加载页面();
   if (详情.value?.id === row.id)
-    详情.value = { ...详情.value, 状态: stage.键, 状态名称: stage.名称 };
+    详情.value = { ...详情.value, 状态: stage.提交阶段, 状态名称: stage.提交阶段 };
 }
 
 async function 修改报价(row: 阶段9记录) {
@@ -1253,6 +1370,18 @@ async function 确认报价(row: 阶段9记录) {
   await 加载页面();
 }
 
+async function 发送报价(row: 阶段9记录) {
+  await 更新报价状态(row.id, { status: "submitted" });
+  ElMessage.success("报价已提交，可继续确认或转订单。");
+  await 加载页面();
+}
+
+async function 撤回报价(row: 阶段9记录) {
+  await 更新报价状态(row.id, { status: "draft" });
+  ElMessage.success("报价已撤回为草稿。");
+  await 加载页面();
+}
+
 async function 转订单(row: 阶段9记录) {
   await 创建订单({ quoteId: row.id });
   ElMessage.success("报价已转订单。");
@@ -1277,6 +1406,406 @@ function 打开详情(row: 阶段9记录) {
 
 function 关闭详情() {
   详情.value = null;
+}
+
+function 打开客户编辑(row: 阶段9记录) {
+  if (!可编辑客户.value) return;
+  详情.value = row;
+  客户编辑表单.customer = 字段(row, "客户名称", "customerName", "customer") || 主标题(row);
+  客户编辑表单.creditCode = 字段(row, "creditCode", "统一社会信用代码");
+  客户编辑表单.industry = 字段(row, "industry", "行业");
+  客户编辑表单.city = 字段(row, "city", "城市");
+  客户编辑表单.address = 字段(row, "address", "注册地址");
+  客户编辑表单.contact = 字段(row, "联系人", "contact", "contactName");
+  客户编辑表单.phone = 字段(row, "联系电话", "phone", "contactPhone");
+  客户编辑表单.email = 字段(row, "email", "邮箱");
+  客户编辑表单.legalPerson = 字段(row, "legalPerson", "法定代表人");
+  客户编辑表单.notes = 字段(row, "notes", "备注");
+  客户编辑弹窗.value = true;
+}
+
+function 打开客户跟进(row: 阶段9记录) {
+  详情.value = row;
+  跟进表单.类型 = "电话";
+  跟进表单.内容 = "";
+  跟进表单.下一步 = "";
+  跟进表单.下次跟进 = "";
+  客户跟进弹窗.value = true;
+}
+
+async function 保存客户资料() {
+  if (!详情.value || 提交中.value) return;
+  提交中.value = true;
+  try {
+    await 更新报备资料(详情.value.id, {
+      customer: 客户编辑表单.customer,
+      creditCode: 客户编辑表单.creditCode,
+      industry: 客户编辑表单.industry,
+      city: 客户编辑表单.city,
+      address: 客户编辑表单.address,
+      contact: 客户编辑表单.contact,
+      phone: 客户编辑表单.phone,
+      email: 客户编辑表单.email,
+      legalPerson: 客户编辑表单.legalPerson,
+      notes: 客户编辑表单.notes,
+      changeReason: "UI 重构客户档案维护",
+    });
+    ElMessage.success("客户资料已保存。");
+    客户编辑弹窗.value = false;
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "客户资料保存失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+async function 保存客户跟进() {
+  if (!详情.value || 提交中.value) return;
+  if (!跟进表单.内容.trim()) {
+    ElMessage.warning("请填写跟进内容。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    const 关联商机 = 字段(详情.value, "opportunityId", "oppId", "商机编号");
+    const 跟进内容 = [
+      `跟进方式：${跟进表单.类型}`,
+      跟进表单.内容.trim(),
+      跟进表单.下一步 ? `下一步：${跟进表单.下一步}` : "",
+      跟进表单.下次跟进 ? `下次跟进：${跟进表单.下次跟进}` : "",
+    ]
+      .filter(Boolean)
+      .join("；");
+    if (关联商机) {
+      await 更新商机(关联商机, {
+        stage: 字段(详情.value, "stage", "阶段", "状态") || "registered",
+        followup: 跟进内容,
+        changeReason: "从客户档案记录跟进",
+      });
+      ElMessage.success("客户跟进已同步到关联商机。");
+    } else {
+      详情.value = {
+        ...详情.value,
+        原始数据: {
+          ...详情.value.原始数据,
+          followups: [
+            ...((详情.value.原始数据.followups as unknown[]) || []),
+            {
+              content: 跟进内容,
+              actorName: 会话.用户名,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+      };
+      ElMessage.info("客户暂无关联商机，本次跟进已保留在当前页面。");
+    }
+    客户跟进弹窗.value = false;
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "跟进保存失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+function 打开商机跟进(row: 阶段9记录) {
+  详情.value = row;
+  跟进表单.类型 = "电话";
+  跟进表单.内容 = "";
+  跟进表单.下一步 = "";
+  跟进表单.下次跟进 = "";
+  商机跟进弹窗.value = true;
+}
+
+async function 保存商机跟进() {
+  if (!详情.value || 提交中.value) return;
+  if (!跟进表单.内容.trim()) {
+    ElMessage.warning("请填写跟进内容。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    const 跟进内容 = [
+      `跟进方式：${跟进表单.类型}`,
+      跟进表单.内容.trim(),
+      跟进表单.下一步 ? `下一步：${跟进表单.下一步}` : "",
+      跟进表单.下次跟进 ? `下次跟进：${跟进表单.下次跟进}` : "",
+    ]
+      .filter(Boolean)
+      .join("；");
+    await 更新商机(详情.value.id, {
+      stage: 字段(详情.value, "stage", "阶段", "状态") || "registered",
+      followup: 跟进内容,
+      changeReason: "UI 重构记录商机跟进",
+    });
+    ElMessage.success("商机跟进已记录。");
+    商机跟进弹窗.value = false;
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "商机跟进保存失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+function 订单状态文本(row: 阶段9记录) {
+  return 字段(row, "status", "状态") || row.状态 || "";
+}
+
+function 可用订单动作(row: 阶段9记录): 订单动作[] {
+  const status = 订单状态文本(row);
+  const actions: 订单动作[] = [];
+  if (status === "pending_primary_confirm") {
+    actions.push("primary_confirm", "primary_reject");
+  }
+  if (status === "primary_confirmed" && 是区域管理员.value) {
+    actions.push("region_confirm", "price_adjust");
+  }
+  if (status === "pending_superadmin_confirm" && 是超级管理员.value) {
+    actions.push("superadmin_confirm", "return_region", "return_primary", "return_secondary");
+  }
+  if (["returned_to_region", "returned_to_primary", "returned_to_secondary"].includes(status)) {
+    actions.push("resubmit");
+  }
+  if (status === "confirmed" || status === "processing") actions.push("shipped");
+  if (status === "shipped") actions.push("completed");
+  if (!["cancelled", "completed", "replaced"].includes(status)) actions.push("revision");
+  return actions;
+}
+
+function 订单动作名称(action: 订单动作) {
+  const 映射: Record<订单动作, string> = {
+    "": "",
+    primary_confirm: "一级确认",
+    primary_reject: "一级驳回",
+    region_confirm: "区管确认",
+    price_adjust: "区管调价",
+    superadmin_confirm: "超管确认",
+    return_region: "退回区管",
+    return_primary: "退回一级渠道商",
+    return_secondary: "退回二级渠道商",
+    resubmit: "重新提交",
+    revision: "申请回退修订",
+    shipped: "确认发货",
+    completed: "完成订单",
+    cancelled: "取消订单",
+  };
+  return 映射[action] || action;
+}
+
+function 打开订单动作(row: 阶段9记录, action: 订单动作) {
+  详情.value = row;
+  订单动作.value = action;
+  订单动作原因.value = "";
+  订单调价金额.value = Number(字段(row, "金额", "amount", "total")) || null;
+  const 明细 = row.原始数据.items;
+  重提订单明细.value = Array.isArray(明细)
+    ? 明细.map((item) => {
+        const record = item as Record<string, unknown>;
+        return {
+          itemName: 读取记录文本(record, ["itemName", "name"], "订单模块"),
+          quantity: Number(record.quantity || 1),
+          unitPrice: Number(record.unitPrice || 0),
+          productRefId: 读取记录文本(record, ["productRefId"], ""),
+          productRefType: 读取记录文本(record, ["productRefType"], ""),
+        };
+      })
+    : [];
+  订单动作弹窗.value = true;
+}
+
+const 订单动作需要原因 = computed(() =>
+  [
+    "primary_reject",
+    "region_confirm",
+    "price_adjust",
+    "superadmin_confirm",
+    "return_region",
+    "return_primary",
+    "return_secondary",
+    "resubmit",
+    "revision",
+    "cancelled",
+  ].includes(订单动作.value),
+);
+
+async function 提交订单动作() {
+  if (!详情.value || !订单动作.value || 提交中.value) return;
+  if (订单动作需要原因.value && !订单动作原因.value.trim()) {
+    ElMessage.warning("请填写处理原因。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    const id = 详情.value.id;
+    const reason = 订单动作原因.value.trim();
+    if (订单动作.value === "primary_confirm")
+      await 确认订单一级(id, reason || "一级渠道商确认订单");
+    if (订单动作.value === "primary_reject") await 驳回订单一级(id, reason);
+    if (订单动作.value === "region_confirm") {
+      await 更新订单状态(id, { status: "pending_superadmin_confirm", reason });
+    }
+    if (订单动作.value === "price_adjust") {
+      if (!订单调价金额.value || 订单调价金额.value <= 0) throw new Error("请输入有效调价金额。");
+      await 调整订单价格(id, 订单调价金额.value, reason);
+    }
+    if (订单动作.value === "superadmin_confirm") {
+      await 更新订单状态(id, { status: "confirmed", reason });
+    }
+    if (["return_region", "return_primary", "return_secondary"].includes(订单动作.value)) {
+      await 更新订单状态(id, {
+        status: 订单动作.value.replace("return_", "returned_to_"),
+        reason,
+        returnTarget: 订单动作.value.replace("return_", ""),
+      });
+    }
+    if (订单动作.value === "resubmit") {
+      const amount = 重提订单明细.value.reduce(
+        (sum, item) => sum + Number(item.quantity) * Number(item.unitPrice),
+        0,
+      );
+      await 重新提交订单(id, { reason, amount, items: 重提订单明细.value });
+    }
+    if (订单动作.value === "revision") {
+      await 申请订单修订(id, reason, {
+        orderStatus: 订单状态文本(详情.value),
+        amount: Number(字段(详情.value, "金额", "amount", "total")) || 0,
+      });
+    }
+    if (订单动作.value === "shipped") await 更新订单状态(id, { status: "shipped", reason });
+    if (订单动作.value === "completed") await 更新订单状态(id, { status: "completed", reason });
+    if (订单动作.value === "cancelled") await 更新订单状态(id, { status: "cancelled", reason });
+    ElMessage.success(`${订单动作名称(订单动作.value)}已完成。`);
+    订单动作弹窗.value = false;
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "订单动作执行失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+function 打开渠道成员(row: 阶段9记录) {
+  详情.value = row;
+  const staff = row.原始数据.staff;
+  渠道成员列表.value = Array.isArray(staff)
+    ? staff.map((item) => {
+        const record = item as Record<string, unknown>;
+        return {
+          id: 读取记录文本(record, ["id", "userId", "username"], ""),
+          userId: 读取记录文本(record, ["userId", "id"], ""),
+          username: 读取记录文本(record, ["username", "userId", "id"], ""),
+          name: 读取记录文本(record, ["name"], "未命名成员"),
+          role: 读取记录文本(record, ["staffRole", "role"], "销售"),
+          accountRole: 读取记录文本(record, ["accountRole"], "staff"),
+          phone: 读取记录文本(record, ["phone"], ""),
+          email: 读取记录文本(record, ["email"], ""),
+          status: 读取记录文本(record, ["status"], "active"),
+          certifications: Array.isArray(record.certifications) ? record.certifications : [],
+        };
+      })
+    : [];
+  渠道成员弹窗.value = true;
+}
+
+function 编辑渠道成员(member?: 渠道成员记录) {
+  渠道成员编辑中.value = Boolean(member);
+  渠道成员表单.id = member?.id || "";
+  渠道成员表单.username = member?.username || "";
+  渠道成员表单.name = member?.name || "";
+  渠道成员表单.phone = member?.phone || "";
+  渠道成员表单.email = member?.email || "";
+  渠道成员表单.partnerRole = member?.role || "销售";
+  渠道成员表单.status = member?.status || "active";
+}
+
+async function 保存当前渠道成员() {
+  if (!详情.value || 提交中.value) return;
+  if (!渠道成员表单.username || !渠道成员表单.name) {
+    ElMessage.warning("请填写登录账号和成员姓名。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    await 保存渠道成员(
+      详情.value.id,
+      {
+        username: 渠道成员表单.username,
+        name: 渠道成员表单.name,
+        phone: 渠道成员表单.phone,
+        email: 渠道成员表单.email,
+        staffRole: 渠道成员表单.partnerRole,
+        status: 渠道成员表单.status,
+        partnerId: 详情.value.id,
+      },
+      渠道成员表单.id,
+    );
+    ElMessage.success("渠道成员已保存。");
+    编辑渠道成员();
+    await 加载页面();
+    if (详情.value) 打开渠道成员(详情.value);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "渠道成员保存失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+async function 切换渠道成员状态(member: 渠道成员记录) {
+  if (!详情.value || 提交中.value) return;
+  const next = member.status === "active" ? "disabled" : "active";
+  提交中.value = true;
+  try {
+    await 更新渠道成员状态(详情.value.id, member.id, next);
+    ElMessage.success(next === "active" ? "成员已启用。" : "成员已停用。");
+    await 加载页面();
+    if (详情.value) 打开渠道成员(详情.value);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "成员状态更新失败。");
+  } finally {
+    提交中.value = false;
+  }
+}
+
+function 打开产品价格(row: 阶段9记录) {
+  详情.value = row;
+  产品价格标签.value = "tiers";
+  产品价格弹窗.value = true;
+}
+
+function 产品价格阶梯(row: 阶段9记录 | null) {
+  if (!row) return [];
+  const raw = (row.原始数据.tiers || row.原始数据.priceTiers || []) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    const record = item as Record<string, unknown>;
+    return {
+      id: `${row.id}-${index}`,
+      起购量: 读取记录文本(record, ["min", "minQuantity"], "1"),
+      最高量: 读取记录文本(record, ["max", "maxQuantity"], "不限"),
+      单价: 读取记录文本(record, ["price", "unitPrice"], "0"),
+    };
+  });
+}
+
+function 产品区域价格(row: 阶段9记录 | null) {
+  if (!row) return [];
+  const raw = (row.原始数据.regionPriceOverrides || row.原始数据.regionPrices || []) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    const record = item as Record<string, unknown>;
+    return {
+      id: `${row.id}-region-${index}`,
+      区域: 读取记录文本(record, ["region", "regionName"], "未命名区域"),
+      阶梯数: Array.isArray(record.tiers) ? String(record.tiers.length) : "0",
+      启用: record.enabled === false ? "否" : "是",
+    };
+  });
+}
+
+function 跟进记录文本(item: unknown, key: "actorName" | "createdAt" | "content", fallback: string) {
+  return 读取记录文本((item || {}) as Record<string, unknown>, [key], fallback);
 }
 
 function 打开占位动作(名称: string) {
@@ -1321,36 +1850,30 @@ function 移动列表底部(row: 阶段9记录) {
   return 字段(row, "负责人", "assignedStaffName", "ownerName") || "处理";
 }
 
-function 商机阶段键(row: 阶段9记录) {
-  const stage = 字段(row, "stage", "阶段", "状态").toLowerCase();
-  const status = `${stage} ${row.状态 || ""} ${状态名称(row)}`.toLowerCase();
-  if (/won|赢单|100/.test(status)) return "won";
-  if (/lost|输单/.test(status)) return "lost";
-  if (/cancel|取消/.test(status)) return "cancelled";
-  if (/negotiation|closing|商务|签约|70/.test(status)) return "negotiation";
-  if (/testing|测试|50/.test(status)) return "testing";
-  if (/design|方案|技术交流|40/.test(status)) return "design";
-  if (/budget|预算|30/.test(status)) return "budget";
-  if (/quoted|报价|20/.test(status)) return "quoted";
-  if (/registered|报备|10/.test(status)) return "registered";
-  return "contacted";
+function 商机阶段键(row: 阶段9记录): 商机阶段键 {
+  return 映射商机阶段(
+    字段(row, "stage", "阶段", "状态"),
+    row.状态,
+    状态名称(row),
+    字段(row, "probability", "赢率", "概率"),
+  );
 }
 
 function 商机阶段名称(row: 阶段9记录) {
-  const stage = 商机阶段列表.find((item) => item.键 === 商机阶段键(row));
-  return stage?.名称 || 状态名称(row);
+  return 商机阶段文案(商机阶段键(row)) || 状态名称(row);
 }
 
 function 商机阶段点色(row: 阶段9记录) {
-  return 商机阶段列表.find((item) => item.键 === 商机阶段键(row))?.点色 || "#1677ff";
+  const key = 商机阶段键(row);
+  return 查找商机阶段(key)?.点色 || 商机终止状态.find((item) => item.键 === key)?.点色 || "#2f69ed";
 }
 
 function 商机阶段标签类(row: 阶段9记录) {
   const key = 商机阶段键(row);
-  if (["won", "design"].includes(key)) return "tag-green";
-  if (["lost", "cancelled", "testing"].includes(key)) return "tag-red";
-  if (["budget", "quoted"].includes(key)) return "tag-purple";
-  if (key === "registered") return "tag-orange";
+  if (["won", "customer_solution", "poc_trial"].includes(key)) return "tag-green";
+  if (["lost", "cancelled"].includes(key)) return "tag-red";
+  if (["demand_discovery", "project_approval"].includes(key)) return "tag-purple";
+  if (["customer_contact", "tender"].includes(key)) return "tag-orange";
   return "tag-blue";
 }
 
@@ -1381,18 +1904,21 @@ function 商机概率(row: 阶段9记录) {
   const direct = Number(字段(row, "probability", "赢率", "概率"));
   if (Number.isFinite(direct) && direct > 0) return direct;
   const 映射: Record<string, number> = {
-    contacted: 1,
-    registered: 10,
-    quoted: 20,
-    budget: 30,
-    design: 40,
-    testing: 50,
-    negotiation: 70,
+    customer_contact: 10,
+    demand_discovery: 25,
+    customer_solution: 40,
+    poc_trial: 50,
+    project_approval: 65,
+    tender: 85,
     won: 100,
     cancelled: 0,
     lost: 0,
   };
   return 映射[商机阶段键(row)] ?? 1;
+}
+
+function 商机概率文本(row: 阶段9记录) {
+  return 商机阶段进度(商机阶段键(row));
 }
 
 function 商机关联报备(row: 阶段9记录) {
@@ -1705,9 +2231,14 @@ function 是否套餐产品(row: 阶段9记录) {
   return /套餐|package/i.test(text);
 }
 
-function 产品报价路径() {
-  if (是移动.value) return "/mobile/partner/quotes/new";
-  return 是渠道端.value ? "/partner/quote/new" : "/admin/quote/new";
+function 产品报价路径(row?: 阶段9记录) {
+  const base = 是移动.value
+    ? "/mobile/partner/quotes/new"
+    : 是渠道端.value
+      ? "/partner/quote/new"
+      : "/admin/quote/new";
+  const opportunityId = row?.id || 字段(row, "opportunityId", "oppId", "商机编号");
+  return opportunityId ? `${base}?opportunityId=${encodeURIComponent(opportunityId)}` : base;
 }
 
 function 修改报价路径(row: 阶段9记录) {
@@ -1716,9 +2247,9 @@ function 修改报价路径(row: 阶段9记录) {
   return 是渠道端.value ? `/partner/quote/edit/${id}` : `/admin/quote/edit/${id}`;
 }
 
-function 字段(row: 阶段9记录, ...keys: string[]) {
-  const source = row as unknown as Record<string, unknown>;
-  const raw = row.原始数据 || {};
+function 字段(row: 阶段9记录 | null | undefined, ...keys: string[]) {
+  const source = (row || {}) as unknown as Record<string, unknown>;
+  const raw = row?.原始数据 || {};
   for (const key of keys) {
     const value = source[key] ?? raw[key];
     if (value !== undefined && value !== null && String(value).trim() !== "") return String(value);
@@ -2368,13 +2899,9 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
               <label class="form-item">
                 <span>当前阶段</span>
                 <select v-model="表单.stage" class="form-control">
-                  <option value="contacted">1% 已联系上客户</option>
-                  <option value="registered">10% 商机明确并报备</option>
-                  <option value="quoted">20% 正式报价</option>
-                  <option value="budget">30% 明确预算</option>
-                  <option value="design">40% 技术交流/方案设计</option>
-                  <option value="testing">50% 产品测试</option>
-                  <option value="negotiation">70% 招投标/商务谈判</option>
+                  <option v-for="stage in 商机七阶段" :key="stage.键" :value="stage.提交阶段">
+                    {{ stage.名称 }}
+                  </option>
                 </select>
               </label>
               <label class="form-item">
@@ -3499,6 +4026,13 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
           <option value="kanban">📌 看板视图</option>
         </select>
         <button class="btn btn-primary" type="button" @click="查询">查询</button>
+        <RouterLink
+          v-if="当前业务模块 === 'products' && !是移动"
+          class="btn btn-default"
+          to="/admin/products/pricing"
+        >
+          价格规则
+        </RouterLink>
         <RouterLink v-if="可新建 && !是移动" class="btn btn-primary" :to="新建路径()"
           >➕ {{ 新建按钮文案 }}</RouterLink
         >
@@ -3751,6 +4285,35 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
                     <button class="btn btn-text btn-sm" type="button" @click="打开详情(row)">
                       详情
                     </button>
+                    <RouterLink
+                      v-if="当前业务模块 === 'registrations'"
+                      class="btn btn-text btn-sm"
+                      :to="`${是渠道端 ? '/partner' : '/admin'}/registration/${encodeURIComponent(row.id)}/followup`"
+                    >
+                      跟进与档案
+                    </RouterLink>
+                    <button
+                      v-if="当前业务模块 === 'registrations' && 可编辑客户"
+                      class="btn btn-text btn-sm"
+                      type="button"
+                      @click="打开客户编辑(row)"
+                    >
+                      编辑资料
+                    </button>
+                    <RouterLink
+                      v-if="当前业务模块 === 'partners'"
+                      class="btn btn-text btn-sm"
+                      :to="`/admin/partners/${encodeURIComponent(row.id)}/profile`"
+                    >
+                      核心档案
+                    </RouterLink>
+                    <RouterLink
+                      v-if="当前业务模块 === 'partners' && 可维护渠道成员"
+                      class="btn btn-text btn-sm"
+                      :to="`/admin/partners/${encodeURIComponent(row.id)}/members`"
+                    >
+                      成员维护
+                    </RouterLink>
                     <button
                       v-if="当前业务模块 === 'registrations' && row.状态 === 'pending'"
                       class="btn btn-text btn-sm"
@@ -3778,12 +4341,28 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
                       v-if="当前业务模块 === 'opportunities'"
                       class="btn btn-text btn-sm"
                       type="button"
-                      @click="跟进商机(row)"
+                      @click="打开商机跟进(row)"
                     >
                       跟进
                     </button>
                     <button
                       v-if="当前业务模块 === 'quotes' && row.状态 === 'draft'"
+                      class="btn btn-text btn-sm"
+                      type="button"
+                      @click="发送报价(row)"
+                    >
+                      发送
+                    </button>
+                    <button
+                      v-if="当前业务模块 === 'quotes' && row.状态 === 'submitted'"
+                      class="btn btn-text btn-sm"
+                      type="button"
+                      @click="撤回报价(row)"
+                    >
+                      撤回
+                    </button>
+                    <button
+                      v-if="当前业务模块 === 'quotes' && ['draft', 'submitted'].includes(row.状态)"
                       class="btn btn-text btn-sm"
                       type="button"
                       @click="确认报价(row)"
@@ -3799,23 +4378,37 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
                       转订单
                     </button>
                     <button
-                      v-if="
-                        当前业务模块 === 'orders' &&
-                        ['primary_confirmed', 'pending_superadmin_confirm'].includes(row.状态)
-                      "
+                      v-for="action in 当前业务模块 === 'orders'
+                        ? 可用订单动作(row).slice(0, 2)
+                        : []"
+                      :key="`${row.id}-${action}`"
                       class="btn btn-text btn-sm"
                       type="button"
-                      @click="确认订单(row)"
+                      @click="打开订单动作(row, action)"
                     >
-                      {{ row.状态 === "pending_superadmin_confirm" ? "超管确认" : "区管确认" }}
+                      {{ 订单动作名称(action) }}
                     </button>
+                    <RouterLink
+                      v-if="当前业务模块 === 'orders'"
+                      class="btn btn-text btn-sm"
+                      :to="`${是渠道端 ? '/partner' : '/admin'}/order/${encodeURIComponent(row.id)}/actions`"
+                    >
+                      全部动作
+                    </RouterLink>
+                    <RouterLink
+                      v-if="模块 === 'products'"
+                      class="btn btn-text btn-sm"
+                      :to="`/admin/products/pricing?productId=${encodeURIComponent(row.id)}`"
+                    >
+                      价格规则
+                    </RouterLink>
                     <button
                       v-if="当前业务模块 === 'partners'"
                       class="btn btn-text btn-sm"
                       type="button"
-                      @click="打开占位动作('编辑渠道商')"
+                      @click="打开详情(row)"
                     >
-                      编辑
+                      查看详情
                     </button>
                     <button
                       v-if="当前业务模块 === 'partners'"
@@ -3958,6 +4551,9 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
         </div>
         <footer class="modal-footer">
           <button class="btn btn-default" type="button" @click="关闭产品功能">关闭</button>
+          <button class="btn btn-default" type="button" @click="打开产品价格(产品功能详情)">
+            价格规则
+          </button>
           <RouterLink class="btn btn-primary" :to="产品报价路径()" @click="关闭产品功能">
             制作报价单 →
           </RouterLink>
@@ -4127,7 +4723,7 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
           <section class="v2-opportunity-main">
             <div class="v2-stage-flow">
               <button
-                v-for="stage in 商机阶段列表"
+                v-for="stage in 商机七阶段"
                 :key="stage.键"
                 type="button"
                 :class="{ active: stage.键 === 商机阶段键(详情) }"
@@ -4142,7 +4738,7 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
               <button class="btn btn-primary" type="button" @click="跟进商机(详情)">
                 + 记录跟进
               </button>
-              <RouterLink class="btn btn-default" :to="产品报价路径()" @click="关闭详情">
+              <RouterLink class="btn btn-default" :to="产品报价路径(详情)" @click="关闭详情">
                 📄 创建报价单
               </RouterLink>
               <button class="btn btn-default" type="button" @click="商机赢单转订单(详情)">
@@ -4178,7 +4774,7 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
             <section class="v2-opportunity-metrics">
               <div>
                 <span>赢率</span>
-                <strong>{{ 商机概率(详情) }}%</strong>
+                <strong>{{ 商机概率文本(详情) }}</strong>
               </div>
               <div>
                 <span>端点数</span>
@@ -4192,6 +4788,9 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
           </section>
         </div>
         <footer class="modal-footer">
+          <button class="btn btn-primary" type="button" @click="打开商机跟进(详情)">
+            + 记录跟进
+          </button>
           <button class="btn btn-default" type="button" @click="关闭详情">关闭</button>
         </footer>
       </section>
@@ -4288,9 +4887,653 @@ function 详情分组列表(row: 阶段9记录): 详情分组[] {
               </div>
             </div>
           </section>
+          <section v-if="当前业务模块 === 'registrations'" class="v2-详情分组">
+            <h3>客户档案与跟进</h3>
+            <div class="v2-detail-summary">
+              <div>
+                <span>统一社会信用代码</span>
+                <strong>{{ 字段(详情, "creditCode", "统一社会信用代码") || "待完善" }}</strong>
+              </div>
+              <div>
+                <span>法定代表人</span>
+                <strong>{{ 字段(详情, "legalPerson", "法定代表人") || "待完善" }}</strong>
+              </div>
+              <div>
+                <span>客户负责人</span>
+                <strong>{{ 联系方式(详情) }}</strong>
+              </div>
+              <div>
+                <span>关联商机</span>
+                <strong>{{
+                  字段(详情, "opportunityId", "oppId", "商机编号") || "尚未创建"
+                }}</strong>
+              </div>
+            </div>
+            <div class="timeline">
+              <div
+                v-for="(followup, index) in Array.isArray(详情.原始数据.followups)
+                  ? 详情.原始数据.followups
+                  : []"
+                :key="`followup-${index}`"
+                class="timeline-item"
+              >
+                <div class="timeline-dot-wrap"><div class="timeline-dot active"></div></div>
+                <div class="timeline-content">
+                  <div class="tl-title">
+                    {{ 跟进记录文本(followup, "actorName", 会话.用户名) }}
+                  </div>
+                  <div class="tl-time">
+                    {{ 格式时间(跟进记录文本(followup, "createdAt", 详情.更新时间)) }}
+                  </div>
+                  <div class="tl-desc">
+                    {{ 跟进记录文本(followup, "content", "客户跟进记录") }}
+                  </div>
+                </div>
+              </div>
+              <div
+                v-if="!(Array.isArray(详情.原始数据.followups) && 详情.原始数据.followups.length)"
+              >
+                <div class="empty-state compact">暂无跟进记录，可点击下方“记录跟进”。</div>
+              </div>
+            </div>
+          </section>
+          <section v-if="当前业务模块 === 'orders'" class="v2-详情分组">
+            <h3>当前可执行审批动作</h3>
+            <div class="v2-action-tile-grid">
+              <button
+                v-for="action in 可用订单动作(详情)"
+                :key="`order-action-${action}`"
+                type="button"
+                class="v2-action-tile"
+                :class="{
+                  danger: [
+                    'primary_reject',
+                    'return_region',
+                    'return_primary',
+                    'return_secondary',
+                    'cancelled',
+                  ].includes(action),
+                }"
+                @click="打开订单动作(详情, action)"
+              >
+                <strong>{{ 订单动作名称(action) }}</strong>
+                <small>{{
+                  action === "price_adjust" ? "调整金额并提交超管确认" : "按当前订单状态执行"
+                }}</small>
+              </button>
+            </div>
+          </section>
+          <section v-if="当前业务模块 === 'products'" class="v2-详情分组">
+            <h3>价格规则摘要</h3>
+            <div class="v2-detail-summary">
+              <div>
+                <span>阶梯价格</span>
+                <strong>{{
+                  产品价格阶梯(详情).length ? `${产品价格阶梯(详情).length} 条` : "待配置"
+                }}</strong>
+              </div>
+              <div>
+                <span>区域覆盖</span>
+                <strong>{{
+                  产品区域价格(详情).length ? `${产品区域价格(详情).length} 个区域` : "跟随全国默认"
+                }}</strong>
+              </div>
+              <div>
+                <span>一级渠道比例</span>
+                <strong>{{ 字段(详情, "priceRatioPrimary", "一级渠道比例") || "100%" }}</strong>
+              </div>
+              <div>
+                <span>二级渠道比例</span>
+                <strong>{{ 字段(详情, "priceRatioSecondary", "二级渠道比例") || "100%" }}</strong>
+              </div>
+            </div>
+          </section>
         </div>
         <footer class="modal-footer">
+          <button
+            v-if="当前业务模块 === 'registrations' && 可编辑客户"
+            class="btn btn-default"
+            type="button"
+            @click="打开客户编辑(详情)"
+          >
+            ✏️ 编辑资料
+          </button>
+          <button
+            v-if="当前业务模块 === 'registrations'"
+            class="btn btn-primary"
+            type="button"
+            @click="打开客户跟进(详情)"
+          >
+            + 记录跟进
+          </button>
+          <button
+            v-for="action in 当前业务模块 === 'orders' ? 可用订单动作(详情) : []"
+            :key="`detail-${action}`"
+            class="btn"
+            :class="
+              [
+                'primary_reject',
+                'return_region',
+                'return_primary',
+                'return_secondary',
+                'cancelled',
+              ].includes(action)
+                ? 'btn-danger'
+                : 'btn-primary'
+            "
+            type="button"
+            @click="打开订单动作(详情, action)"
+          >
+            {{ 订单动作名称(action) }}
+          </button>
+          <button
+            v-if="当前业务模块 === 'products'"
+            class="btn btn-default"
+            type="button"
+            @click="打开产品价格(详情)"
+          >
+            价格规则
+          </button>
           <button class="btn btn-default" type="button" @click="关闭详情">关闭</button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="客户编辑弹窗" class="modal-overlay" @click.self="客户编辑弹窗 = false">
+      <section class="modal modal-lg">
+        <header class="modal-header">
+          <div>
+            <h2 class="modal-title">编辑客户档案</h2>
+            <p class="v2-card-desc">客户基本资料与报备归属分离维护，保存后进入审计记录。</p>
+          </div>
+          <button class="modal-close" type="button" @click="客户编辑弹窗 = false">×</button>
+        </header>
+        <div class="modal-body">
+          <div class="form-grid">
+            <label class="form-item full">
+              <span>客户名称</span>
+              <input v-model="客户编辑表单.customer" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>统一社会信用代码</span>
+              <input v-model="客户编辑表单.creditCode" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>所属行业</span>
+              <input v-model="客户编辑表单.industry" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>法定代表人</span>
+              <input v-model="客户编辑表单.legalPerson" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>客户省份/城市</span>
+              <input v-model="客户编辑表单.city" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>联系人</span>
+              <input v-model="客户编辑表单.contact" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>联系电话</span>
+              <input v-model="客户编辑表单.phone" class="form-control" />
+            </label>
+            <label class="form-item">
+              <span>客户邮箱</span>
+              <input v-model="客户编辑表单.email" class="form-control" />
+            </label>
+            <label class="form-item full">
+              <span>注册地址</span>
+              <input v-model="客户编辑表单.address" class="form-control" />
+            </label>
+            <label class="form-item full">
+              <span>客户备注</span>
+              <textarea v-model="客户编辑表单.notes" class="form-control" rows="3"></textarea>
+            </label>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button class="btn btn-default" type="button" @click="客户编辑弹窗 = false">取消</button>
+          <button class="btn btn-primary" type="button" :disabled="提交中" @click="保存客户资料">
+            {{ 提交中 ? "保存中..." : "保存客户档案" }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div
+      v-if="客户跟进弹窗 || 商机跟进弹窗"
+      class="modal-overlay"
+      @click.self="
+        客户跟进弹窗 = false;
+        商机跟进弹窗 = false;
+      "
+    >
+      <section class="modal modal-lg">
+        <header class="modal-header">
+          <div>
+            <h2 class="modal-title">
+              {{ 商机跟进弹窗 ? "记录商机跟进" : "记录客户跟进" }} — {{ 当前详情标题 }}
+            </h2>
+            <p class="v2-card-desc">
+              {{
+                商机跟进弹窗
+                  ? "跟进记录会写入当前商机，并同步最近跟进时间。"
+                  : "存在关联商机时同步到商机；暂未关联时只保留在当前页面。"
+              }}
+            </p>
+          </div>
+          <button
+            class="modal-close"
+            type="button"
+            @click="
+              客户跟进弹窗 = false;
+              商机跟进弹窗 = false;
+            "
+          >
+            ×
+          </button>
+        </header>
+        <div class="modal-body">
+          <div class="form-grid">
+            <label class="form-item">
+              <span>跟进方式</span>
+              <select v-model="跟进表单.类型" class="form-control">
+                <option>电话</option>
+                <option>拜访</option>
+                <option>会议</option>
+                <option>邮件</option>
+                <option>微信</option>
+                <option>其他</option>
+              </select>
+            </label>
+            <label class="form-item">
+              <span>下次跟进</span>
+              <input v-model="跟进表单.下次跟进" class="form-control" type="date" />
+            </label>
+            <label class="form-item full">
+              <span>跟进内容</span>
+              <textarea
+                v-model="跟进表单.内容"
+                class="form-control"
+                rows="4"
+                placeholder="记录客户反馈、关键决策人、预算和技术要求"
+              ></textarea>
+            </label>
+            <label class="form-item full">
+              <span>下一步计划</span>
+              <textarea
+                v-model="跟进表单.下一步"
+                class="form-control"
+                rows="3"
+                placeholder="例如：准备方案评审材料，约定采购部门沟通时间"
+              ></textarea>
+            </label>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button
+            class="btn btn-default"
+            type="button"
+            @click="
+              客户跟进弹窗 = false;
+              商机跟进弹窗 = false;
+            "
+          >
+            取消
+          </button>
+          <button
+            class="btn btn-primary"
+            type="button"
+            :disabled="提交中"
+            @click="商机跟进弹窗 ? 保存商机跟进() : 保存客户跟进()"
+          >
+            {{ 提交中 ? "保存中..." : "保存跟进" }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="订单动作弹窗" class="modal-overlay" @click.self="订单动作弹窗 = false">
+      <section class="modal modal-lg">
+        <header class="modal-header">
+          <div>
+            <h2 class="modal-title">{{ 订单动作名称(订单动作) }} — {{ 详情?.编号 || 详情?.id }}</h2>
+            <p class="v2-card-desc">动作按当前订单状态展示，提交时由服务端再次校验角色与状态。</p>
+          </div>
+          <button class="modal-close" type="button" @click="订单动作弹窗 = false">×</button>
+        </header>
+        <div class="modal-body">
+          <div class="v2-detail-summary">
+            <div>
+              <span>订单状态</span><strong>{{ 详情 ? 状态名称(详情) : "-" }}</strong>
+            </div>
+            <div>
+              <span>客户</span><strong>{{ 详情 ? 报价客户名称(详情) : "-" }}</strong>
+            </div>
+            <div>
+              <span>订单金额</span><strong>{{ 格式金额(当前详情金额) }}</strong>
+            </div>
+            <div>
+              <span>关联报价</span
+              ><strong>{{
+                详情 ? 字段(详情, "quoteNo", "quoteId", "报价编号") || "-" : "-"
+              }}</strong>
+            </div>
+          </div>
+          <label v-if="订单动作 === 'price_adjust'" class="form-item full">
+            <span>调整后订单金额</span>
+            <input v-model.number="订单调价金额" class="form-control" type="number" min="0" />
+          </label>
+          <div v-if="订单动作 === 'resubmit'" class="v2-resubmit-list">
+            <div class="v2-section-title">重新提交模块明细</div>
+            <div
+              v-for="(item, index) in 重提订单明细"
+              :key="`${item.itemName}-${index}`"
+              class="v2-resubmit-row"
+            >
+              <strong>{{ item.itemName }}</strong>
+              <label>
+                <span>数量</span>
+                <input v-model.number="item.quantity" class="form-control" type="number" min="1" />
+              </label>
+              <span>系统单价 {{ 格式金额(item.unitPrice) }}</span>
+              <b>{{ 格式金额(item.quantity * item.unitPrice) }}</b>
+            </div>
+          </div>
+          <label v-if="订单动作需要原因" class="form-item full">
+            <span>处理原因 / 审批意见</span>
+            <textarea
+              v-model="订单动作原因"
+              class="form-control"
+              rows="4"
+              placeholder="驳回、退回和调价必须填写原因"
+            ></textarea>
+          </label>
+          <div
+            v-if="
+              ['primary_reject', 'return_region', 'return_primary', 'return_secondary'].includes(
+                订单动作,
+              )
+            "
+            class="v2-warning-box"
+          >
+            该动作会退回订单并保留完整状态历史，不会覆盖原订单数据。
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button class="btn btn-default" type="button" @click="订单动作弹窗 = false">取消</button>
+          <button
+            class="btn"
+            :class="
+              [
+                'primary_reject',
+                'return_region',
+                'return_primary',
+                'return_secondary',
+                'cancelled',
+              ].includes(订单动作)
+                ? 'btn-danger'
+                : 'btn-primary'
+            "
+            type="button"
+            :disabled="提交中"
+            @click="提交订单动作"
+          >
+            {{ 提交中 ? "提交中..." : `确认${订单动作名称(订单动作)}` }}
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="渠道成员弹窗" class="modal-overlay" @click.self="渠道成员弹窗 = false">
+      <section class="modal modal-xl">
+        <header class="modal-header">
+          <div>
+            <h2 class="modal-title">渠道成员 — {{ 详情 ? 主标题(详情) : "" }}</h2>
+            <p class="v2-card-desc">维护本渠道企业成员账号、业务角色、联系方式和启停状态。</p>
+          </div>
+          <div class="v2-页面动作">
+            <button class="btn btn-primary" type="button" @click="编辑渠道成员()">新增成员</button>
+            <button class="modal-close" type="button" @click="渠道成员弹窗 = false">×</button>
+          </div>
+        </header>
+        <div class="modal-body">
+          <div v-if="渠道成员编辑中" class="v2-member-editor">
+            <div class="v2-section-title">{{ 渠道成员表单.id ? "编辑成员" : "新增成员" }}</div>
+            <div class="form-grid form-grid-3">
+              <label class="form-item">
+                <span>登录账号 *</span>
+                <input v-model="渠道成员表单.username" class="form-control" />
+              </label>
+              <label class="form-item">
+                <span>成员姓名 *</span>
+                <input v-model="渠道成员表单.name" class="form-control" />
+              </label>
+              <label class="form-item">
+                <span>业务角色</span>
+                <select v-model="渠道成员表单.partnerRole" class="form-control">
+                  <option>销售</option>
+                  <option>售前</option>
+                  <option>技术</option>
+                  <option>商务</option>
+                </select>
+              </label>
+              <label class="form-item">
+                <span>手机号</span>
+                <input v-model="渠道成员表单.phone" class="form-control" />
+              </label>
+              <label class="form-item">
+                <span>邮箱</span>
+                <input v-model="渠道成员表单.email" class="form-control" />
+              </label>
+              <label class="form-item">
+                <span>状态</span>
+                <select v-model="渠道成员表单.status" class="form-control">
+                  <option value="active">启用</option>
+                  <option value="disabled">停用</option>
+                </select>
+              </label>
+            </div>
+            <div class="v2-form-actions">
+              <button class="btn btn-default" type="button" @click="编辑渠道成员()">取消</button>
+              <button class="btn btn-primary" type="button" @click="保存当前渠道成员">
+                保存成员
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>成员</th>
+                  <th>登录账号</th>
+                  <th>业务角色</th>
+                  <th>联系方式</th>
+                  <th>证书</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="member in 渠道成员列表" :key="member.id">
+                  <td>
+                    <strong>{{ member.name }}</strong>
+                    <small class="v2-muted block">{{ member.accountRole }}</small>
+                  </td>
+                  <td>{{ member.username }}</td>
+                  <td>{{ member.role }}</td>
+                  <td>{{ 组合文本(member.phone, member.email) }}</td>
+                  <td>{{ member.certifications.length }} 项</td>
+                  <td>
+                    <span
+                      class="tag"
+                      :class="
+                        member.status === 'active'
+                          ? 'tag-green'
+                          : member.status === 'pending'
+                            ? 'tag-orange'
+                            : 'tag-gray'
+                      "
+                    >
+                      {{
+                        member.status === "active"
+                          ? "启用"
+                          : member.status === "pending"
+                            ? "待审核"
+                            : "停用"
+                      }}
+                    </span>
+                  </td>
+                  <td>
+                    <button class="btn btn-text btn-sm" type="button" @click="编辑渠道成员(member)">
+                      编辑
+                    </button>
+                    <button
+                      class="btn btn-text btn-sm"
+                      type="button"
+                      @click="切换渠道成员状态(member)"
+                    >
+                      {{ member.status === "active" ? "停用" : "启用" }}
+                    </button>
+                  </td>
+                </tr>
+                <tr v-if="!渠道成员列表.length">
+                  <td colspan="7"><div class="empty-state">当前渠道暂无成员</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button class="btn btn-default" type="button" @click="渠道成员弹窗 = false">关闭</button>
+        </footer>
+      </section>
+    </div>
+
+    <div v-if="产品价格弹窗" class="modal-overlay" @click.self="产品价格弹窗 = false">
+      <section class="modal modal-xl">
+        <header class="modal-header">
+          <div>
+            <h2 class="modal-title">价格规则 — {{ 详情 ? 主标题(详情) : "" }}</h2>
+            <p class="v2-card-desc">阶梯价、区域覆盖、渠道比例和内部成本由后端规则统一计算。</p>
+          </div>
+          <button class="modal-close" type="button" @click="产品价格弹窗 = false">×</button>
+        </header>
+        <div class="modal-body">
+          <nav class="tab-nav">
+            <button
+              v-for="item in 产品价格标签列表"
+              :key="item[0]"
+              class="tab-item"
+              :class="{ active: 产品价格标签 === item[0] }"
+              type="button"
+              @click="产品价格标签 = item[0]"
+            >
+              {{ item[1] }}
+            </button>
+          </nav>
+          <div v-if="产品价格标签 === 'tiers'" class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>起购量</th>
+                  <th>最高量</th>
+                  <th>系统单价</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="tier in 产品价格阶梯(详情)" :key="tier.id">
+                  <td>{{ tier.起购量 }}</td>
+                  <td>{{ tier.最高量 }}</td>
+                  <td class="amount">￥{{ tier.单价 }}</td>
+                  <td><span class="tag tag-green">生效</span></td>
+                </tr>
+                <tr v-if="!产品价格阶梯(详情).length">
+                  <td colspan="4">
+                    <div class="empty-state">当前产品未配置阶梯价格，使用默认单价。</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else-if="产品价格标签 === 'regions'" class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>区域</th>
+                  <th>覆盖阶梯数</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in 产品区域价格(详情)" :key="item.id">
+                  <td>{{ item.区域 }}</td>
+                  <td>{{ item.阶梯数 }}</td>
+                  <td>
+                    <span class="tag" :class="item.启用 === '是' ? 'tag-green' : 'tag-gray'">{{
+                      item.启用 === "是" ? "启用" : "停用"
+                    }}</span>
+                  </td>
+                </tr>
+                <tr v-if="!产品区域价格(详情).length">
+                  <td colspan="3">
+                    <div class="empty-state">未配置区域价格覆盖，全部区域使用全国默认价格。</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else-if="产品价格标签 === 'channel'" class="v2-detail-summary">
+            <div>
+              <span>一级渠道价格比例</span
+              ><strong>{{
+                详情 ? 字段(详情, "priceRatioPrimary", "一级渠道比例") || "100%" : "100%"
+              }}</strong>
+            </div>
+            <div>
+              <span>二级渠道价格比例</span
+              ><strong>{{
+                详情 ? 字段(详情, "priceRatioSecondary", "二级渠道比例") || "100%" : "100%"
+              }}</strong>
+            </div>
+            <div>
+              <span>渠道可见性</span><strong>{{ 是渠道用户 ? "仅公开价" : "全部规则" }}</strong>
+            </div>
+            <div>
+              <span>计价方式</span
+              ><strong>{{
+                详情 ? 字段(详情, "priceType", "计价方式") || "阶梯计价" : "阶梯计价"
+              }}</strong>
+            </div>
+          </div>
+          <div v-else class="v2-detail-summary">
+            <div>
+              <span>内部成本</span
+              ><strong>{{
+                详情 ? 字段(详情, "internalCost", "内部成本") || "仅管理员可见" : "仅管理员可见"
+              }}</strong>
+            </div>
+            <div>
+              <span>标准工作量</span
+              ><strong>{{
+                详情 ? 字段(详情, "workloadDays", "标准人天") || "按规则计算" : "按规则计算"
+              }}</strong>
+            </div>
+            <div>
+              <span>服务费</span
+              ><strong>{{
+                详情 ? 字段(详情, "serviceFee", "服务费") || "另行报价" : "另行报价"
+              }}</strong>
+            </div>
+            <div>
+              <span>成本权限</span><strong>{{ 是渠道用户 ? "不可见" : "可查看" }}</strong>
+            </div>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button class="btn btn-default" type="button" @click="产品价格弹窗 = false">关闭</button>
         </footer>
       </section>
     </div>

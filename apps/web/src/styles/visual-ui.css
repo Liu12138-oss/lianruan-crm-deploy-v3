@@ -1,0 +1,2083 @@
+/* 由 visual-designs/assets/visual-ui.css 自动生成的 .vui 作用域版本，请勿手工修改。 */
+
+.vui {
+  color-scheme: light;
+  --font: "Times New Roman", "LXGW WenKai GB", "KaiTi", "楷体", "KaiTi_GB2312", "楷体_GB2312", "STKaiti", "华文楷体", "Kaiti SC", "Kaiti TC", "TW-Kai", "全字库正楷体", "正楷", serif;
+  --blue: #2f69ed;
+  --blue-strong: #1557d6;
+  --blue-deep: #17345e;
+  --blue-soft: #edf5ff;
+  --cyan: #55c8ff;
+  --text: #172b4d;
+  --text-2: #4f6178;
+  --text-3: #8391a5;
+  --line: #dce7f3;
+  --line-soft: #e9f0f7;
+  --surface: #ffffff;
+  --page: #edf5fc;
+  --green: #159873;
+  --green-soft: #e8f9f3;
+  --amber: #c58a17;
+  --amber-soft: #fff7df;
+  --red: #ce4b58;
+  --red-soft: #fff0f2;
+  --shadow: 0 14px 34px rgba(42, 82, 130, 0.09);
+}
+
+
+.vui * {
+  box-sizing: border-box;
+}
+
+
+.vui {
+  min-width: 320px;
+  background: #eaf2fa;
+}
+
+
+.vui {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 9% 0%, rgba(85, 200, 255, 0.14), transparent 25%),
+    linear-gradient(180deg, #eef6fd 0%, #e5eef8 100%);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+
+.vui button, .vui input, .vui select {
+  font: inherit;
+}
+
+
+.vui button {
+  cursor: pointer;
+}
+
+
+.vui svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.8;
+}
+
+
+.vui .review-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: min(100% - 48px, 1440px);
+  min-height: 64px;
+  margin: 0 auto;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+
+.vui .review-strip strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+
+.vui .artboard {
+  position: relative;
+  width: 1440px;
+  height: 740px;
+  margin: 0 auto 28px;
+  overflow: hidden;
+  border: 1px solid #cadbed;
+  border-radius: 14px;
+  background: var(--page);
+  box-shadow: 0 26px 64px rgba(31, 69, 111, 0.16);
+}
+
+
+.vui .app-canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--page);
+}
+
+
+.vui .top-nav {
+  position: absolute;
+  z-index: 5;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 62px;
+  padding: 0 28px;
+  border-bottom: 1px solid rgba(220, 231, 243, 0.9);
+  background:
+    linear-gradient(90deg, rgba(237, 246, 255, 0.98), rgba(255, 255, 255, 0.95) 48%, rgba(239, 249, 255, 0.98));
+}
+
+
+.vui .top-brand, .vui .top-menu, .vui .top-actions, .vui .nav-link, .vui .user-mini, .vui .section-tabs, .vui .segmented, .vui .toolbar-actions, .vui .inline, .vui .status, .vui .progress, .vui .mini-user, .vui .panel-title, .vui .metric-label, .vui .metric-value, .vui .step-dots, .vui .step-item, .vui .meta-line, .vui .action-link, .vui .table-actions, .vui .filter-line, .vui .step-head {
+  display: flex;
+  align-items: center;
+}
+
+
+.vui .top-brand {
+  min-width: 286px;
+  gap: 10px;
+}
+
+
+.vui .brand-logo {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--cyan), var(--blue));
+  box-shadow: 0 8px 18px rgba(47, 105, 237, 0.22);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+
+.vui .brand-copy strong, .vui .brand-copy span {
+  display: block;
+  white-space: nowrap;
+}
+
+
+.vui .brand-copy strong {
+  font-size: 14px;
+}
+
+
+.vui .brand-copy span {
+  margin-top: 1px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .top-menu {
+  flex: 1 1 auto;
+  justify-content: center;
+  gap: 5px;
+}
+
+
+.vui .nav-link {
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: #62758d;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .nav-link.active {
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 7px 18px rgba(47, 105, 237, 0.10);
+  color: var(--blue-strong);
+}
+
+
+.vui .nav-link.active::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+
+.vui .top-actions {
+  justify-content: flex-end;
+  min-width: 250px;
+  gap: 10px;
+}
+
+
+.vui .top-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(218, 230, 242, 0.9);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #61748c;
+}
+
+
+.vui .top-icon i.count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  place-items: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #ef5b64;
+  color: #ffffff;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+
+.vui .user-mini {
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+
+.vui .user-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #dcecff, #f8fbff);
+  color: var(--blue-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+
+.vui .status {
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .status.blue {
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+
+.vui .status.green {
+  background: var(--green-soft);
+  color: #0b795d;
+}
+
+
+.vui .status.amber {
+  background: var(--amber-soft);
+  color: #936409;
+}
+
+
+.vui .status.red {
+  background: var(--red-soft);
+  color: #b53d49;
+}
+
+
+.vui .status.gray {
+  background: #f0f3f7;
+  color: #68798e;
+}
+
+
+.vui .role-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid #cce0f8;
+  border-radius: 6px;
+  background: #edf5ff;
+  color: var(--blue-strong);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+/**
+ * 页面级返回按钮统一样式（R33）。
+ *
+ * 所有二级页、详情页、编辑页的「← 返回……」入口固定放在页头卡片内第一行左侧，
+ * 左边缘与页面标题保持一致；统一为浅蓝底小胶囊按钮，与页头「核心档案」等
+ * 次要按钮同一视觉家族，不再是裸文字链接。
+ */
+.返回按钮 {
+  /* 块级 flex + fit-content：按钮独占一行（页面标签仍在其下方），文字水平垂直居中 */
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  margin: 0 0 12px;
+  border: 1px solid #d5e5fb;
+  border-radius: 8px;
+  background: #f1f6ff;
+  color: var(--blue, #2f69ed);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.返回按钮:hover {
+  border-color: #b9d4f8;
+  background: #e4efff;
+}
+
+/**
+ * 页头动作按钮统一居中（R33）。
+ *
+ * 这些按钮既可能是 <button>，也可能是 <RouterLink> 渲染出的 <a>；
+ * 显式 inline-flex 居中后，两种标签在 38px 高度里文字都垂直居中，
+ * 不再出现「核心档案」文字顶格、与「+ 新增成员」上下错位的问题。
+ */
+.主按钮,
+.次要按钮,
+.档案按钮 {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+
+.vui .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .button.primary {
+  border-color: var(--blue);
+  background: var(--blue);
+  box-shadow: 0 8px 18px rgba(47, 105, 237, 0.18);
+  color: #ffffff;
+}
+
+
+.vui .button.soft {
+  border-color: #d5e5fb;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+
+.vui .button.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-3);
+}
+
+
+.vui .button.icon-only {
+  width: 32px;
+  padding: 0;
+}
+
+
+/* Version 1: dense list workspace */
+.vui .list-kpis {
+  position: absolute;
+  inset: 79px 27px auto 27px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 11px;
+  height: 143px;
+}
+
+
+.vui .list-kpi {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 17px 14px;
+  border: 1px solid rgba(217, 229, 242, 0.95);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(235, 245, 255, 0.86));
+}
+
+
+.vui .list-kpi::after {
+  content: "";
+  position: absolute;
+  right: -26px;
+  bottom: -38px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(85, 200, 255, 0.17), transparent 68%);
+}
+
+
+.vui .list-kpi .metric-label {
+  justify-content: space-between;
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+
+.vui .list-kpi .metric-label i {
+  color: var(--blue);
+}
+
+
+.vui .list-kpi .metric-value {
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+
+.vui .list-kpi .metric-value strong {
+  font-size: 28px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+
+.vui .list-kpi .metric-value small {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .list-kpi .metric-foot {
+  margin-top: 9px;
+  color: var(--text-3);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+
+.vui .list-main {
+  position: absolute;
+  inset: 235px 27px 21px;
+  overflow: hidden;
+  border: 1px solid rgba(217, 229, 242, 0.96);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+
+.vui .list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 59px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+
+.vui .section-tabs {
+  gap: 4px;
+  min-height: 34px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f6f9fd;
+}
+
+
+.vui .section-tab, .vui .segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 27px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .section-tab.active, .vui .segment.active {
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(34, 72, 118, 0.10);
+  color: var(--blue-strong);
+}
+
+
+.vui .list-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+
+.vui .field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 126px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text-3);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+
+.vui .field.search {
+  width: 220px;
+}
+
+
+.vui .field strong {
+  color: var(--text-2);
+  font-weight: 700;
+}
+
+
+.vui .data-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 10px;
+}
+
+
+.vui .data-table th, .vui .data-table td {
+  height: 51px;
+  padding: 0 10px;
+  border-bottom: 1px solid #edf2f7;
+  text-align: left;
+  vertical-align: middle;
+}
+
+
+.vui .data-table th {
+  height: 34px;
+  background: #f8fbff;
+  color: #78889c;
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .data-table td {
+  color: #465a72;
+}
+
+
+.vui .data-table tbody tr:nth-child(even) {
+  background: #fbfdff;
+}
+
+
+.vui .record-name, .vui .record-meta {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vui .record-name {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.vui .record-meta {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .amount {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+
+.vui .table-actions {
+  gap: 9px;
+}
+
+
+.vui .action-link {
+  color: var(--blue-strong);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+
+.vui .action-link.muted {
+  color: var(--text-3);
+}
+
+
+.vui .list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 14px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .page-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+
+.vui .page-buttons span {
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border-radius: 6px;
+  background: #f4f7fb;
+}
+
+
+.vui .page-buttons span.active {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+
+/* Version 2: war room workspace */
+.vui .war-kpis {
+  position: absolute;
+  inset: 73px 20px auto 20px;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  height: 96px;
+}
+
+
+.vui .war-kpis .list-kpi {
+  padding: 11px 13px 9px;
+  border-radius: 10px;
+}
+
+
+.vui .war-kpis .list-kpi .metric-value {
+  margin-top: 5px;
+}
+
+
+.vui .war-kpis .list-kpi .metric-value strong {
+  font-size: 21px;
+}
+
+
+.vui .war-kpis .list-kpi .metric-foot {
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+}
+
+
+.vui .war-layout {
+  position: absolute;
+  inset: 180px 0 0;
+  display: grid;
+  grid-template-columns: 304px minmax(0, 1fr) 342px;
+  min-height: 0;
+}
+
+
+.vui .war-panel {
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: #f8fbff;
+}
+
+
+.vui .war-panel:last-child {
+  border-right: 0;
+}
+
+
+.vui .war-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+
+.vui .war-list-head {
+  padding: 15px 15px 11px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+
+.vui .war-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+
+.vui .war-title-row strong {
+  font-size: 14px;
+}
+
+
+.vui .count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 25px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+
+.vui .war-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 33px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .war-tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+
+.vui .war-tab {
+  min-height: 25px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: #edf3fa;
+  color: var(--text-2);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+
+.vui .war-tab.active {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+
+.vui .war-list-body {
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 8px;
+}
+
+
+.vui .war-record {
+  position: relative;
+  margin-bottom: 7px;
+  padding: 11px 11px 10px 13px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+
+.vui .war-record.active {
+  border-color: #bcd5fa;
+  background: linear-gradient(135deg, #edf5ff, #ffffff);
+  box-shadow: 0 8px 22px rgba(47, 105, 237, 0.10);
+}
+
+
+.vui .war-record.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--blue);
+}
+
+
+.vui .war-record-top, .vui .war-record-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+
+.vui .war-record-top strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vui .war-record p {
+  overflow: hidden;
+  margin: 4px 0;
+  color: var(--text-3);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vui .war-record-bottom {
+  color: var(--text-2);
+  font-size: 9px;
+}
+
+
+.vui .war-center {
+  overflow: hidden;
+  background: #ffffff;
+}
+
+
+.vui .war-center-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 67px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+
+.vui .deal-title strong, .vui .deal-title span {
+  display: block;
+}
+
+
+.vui .deal-title strong {
+  font-size: 17px;
+}
+
+
+.vui .deal-title span {
+  margin-top: 3px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .center-actions {
+  display: flex;
+  gap: 7px;
+}
+
+
+.vui .stage-band {
+  margin: 14px 16px 0;
+  padding: 13px 14px 12px;
+  border: 1px solid #dfeaf7;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #fbfdff, #f5faff);
+}
+
+
+.vui .step-head {
+  justify-content: space-between;
+  margin-bottom: 10px;
+  color: var(--text-2);
+  font-size: 10px;
+}
+
+
+.vui .step-dots {
+  position: relative;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+
+.vui .step-dots::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  top: 10px;
+  height: 2px;
+  background: #dbe7f5;
+}
+
+
+.vui .step-item {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  text-align: center;
+}
+
+
+.vui .step-item .dot {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border: 2px solid #d6e4f4;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #7990a9;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+
+.vui .step-item.done .dot, .vui .step-item.active .dot {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #ffffff;
+}
+
+
+.vui .step-item.active .dot {
+  box-shadow: 0 0 0 4px rgba(47, 105, 237, 0.11);
+}
+
+
+.vui .step-item strong {
+  overflow: hidden;
+  width: 100%;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vui .detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 13px 16px 16px;
+}
+
+
+.vui .detail-card {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #ffffff;
+}
+
+
+.vui .detail-card.soft {
+  background: linear-gradient(145deg, #f7fbff, #ffffff);
+}
+
+
+.vui .card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 11px;
+}
+
+
+.vui .card-head strong {
+  font-size: 11px;
+}
+
+
+.vui .card-head span {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+}
+
+
+.vui .info-item {
+  min-width: 0;
+}
+
+
+.vui .info-item span, .vui .info-item strong {
+  display: block;
+}
+
+
+.vui .info-item span {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .info-item strong {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vui .note-box {
+  min-height: 83px;
+  padding: 10px;
+  border: 1px solid #e2ebf5;
+  border-radius: 8px;
+  background: #f9fcff;
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.7;
+}
+
+
+.vui .war-right {
+  display: flex;
+  flex-direction: column;
+  background: #f8fbff;
+}
+
+
+.vui .right-section {
+  padding: 14px 14px 0;
+}
+
+
+.vui .right-section:last-child {
+  padding-bottom: 14px;
+}
+
+
+.vui .right-card {
+  margin-bottom: 11px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+
+.vui .right-card.highlight {
+  border-color: #cfe1fa;
+  background: linear-gradient(145deg, #edf5ff, #ffffff);
+}
+
+
+.vui .right-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+
+
+.vui .right-card-title strong {
+  font-size: 11px;
+}
+
+
+.vui .right-card-title span {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 78px;
+  padding-top: 4px;
+}
+
+
+.vui .bar-chart i {
+  flex: 1 1 0;
+  min-height: 8px;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, #68baf5, #2f69ed);
+}
+
+
+.vui .timeline-list {
+  display: grid;
+  gap: 9px;
+}
+
+
+.vui .timeline-item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 8px;
+}
+
+
+.vui .timeline-item i {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border: 2px solid #bdd5f6;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+
+.vui .timeline-item strong, .vui .timeline-item span {
+  display: block;
+}
+
+
+.vui .timeline-item strong {
+  font-size: 10px;
+}
+
+
+.vui .timeline-item span {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+/* Version 3: original review evolution */
+.vui .hybrid-shell {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  background: #f2f6fb;
+}
+
+
+.vui .hybrid-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 9px;
+  background: linear-gradient(180deg, #17345e, #102743);
+  box-shadow: 8px 0 24px rgba(23, 52, 94, 0.12);
+}
+
+
+.vui .hybrid-logo {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 12px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, var(--cyan), var(--blue));
+  color: #ffffff;
+  font-weight: 700;
+}
+
+
+.vui .rail-icon {
+  display: grid;
+  place-items: center;
+  width: 43px;
+  height: 43px;
+  border-radius: 10px;
+  color: #91a9c6;
+}
+
+
+.vui .rail-icon.active {
+  background: linear-gradient(145deg, var(--blue), #4c8df4);
+  box-shadow: 0 9px 21px rgba(7, 29, 61, 0.28);
+  color: #ffffff;
+}
+
+
+.vui .hybrid-main {
+  min-width: 0;
+}
+
+
+.vui .hybrid-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 60px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+
+.vui .hybrid-breadcrumb strong {
+  font-size: 14px;
+}
+
+
+.vui .hybrid-breadcrumb span {
+  margin-left: 8px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .hybrid-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+
+.vui .hybrid-content {
+  padding: 16px 18px 18px;
+}
+
+
+.vui .hybrid-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+  margin-bottom: 13px;
+}
+
+
+.vui .hybrid-metric {
+  position: relative;
+  overflow: hidden;
+  min-height: 88px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(35, 73, 116, 0.05);
+}
+
+
+.vui .hybrid-metric:first-child {
+  border-color: #c6dcfa;
+  background: linear-gradient(135deg, #eaf4ff, #ffffff);
+}
+
+
+.vui .hybrid-metric span {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .hybrid-metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 24px;
+  line-height: 1;
+}
+
+
+.vui .hybrid-metric small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .hybrid-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 315px;
+  gap: 13px;
+}
+
+
+.vui .hybrid-table-card, .vui .hybrid-side-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(34, 71, 114, 0.06);
+}
+
+
+.vui .hybrid-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 13px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+
+.vui .hybrid-card-head strong {
+  font-size: 12px;
+}
+
+
+.vui .hybrid-card-head span {
+  color: var(--text-3);
+  font-size: 9px;
+}
+
+
+.vui .hybrid-filter {
+  display: flex;
+  gap: 7px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #fafcff;
+}
+
+
+.vui .hybrid-table .data-table th, .vui .hybrid-table .data-table td {
+  height: 45px;
+}
+
+
+.vui .hybrid-table .data-table th {
+  height: 31px;
+}
+
+
+.vui .hybrid-side-card {
+  padding-bottom: 12px;
+}
+
+
+.vui .hybrid-insight {
+  padding: 12px;
+}
+
+
+.vui .hybrid-insight-list {
+  display: grid;
+  gap: 8px;
+}
+
+
+.vui .insight-row {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: #f7faff;
+}
+
+
+.vui .insight-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+}
+
+
+.vui .insight-top strong {
+  color: var(--text-2);
+}
+
+
+.vui .progress {
+  gap: 7px;
+  margin-top: 7px;
+}
+
+
+.vui .progress-track {
+  flex: 1 1 auto;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e6eef7;
+}
+
+
+.vui .progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--cyan), var(--blue));
+}
+
+
+.vui .progress span {
+  width: 27px;
+  color: var(--text-3);
+  font-size: 9px;
+  text-align: right;
+}
+
+
+.vui .hybrid-flow {
+  display: flex;
+  gap: 5px;
+  margin-top: 11px;
+}
+
+
+.vui .hybrid-flow span {
+  flex: 1 1 0;
+  height: 5px;
+  border-radius: 999px;
+  background: #dce9f8;
+}
+
+
+.vui .hybrid-flow span.active {
+  background: var(--blue);
+}
+
+
+@media (max-width: 1480px) {
+
+    .vui .artboard {
+    transform-origin: top left;
+  }
+
+
+}
+
+@media (max-width: 900px) {
+
+    .vui .review-strip {
+    width: calc(100% - 24px);
+  }
+
+
+    .vui {
+    overflow-x: auto;
+  }
+
+
+}
+
+/* Version 2 补充：新建流程表单 */
+.vui .artboard.tall {
+  height: 900px;
+}
+
+
+.vui .top-primary {
+  min-height: 34px;
+  padding: 0 14px;
+}
+
+
+.vui .create-head {
+  position: absolute;
+  inset: 74px 40px auto 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+
+.vui .create-crumb {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+
+.vui .create-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+
+.vui .create-title strong {
+  font-size: 19px;
+}
+
+
+.vui .create-title span {
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+
+.vui .create-body {
+  position: absolute;
+  inset: 134px 40px 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 314px;
+  gap: 14px;
+}
+
+
+.vui .create-card {
+  padding: 18px 20px;
+  border: 1px solid rgba(217, 229, 242, 0.96);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+
+.vui .create-card.side-card {
+  padding: 15px 16px;
+  box-shadow: none;
+}
+
+
+.vui .create-card.highlight {
+  border-color: #cfe0f8;
+  background: linear-gradient(180deg, #fbfdff, #f4f9ff);
+}
+
+
+.vui .create-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+
+.vui .wizard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  padding: 12px 16px;
+  border: 1px solid #dfeaf7;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fbfdff, #f5faff);
+}
+
+
+.vui .wizard-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+
+.vui .wizard-step strong {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+
+.vui .wizard-step.active strong, .vui .wizard-step.done strong {
+  color: var(--text);
+}
+
+
+.vui .wizard-dot {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid #d6e4f4;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #7990a9;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+
+.vui .wizard-dot svg {
+  width: 12px;
+  height: 12px;
+}
+
+
+.vui .wizard-step.active .wizard-dot, .vui .wizard-step.done .wizard-dot {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: #ffffff;
+}
+
+
+.vui .wizard-step.active .wizard-dot {
+  box-shadow: 0 0 0 4px rgba(47, 105, 237, 0.11);
+}
+
+
+.vui .wizard-line {
+  flex: 1 1 auto;
+  height: 2px;
+  background: #dbe7f5;
+}
+
+
+.vui .wizard-line.done {
+  background: var(--blue);
+}
+
+
+.vui .section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 10px;
+}
+
+
+.vui .wizard + .section-title {
+  margin-top: 2px;
+}
+
+
+.vui .section-title span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+
+.vui .section-title em {
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: normal;
+}
+
+
+.vui .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px 12px;
+}
+
+
+.vui .form-field.full {
+  grid-column: 1 / -1;
+}
+
+
+.vui .form-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+
+.vui .form-label.required::after {
+  content: " *";
+  color: #e05a66;
+}
+
+
+.vui .form-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dce7f3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 11px;
+}
+
+
+.vui .form-control .placeholder {
+  color: #a7b3c4;
+}
+
+
+.vui .form-control.readonly {
+  background: #f5f8fc;
+  color: var(--text-2);
+}
+
+
+.vui .form-control svg {
+  width: 14px;
+  height: 14px;
+  color: #93a3b8;
+}
+
+
+.vui .filled-card {
+  padding: 12px 14px;
+  border: 1px solid #bfe6ce;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f7fef9, #effaf3);
+}
+
+
+.vui .filled-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 9px;
+}
+
+
+.vui .filled-head strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #12805c;
+  font-size: 11px;
+}
+
+
+.vui .filled-head span {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .filled-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px;
+}
+
+
+.vui .filled-grid span {
+  display: block;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .filled-grid strong {
+  font-size: 11px;
+}
+
+
+.vui .linked-block {
+  padding: 14px;
+  border: 1px solid #cfe2fb;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #f7fbff, #eef6ff);
+}
+
+
+.vui .linked-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #d5e5fb;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.vui .linked-search em {
+  margin-left: auto;
+  color: var(--blue-strong);
+  font-size: 10px;
+  font-style: normal;
+}
+
+
+.vui .linked-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+
+.vui .linked-grid span {
+  display: block;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .linked-grid strong {
+  font-size: 11px;
+}
+
+
+.vui .linked-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid #ffe08a;
+  border-radius: 8px;
+  background: #fffaea;
+  color: #8a6100;
+  font-size: 10px;
+}
+
+
+.vui .opp-picks {
+  display: flex;
+  gap: 10px;
+}
+
+
+.vui .opp-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 0;
+  padding: 10px 12px;
+  border: 1px solid #e2e9f2;
+  border-radius: 10px;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.vui .opp-pick em {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 400;
+}
+
+
+.vui .opp-pick.active {
+  border-color: var(--blue);
+  background: #f0f7ff;
+  color: var(--blue-strong);
+}
+
+
+.vui .mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+
+.vui .mode-card {
+  padding: 12px 14px;
+  border: 1px solid #e2e9f2;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+
+.vui .mode-card span {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+
+.vui .mode-card em {
+  color: var(--text-3);
+  font-size: 10px;
+  font-style: normal;
+}
+
+
+.vui .mode-card.active {
+  border-color: var(--blue);
+  background: #f0f7ff;
+}
+
+
+.vui .mode-card.active span {
+  color: var(--blue-strong);
+}
+
+
+.vui .package-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+
+.vui .package-card {
+  padding: 12px 14px;
+  border: 1px solid #e2e9f2;
+  border-radius: 10px;
+}
+
+
+.vui .package-card strong {
+  display: block;
+  font-size: 11px;
+}
+
+
+.vui .package-card span {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .package-card.active {
+  border-color: var(--blue);
+  background: #f7fbff;
+}
+
+
+.vui .quote-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+
+.vui .quote-amount span {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .quote-amount strong {
+  color: var(--blue-strong);
+  font-size: 20px;
+}
+
+
+.vui .quote-lines {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 14px;
+  padding: 12px 0;
+}
+
+
+.vui .quote-lines span {
+  display: block;
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+
+.vui .quote-lines strong {
+  font-size: 11px;
+}
+
+
+.vui .rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+
+.vui .rule-list li {
+  position: relative;
+  padding-left: 12px;
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+
+.vui .rule-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+
+.vui .create-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+
+
+.vui .foot-tip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  color: var(--text-3);
+  font-size: 10px;
+}

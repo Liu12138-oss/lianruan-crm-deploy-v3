@@ -56,6 +56,13 @@ interface 业务用户上下文 {
   partnerIds: string[];
   partnerExternalIds: string[];
   partnerName: string;
+  scopeBindings: 资源数据范围绑定[];
+}
+
+interface 资源数据范围绑定 {
+  resourceCode: string;
+  scopeType: "all" | "org_subtree" | "region" | "partner" | "self";
+  scopeRefId: string | null;
 }
 
 interface 业务归属结果 {
@@ -69,9 +76,13 @@ interface 业务归属结果 {
 
 export interface 阶段9查询参数 {
   keyword?: string | undefined;
+  /** 审计模块分类（仅 audit 模块使用）：客户/线索/商机/渠道/订单/后台管理操作。 */
+  module?: string | undefined;
   status?: string | undefined;
   level?: string | undefined;
   region?: string | undefined;
+  from?: string | undefined;
+  to?: string | undefined;
   userId?: string | undefined;
   partnerId?: string | undefined;
   operatorId?: string | undefined;
@@ -125,18 +136,39 @@ export interface 报价试算结果 {
   endpoints: number;
   productIds: string[];
   hardwareIds: string[];
+  hardwareItems: Array<{ productId: string; quantity: number }>;
   items: Array<{
     id: string;
     名称: string;
     类型: string;
     产品引用类型?: "feature" | "hardware" | "package";
+    itemTypeCode?: "software" | "hardware" | "service" | "unknown";
     数量: number;
     单价: number;
+    publicUnitPrice?: number;
     小计: number;
+    /** 逐项取价过程：标准价 / 区域覆盖 / 渠道比例 / 最终单价，供页面展示价格命中。 */
+    定价明细?: 产品定价明细;
+    extraJson?: Record<string, unknown>;
   }>;
   total: number;
   workloadDays: number;
   workloadSummary: string;
+  /** 本次试算使用的价格上下文（区域与渠道分销层级）。 */
+  定价上下文?: {
+    区域: string;
+    渠道层级: string;
+    渠道层级名称: string;
+    /** 等级价系数（百分比）：一级为 100（基准），二级为 110（一级上浮 10%）。 */
+    等级价系数: number | null;
+  };
+  /** 标准价 / 区域覆盖价 / 一级渠道商价 / 二级渠道商价四档参考合计，与老 UI「渠道商价格参考」口径一致。 */
+  渠道价格参考?: {
+    标准价: number;
+    区域覆盖价: number;
+    一级: number;
+    二级: number;
+  };
 }
 
 export interface 正式报价单文件 {
@@ -248,6 +280,14 @@ export interface 业务数据服务 {
     用户?: 当前业务用户 | null,
   ): Promise<阶段9列表结果>;
   查询到期提醒(用户: 当前业务用户 | null): Promise<到期提醒项[]>;
+  /**
+   * 把当前账号的站内通知标记为已读。传入 通知编号 时只标记该条，否则标记该账号全部未读。
+   * 站内通知当前数据源为 ops.notifications（历史通知表），与 message.notifications 的灰度并行关系见统一消息提醒平台落地文档。
+   */
+  标记通知已读(
+    用户: 当前业务用户 | null,
+    通知编号?: string,
+  ): Promise<{ 更新数: number }>;
   查询详情(模块: 阶段9模块, id: string, 用户?: 当前业务用户 | null): Promise<阶段9记录>;
   生成正式报价单(id: string, 用户?: 当前业务用户 | null): Promise<正式报价单文件>;
   创建报备(输入: Record<string, unknown>, 用户: 当前业务用户 | null): Promise<阶段9记录>;
@@ -515,6 +555,22 @@ class 内存业务数据服务 implements 业务数据服务 {
 
   public async 查询到期提醒(_用户: 当前业务用户 | null): Promise<到期提醒项[]> {
     return [];
+  }
+
+  public async 标记通知已读(
+    _用户: 当前业务用户 | null,
+    通知编号?: string,
+  ): Promise<{ 更新数: number }> {
+    const 集合 = this.取记录集合("notifications");
+    const 命中 = 集合.filter(
+      (项) =>
+        项.状态 === "unread" && (!通知编号 || 项.id === 通知编号 || 项.编号 === 通知编号),
+    );
+    for (const 项 of 命中) {
+      项.状态 = "read";
+      项.状态名称 = "已读";
+    }
+    return { 更新数: 命中.length };
   }
 
   public async 查询详情(
@@ -966,7 +1022,12 @@ class 内存业务数据服务 implements 业务数据服务 {
   ): Promise<阶段9记录> {
     const 报价编号 = 读取文本(输入, ["quoteId", "报价编号"], "");
     const 已有订单 = this.取记录集合("orders").find((项) => 项.原始数据.quoteId === 报价编号);
-    if (已有订单) return 已有订单;
+    if (已有订单)
+      throw new 应用错误(
+        "V3_QUOTE_ALREADY_CONVERTED",
+        `该报价已转为订单${已有订单.编号 ? `（订单号 ${已有订单.编号}）` : ""}，不能重复转单，请到订单中心查看。`,
+        409,
+      );
     const 报价 = 报价编号 ? this.取记录集合("quotes").find((项) => 项.id === 报价编号) : null;
     if (!报价) throw new 应用错误("V3_STAGE9_QUOTE_NOT_FOUND", "报价单不存在，不能创建订单。", 404);
     const now = new Date().toISOString();
@@ -1342,13 +1403,15 @@ class 内存业务数据服务 implements 业务数据服务 {
   private 内存试算报价(输入: Record<string, unknown>): 报价试算结果 {
     const endpoints = 读取数字(输入, ["endpoints", "端点数"], 100);
     const productIds = 读取文本数组(输入, ["productIds", "products", "featureIds", "产品编号"]);
-    const hardwareIds = 读取文本数组(输入, ["hardwareIds", "硬件编号"]);
+    const 硬件输入 = 规范硬件数量输入(输入);
+    const hardwareIds = 硬件输入.hardwareIds;
+    const hardwareItems = 硬件输入.hardwareItems;
     const 产品源 = [
       ...this.取原始集合("features"),
       ...this.取原始集合("packages"),
       ...this.取原始集合("hardwareProducts"),
     ];
-    const 已选编号 = [...productIds, ...hardwareIds];
+    const 已选编号 = [...productIds, ...hardwareItems.map((项) => 项.productId)];
     const items = 已选编号
       .map((id) =>
         产品源.find((项) => String(项.id || "") === id || String(项.productCode || "") === id),
@@ -1356,23 +1419,47 @@ class 内存业务数据服务 implements 业务数据服务 {
       .filter((项): 项 is Record<string, unknown> => Boolean(项))
       .map((项) => {
         const 单价 = 读取产品单价(项, endpoints);
-        const 数量 = String(项.unit || "").includes("端点") ? endpoints : 1;
+        const 硬件数量 = hardwareItems.find(
+          (硬件) =>
+            String(项.id || "") === 硬件.productId ||
+            String(项.productCode || "") === 硬件.productId,
+        )?.quantity;
+        const 数量 = 硬件数量 ?? (String(项.unit || "").includes("端点") ? endpoints : 1);
+        const 产品引用类型 = (项.featureIds ? "package" : 项.model ? "hardware" : "feature") as
+          "feature" | "hardware" | "package";
         return {
           id: String(项.id || ""),
           名称: String(项.name || "未命名产品"),
           类型: 项.featureIds ? "产品套餐" : 项.model ? "硬件产品" : "功能模块",
+          产品引用类型,
+          itemTypeCode: (产品引用类型 === "hardware"
+            ? "hardware"
+            : 产品引用类型 === "feature"
+              ? "software"
+              : "unknown") as "software" | "hardware" | "service" | "unknown",
           数量,
           单价,
+          publicUnitPrice: Number(项.priceFixed ?? 项.listPrice ?? 单价) || 0,
           小计: 单价 * 数量,
+          extraJson: {
+            ...(产品引用类型 === "hardware"
+              ? { hardwareQuantityVersion: "hardware-items-v1" }
+              : {}),
+            pricingBasis: {
+              catalogUnitPrice: Number(项.priceFixed ?? 项.listPrice ?? 单价) || 0,
+              quantity: 数量,
+              source: "memory",
+            },
+          },
         };
       });
-    const total =
-      读取数字(输入, ["total", "金额"], 0) || items.reduce((合计, 项) => 合计 + 项.小计, 0);
+    const total = Math.round(items.reduce((合计, 项) => 合计 + 项.小计, 0) * 100) / 100;
     const workloadDays = Math.max(2.5, Math.round((endpoints / 100) * 2.5 * 10) / 10);
     return {
       endpoints,
       productIds,
       hardwareIds,
+      hardwareItems,
       items,
       total,
       workloadDays,
@@ -1410,6 +1497,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       extra_partner_id: string | null;
       extra_partner_name: string | null;
       extra_region_name: string | null;
+      scope_bindings: 资源数据范围绑定[] | null;
     }>(
       `
       SELECT
@@ -1469,7 +1557,23 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ) || CASE WHEN p_extra.partner_name IS NULL THEN ARRAY[]::text[] ELSE ARRAY[p_extra.partner_name] END AS partner_names,
         u.extra_json->>'partnerId' AS extra_partner_id,
         u.extra_json->>'partnerName' AS extra_partner_name,
-        u.extra_json->>'region' AS extra_region_name
+        u.extra_json->>'region' AS extra_region_name,
+        COALESCE(
+          (
+            SELECT jsonb_agg(
+              jsonb_build_object(
+                'resourceCode', d.resource_code,
+                'scopeType', d.scope_type,
+                'scopeRefId', d.scope_ref_id::text
+              )
+              ORDER BY d.resource_code, d.scope_type, d.scope_ref_id
+            )
+            FROM iam.data_scope_bindings d
+            WHERE d.status_code = 'active'
+              AND d.role_id IN (SELECT ur_scope.role_id FROM iam.user_roles ur_scope WHERE ur_scope.user_id = u.id)
+          ),
+          '[]'::jsonb
+        ) AS scope_bindings
       FROM iam.users u
       LEFT JOIN iam.user_roles ur ON ur.user_id = u.id
       LEFT JOIN iam.roles r ON r.id = ur.role_id AND r.status_code = 'active'
@@ -1526,11 +1630,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ...伙伴外部编号,
       ]),
       partnerName: row.partner_names?.[0] || row.extra_partner_name || 用户.partnerName || "",
+      scopeBindings: Array.isArray(row.scope_bindings) ? row.scope_bindings : [],
     };
   }
 
   private 构建数据范围条件(模块: 阶段9模块, 用户: 业务用户上下文 | null, 参数: unknown[]): string {
     if (!用户) return 模块 === "notifications" ? "false" : "true";
+    const 绑定条件 = 构建资源绑定范围条件(模块, 用户, 参数);
+    if (绑定条件 !== null) return 绑定条件;
     if (模块 === "partners") return 构建渠道商数据范围条件(用户, 参数);
     if (模块 === "users") return 构建账号数据范围条件(用户, 参数);
     if (模块 === "approvals") return 构建审核数据范围条件(用户, 参数);
@@ -1659,6 +1766,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       参数.push("%" + 查询.region + "%");
       条件.push(`("区域" ILIKE $${参数.length} OR "原始数据"->>'region' ILIKE $${参数.length})`);
     }
+    if (查询.from) {
+      参数.push(查询.from);
+      条件.push(`substring("更新时间" FROM 1 FOR 10) >= $${参数.length}`);
+    }
+    if (查询.to) {
+      参数.push(查询.to);
+      条件.push(`substring("更新时间" FROM 1 FOR 10) <= $${参数.length}`);
+    }
     if (查询.partnerId && 应使用渠道兼容过滤(上下文)) {
       参数.push(查询.partnerId);
       条件.push(
@@ -1676,9 +1791,36 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       参数.push(产品类型名称(查询.productType));
       条件.push(`"类型" = $${参数.length}`);
     }
+    if (模块 === "audit" && 查询.module) {
+      const 分类条件 = 构建审计分类条件(查询.module, 参数);
+      if (分类条件) 条件.push(分类条件);
+    }
     const where = 条件.join(" AND ");
     const baseSql = this.模块查询SQL(模块, this.构建数据范围条件(模块, 上下文, 参数));
     return this.查询通用列表(`SELECT * FROM (${baseSql}) s WHERE ${where}`, 参数, 查询);
+  }
+
+  public async 标记通知已读(
+    用户: 当前业务用户 | null,
+    通知编号?: string,
+  ): Promise<{ 更新数: number }> {
+    const 上下文 = await this.解析当前用户上下文(用户);
+    if (!上下文?.userId) return { 更新数: 0 };
+    // 只写当前列表使用的同一个数据源，避免浏览器侧「双写已读」造成新旧表状态不一致。
+    const 参数: unknown[] = [上下文.userId];
+    let 范围 = "recipient_user_id = $1::uuid AND status_code = 'unread'";
+    if (通知编号) {
+      参数.push(通知编号);
+      范围 += " AND (id::text = $2 OR v2_source_id = $2)";
+    }
+    const result = await this.pool.query(
+      `UPDATE ops.notifications
+          SET status_code = 'read',
+              read_at = COALESCE(read_at, now())
+        WHERE ${范围}`,
+      参数,
+    );
+    return { 更新数: result.rowCount || 0 };
   }
 
   public async 查询到期提醒(用户: 当前业务用户 | null): Promise<到期提醒项[]> {
@@ -1894,8 +2036,10 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       );
       const 当前报备 = 当前.rows[0];
       if (!当前报备) throw new 应用错误("V3_STAGE9_NOT_FOUND", "未找到业务记录。", 404);
+      const 审核原因 = 读取文本(输入, ["reason", "remark", "审核意见"], "");
       const result = await client.query<{
         id: string;
+        registration_no: string | null;
         customer_id: string;
         partner_id: string | null;
         owner_user_id: string | null;
@@ -1909,14 +2053,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           row_version = row_version + 1,
           extra_json = extra_json || $3::jsonb
         WHERE id::text = $1 OR v2_source_id = $1 OR registration_no = $1
-        RETURNING id::text AS id, customer_id::text AS customer_id, partner_id::text AS partner_id, owner_user_id::text AS owner_user_id
+        RETURNING id::text AS id, registration_no, customer_id::text AS customer_id,
+          partner_id::text AS partner_id, owner_user_id::text AS owner_user_id
         `,
         [
           id,
           状态,
           JSON.stringify({
             status: 状态,
-            reviewRemark: 读取文本(输入, ["reason", "remark", "审核意见"], ""),
+            reviewRemark: 审核原因,
             updatedByName: 用户?.displayName || "阶段9测试账号",
             ...(状态 === "approved"
               ? {
@@ -1935,9 +2080,24 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       await 同步报备审批状态(client, {
         报备编号: 报备.id,
         状态,
-        原因: 读取文本(输入, ["reason", "remark", "审核意见"], ""),
+        原因: 审核原因,
         用户,
       });
+      if (状态 !== 当前报备.status_code) {
+        const 报备编号文本 = 报备.registration_no || 报备.id;
+        await 写入审计日志(client, {
+          用户,
+          模块: "registration",
+          动作: "change_status",
+          对象类型: "registration",
+          对象编号: 报备.id,
+          对象名称: 报备编号文本,
+          结果: "success",
+          说明: `变更状态客户报备「${报备编号文本}」：状态由「${状态中文[当前报备.status_code] || 当前报备.status_code}」变更为「${状态中文[状态] || 状态}」${审核原因 ? `，原因：${审核原因}` : ""}。`,
+          变更前: { status: 当前报备.status_code },
+          变更后: { status: 状态, reason: 审核原因 },
+        });
+      }
       if (状态 !== 当前报备.status_code && (状态 === "approved" || 状态 === "rejected")) {
         await 写入报备发件箱事件(client, 报备.id, `crm.registration.${状态}`, {
           fromStatus: 当前报备.status_code,
@@ -2695,59 +2855,186 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
   public async 试算报价(输入: Record<string, unknown>): Promise<报价试算结果> {
     const endpoints = 读取数字(输入, ["endpoints", "端点数"], 100);
     const productIds = 读取文本数组(输入, ["productIds", "products", "产品编号"]);
-    const hardwareIds = 读取文本数组(输入, ["hardwareIds", "硬件编号"]);
-    const ids = [...productIds, ...hardwareIds];
+    const 硬件输入 = 规范硬件数量输入(输入);
+    const hardwareIds = 硬件输入.hardwareIds;
+    const hardwareItems = 硬件输入.hardwareItems;
+    const ids = [...productIds, ...hardwareItems.map((项) => 项.productId)];
     const rows =
       ids.length > 0
         ? await this.pool.query<{
             id: string;
+            v2_source_id: string | null;
+            business_code: string | null;
             名称: string;
             类型: string;
             产品引用类型: "feature" | "hardware" | "package";
             单价: string | number;
             unit_name: string | null;
+            category_code: string | null;
+            product_type_code: string | null;
           }>(
             `
-            SELECT id::text, feature_name AS "名称", '功能模块' AS "类型", 'feature'::text AS "产品引用类型", list_price AS "单价", unit_name
-            FROM catalog.product_features
-            WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR feature_code = ANY($1)
+            SELECT f.id::text, f.v2_source_id, f.feature_code AS business_code,
+              f.feature_name AS "名称", '功能模块' AS "类型", 'feature'::text AS "产品引用类型",
+              f.list_price AS "单价", f.unit_name,
+              c.category_code, c.product_type_code
+            FROM catalog.product_features f
+            LEFT JOIN catalog.product_modules m ON m.id = f.module_id
+            LEFT JOIN catalog.product_categories c ON c.id = m.category_id
+            WHERE f.id::text = ANY($1) OR f.v2_source_id = ANY($1) OR f.feature_code = ANY($1)
             UNION ALL
-            SELECT id::text, hardware_name AS "名称", '硬件产品' AS "类型", 'hardware'::text AS "产品引用类型", list_price AS "单价", unit_name
-            FROM catalog.hardware_products
-            WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR hardware_code = ANY($1)
+            SELECT h.id::text, h.v2_source_id, h.hardware_code AS business_code,
+              h.hardware_name AS "名称", '硬件产品' AS "类型", 'hardware'::text AS "产品引用类型",
+              h.list_price AS "单价", h.unit_name, NULL::text AS category_code, 'hardware'::text AS product_type_code
+            FROM catalog.hardware_products h
+            WHERE h.id::text = ANY($1) OR h.v2_source_id = ANY($1) OR h.hardware_code = ANY($1)
             UNION ALL
-            SELECT id::text, package_name AS "名称", '产品套餐' AS "类型", 'package'::text AS "产品引用类型", list_price AS "单价", NULL AS unit_name
-            FROM catalog.product_packages
-            WHERE id::text = ANY($1) OR v2_source_id = ANY($1) OR package_code = ANY($1)
+            SELECT p.id::text, p.v2_source_id, p.package_code AS business_code,
+              p.package_name AS "名称", '产品套餐' AS "类型", 'package'::text AS "产品引用类型",
+              p.list_price AS "单价", NULL::text AS unit_name, NULL::text AS category_code, NULL::text AS product_type_code
+            FROM catalog.product_packages p
+            WHERE p.id::text = ANY($1) OR p.v2_source_id = ANY($1) OR p.package_code = ANY($1)
             `,
             [ids],
           )
         : { rows: [] };
-    const items = rows.rows.map((项) => {
+    const 硬件数量 = new Map<string, number>();
+    for (const 行 of rows.rows) {
+      if (行.产品引用类型 !== "hardware") continue;
+      const 输入项 = hardwareItems.find((项) =>
+        [行.id, 行.v2_source_id, 行.business_code].filter(Boolean).includes(项.productId),
+      );
+      if (!输入项) continue;
+      if (硬件数量.has(行.id))
+        throw new 应用错误("V3_QUOTE_HARDWARE_DUPLICATED", "同一硬件型号不能重复提交。", 400);
+      硬件数量.set(行.id, 输入项.quantity);
+    }
+    const 逐项数量 = 读取逐项数量输入(输入);
+    const items: 报价试算结果["items"] = rows.rows.map((项) => {
       const 单价 = Number(项.单价) || 0;
-      const 数量 = String(项.unit_name || "").includes("端点") ? endpoints : 1;
+      const 数量 =
+        硬件数量.get(项.id) ??
+        取逐项数量(项, 逐项数量) ??
+        (String(项.unit_name || "").includes("端点") ? endpoints : 1);
+      const itemTypeCode = (
+        项.产品引用类型 === "hardware"
+          ? "hardware"
+          : 项.category_code === "CAT-MAINTENANCE" || 项.product_type_code === "service"
+            ? "service"
+            : 项.product_type_code === "software"
+              ? "software"
+              : "unknown"
+      ) as "software" | "hardware" | "service" | "unknown";
       return {
         id: 项.id,
         名称: 项.名称,
         类型: 项.类型,
         产品引用类型: 项.产品引用类型,
+        itemTypeCode,
         数量,
         单价,
+        publicUnitPrice: 单价,
         小计: 单价 * 数量,
+        extraJson: {
+          ...(项.产品引用类型 === "hardware"
+            ? { hardwareQuantityVersion: "hardware-items-v1" }
+            : {}),
+          pricingBasis: {
+            catalogId: 项.id,
+            catalogCode: 项.business_code || 项.v2_source_id || 项.id,
+            catalogUnitPrice: 单价,
+            quantity: 数量,
+          },
+        },
       };
     });
-    const total =
-      读取数字(输入, ["total", "金额"], 0) || items.reduce((合计, 项) => 合计 + 项.小计, 0);
+    const 定价上下文 = await this.解析试算定价上下文(输入);
+    const 渠道价格参考 = { 标准价: 0, 区域覆盖价: 0, 一级: 0, 二级: 0 };
+    for (const 项目 of items) {
+      if (!项目.产品引用类型) continue;
+      const 产品配置 = await 读取产品定价配置(this.pool, 项目.产品引用类型, 项目.id);
+      if (!产品配置) continue;
+      const 定价明细 = 计算产品定价明细(产品配置, 项目.数量, 定价上下文);
+      项目.定价明细 = 定价明细;
+      项目.extraJson = {
+        ...(项目.extraJson || {}),
+        pricingBreakdown: 定价明细,
+      };
+      if (定价明细.最终单价 > 0) {
+        项目.单价 = 定价明细.最终单价;
+        项目.publicUnitPrice = 定价明细.最终单价;
+        项目.小计 = Math.round(定价明细.最终单价 * 项目.数量 * 100) / 100;
+      }
+      渠道价格参考.标准价 += 定价明细.标准单价 * 项目.数量;
+      渠道价格参考.区域覆盖价 += (定价明细.区域覆盖单价 ?? 定价明细.标准单价) * 项目.数量;
+      渠道价格参考.一级 +=
+        计算产品定价明细(产品配置, 项目.数量, { region: 定价上下文.region ?? "", partnerLevel: "primary" }).最终单价 *
+        项目.数量;
+      渠道价格参考.二级 +=
+        计算产品定价明细(产品配置, 项目.数量, { region: 定价上下文.region ?? "", partnerLevel: "secondary" }).最终单价 *
+        项目.数量;
+    }
+    const total = Math.round(items.reduce((合计, 项) => 合计 + 项.小计, 0) * 100) / 100;
     const 工作量 = await this.计算数据库工作量(ids, endpoints);
+    const 渠道层级 = String(定价上下文.partnerLevel ?? "");
     return {
       endpoints,
       productIds,
       hardwareIds,
+      hardwareItems,
       items,
       total,
       workloadDays: 工作量.workloadDays,
       workloadSummary: 工作量.workloadSummary,
+      定价上下文: {
+        区域: String(定价上下文.region ?? ""),
+        渠道层级,
+        渠道层级名称: 渠道层级 === "primary" ? "一级渠道商" : 渠道层级 === "secondary" ? "二级渠道商" : "无分销等级",
+        等级价系数: 渠道层级 === "primary" ? 100 : 渠道层级 === "secondary" ? 110 : null,
+      },
+      渠道价格参考: {
+        标准价: Math.round(渠道价格参考.标准价 * 100) / 100,
+        区域覆盖价: Math.round(渠道价格参考.区域覆盖价 * 100) / 100,
+        一级: Math.round(渠道价格参考.一级 * 100) / 100,
+        二级: Math.round(渠道价格参考.二级 * 100) / 100,
+      },
     };
+  }
+
+  /** 试算预览与创建/更新报价保持同一取价口径：区域覆盖价 → 渠道等级价 → 阶梯价 → 固定价。 */
+  private async 解析试算定价上下文(
+    输入: Record<string, unknown>,
+  ): Promise<订单重提定价上下文> {
+    const 上下文: 订单重提定价上下文 = {
+      region: 读取文本(输入, ["region", "区域"], ""),
+    };
+    const 商机编号 = 读取文本(输入, ["opportunityId", "oppId", "商机编号"], "");
+    if (!商机编号) return 上下文;
+    const result = await this.pool.query<{
+      partner_level_code: string | null;
+      partner_extra_json: Record<string, unknown> | null;
+      region_name: string | null;
+    }>(
+      `
+      SELECT p.partner_level_code, p.extra_json AS partner_extra_json,
+        COALESCE(reg.region_name, p.extra_json->>'region', '') AS region_name
+      FROM crm.opportunities o
+      LEFT JOIN channel.partners p ON p.id = o.partner_id
+      LEFT JOIN org.regions reg ON reg.id = p.region_id
+      WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.opportunity_no = $1
+      LIMIT 1
+      `,
+      [商机编号],
+    );
+    const 行 = result.rows[0];
+    if (!行) return 上下文;
+    const 渠道扩展 = 行.partner_extra_json || {};
+    上下文.partnerLevel =
+      行.partner_level_code && 行.partner_level_code !== "none"
+        ? 行.partner_level_code
+        : 读取文本(渠道扩展, ["partnerLevel", "level"], "");
+    上下文.region = 上下文.region || 行.region_name || "";
+    return 上下文;
   }
 
   public async 创建报价(
@@ -2767,10 +3054,11 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         owner_username: string | null;
         status_code: string;
         stage_code: string;
+        opportunity_region_id: string | null;
       }>(
         `
         SELECT o.id, o.customer_id, o.partner_id, o.owner_user_id, u.username::text AS owner_username,
-          o.status_code, o.stage_code
+          o.status_code, o.stage_code, o.region_id::text AS opportunity_region_id
         FROM crm.opportunities o
         LEFT JOIN iam.users u ON u.id = o.owner_user_id
         WHERE o.id::text = $1 OR o.v2_source_id = $1 OR o.opportunity_no = $1
@@ -2787,13 +3075,15 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         );
       }
       const 试算 = await this.试算报价(输入);
+      let 报价区域编号 = 商机?.opportunity_region_id || null;
       if (商机?.partner_id && 试算.items.length) {
         const 渠道结果 = await client.query<{
           partner_level_code: string | null;
           extra_json: Record<string, unknown> | null;
+          region_id: string | null;
           region_name: string | null;
         }>(
-          `SELECT p.partner_level_code, p.extra_json,
+          `SELECT p.partner_level_code, p.extra_json, p.region_id::text AS region_id,
              COALESCE(reg.region_name, p.extra_json->>'region', '') AS region_name
            FROM channel.partners p
            LEFT JOIN org.regions reg ON reg.id = p.region_id
@@ -2802,6 +3092,18 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         );
         const 渠道 = 渠道结果.rows[0];
         const 渠道扩展 = 渠道?.extra_json || {};
+        if (
+          商机.opportunity_region_id &&
+          渠道?.region_id &&
+          商机.opportunity_region_id !== 渠道.region_id
+        ) {
+          throw new 应用错误(
+            "V3_QUOTE_REGION_CONFLICT",
+            "商机区域与渠道商正式区域不一致，请先处理区域归属后再创建报价。",
+            409,
+          );
+        }
+        if (!报价区域编号 && 渠道?.region_id) 报价区域编号 = 渠道.region_id;
         const 定价上下文: 订单重提定价上下文 = {
           partnerLevel:
             渠道?.partner_level_code && 渠道.partner_level_code !== "none"
@@ -2809,38 +3111,18 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
               : 读取文本(渠道扩展, ["partnerLevel", "level"], ""),
           region: 读取文本(输入, ["region", "区域"], "") || 渠道?.region_name || "",
         };
-        for (const 项目 of 试算.items) {
-          if (!项目.产品引用类型) continue;
-          项目.单价 = await 查询修订产品单价(
-            client,
-            项目.产品引用类型,
-            项目.id,
-            项目.数量,
-            定价上下文,
-          );
-          项目.小计 = Math.round(项目.单价 * 项目.数量 * 100) / 100;
-        }
-        const 计算总额 = 计算订单修订金额(
-          试算.items.map((项目) => ({
-            itemName: 项目.名称,
-            quantity: 项目.数量,
-            unitPrice: 项目.单价,
-            lineAmount: 项目.小计,
-            productRefType: 项目.产品引用类型 || "manual",
-            productRefId: 项目.id,
-          })),
-        );
-        if (计算总额 > 0) 试算.total = 计算总额;
+        试算.total = await 应用渠道定价到报价明细(client, 试算.items, 定价上下文);
       }
+      校验报价金额一致(试算.total, 试算.items);
       const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 商机?.owner_username);
       const 报价编号 = await 生成业务编号(client, "quote", 提报账号);
       const result = await client.query<{ id: string }>(
         `
         INSERT INTO crm.quotes (
-          quote_no, opportunity_id, customer_id, partner_id, owner_user_id, status_code,
+          quote_no, opportunity_id, customer_id, partner_id, owner_user_id, region_id, status_code,
           total_amount, discount_amount, created_at, updated_at, extra_json
         )
-        VALUES ($1, $2, $3, $4, $5, 'draft', $6, 0, now(), now(), $7::jsonb)
+        VALUES ($1, $2, $3, $4, $5, $6::uuid, 'draft', $7, 0, now(), now(), $8::jsonb)
         RETURNING id
         `,
         [
@@ -2849,6 +3131,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           商机?.customer_id || null,
           商机?.partner_id || null,
           商机?.owner_user_id || null,
+          报价区域编号,
           试算.total,
           JSON.stringify({
             ...输入,
@@ -2865,9 +3148,10 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         await client.query(
           `
           INSERT INTO crm.quote_items (
-            quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount
+            quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount,
+            item_type_code, extra_json
           )
-          VALUES ($1, $2, $3::uuid, $4, $5, $6, $7)
+          VALUES ($1, $2, $3::uuid, $4, $5, $6, $7, $8, $9::jsonb)
           `,
           [
             id,
@@ -2877,6 +3161,8 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             item.数量,
             item.单价,
             item.小计,
+            item.itemTypeCode || "unknown",
+            JSON.stringify(item.extraJson || {}),
           ],
         );
       }
@@ -2938,22 +3224,93 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     用户: 当前业务用户 | null,
   ): Promise<阶段9记录> {
     const 试算 = await this.试算报价(输入);
-    await this.pool.query(
-      `
-      UPDATE crm.quotes
-      SET total_amount = $2, updated_at = now(), row_version = row_version + 1, extra_json = extra_json || $3::jsonb
-      WHERE id::text = $1 OR v2_source_id = $1 OR quote_no = $1
-      `,
-      [
-        id,
-        试算.total,
-        JSON.stringify({
-          total: 试算.total,
-          workloadSnapshot: 试算,
-          updatedByName: 用户?.displayName || "阶段9测试账号",
-        }),
-      ],
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const 报价结果 = await client.query<{
+        id: string;
+        partner_id: string | null;
+        partner_level_code: string | null;
+        region_name: string | null;
+        status_code: string | null;
+      }>(
+        `SELECT q.id::text AS id,
+                q.partner_id::text AS partner_id,
+                q.status_code,
+                COALESCE(NULLIF(NULLIF(p.partner_level_code, 'none'), ''), p.extra_json->>'partnerLevel', p.extra_json->>'level', '') AS partner_level_code,
+                COALESCE(q.extra_json->>'region', reg.region_name, p.extra_json->>'region', '') AS region_name
+           FROM crm.quotes q
+           LEFT JOIN channel.partners p ON p.id = q.partner_id
+           LEFT JOIN org.regions reg ON reg.id = p.region_id
+          WHERE q.id::text = $1 OR q.v2_source_id = $1 OR q.quote_no = $1
+          FOR UPDATE OF q`,
+        [id],
+      );
+      const 报价 = 报价结果.rows[0];
+      if (!报价) throw new 应用错误("V3_QUOTE_NOT_FOUND", "报价单不存在。", 404);
+      if (["converted", "cancelled", "expired"].includes(报价.status_code || "")) {
+        throw new 应用错误(
+          "V3_QUOTE_EDIT_STATUS_FORBIDDEN",
+          "该报价已转订单或已终止，不能修改内容；如需调整请退回订单后走修订流程。",
+          409,
+        );
+      }
+      const 报价编号 = 报价.id;
+      if (报价.partner_id && 试算.items.length) {
+        试算.total = await 应用渠道定价到报价明细(client, 试算.items, {
+          partnerLevel: 报价.partner_level_code || "",
+          region: 读取文本(输入, ["region", "区域"], "") || 报价.region_name || "",
+        });
+      }
+      校验报价金额一致(试算.total, 试算.items);
+      await client.query(
+        `UPDATE crm.quotes
+         SET total_amount = $2, updated_at = now(), row_version = row_version + 1,
+             extra_json = extra_json || $3::jsonb
+         WHERE id = $1::uuid`,
+        [
+          报价编号,
+          试算.total,
+          JSON.stringify({
+            endpoints: 试算.endpoints,
+            productIds: 试算.productIds,
+            total: 试算.total,
+            hardwareItems: 试算.hardwareItems,
+            workloadSnapshot: 试算,
+            workloadSummary: 试算.workloadSummary,
+            updatedByName: 用户?.displayName || "阶段9测试账号",
+          }),
+        ],
+      );
+      await client.query("DELETE FROM crm.quote_items WHERE quote_id = $1::uuid", [报价编号]);
+      for (const [索引, 项目] of 试算.items.entries()) {
+        await client.query(
+          `INSERT INTO crm.quote_items (
+             quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount,
+             sort_order, item_type_code, extra_json
+           )
+           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10::jsonb)`,
+          [
+            报价编号,
+            项目.产品引用类型 || "manual",
+            项目.id || null,
+            项目.名称,
+            项目.数量,
+            项目.单价,
+            项目.小计,
+            索引,
+            项目.itemTypeCode || "unknown",
+            JSON.stringify(项目.extraJson || {}),
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
     return this.查询详情("quotes", id);
   }
 
@@ -2987,20 +3344,25 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const existing = await client.query<{ id: string }>(
+      const existing = await client.query<{ id: string; order_no: string | null }>(
         `
-        SELECT o.id::text AS id
+        SELECT o.id::text AS id, o.order_no
         FROM crm.orders o
         JOIN crm.quotes q ON q.id = o.quote_id
         WHERE q.id::text = $1 OR q.v2_source_id = $1 OR q.quote_no = $1
+        ORDER BY o.created_at DESC
         LIMIT 1
         `,
         [quoteId],
       );
       const 已有 = existing.rows[0];
       if (已有) {
-        await client.query("COMMIT");
-        return this.查询详情("orders", 已有.id);
+        await client.query("ROLLBACK");
+        throw new 应用错误(
+          "V3_QUOTE_ALREADY_CONVERTED",
+          `该报价已转为订单${已有.order_no ? `（订单号 ${已有.order_no}）` : ""}，不能重复转单，请到订单中心查看。`,
+          409,
+        );
       }
       const quote = await client.query<{
         id: string;
@@ -3017,6 +3379,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         owner_username: string | null;
         region_name: string | null;
         total_amount: string | number;
+        item_total: string | number;
         extra_json: Record<string, unknown> | null;
         parent_partner_id: string | null;
         parent_partner_external_id: string | null;
@@ -3038,6 +3401,11 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           u.username::text AS owner_username,
           COALESCE(q.extra_json->>'region', reg.region_name, p.extra_json->>'region', '') AS region_name,
           q.total_amount,
+          COALESCE((
+            SELECT SUM(qi.line_amount)
+            FROM crm.quote_items qi
+            WHERE qi.quote_id = q.id
+          ), 0)::text AS item_total,
           q.extra_json,
           parent_rel.parent_partner_id,
           parent_rel.parent_partner_external_id,
@@ -3063,12 +3431,22 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         ) parent_rel ON true
         WHERE q.id::text = $1 OR q.v2_source_id = $1 OR q.quote_no = $1
         LIMIT 1
+        FOR UPDATE OF q
         `,
         [quoteId],
       );
       const 报价 = quote.rows[0];
       if (!报价)
         throw new 应用错误("V3_STAGE9_QUOTE_NOT_FOUND", "报价单不存在，不能创建订单。", 404);
+      const 报价金额 = Number(报价.total_amount) || 0;
+      const 报价明细金额 = Number(报价.item_total) || 0;
+      if (Math.abs(报价金额 - 报价明细金额) > 0.01) {
+        throw new 应用错误(
+          "V3_QUOTE_AMOUNT_MISMATCH",
+          `报价总额 ${报价金额.toFixed(2)} 与模块明细合计 ${报价明细金额.toFixed(2)} 不一致，请先修正报价单。`,
+          409,
+        );
+      }
       const 一级渠道 = await 解析订单一级渠道(client, {
         子渠道编号: 报价.partner_id,
         子渠道层级: 报价.partner_level_code || "",
@@ -3081,7 +3459,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const now = new Date().toISOString();
       const 提报账号 = 读取提报账号(当前用户上下文?.username, 用户?.username, 报价.owner_username);
       const 订单编号 = await 生成业务编号(client, "order", 提报账号);
-      const 金额 = Number(报价.total_amount) || 0;
+      const 金额 = 报价金额;
       const 操作人 = 用户?.displayName || "阶段9测试账号";
       const result = await client.query<{ id: string }>(
         `
@@ -3168,6 +3546,21 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       await 写入订单发件箱事件(client, id, "crm.order.approval.pending", {
         status: 初始状态,
         step: 初始状态 === "pending_primary_confirm" ? "primary_confirm" : "region_confirm",
+      });
+      await 写入审计日志(client, {
+        用户,
+        模块: "orders",
+        动作: "create_from_quote",
+        对象类型: "order",
+        对象编号: id,
+        对象名称: 订单编号,
+        结果: "success",
+        说明: `由报价「${报价.quote_no || 报价.id}」创建订单，提交${初始状态 === "pending_primary_confirm" ? "一级渠道商确认" : "区管确认"}。`,
+        变更后: {
+          status: 初始状态,
+          quoteId: 报价.id,
+          customerName: 报价.customer_name || "",
+        },
       });
       await client.query("COMMIT");
       return this.查询详情("orders", id, 用户);
@@ -3890,6 +4283,19 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         toStatus: 状态,
         priceAdjusted: 是否调价,
       });
+      const 订单编号文本 = 正式编号结果?.订单编号 || 订单.order_no || 订单.id;
+      await 写入审计日志(client, {
+        用户,
+        模块: "orders",
+        动作: 订单流转审计动作(状态, 是否调价),
+        对象类型: "order",
+        对象编号: 订单.id,
+        对象名称: 订单编号文本,
+        结果: "success",
+        说明: `订单「${订单编号文本}」状态由「${状态中文[订单.status_code] || 订单.status_code}」变更为「${状态中文[状态] || 状态}」${是否调价 ? "（区管调价）" : ""}${原因 ? `，原因：${原因}` : ""}。`,
+        变更前: { status: 订单.status_code },
+        变更后: { status: 状态, priceAdjusted: 是否调价 },
+      });
       await client.query("COMMIT");
       return this.查询详情("orders", 订单.id);
     } catch (error) {
@@ -4468,14 +4874,14 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       }
       失败阶段 = "issue_token";
       const ttl = 2 * 60 * 60;
-      const allowedResources = row.resources.length
-        ? row.resources
-        : 解析JSON数组(row.extra_json?.allowedResources);
+      const allowedResources = (
+        row.resources.length ? row.resources : 解析JSON数组(row.extra_json?.allowedResources)
+      ).filter((resource) => resource && resource !== "*");
       const accessToken = 签发开放接口访问令牌({
         clientId: row.client_id,
         clientName: row.client_name,
         appKey: row.client_code,
-        allowedResources: allowedResources.length ? allowedResources : ["*"],
+        allowedResources,
         boundUserId: row.bound_user_id || "",
         boundUserName: row.bound_user_name || "",
         ttl,
@@ -5030,7 +5436,9 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
   ): Promise<阶段9列表结果> {
     const offset = (查询.page - 1) * 查询.pageSize;
     const countSql = `SELECT COUNT(*)::text AS count FROM (${baseSql}) t`;
-    const listSql = `SELECT * FROM (${baseSql}) t ORDER BY "创建时间" DESC NULLS LAST LIMIT $${参数.length + 1} OFFSET $${参数.length + 2}`;
+    // 必须带唯一键兜底排序：V2 迁移数据存在大量同一 created_at 的并列行，
+    // 只按「创建时间」排序时 PostgreSQL 不保证跨页稳定，会出现翻页重复与记录遗漏。
+    const listSql = `SELECT * FROM (${baseSql}) t ORDER BY "创建时间" DESC NULLS LAST, "id" ASC LIMIT $${参数.length + 1} OFFSET $${参数.length + 2}`;
     const [countResult, listResult] = await Promise.all([
       this.pool.query<{ count: string }>(countSql, 参数),
       this.pool.query<SQL阶段9记录>(listSql, [...参数, 查询.pageSize, offset]),
@@ -5218,7 +5626,7 @@ function 规范开放接口状态(value: string): string {
 
 function 读取开放接口资源(输入: Record<string, unknown>): string[] {
   const resources = 读取文本数组(输入, ["allowedResources", "resources"]);
-  if (!resources.length || resources.includes("*")) return ["*"];
+  if (!resources.length || resources.includes("*")) return [];
   return Array.from(new Set(resources));
 }
 
@@ -5247,7 +5655,7 @@ async function 重写开放接口权限(
   await client.query("DELETE FROM integration.open_api_permissions WHERE client_id = $1::uuid", [
     clientId,
   ]);
-  for (const resource of resources.length ? resources : ["*"]) {
+  for (const resource of resources) {
     await client.query(
       `
       INSERT INTO integration.open_api_permissions (client_id, resource_code, action_code)
@@ -5492,14 +5900,59 @@ function 计算订单修订金额(明细: 订单修订明细项[]): number {
   return Math.round(明细.reduce((合计, 项目) => 合计 + 项目.lineAmount, 0) * 100) / 100;
 }
 
-async function 查询修订产品单价(
+async function 应用渠道定价到报价明细(
   client: PoolClient,
-  类型: "feature" | "hardware" | "package" | "manual",
-  编号: string,
-  数量: number,
-  定价上下文: 订单重提定价上下文 = {},
+  明细: 报价试算结果["items"],
+  定价上下文: 订单重提定价上下文,
 ): Promise<number> {
-  if (类型 === "manual" || !编号) return 0;
+  for (const 项目 of 明细) {
+    if (!项目.产品引用类型) continue;
+    项目.单价 = await 查询修订产品单价(client, 项目.产品引用类型, 项目.id, 项目.数量, 定价上下文);
+    项目.小计 = Math.round(项目.单价 * 项目.数量 * 100) / 100;
+  }
+  return 计算报价明细金额(明细);
+}
+
+function 计算报价明细金额(明细: 报价试算结果["items"]): number {
+  return Math.round(明细.reduce((合计, 项目) => 合计 + 项目.小计, 0) * 100) / 100;
+}
+
+function 校验报价金额一致(报价金额: number, 明细: 报价试算结果["items"]): void {
+  const 明细金额 = 计算报价明细金额(明细);
+  if (Math.abs(报价金额 - 明细金额) > 0.01) {
+    throw new 应用错误(
+      "V3_QUOTE_AMOUNT_MISMATCH",
+      `报价总额 ${报价金额.toFixed(2)} 与模块明细合计 ${明细金额.toFixed(2)} 不一致。`,
+      409,
+    );
+  }
+}
+
+/** 产品定价明细：原型「软件模块」表要求逐项展示 标准价 / 区域覆盖 / 渠道比例 / 最终单价。 */
+export interface 产品定价明细 {
+  /** 忽略区域覆盖与渠道等级的标准价（命中标准阶梯或固定价）。 */
+  标准单价: number;
+  /** 命中的区域覆盖价；未命中区域覆盖时为 null。 */
+  区域覆盖单价: number | null;
+  /** 命中的渠道等级比例（百分比）；无渠道等级时为 null。 */
+  渠道比例: number | null;
+  /** 实际采用的最终单价，与 查询修订产品单价 完全一致。 */
+  最终单价: number;
+  /** 命中的价格规则，用于「价格规则命中」说明。 */
+  命中说明: string[];
+}
+
+interface 产品定价配置行 {
+  list_price: string | number;
+  extra_json: Record<string, unknown> | null;
+}
+
+/** 一次读取产品行，供「最终价 + 三层级参考价」复用，避免重复查询。 */
+async function 读取产品定价配置(
+  client: Pick<PoolClient, "query">,
+  类型: "feature" | "hardware" | "package",
+  编号: string,
+): Promise<产品定价配置行 | null> {
   const 表 =
     类型 === "feature"
       ? "catalog.product_features"
@@ -5508,27 +5961,87 @@ async function 查询修订产品单价(
         : "catalog.product_packages";
   const 编号列 =
     类型 === "feature" ? "feature_code" : 类型 === "hardware" ? "hardware_code" : "package_code";
-  const result = await client.query<{
-    list_price: string | number;
-    extra_json: Record<string, unknown> | null;
-  }>(
+  const result = await client.query<产品定价配置行>(
     `SELECT list_price, extra_json FROM ${表}
      WHERE (id::text = $1 OR v2_source_id = $1 OR ${编号列} = $1)
        AND status_code = 'active' AND published = true
      LIMIT 1`,
     [编号],
   );
-  const 产品 = result.rows[0];
-  if (!产品) return 0;
+  return result.rows[0] || null;
+}
+
+type 阶梯命中结果 = {
+  价格: number;
+  档位: Record<string, unknown>;
+  越界: "above" | "below" | null;
+};
+
+/**
+ * 阶梯档位命中：区间命中优先；数量超出最高档沿用最高档、低于最低档沿用最低档。
+ * 老 UI 也是这种兜底口径（`find(...) || tiers[0] / tiers[last]`），
+ * 否则超出档位后单价会被算成 0，页面出现「没有价格」。
+ */
+function 命中阶梯(阶梯: unknown, 数量: number): 阶梯命中结果 | null {
+  if (!Array.isArray(阶梯)) return null;
+  const 有效档位 = 阶梯.filter(
+    (项): 项 is Record<string, unknown> => Boolean(项) && typeof 项 === "object",
+  );
+  if (!有效档位.length) return null;
+  const 命中 = 有效档位.find((记录) => {
+    const 最小值 = Number(记录.min ?? 0);
+    const 最大值 = Number(记录.max ?? Number.MAX_SAFE_INTEGER);
+    return 数量 >= 最小值 && 数量 <= 最大值;
+  });
+  if (命中) return { 价格: Number(命中.price) || 0, 档位: 命中, 越界: null };
+  const 按上界排序 = [...有效档位].sort(
+    (左, 右) =>
+      Number(左.max ?? Number.MAX_SAFE_INTEGER) - Number(右.max ?? Number.MAX_SAFE_INTEGER),
+  );
+  const 最低档 = 按上界排序[0] as Record<string, unknown>;
+  const 最高档 = 按上界排序[按上界排序.length - 1] as Record<string, unknown>;
+  const 越界 = 数量 > Number(最高档.max ?? Number.MAX_SAFE_INTEGER) ? "above" : "below";
+  const 兜底档 = 越界 === "above" ? 最高档 : 最低档;
+  return { 价格: Number(兜底档.price) || 0, 档位: 兜底档, 越界 };
+}
+
+/**
+ * 档位组是否含正价：整组档位全为 0（或空）视为「渠道专用价未配置」，
+ * 此时按老 UI buildChannelPrice 口径回退到「标准阶梯 × 渠道比例」，
+ * 避免专用价为 0 的产品在报价单里整单算成 0 元。
+ */
+function 档位含正价(阶梯: unknown): boolean {
+  if (!Array.isArray(阶梯)) return false;
+  return 阶梯.some((项) => Number((项 as Record<string, unknown> | null)?.price ?? 0) > 0);
+}
+
+/** 阶梯兜底说明：超出最高档 / 低于最低档时明确提示，避免用户看到「无价」。 */
+function 阶梯越界说明(命中: 阶梯命中结果 | null, 名称: string, 数量: number): string | null {
+  if (!命中 || !命中.越界) return null;
+  const 区间 = `${Number(命中.档位.min ?? 0)}-${Number(命中.档位.max ?? 0)}`;
+  return 命中.越界 === "above"
+    ? `数量 ${数量} 超出${名称}最高档（${区间}），按最高档 ¥ ${命中.价格} 计价`
+    : `数量 ${数量} 低于${名称}最低档（${区间}），按最低档 ¥ ${命中.价格} 计价`;
+}
+
+/**
+ * 按「区域覆盖价优先于标准阶梯价，再应用渠道比例」的单一口径计算产品定价明细。
+ * 与 查询修订产品单价 保持同一套规则，仅多返回命中过程，便于页面展示。
+ */
+function 计算产品定价明细(
+  产品: 产品定价配置行,
+  数量: number,
+  定价上下文: 订单重提定价上下文 = {},
+): 产品定价明细 {
   const 扩展 = 产品.extra_json || {};
+  const 区域 = String(定价上下文.region ?? "").trim();
   const 区域覆盖 = Array.isArray(扩展.regionPriceOverrides)
     ? (扩展.regionPriceOverrides.find((项) => {
-        if (!项 || typeof 项 !== "object" || !定价上下文.region) return false;
+        if (!项 || typeof 项 !== "object" || !区域) return false;
         const 记录 = 项 as Record<string, unknown>;
         if (记录.enabled === false) return false;
         return (
-          记录.region === 定价上下文.region ||
-          (Array.isArray(记录.regions) && 记录.regions.includes(定价上下文.region))
+          记录.region === 区域 || (Array.isArray(记录.regions) && 记录.regions.includes(区域))
         );
       }) as Record<string, unknown> | undefined)
     : undefined;
@@ -5559,37 +6072,116 @@ async function 查询修订产品单价(
       : 等级 === "secondary"
         ? (配置.priceRatioSecondary ?? 扩展.priceRatioSecondary ?? 110)
         : null;
+  const 比例数值 =
+    比例原始 === null || 比例原始 === undefined || 比例原始 === "" ? null : Number(比例原始);
   const 按比例阶梯 =
-    Array.isArray(基础阶梯) && Number.isFinite(Number(比例原始))
+    Array.isArray(基础阶梯) && 比例数值 !== null && Number.isFinite(比例数值)
       ? 基础阶梯.map((项) => {
           const 记录 = 项 as Record<string, unknown>;
-          return { ...记录, price: (Number(记录.price || 0) * Number(比例原始)) / 100 };
+          return { ...记录, price: (Number(记录.price || 0) * 比例数值) / 100 };
         })
       : [];
-  const 等级价格 =
-    等级价格原始 !== undefined && 等级价格原始 !== null
-      ? 等级价格原始
-      : 按比例阶梯.length
-        ? 按比例阶梯
-        : 等级 && Number.isFinite(Number(比例原始))
-          ? (固定价 * Number(比例原始)) / 100
+  // 等级专用价有效性：整组档位全 0（或标量 0）视为未配置，回退到按比例折算阶梯，
+  // 与老 UI buildChannelPrice 的折算口径一致，避免专用价缺失时单价算成 0。
+  const 等级专用价有效 =
+    等级价格原始 !== undefined &&
+    等级价格原始 !== null &&
+    (Array.isArray(等级价格原始)
+      ? 档位含正价(等级价格原始)
+      : Number.isFinite(Number(等级价格原始)) && Number(等级价格原始) > 0);
+  const 等级专用价无效 = 等级价格原始 !== undefined && 等级价格原始 !== null && !等级专用价有效;
+  const 等级价格 = 等级专用价有效
+    ? 等级价格原始
+    : 按比例阶梯.length
+      ? 按比例阶梯
+      : 等级 && 比例数值 !== null && Number.isFinite(比例数值)
+        ? (固定价 * 比例数值) / 100
+        : 等级专用价无效
+          ? 等级价格原始
           : undefined;
-  const 取阶梯价格 = (阶梯: unknown): number | null => {
-    if (!Array.isArray(阶梯)) return null;
-    const 命中 = 阶梯.find((项) => {
-      if (!项 || typeof 项 !== "object") return false;
-      const 记录 = 项 as Record<string, unknown>;
-      const 最小值 = Number(记录.min ?? 0);
-      const 最大值 = Number(记录.max ?? Number.MAX_SAFE_INTEGER);
-      return 数量 >= 最小值 && 数量 <= 最大值;
-    }) as Record<string, unknown> | undefined;
-    return 命中 ? Number(命中.price) || 0 : null;
-  };
-  if (Array.isArray(等级价格)) return 取阶梯价格(等级价格) ?? 0;
-  if (等级价格 !== undefined && 等级价格 !== null && Number.isFinite(Number(等级价格))) {
-    return Number(等级价格) || 0;
+  const 取阶梯价格 = (阶梯: unknown): number | null => 命中阶梯(阶梯, 数量)?.价格 ?? null;
+  const 等级阶梯命中 = Array.isArray(等级价格) ? 命中阶梯(等级价格, 数量) : null;
+  const 基础阶梯命中 = 命中阶梯(基础阶梯, 数量);
+  const 标准阶梯命中 = 命中阶梯(扩展.tiers, 数量);
+  const 区域阶梯命中 = 区域覆盖 ? 命中阶梯(配置.tiers, 数量) : null;
+  const 最终单价 = (() => {
+    if (Array.isArray(等级价格)) return 等级阶梯命中?.价格 ?? 0;
+    if (等级价格 !== undefined && 等级价格 !== null && Number.isFinite(Number(等级价格))) {
+      return Number(等级价格) || 0;
+    }
+    return 基础阶梯命中?.价格 ?? 固定价;
+  })();
+  const 标准阶梯 = Array.isArray(扩展.tiers) ? 扩展.tiers : [];
+  const 标准固定价 = Number(扩展.priceFixed ?? 产品.list_price) || 0;
+  const 标准单价 = 标准阶梯命中?.价格 ?? 标准固定价;
+  const 区域覆盖单价 = 区域覆盖
+    ? (区域阶梯命中?.价格 ??
+      (配置.priceFixed !== undefined && 配置.priceFixed !== null
+        ? Number(配置.priceFixed) || 0
+        : 标准单价))
+    : null;
+  const 命中说明: string[] = [];
+  for (const 说明 of [
+    阶梯越界说明(等级阶梯命中, "渠道等级价", 数量),
+    阶梯越界说明(区域阶梯命中, "区域覆盖阶梯", 数量),
+    阶梯越界说明(标准阶梯命中, "标准阶梯价", 数量),
+  ]) {
+    if (说明) 命中说明.push(说明);
   }
-  return 取阶梯价格(基础阶梯) ?? 固定价;
+  if (区域覆盖) {
+    命中说明.push(
+      `${区域}区域覆盖优先${区域覆盖单价 !== null ? `，区域单价 ¥ ${区域覆盖单价}` : ""}`,
+    );
+  } else {
+    命中说明.push(区域 ? `${区域}无区域覆盖，按标准阶梯价` : "未取得归属区域，按标准阶梯价");
+  }
+  if (标准单价 !== 最终单价 || 区域覆盖) {
+    命中说明.push(`标准价 ¥ ${标准单价}`);
+  }
+  if (等级 && 比例数值 !== null && Number.isFinite(比例数值)) {
+    命中说明.push(
+      `${等级 === "primary" ? "一级" : "二级"}渠道比例 ${比例数值}%${
+        等级专用价有效
+          ? "（命中等级专用价）"
+          : "（等级专用价未配置，按比例折算阶梯）"
+      }`,
+    );
+  } else if (等级专用价无效) {
+    命中说明.push("渠道等级专用价未配置有效价格");
+  } else {
+    命中说明.push("渠道无分销等级，不套用渠道比例");
+  }
+  return {
+    标准单价,
+    区域覆盖单价,
+    渠道比例: 等级 && 比例数值 !== null && Number.isFinite(比例数值) ? 比例数值 : null,
+    最终单价,
+    命中说明,
+  };
+}
+
+async function 解析产品定价明细(
+  client: Pick<PoolClient, "query">,
+  类型: "feature" | "hardware" | "package" | "manual",
+  编号: string,
+  数量: number,
+  定价上下文: 订单重提定价上下文 = {},
+): Promise<产品定价明细 | null> {
+  if (类型 === "manual" || !编号) return null;
+  const 产品 = await 读取产品定价配置(client, 类型, 编号);
+  if (!产品) return null;
+  return 计算产品定价明细(产品, 数量, 定价上下文);
+}
+
+async function 查询修订产品单价(
+  client: Pick<PoolClient, "query">,
+  类型: "feature" | "hardware" | "package" | "manual",
+  编号: string,
+  数量: number,
+  定价上下文: 订单重提定价上下文 = {},
+): Promise<number> {
+  const 明细 = await 解析产品定价明细(client, 类型, 编号, 数量, 定价上下文);
+  return 明细 ? 明细.最终单价 : 0;
 }
 
 async function 查询修订产品按名称(
@@ -5722,8 +6314,29 @@ async function 同步订单关联报价(
   await client.query(`DELETE FROM crm.quote_items WHERE quote_id = $1::uuid`, [报价.id]);
   for (const [索引, 项目] of 新明细.entries()) {
     await client.query(
-      `INSERT INTO crm.quote_items (quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount, sort_order)
-       VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8)`,
+      `INSERT INTO crm.quote_items (
+         quote_id, product_ref_type, product_ref_id, item_name, quantity, unit_price, line_amount, sort_order,
+         item_type_code, extra_json
+       )
+       VALUES (
+         $1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8,
+         CASE
+           WHEN $2='hardware' THEN 'hardware'
+           WHEN $2='feature' THEN COALESCE((
+             SELECT CASE
+               WHEN c.category_code='CAT-MAINTENANCE' OR c.product_type_code='service' THEN 'service'
+               WHEN c.product_type_code='software' THEN 'software'
+               ELSE 'unknown'
+             END
+             FROM catalog.product_features f
+             LEFT JOIN catalog.product_modules m ON m.id=f.module_id
+             LEFT JOIN catalog.product_categories c ON c.id=m.category_id
+             WHERE f.id=$3::uuid
+           ),'unknown')
+           ELSE 'unknown'
+         END,
+         CASE WHEN $2='hardware' THEN jsonb_build_object('hardwareQuantityVersion','hardware-items-v1') ELSE '{}'::jsonb END
+       )`,
       [
         报价.id,
         项目.productRefType || "manual",
@@ -6125,6 +6738,78 @@ function 数据范围表别名(模块: 阶段9模块): string {
   return "";
 }
 
+function 构建资源绑定范围条件(
+  模块: 阶段9模块,
+  用户: 业务用户上下文,
+  参数: unknown[],
+): string | null {
+  const resourceCode = 资源绑定代码(模块);
+  const alias = 数据范围表别名(模块);
+  if (!resourceCode || !alias) return null;
+  const bindings = 用户.scopeBindings.filter((binding) => binding.resourceCode === resourceCode);
+  if (!bindings.length) return null;
+  if (bindings.some((binding) => binding.scopeType === "all")) return "true";
+
+  const conditions = bindings.flatMap((binding) =>
+    构建单项绑定条件(模块, alias, binding, 用户, 参数),
+  );
+  return conditions.length ? `(${conditions.join(" OR ")})` : "false";
+}
+
+function 构建单项绑定条件(
+  模块: 阶段9模块,
+  alias: string,
+  binding: 资源数据范围绑定,
+  用户: 业务用户上下文,
+  参数: unknown[],
+): string[] {
+  if (binding.scopeType === "self") {
+    参数.push(用户.userId);
+    return [`${alias}.owner_user_id = $${参数.length}::uuid`];
+  }
+  if (binding.scopeType === "partner") {
+    if (!binding.scopeRefId) return [];
+    参数.push([binding.scopeRefId]);
+    return [`${alias}.partner_id = ANY($${参数.length}::uuid[])`];
+  }
+  if (binding.scopeType === "region") {
+    if (!binding.scopeRefId) return [];
+    if (模块 === "quotes" || 模块 === "orders") {
+      参数.push([binding.scopeRefId]);
+      return [
+        `EXISTS (
+          SELECT 1 FROM channel.partners p_scope
+          WHERE p_scope.id = ${alias}.partner_id
+            AND p_scope.region_id = ANY($${参数.length}::uuid[])
+        )`,
+      ];
+    }
+    参数.push([binding.scopeRefId]);
+    return [`${alias}.region_id = ANY($${参数.length}::uuid[])`];
+  }
+  if (binding.scopeType === "org_subtree") {
+    if (!binding.scopeRefId) return [];
+    参数.push([binding.scopeRefId]);
+    return [
+      `${alias}.owner_user_id IN (
+        SELECT assignment.user_id
+        FROM org.staff_assignments assignment
+        WHERE assignment.org_unit_id = ANY($${参数.length}::uuid[])
+          AND (assignment.expired_at IS NULL OR assignment.expired_at > now())
+      )`,
+    ];
+  }
+  return [];
+}
+
+function 资源绑定代码(模块: 阶段9模块): string {
+  if (模块 === "registrations") return "registration";
+  if (模块 === "opportunities") return "opportunity";
+  if (模块 === "quotes") return "quote";
+  if (模块 === "orders") return "order";
+  return "";
+}
+
 function 构建渠道区域关联条件(模块: 阶段9模块, 用户: 业务用户上下文, 参数: unknown[]): string {
   const alias = 模块 === "quotes" ? "q" : "o";
   if (用户.regionId) {
@@ -6338,7 +7023,7 @@ function 报价查询SQL(where: string): string {
         'assignedStaffId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffId', ''),
         'assignedStaffUserId', COALESCE(u.v2_source_id, u.username::text, q.owner_user_id::text, q.extra_json->>'assignedStaffUserId', ''),
         'assignedStaffName', COALESCE(u.display_name, q.extra_json->>'assignedStaffName', ''),
-        'regionId', COALESCE(p.region_id::text, ''),
+        'regionId', COALESCE(q.region_id::text, p.region_id::text, ''),
         'region', COALESCE(reg.region_name, q.extra_json->>'region', p.extra_json->>'region', ''),
         'opportunityUuid', COALESCE(related_opportunity.id::text, ''),
         'opportunityNo', COALESCE(related_opportunity.opportunity_no, related_opportunity.v2_source_id, related_opportunity.id::text, ''),
@@ -6346,6 +7031,7 @@ function 报价查询SQL(where: string): string {
         'registrationNo', COALESCE(report.registration_no, report.v2_source_id, report.id::text, ''),
         'quoteNo', COALESCE(q.quote_no, q.v2_source_id, q.id::text, ''),
         'items', COALESCE(quote_items.items, '[]'::jsonb),
+        'hardwareItems', COALESCE(quote_hardware.items, '[]'::jsonb),
         'workloadSummary', COALESCE(q.extra_json->'workloadSnapshot'->>'workloadSummary', q.extra_json->>'workloadSummary', ''),
         'standardPersonDays', COALESCE(q.extra_json->'workloadSnapshot'->>'workloadDays', q.extra_json->>'standardPersonDays', '')
       ) AS "原始数据"
@@ -6385,6 +7071,18 @@ function 报价查询SQL(where: string): string {
       LEFT JOIN catalog.product_categories category ON category.id = module.category_id
       WHERE qi.quote_id = q.id
     ) quote_items ON true
+    LEFT JOIN LATERAL (
+      SELECT jsonb_agg(
+        jsonb_build_object(
+          'productId', h.id::text,
+          'productCode', COALESCE(h.hardware_code, h.v2_source_id, h.id::text),
+          'quantity', qi.quantity::integer
+        ) ORDER BY qi.sort_order, qi.id
+      ) AS items
+      FROM crm.quote_items qi
+      JOIN catalog.hardware_products h ON h.id = qi.product_ref_id
+      WHERE qi.quote_id = q.id AND qi.product_ref_type = 'hardware'
+    ) quote_hardware ON true
     WHERE ${where}
   `;
 }
@@ -6756,6 +7454,52 @@ function 账号查询SQL(where: string): string {
   `;
 }
 
+/**
+ * 操作审计分类口径。
+ *
+ * 审计日志按 module_code 归集，历史数据中同一业务域存在单复数两套编码
+ * （如 opportunity / opportunities、order / orders），因此每个分类都
+ * 同时匹配已知编码；「后台管理操作」反向归集其余全部记录，
+ * 保证新增模块不会从审计分类里漏掉。
+ */
+const 审计分类模块代码: Record<string, string[]> = {
+  客户操作: ["registration", "registrations", "customer", "customers", "customer_followup"],
+  线索操作: ["lead", "leads", "lead_source", "lead_sources", "lead_pool", "lead_followup"],
+  商机操作: ["opportunity", "opportunities", "quote", "quotes", "quote_profit", "opportunity_report"],
+  渠道操作: [
+    "partner",
+    "partners",
+    "channel",
+    "channel_member",
+    "channel_account",
+    "partner_member",
+    "partner_profile",
+    "channel_profile",
+  ],
+  订单操作: ["order", "orders", "order_preapproval", "order_preapproval_request"],
+};
+
+export const 审计分类列表 = ["客户操作", "线索操作", "商机操作", "渠道操作", "订单操作", "后台管理操作"] as const;
+
+export type 审计分类 = (typeof 审计分类列表)[number];
+
+export function 读取审计分类模块代码(分类: string): string[] {
+  return 审计分类模块代码[分类] || [];
+}
+
+function 构建审计分类条件(分类: string, 参数: unknown[]): string {
+  // 「后台管理操作」= 除上述业务域以外的全部审计记录（含未识别模块）。
+  const 模块代码 =
+    分类 === "后台管理操作"
+      ? Object.values(审计分类模块代码).flat()
+      : 读取审计分类模块代码(分类);
+  if (!模块代码.length) return "";
+  参数.push(模块代码);
+  const 命中 = `LOWER(COALESCE("原始数据"->>'moduleCode', '')) = ANY($${参数.length}::text[])`;
+  if (分类 === "后台管理操作") return `NOT (${命中})`;
+  return 命中;
+}
+
 function 审计查询SQL(where: string): string {
   return `
     SELECT
@@ -6772,7 +7516,20 @@ function 审计查询SQL(where: string): string {
       0::numeric AS "金额",
       a.created_at AS "创建时间",
       a.created_at AS "更新时间",
-      COALESCE(a.extra_json, '{}'::jsonb) AS "原始数据"
+      COALESCE(a.extra_json, '{}'::jsonb)
+        || jsonb_strip_nulls(
+             jsonb_build_object(
+               'beforeJson', a.before_json,
+               'afterJson', a.after_json,
+               'moduleCode', a.module_code,
+               'actionCode', a.action_code,
+               'targetType', a.target_type,
+               'targetId', a.target_id,
+               'requestId', a.request_id,
+               'actorRole', a.actor_role,
+               'ip', host(a.ip)
+             )
+           ) AS "原始数据"
     FROM audit.audit_logs a
     WHERE ${where}
   `;
@@ -7560,6 +8317,43 @@ async function 同步订单审批链路(
     await 写入订单发件箱事件(client, 参数.订单编号, "crm.order.confirmed", {
       status: "confirmed",
     });
+    const 收益上下文 = await client.query<{
+      quote_id: string;
+      quote_row_version: number;
+      order_row_version: number;
+      approval_round: number;
+      revision_no: number;
+    }>(
+      `SELECT q.id::text AS quote_id,q.row_version::int AS quote_row_version,
+              o.row_version::int AS order_row_version,
+              COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
+              COALESCE(o.revision_no,0) AS revision_no
+       FROM crm.orders o
+       JOIN crm.quotes q ON q.id=o.quote_id
+       WHERE o.id=$1::uuid`,
+      [参数.订单编号],
+    );
+    const 收益 = 收益上下文.rows[0];
+    if (收益?.quote_id) {
+      await client.query(
+        `INSERT INTO ops.outbox_events(event_type,aggregate_type,aggregate_id,payload_json)
+         VALUES ('crm.quote.profit.freeze.requested','quote',$1::uuid,$2::jsonb)`,
+        [
+          收益.quote_id,
+          JSON.stringify({
+            orderId: 参数.订单编号,
+            quoteId: 收益.quote_id,
+            orderRowVersion: 收益.order_row_version,
+            quoteRowVersion: 收益.quote_row_version,
+            approvalRound: 收益.approval_round,
+            orderRevisionNo: 收益.revision_no,
+            confirmedAt: new Date().toISOString(),
+            eventCode: "profit_freeze_requested",
+            formulaVersion: "weidun-v1",
+          }),
+        ],
+      );
+    }
     return;
   }
   if (
@@ -7886,6 +8680,19 @@ function 订单状态默认原因(status: string, 是否调价: boolean): string
   if (status === "rejected") return "订单驳回";
   if (status === "cancelled") return "订单取消";
   return "订单状态流转";
+}
+
+/** 订单操作审计动作编码：与操作审计页「订单操作」分类配套，便于按动作检索。 */
+function 订单流转审计动作(新状态: string, 是否调价: boolean): string {
+  if (是否调价) return "price_adjust";
+  if (新状态 === "primary_confirmed") return "primary_confirm";
+  if (新状态 === "pending_superadmin_confirm") return "region_confirm";
+  if (新状态 === "confirmed") return "superadmin_confirm";
+  if (新状态 === "completed") return "complete";
+  if (新状态 === "cancelled") return "cancel";
+  if (新状态 === "primary_rejected" || 新状态 === "rejected") return "reject";
+  if (新状态.startsWith("returned_to_")) return "return";
+  return "status_change";
 }
 
 function 读取订单调整金额(输入: Record<string, unknown>): number | null {
@@ -8595,6 +9402,98 @@ function 读取布尔(来源: Record<string, unknown>, keys: string[], fallback:
   return fallback;
 }
 
+/**
+ * 逐项数量输入：支持 itemQuantities 映射（键可用产品 id / V2 编号 / 业务编码）
+ * 与 itemQuantitiesList 数组（[{ productId, quantity }]）两种写法。
+ * 缺省时保持原口径：硬件取显式数量，端点类按整单端点数，其余为 1。
+ */
+function 读取逐项数量输入(输入: Record<string, unknown>): Map<string, number> {
+  const 结果 = new Map<string, number>();
+  const 映射 = 输入.itemQuantities ?? 输入.quantities ?? 输入.模块数量;
+  if (映射 && typeof 映射 === "object" && !Array.isArray(映射)) {
+    for (const [键, 值] of Object.entries(映射 as Record<string, unknown>)) {
+      const 数值 = Math.floor(Number(值));
+      if (键 && Number.isFinite(数值) && 数值 > 0) 结果.set(键, 数值);
+    }
+  }
+  const 数组 = 输入.itemQuantitiesList ?? 输入.逐项数量;
+  if (Array.isArray(数组)) {
+    for (const 项 of 数组) {
+      if (!项 || typeof 项 !== "object") continue;
+      const 记录 = 项 as Record<string, unknown>;
+      const 键 = String(记录.productId ?? 记录.productRefId ?? 记录.id ?? 记录.编号 ?? "");
+      const 数值 = Math.floor(Number(记录.quantity ?? 记录.数量));
+      if (键 && Number.isFinite(数值) && 数值 > 0) 结果.set(键, 数值);
+    }
+  }
+  return 结果;
+}
+
+/** 按 id / V2 编号 / 业务编码匹配逐项数量，未指定返回 null。 */
+function 取逐项数量(
+  行: { id: string; v2_source_id: string | null; business_code: string | null },
+  映射: Map<string, number>,
+): number | null {
+  for (const 键 of [行.id, 行.v2_source_id, 行.business_code]) {
+    if (键 && 映射.has(键)) return 映射.get(键) as number;
+  }
+  return null;
+}
+
+function 规范硬件数量输入(来源: Record<string, unknown>): {
+  hardwareIds: string[];
+  hardwareItems: Array<{ productId: string; quantity: number }>;
+} {
+  const 原硬件编号 = 读取文本数组(来源, ["hardwareIds", "硬件编号"]);
+  const 原硬件数量 = 来源.hardwareItems;
+  const 新格式 = Array.isArray(原硬件数量)
+    ? 原硬件数量.map((项) => {
+        if (!项 || typeof 项 !== "object" || Array.isArray(项))
+          throw new 应用错误("V3_QUOTE_HARDWARE_INPUT_INVALID", "硬件明细格式不正确。", 400);
+        const 记录 = 项 as Record<string, unknown>;
+        const productId = 读取文本(记录, ["productId", "hardwareId", "id"], "");
+        const quantity = 读取数字(记录, ["quantity", "数量"], 0);
+        if (!productId) {
+          throw new 应用错误("V3_QUOTE_HARDWARE_INPUT_INVALID", "硬件明细缺少产品编号。", 400);
+        }
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 9_999) {
+          throw new 应用错误(
+            "V3_QUOTE_HARDWARE_QUANTITY_INVALID",
+            "硬件数量必须是1至9999之间的整数。",
+            400,
+          );
+        }
+        return { productId, quantity };
+      })
+    : [];
+  const 已见 = new Set<string>();
+  for (const 项 of 新格式) {
+    if (已见.has(项.productId))
+      throw new 应用错误("V3_QUOTE_HARDWARE_DUPLICATED", "同一硬件型号不能重复提交。", 400);
+    已见.add(项.productId);
+  }
+  if (new Set(原硬件编号).size !== 原硬件编号.length)
+    throw new 应用错误("V3_QUOTE_HARDWARE_DUPLICATED", "同一硬件型号不能重复提交。", 400);
+  if (新格式.length && 原硬件编号.length) {
+    const 旧映射 = new Map(原硬件编号.map((编号) => [编号, 1]));
+    const 内容一致 =
+      旧映射.size === 新格式.length &&
+      新格式.every((项) => 旧映射.get(项.productId) === 项.quantity);
+    if (!内容一致)
+      throw new 应用错误(
+        "V3_QUOTE_HARDWARE_INPUT_CONFLICT",
+        "hardwareIds与hardwareItems的硬件数量不一致。",
+        400,
+      );
+  }
+  return {
+    hardwareIds: 原硬件编号.length ? 原硬件编号 : 新格式.map((项) => 项.productId),
+    hardwareItems: 新格式.length
+      ? 新格式
+      : Array.from(new Set(原硬件编号)).map((productId) => ({ productId, quantity: 1 })),
+  };
+}
+
 function 读取文本数组(来源: Record<string, unknown>, keys: string[]): string[] {
   for (const key of keys) {
     const value = 来源[key];
@@ -8614,14 +9513,9 @@ function 读取产品单价(产品: Record<string, unknown>, endpoints: number):
   if (fixed > 0) return fixed;
   const tiers = 产品.tiers;
   if (Array.isArray(tiers)) {
-    const 命中 = tiers.find((项) => {
-      if (!项 || typeof 项 !== "object") return false;
-      const record = 项 as Record<string, unknown>;
-      const min = 读取数字(record, ["min"], 0);
-      const max = 读取数字(record, ["max"], Number.MAX_SAFE_INTEGER);
-      return endpoints >= min && endpoints <= max;
-    }) as Record<string, unknown> | undefined;
-    if (命中) return 读取数字(命中, ["price"], 0);
+    // 与 计算产品定价明细 同一口径：超出最高档沿用最高档，避免 0 价。
+    const 命中 = 命中阶梯(tiers, endpoints);
+    if (命中) return 命中.价格;
   }
   return 0;
 }
