@@ -62,6 +62,16 @@ function partnerFetch(url, options = {}) {
   });
 }
 
+// 业务接口 401：统一清理登录态并跳转统一登录入口（由 api-client.js 派发 api-auth-expired）
+window.addEventListener('api-auth-expired', () => {
+  localStorage.removeItem('partner_user_info');
+  localStorage.removeItem('partner_auth_token');
+  localStorage.removeItem('partner_api_user');
+  localStorage.removeItem('api_user');
+  store.user = null;
+  window.location.replace('/login');
+});
+
 // API 请求辅助函数（如果 api-client.js 已加载则复用）
 async function apiRequest(method, endpoint, body = null) {
   const options = {
@@ -243,6 +253,7 @@ function sumOpportunityAmount(list) {
   return (Array.isArray(list) ? list : []).reduce((sum, opp) => sum + toMoneyNumber(opp?.amount), 0);
 }
 function fmt(n) {
+  if (n === '/') return '/';
   if (!n && n !== 0) return '—';
   return '¥ ' + toMoneyNumber(n).toLocaleString('zh-CN');
 }
@@ -542,7 +553,7 @@ const LoginPage = {
         });
         
         if (res.error) {
-          errMsg.value = res.error;
+          errMsg.value = readApiErrorMessage(res, '登录失败，请稍后重试。');
           loading.value = false;
           return;
         }
@@ -1014,7 +1025,7 @@ const MainLayout = {
           alert('密码修改成功！');
           showChangePassword.value = false;
         } else {
-          passwordError.value = res.error || '修改失败';
+          passwordError.value = readApiErrorMessage(res, '修改失败');
         }
       } catch (err) {
         passwordError.value = '操作失败：' + err.message;
@@ -2173,7 +2184,7 @@ const RegistrationNew = {
           alert('报备提交成功！等待厂商审核。');
           router.push('/registration');
         } else {
-          alert('提交失败：' + (res.error || '未知错误'));
+          alert('提交失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('提交失败：' + err.message);
@@ -2967,7 +2978,7 @@ const QuoteList = {
           currentQuoteForOrder.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -3044,7 +3055,7 @@ const QuoteList = {
           parentPartnersList.value = [];
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -3106,7 +3117,7 @@ const QuoteList = {
           if (idx !== -1) store.quotes.splice(idx, 1);
           detail.value = null;
         } else {
-          alert('删除失败：' + (result.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) { alert('删除失败'); }
     }
@@ -4636,8 +4647,10 @@ const QuoteNew = {
       form.validDays = quote.validDays || 30;
 
       const allIds = Array.isArray(quote.products) ? [...quote.products] : [];
-      let resolvedPackageId = quote.packageId || '';
-      if ((!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
+      // 明确为自定义报价时不回推套餐：子集匹配会把自定义功能误判成某个套餐（例如只含网络准入+桌面管理就算命中“远程办公”）
+      const isExplicitCustomQuote = quote.quoteMode === 'custom';
+      let resolvedPackageId = isExplicitCustomQuote ? '' : quote.packageId || '';
+      if (!isExplicitCustomQuote && (!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
         resolvedPackageId = findMatchingPackageId(allIds);
       }
       let resolvedMode = quote.quoteMode || '';
@@ -4743,7 +4756,7 @@ const QuoteNew = {
         if (result.success) {
           ipgQuotePreview.value = result.data || null;
         } else {
-          throw new Error(result.error || 'IPG参考价计算失败');
+          throw new Error(readApiErrorMessage(result, 'IPG参考价计算失败'));
         }
       } catch (err) {
         if (requestSeq !== ipgQuoteRequestSeq) return;
@@ -4804,7 +4817,7 @@ const QuoteNew = {
             alert('报价单已更新！');
             router.push('/quote');
           } else {
-            alert('更新失败：' + (result.error || '未知错误'));
+            alert('更新失败：' + (readApiErrorMessage(result, '未知错误')));
           }
           return;
         }
@@ -4858,7 +4871,7 @@ const QuoteNew = {
           alert(replaceId ? '报价单已重新生成！' : '报价单已生成！');
           router.push('/quote');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建报价单失败:', err);
@@ -5341,7 +5354,7 @@ const OrderList = {
           alert('已确认订单，等待区域管理员审批');
           await loadOrders();
         } else {
-          alert('确认失败：' + (res.error || '未知错误'));
+          alert('确认失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch(e) {
         alert('操作失败，请检查网络');
@@ -5371,7 +5384,7 @@ const OrderList = {
           alert('已驳回订单');
           await loadOrders();
         } else {
-          alert('驳回失败：' + (res.error || '未知错误'));
+          alert('驳回失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch(e) {
         alert('操作失败，请检查网络');
@@ -5637,7 +5650,7 @@ const OrderList = {
         const payload = { reason: revisionForm.value.reason.trim(), items };
         payload.newAmount = amount;
         const result = await apiClient.requestOrderRevision(detail.value.id, payload);
-        if (!result.success) { alert('提交失败：' + (result.error || '未知错误')); return; }
+        if (!result.success) { alert('提交失败：' + (readApiErrorMessage(result, '未知错误'))); return; }
         showRevisionModal.value = false;
         await loadOrders();
         const updated = store.orders.find(order => order.id === detail.value.id);
@@ -5655,7 +5668,7 @@ const OrderList = {
       resubmitSubmitting.value = true;
       try {
         const result = await apiClient.resubmitOrder(detail.value.id, { reason: resubmitForm.value.reason.trim(), newAmount: amount, items });
-        if (!result.success) { alert('重新提交失败：' + (result.error || '未知错误')); return; }
+        if (!result.success) { alert('重新提交失败：' + (readApiErrorMessage(result, '未知错误'))); return; }
         showResubmitModal.value = false;
         await loadOrders();
         const updated = store.orders.find(order => order.id === detail.value.id);
@@ -6653,7 +6666,7 @@ const Partners = {
             const idx = store.partners.findIndex(p => p.id === form.id);
             if (idx > -1) store.partners[idx] = { ...store.partners[idx], ...result.data };
           } else {
-            alert('更新渠道商失败：' + (result.error || '未知错误'));
+            alert('更新渠道商失败：' + (readApiErrorMessage(result, '未知错误')));
           }
         } catch (err) {
           alert('更新渠道商失败：' + err.message);
@@ -6684,7 +6697,7 @@ const Partners = {
               });
             }
           } else {
-            alert('创建渠道商失败：' + (result.error || '未知错误'));
+            alert('创建渠道商失败：' + (readApiErrorMessage(result, '未知错误')));
           }
         } catch (err) {
           alert('创建渠道商失败：' + err.message);
@@ -7398,7 +7411,7 @@ const AccountManage = {
             const idx = store.adminAccounts.findIndex(a => a.id === form.id);
             if (idx > -1) Object.assign(store.adminAccounts[idx], result.data);
           } else {
-            alert('更新管理员失败：' + (result.error || '未知错误'));
+            alert('更新管理员失败：' + (readApiErrorMessage(result, '未知错误')));
           }
         } catch (err) {
           alert('更新管理员失败：' + err.message);
@@ -7423,7 +7436,7 @@ const AccountManage = {
           if (result.success) {
             store.adminAccounts.push(result.data);
           } else {
-            alert('创建管理员失败：' + (result.error || '未知错误'));
+            alert('创建管理员失败：' + (readApiErrorMessage(result, '未知错误')));
             return;
           }
         } catch (err) {
@@ -7440,7 +7453,7 @@ const AccountManage = {
         if (result.success) {
           a.status = newStatus;
         } else {
-          alert('更新状态失败：' + (result.error || '未知错误'));
+          alert('更新状态失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('更新状态失败：' + err.message);
@@ -7454,7 +7467,7 @@ const AccountManage = {
             const idx = store.adminAccounts.findIndex(x => x.id === a.id);
             if (idx > -1) store.adminAccounts.splice(idx, 1);
           } else {
-            alert('删除失败：' + (result.error || '未知错误'));
+            alert('删除失败：' + (readApiErrorMessage(result, '未知错误')));
           }
         } catch (err) {
           alert('删除失败：' + err.message);
@@ -7640,7 +7653,7 @@ const AdminReview = {
           r.approvedBy = result.data.approvedBy;
           store.notifications.unshift({ id:Date.now(), title:'报备审批通过', desc:`${r.customer} 已审批通过`, time:'刚刚', unread:true });
         } else {
-          alert('审批失败：' + (result.error || '未知错误'));
+          alert('审批失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -7652,7 +7665,7 @@ const AdminReview = {
         if (result.success) {
           r.status = 'rejected';
         } else {
-          alert('拒绝失败：' + (result.error || '未知错误'));
+          alert('拒绝失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -7669,7 +7682,7 @@ const AdminReview = {
           p.approvedBy = result.data.approvedBy;
           store.notifications.unshift({ id:Date.now(), title:'渠道商审批通过', desc:`${p.name} 已审批通过`, time:'刚刚', unread:true });
         } else {
-          alert('审批失败：' + (result.error || '未知错误'));
+          alert('审批失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -7681,7 +7694,7 @@ const AdminReview = {
         if (result.success) {
           p.status = 'rejected';
         } else {
-          alert('拒绝失败：' + (result.error || '未知错误'));
+          alert('拒绝失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -7696,7 +7709,7 @@ const AdminReview = {
           s.status = 'active';
           store.notifications.unshift({ id:Date.now(), title:'员工审批通过', desc:`${s.name} 已审批通过`, time:'刚刚', unread:true });
         } else {
-          alert('审批失败：' + (result.error || '未知错误'));
+          alert('审批失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -7708,7 +7721,7 @@ const AdminReview = {
         if (result.success) {
           s.status = 'rejected';
         } else {
-          alert('拒绝失败：' + (result.error || '未知错误'));
+          alert('拒绝失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -8523,7 +8536,7 @@ const OpportunityList = {
           editChangeReason.value = '';
           alert('保存成功');
         } else {
-          alert('保存失败：' + (result.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('保存预计签约时间失败:', err);
@@ -9052,7 +9065,7 @@ const OpportunityList = {
           showInlineQuote.value = false;
           alert('报价单已创建！');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建报价单失败:', err);
@@ -9106,7 +9119,7 @@ const OpportunityList = {
           const idx = store.opportunities.findIndex(x => x.id === d.id);
           if (idx !== -1) store.opportunities[idx].stage = newStage;
         } else {
-          alert('阶段更新失败：' + (result.error || '未知错误'));
+          alert('阶段更新失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('更新商机阶段失败:', err);
@@ -9206,7 +9219,7 @@ const OpportunityList = {
           detail.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('赢单转订单失败:', err);
@@ -9272,7 +9285,7 @@ const OpportunityList = {
           detail.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -9630,7 +9643,7 @@ const OpportunityNew = {
           alert('商机创建成功！');
           router.push('/opportunity');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建商机失败:', err);

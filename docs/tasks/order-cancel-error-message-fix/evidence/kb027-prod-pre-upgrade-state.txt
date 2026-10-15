@@ -1,0 +1,28 @@
+
+Authorized users only. All activities may be monitored and reported.
+=== 时间 ===
+2026-10-12 10:01:43 CST
+=== 版本三处 ===
+compose/.env: 3.0.0-stage10.20260929-quotefix1
+config/deploy.env: 3.0.0-stage10.20260929-quotefix1
+config/v3.env: 3.0.0-stage10.20260929-quotefix1
+=== 镜像摘要 ===
+nginx: lianruan-crm-v3-nginx:3.0.0-stage10.20260929-quotefix1 -> sha256:3ae5663d9d7d1f19c5e3b2903de7c65a9ed38e754267d92defbc56df8a101146
+api:  -> 
+worker: lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1 -> sha256:bebda51ff8c09f3c6e2791f2bfd63d48fcb2bffdc8357b778c3b8d003f39b43c
+mcp: lianruan-crm-v3-mcp:3.0.0-stage10.20260920-mcpdeploy1 -> sha256:2e1a0197b5752758f81b95d7f51575627db59ec0415dd98b2f855419d164a08f
+=== 容器启动时间 ===
+lianruan-crm-v3-nginx            running 2026-09-29T09:21:43.580506843Z
+lianruan-crm-v3-api-1            running 2026-09-29T09:21:37.113175497Z
+lianruan-crm-v3-api-2            running 2026-09-29T09:21:37.019408435Z
+lianruan-crm-v3-worker           running 2026-09-29T09:21:36.700275802Z
+lianruan-crm-v3-mcp              exited 2026-09-20T01:43:01.657969686Z
+=== 磁盘 ===
+40452468 KB 可用
+=== 服务中静态文件哈希（升级前）===
+73fb134a9337363124d5dc308ca961b88bb930527bbc6173cdc4a8bb2a1a8b60  admin-app.js
+82e39517f67f1761accb0ec0324bd1387cc3d76e778956a2bef7b972b34c9eee  partner-app.js
+87ec16d5f59cfa5fce233bf52860b71603af97804cc4c57d661f9304acfe9cf9  api-client.js
+d4366a88c858600879d3fac48d057d639fe590783ebda90bff27db448602958f  message-client.js
+da408366e0a9fb250a8baa80eb01b17b5ca42ac139e5125755b33ca364f26fe4  mobile-v2-api.js
+4756661e94e5063794630f5991f077e69b228ea5f376fb3dab375c8c20b12b68  partner-level-module.js

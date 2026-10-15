@@ -2,7 +2,9 @@ export {
   type 正式报价单数据,
   type 正式报价单明细,
   type 正式报价单明细类型,
+  type 收益核算表PDF数据,
   生成正式报价单PDF,
+  生成收益核算表PDF,
   生成订单预审采购内容,
   type 订单预审报价单,
 } from "@lianruan/shared";

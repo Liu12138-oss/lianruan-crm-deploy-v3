@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +13,7 @@ import {
   到期数据源目录,
   应用错误,
   生成正式报价单PDF,
+  生成收益核算表PDF,
   生成订单预审采购内容,
 } from "../src/index.js";
 
@@ -145,7 +147,14 @@ describe("统一提醒变量目录", () => {
 });
 
 describe("正式报价单 PDF", () => {
-  it("生成 A4 PDF 并固化中文字体、产品分组和金额汇总", () => {
+  /** 从二进制视角读取 PDF 流内容：起点为流数据首字节偏移。 */
+  function 读取PDF流(文本: string, 起点: number): Buffer {
+    const 终点 = 文本.indexOf("\nendstream", 起点);
+    if (起点 < 0 || 终点 < 0) throw new Error("未找到 PDF 流内容。");
+    return Buffer.from(文本.slice(起点, 终点), "binary");
+  }
+
+  it("生成 A4 PDF 并内嵌中文字体子集、产品分组和金额汇总", () => {
     const 内容 = 生成正式报价单PDF({
       订单编号: "LS-2026-0001",
       报价编号: "BJ-2026-0001",
@@ -162,17 +171,34 @@ describe("正式报价单 PDF", () => {
 
     const 文本 = 内容.toString("binary");
     expect(内容.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
-    expect(文本).toContain("/STSong-Light");
+    // 历史实现只引用未嵌入的 STSong-Light，阅读器缺字体时中文乱码，禁止回退到该写法。
+    expect(文本).not.toContain("/STSong-Light");
     expect(文本).toContain("/Helvetica");
     expect(文本).toContain("/Helvetica-Bold");
     expect(文本).toContain("xref");
     expect(文本).toContain("/MediaBox [0 0 595 842]");
-    expect(文本).toContain(
-      "终端管理许可"
-        .split("")
-        .map((字符) => Buffer.from(字符, "utf16le").swap16().toString("hex").toUpperCase())
-        .join(""),
+    expect(文本).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSerifSC-Regular/);
+    expect(文本).toContain("/Encoding /Identity-H");
+    expect(文本).toContain("/Subtype /CIDFontType0C");
+    expect(文本).toContain("/ToUnicode");
+
+    const 字体流标记 = "/Subtype /CIDFontType0C >>\nstream\n";
+    const 字体字节 = zlib.inflateSync(
+      读取PDF流(文本, 文本.indexOf(字体流标记) + 字体流标记.length),
     );
+    expect(字体字节.subarray(0, 2).toString("hex")).toBe("0100");
+    expect(字体字节.length).toBeGreaterThan(1000);
+
+    // 内嵌子集用字形编号绘制，中文靠 ToUnicode 映射回 Unicode，这里校验关键字可被检索。
+    const 字符映射表 = 读取PDF流(
+      文本,
+      文本.indexOf("/CIDInit /ProcSet findresource begin"),
+    ).toString("binary");
+    for (const 字符 of "终端管理许可") {
+      expect(字符映射表).toContain(
+        字符.codePointAt(0)!.toString(16).padStart(4, "0").toUpperCase(),
+      );
+    }
   });
 
   it("采购内容只输出软件产品和服务项明细", () => {
@@ -185,5 +211,51 @@ describe("正式报价单 PDF", () => {
     expect(内容).toContain("小计：¥54,000");
     expect(内容).toContain("服务项：");
     expect(内容).not.toContain("硬件网关");
+  });
+
+  it("收益核算表 PDF 包含总价口径、成本和项目收益", () => {
+    const 内容 = 生成收益核算表PDF({
+      订单编号: "LS-2026-0002",
+      报价编号: "BJ-2026-0002",
+      合同对方: "渠道商甲",
+      最终用户: "客户乙",
+      所属区域: "江苏区",
+      收益状态: "预审估算",
+      公式版本: "weidun-v2-total-input",
+      质保年限: 3,
+      采购维保年限: 0,
+      生成时间: "2026-09-23T00:00:00.000Z",
+      产品合同额: "6630.00",
+      服务合同额: "0.00",
+      硬件内部成本: "0.00",
+      硬件年度质保成本: "0.00",
+      硬件年度维保成本: "0.00",
+      产品税费: "331.500000",
+      服务税费: "0.000000",
+      质保成本: "0.000000",
+      采购维保成本: "0.000000",
+      合同有效收入: "6298.500000",
+      项目收益: "6298.500000",
+      硬件明细: [],
+      缺失说明: [],
+    });
+
+    const 文本 = 内容.toString("binary");
+    expect(内容.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
+    expect(文本).not.toContain("/STSong-Light");
+    expect(文本).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSerifSC-Regular/);
+    expect(文本).toContain("/Encoding /Identity-H");
+    expect(文本).toContain("/Subtype /CIDFontType0C");
+    expect(文本).toContain("/ToUnicode");
+    expect(文本).toContain("xref");
+    const 字符映射表 = 读取PDF流(
+      文本,
+      文本.indexOf("/CIDInit /ProcSet findresource begin"),
+    ).toString("binary");
+    for (const 字符 of "微盾产品收益核算表") {
+      expect(字符映射表).toContain(
+        字符.codePointAt(0)!.toString(16).padStart(4, "0").toUpperCase(),
+      );
+    }
   });
 });

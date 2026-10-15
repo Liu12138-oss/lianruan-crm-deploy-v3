@@ -11,11 +11,14 @@ import {
   订单预审外部错误,
 } from "./order-preapproval-eteams.js";
 import {
+  type 收益核算表PDF数据,
   type 正式报价单明细,
+  生成收益核算表PDF,
   生成正式报价单PDF,
   生成订单预审采购内容,
 } from "./order-preapproval-pdf.js";
 import { 企微订单预审群客户端, 解密订单预审企微应用凭据 } from "./order-preapproval-wecom.js";
+import { 计算订单收益表 } from "./quote-profit-calculation.js";
 
 const 订单预审事件代码 = "crm.order.preapproval.requested";
 const 最大自动重试次数 = 4;
@@ -72,7 +75,12 @@ interface 订单预审请求详情 {
   orderId: string;
   orderNo: string;
   orderStatus: string;
+  approvalRound: number;
+  orderRevisionNo: number;
+  quoteId: string;
   quoteNo: string;
+  quoteRowVersion: number;
+  priceAdjusted: boolean;
   quoteCreatedAt: string;
   quoteValidDays: string | null;
   quoteEndpoints: string | null;
@@ -204,7 +212,11 @@ export class 订单预审任务存储 {
     }
     this.校验订单仍可发起(请求);
     const 字段映射 = 校验订单预审字段映射(请求.fieldMapping);
-    const 采购内容 = 生成订单预审采购内容(转换为正式报价单明细(请求.items));
+    const 报价明细 = 转换为正式报价单明细(请求.items);
+    const 采购内容 = 生成订单预审采购内容(报价明细, true, {
+      模块金额显示为斜杠: 请求.priceAdjusted,
+      合计金额: 请求.totalAmount,
+    });
     const 发起人 = await this.读取唯一泛微身份(请求.regionManagerUserId);
     if (!请求.regionValue) {
       throw new 订单预审外部错误(
@@ -214,6 +226,7 @@ export class 订单预审任务存储 {
       );
     }
     const 报价单 = await this.读取或生成报价单(请求);
+    const 收益表 = await this.读取或生成收益表(请求);
     await this.记录调用(请求.requestId, "oa_upload_purchase", "started", { hasQuotePdf: true });
     const 采购订单附件 = await this.泛微客户端.上传报价单(
       发起人.externalSubject,
@@ -221,13 +234,13 @@ export class 订单预审任务存储 {
       报价单.content,
     );
     await this.记录调用(请求.requestId, "oa_upload_purchase", "accepted", { hasQuotePdf: true });
-    await this.记录调用(请求.requestId, "oa_upload_quote", "started", { hasQuotePdf: true });
-    const 报价附件 = await this.泛微客户端.上传报价单(
+    await this.记录调用(请求.requestId, "oa_upload_profit", "started", { hasProfitPdf: true });
+    const 收益表附件 = await this.泛微客户端.上传报价单(
       发起人.externalSubject,
-      报价单.fileName,
-      报价单.content,
+      收益表.fileName,
+      收益表.content,
     );
-    await this.记录调用(请求.requestId, "oa_upload_quote", "accepted", { hasQuotePdf: true });
+    await this.记录调用(请求.requestId, "oa_upload_profit", "accepted", { hasProfitPdf: true });
 
     await this.记录调用(请求.requestId, "oa_create", "started", {
       templateVersion: 请求.templateVersion,
@@ -243,7 +256,7 @@ export class 订单预审任务存储 {
       字段映射,
       采购内容,
       采购订单附件,
-      报价单附件: 报价附件,
+      收益表附件,
     });
     await this.记录流程编号(请求.requestId, 流程编号);
     await this.记录调用(请求.requestId, "oa_create", "accepted", { hasExternalRequestId: true });
@@ -266,7 +279,10 @@ export class 订单预审任务存储 {
       订单编号: 请求.orderNo,
       所属区域: 请求.regionValue,
       产品类型: 字段映射.productTypeValue,
-      采购内容: 生成订单预审采购内容(转换为正式报价单明细(请求.items)),
+      采购内容: 生成订单预审采购内容(转换为正式报价单明细(请求.items), true, {
+        模块金额显示为斜杠: 请求.priceAdjusted,
+        合计金额: 请求.totalAmount,
+      }),
     });
     await this.记录调用(请求.requestId, "oa_verify", "accepted", { hasExternalRequestId: true });
     await this.标记泛微已受理(请求);
@@ -308,7 +324,12 @@ export class 订单预审任务存储 {
       order_id: string;
       order_no: string;
       order_status: string;
+      approval_round: number;
+      order_revision_no: number;
+      quote_id: string | null;
       quote_no: string | null;
+      quote_row_version: number | null;
+      price_adjusted: boolean;
       quote_created_at: string | null;
       quote_valid_days: string | null;
       quote_endpoints: string | null;
@@ -332,7 +353,10 @@ export class 订单预审任务存储 {
     }>(
       `SELECT request.id::text AS request_id,request.status_code AS request_status,request.trigger_code,
               order_record.id::text AS order_id,COALESCE(order_record.order_no,order_record.id::text) AS order_no,
-              order_record.status_code AS order_status,COALESCE(quote.quote_no,quote.id::text) AS quote_no,
+              order_record.status_code AS order_status,request.approval_round,
+              COALESCE(order_record.revision_no,0) AS order_revision_no,quote.id::text AS quote_id,
+              COALESCE(quote.quote_no,quote.id::text) AS quote_no,quote.row_version::int AS quote_row_version,
+              COALESCE(quote.extra_json ? 'priceAdjustment',false) AS price_adjusted,
               to_char(quote.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS quote_created_at,
               COALESCE(quote.extra_json->>'validDays',quote.extra_json->>'validityDays') AS quote_valid_days,
               COALESCE(quote.extra_json->'workloadSnapshot'->>'endpoints',quote.extra_json->>'endpoints') AS quote_endpoints,
@@ -344,7 +368,7 @@ export class 订单预审任务存储 {
               request.template_snapshot_json->>'formId' AS form_id,
               request.template_snapshot_json->'fieldMapping' AS field_mapping,
               request.external_request_id,
-              COALESCE(items.items,'[]'::jsonb) AS items,COALESCE(quote.total_amount,order_record.total_amount)::text AS total_amount,
+              COALESCE(items.items,'[]'::jsonb) AS items,COALESCE(order_record.total_amount,quote.total_amount)::text AS total_amount,
               quote.extra_json->'workloadSnapshot'->>'workloadSummary' AS workload_summary,
               quote.extra_json->'workloadSnapshot'->>'workloadDays' AS standard_person_days
        FROM integration.order_preapproval_requests request
@@ -360,7 +384,8 @@ export class 订单预审任务存储 {
        LEFT JOIN LATERAL (
          SELECT jsonb_agg(jsonb_build_object(
            'name',quote_item.item_name,'quantity',quote_item.quantity::text,
-           'unitPrice',quote_item.unit_price::text,'lineAmount',quote_item.line_amount::text,
+           'unitPrice',CASE WHEN quote.extra_json ? 'priceAdjustment' THEN '/' ELSE quote_item.unit_price::text END,
+           'lineAmount',CASE WHEN quote.extra_json ? 'priceAdjustment' THEN '/' ELSE quote_item.line_amount::text END,
            'type',CASE
              WHEN quote_item.product_ref_type='hardware'
                OR quote_item.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN '硬件设备'
@@ -397,7 +422,12 @@ export class 订单预审任务存储 {
       orderId: 行.order_id,
       orderNo: 行.order_no,
       orderStatus: 行.order_status,
+      approvalRound: 行.approval_round,
+      orderRevisionNo: 行.order_revision_no,
+      quoteId: 行.quote_id || "",
       quoteNo: 行.quote_no || "",
+      quoteRowVersion: 行.quote_row_version || 0,
+      priceAdjusted: Boolean(行.price_adjusted),
       quoteCreatedAt: 行.quote_created_at || "",
       quoteValidDays: 行.quote_valid_days,
       quoteEndpoints: 行.quote_endpoints,
@@ -477,6 +507,106 @@ export class 订单预审任务存储 {
       ...(请求.quoteValidDays ? { 有效期: 请求.quoteValidDays } : {}),
       ...(请求.quoteEndpoints ? { 端点数量: 请求.quoteEndpoints } : {}),
     });
+    const 目录 = this.报价单目录();
+    const 存储路径 = path.join(目录, 请求.requestId, fileName);
+    await fs.mkdir(path.dirname(存储路径), { recursive: true });
+    await fs.writeFile(存储路径, content, { flag: "wx" }).catch(async (错误: unknown) => {
+      if ((错误 as NodeJS.ErrnoException).code !== "EEXIST") throw 错误;
+    });
+    const 实际内容 = await fs.readFile(存储路径);
+    const sha256 = crypto.createHash("sha256").update(实际内容).digest("hex");
+    await this.数据库连接池.query(
+      `INSERT INTO ops.files(file_key,original_name,mime_type,file_size,sha256,storage_path,owner_user_id)
+       VALUES($1,$2,'application/pdf',$3,$4,$5,$6::uuid) ON CONFLICT(file_key) DO NOTHING`,
+      [fileKey, fileName, 实际内容.length, sha256, 存储路径, 请求.regionManagerUserId],
+    );
+    return { fileName, content: 实际内容 };
+  }
+
+  private async 读取或生成收益表(
+    请求: 订单预审请求详情,
+  ): Promise<{ fileName: string; content: Buffer }> {
+    const fileKey = `order-preapproval-profit-sheet-pdf:${请求.requestId}:${请求.quoteRowVersion}:v2`;
+    const 已有 = await this.数据库连接池.query<{ original_name: string; storage_path: string }>(
+      "SELECT original_name,storage_path FROM ops.files WHERE file_key=$1",
+      [fileKey],
+    );
+    if (已有.rows[0]) {
+      const 路径 = this.校验报价单存储路径(已有.rows[0].storage_path);
+      return { fileName: 已有.rows[0].original_name, content: await fs.readFile(路径) };
+    }
+    const 已冻结收益 = await this.数据库连接池.query<{
+      status_code: string;
+      calculation_snapshot_json: Record<string, unknown>;
+    }>(
+      `SELECT status_code,calculation_snapshot_json
+       FROM crm.quote_profit_calculations
+       WHERE order_id=$1::uuid
+         AND approval_round=$2
+         AND order_revision_no=$3
+         AND status_code IN ('frozen','incomplete','not_applicable')
+       ORDER BY CASE WHEN status_code='frozen' THEN 0 ELSE 1 END,calculation_version DESC
+       LIMIT 1`,
+      [请求.orderId, 请求.approvalRound, 请求.orderRevisionNo],
+    );
+    const 收益 =
+      (已冻结收益.rows[0]?.calculation_snapshot_json as
+        Awaited<ReturnType<typeof 计算订单收益表>> | undefined) ||
+      (await 计算订单收益表(
+        this.数据库连接池,
+        请求.quoteId || 请求.quoteNo,
+        请求.totalAmount,
+        { warrantyYears: 3, procurementMaintenanceYears: 0 },
+        new Date().toISOString(),
+      ));
+    const 收益状态 =
+      收益.statusCode === "complete"
+        ? 请求.priceAdjusted
+          ? "调价预审估算"
+          : "订单预审估算"
+        : 收益.statusCode === "not_applicable"
+          ? "不适用"
+          : "核算不完整";
+    const 数据: 收益核算表PDF数据 = {
+      订单编号: 请求.orderNo,
+      报价编号: 请求.quoteNo,
+      合同对方: 请求.contractPartner,
+      最终用户: 请求.endUser,
+      所属区域: 请求.regionValue || "",
+      收益状态,
+      公式版本: 收益.formulaVersion,
+      质保年限: 收益.warrantyYears,
+      采购维保年限: 收益.procurementMaintenanceYears,
+      生成时间: new Date().toISOString(),
+      产品合同额: 收益.details.productContractAmount,
+      服务合同额: 收益.details.serviceContractAmount,
+      硬件内部成本: 收益.details.hardwareInternalCost,
+      硬件年度质保成本: 收益.details.hardwareAnnualWarrantyCost,
+      硬件年度维保成本: 收益.details.hardwareAnnualMaintenanceCost,
+      产品税费: 收益.details.productTaxAmount,
+      服务税费: 收益.details.serviceTaxAmount,
+      质保成本: 收益.details.warrantyCost,
+      采购维保成本: 收益.details.procurementMaintenanceCost,
+      合同有效收入: 收益.details.effectiveContractIncome,
+      项目收益: 收益.details.projectProfit,
+      硬件明细: 收益.hardwareLines.map((行) => ({
+        型号: 行.productId,
+        数量: String(行.quantity),
+        内部成本合计: 行.internalCostAmount,
+        年度成本合计:
+          行.annualWarrantyCostAmount === null && 行.annualMaintenanceCostAmount === null
+            ? null
+            : String(
+                (
+                  Number(行.annualWarrantyCostAmount || 0) +
+                  Number(行.annualMaintenanceCostAmount || 0)
+                ).toFixed(6),
+              ),
+      })),
+      缺失说明: 收益.missingRules.map((规则) => 规则.message),
+    };
+    const fileName = `渠道产品订单预审收益表-${规范文件片段(请求.orderNo)}.pdf`;
+    const content = 生成收益核算表PDF(数据);
     const 目录 = this.报价单目录();
     const 存储路径 = path.join(目录, 请求.requestId, fileName);
     await fs.mkdir(path.dirname(存储路径), { recursive: true });
@@ -717,6 +847,7 @@ export class 订单预审任务存储 {
     operationCode:
       | "oa_upload_purchase"
       | "oa_upload_quote"
+      | "oa_upload_profit"
       | "oa_create"
       | "oa_verify"
       | "wecom_group_create"

@@ -165,6 +165,19 @@
     }
   }
 
+  function readApiErrorMessage(value, fallback) {
+    if (typeof window.readApiErrorMessage === 'function') {
+      return window.readApiErrorMessage(value, fallback);
+    }
+    if (typeof value === 'string' && value.trim() && value.trim() !== '[object Object]') {
+      return value.trim();
+    }
+    if (value && typeof value === 'object') {
+      return value.message || value.error || value.msg || value.detail || fallback;
+    }
+    return fallback;
+  }
+
   async function request(path, options) {
     if (!isExperimentalEnabled()) {
       throw new MobileV2ApiError('移动端二期未开放，未发送请求', 'V2_DISABLED', 404);
@@ -208,7 +221,7 @@
 
       if (!response.ok || result.success === false) {
         throw new MobileV2ApiError(
-          result.error || result.message || `二期服务请求失败（${response.status}）`,
+          readApiErrorMessage(result, `二期服务请求失败（${response.status}）`),
           result.code || (response.status === 404 ? 'V2_SERVICE_NOT_READY' : 'V2_REQUEST_FAILED'),
           response.status
         );

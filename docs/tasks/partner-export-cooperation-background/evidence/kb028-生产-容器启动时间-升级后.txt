@@ -1,0 +1,25 @@
+=== 容器启动时间（升级后）===
+lianruan-crm-v3-api-1 2026-10-14T03:53:13.93948383Z
+lianruan-crm-v3-api-2 2026-10-14T03:53:22.86027149Z
+lianruan-crm-v3-nginx 2026-10-14T03:49:43.935089245Z
+lianruan-crm-v3-postgres 2026-09-02T05:50:55.364188293Z
+lianruan-crm-v3-redis-cache 2026-09-02T05:50:55.213036533Z
+lianruan-crm-v3-redis-state 2026-09-02T05:50:54.330171491Z
+lianruan-crm-v3-worker 2026-10-14T03:49:44.934405934Z
+lianruan-crm-v3-worker-message-critical 2026-10-14T03:49:45.423461912Z
+lianruan-crm-v3-worker-message-integration 2026-10-14T03:49:46.375445991Z
+lianruan-crm-v3-worker-message-maintenance 2026-10-14T03:49:45.881961821Z
+lianruan-crm-v3-worker-order-preapproval 2026-10-14T03:49:46.862606988Z
+
+=== 镜像标签（升级后）===
+/lianruan-crm-v3-api-1 lianruan-crm-v3-api:3.0.0-stage10.20261014-kb028
+/lianruan-crm-v3-api-2 lianruan-crm-v3-api:3.0.0-stage10.20261014-kb028
+/lianruan-crm-v3-nginx lianruan-crm-v3-nginx:3.0.0-stage10.20261012-kb027
+/lianruan-crm-v3-postgres postgres:16.4-alpine
+/lianruan-crm-v3-redis-cache redis:7.2.5-alpine
+/lianruan-crm-v3-redis-state redis:7.2.5-alpine
+/lianruan-crm-v3-worker lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1
+/lianruan-crm-v3-worker-message-critical lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1
+/lianruan-crm-v3-worker-message-integration lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1
+/lianruan-crm-v3-worker-message-maintenance lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1
+/lianruan-crm-v3-worker-order-preapproval lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1

@@ -1,0 +1,15 @@
+用例                  HTTP  Content-Type                                                       列数  总行数
+旧-渠道商-无参数      200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  39    292
+新-渠道商-无参数      200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  40    292
+旧-渠道商-旧界面参数  200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  39    292
+新-渠道商-旧界面参数  200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  40    292
+旧-客户报备           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  16    1
+新-客户报备           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  16    1
+旧-员工账号           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  12    177
+新-员工账号           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  12    177
+旧-商机               200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  19    79
+新-商机               200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  19    79
+旧-导入模板           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  31    2
+新-导入模板           200   application/vnd.openxmlformats-officedocument.spreadsheetml.sheet  31    2
+旧-非法类型           400   application/json                                                   -     -
+新-非法类型           400   application/json                                                   -     -

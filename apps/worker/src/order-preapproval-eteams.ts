@@ -31,7 +31,7 @@ export interface 订单预审流程数据 {
   字段映射: 订单预审字段映射;
   采购内容?: string;
   采购订单附件: 泛微上传文件;
-  报价单附件: 泛微上传文件;
+  收益表附件: 泛微上传文件;
 }
 
 export interface 泛微上传文件 {
@@ -264,7 +264,7 @@ export function 序列化订单预审创建载荷(数据: 订单预审流程数�
     构建文本字段(字段.productType.fieldId, 数据.字段映射.productTypeValue),
     构建文本字段(字段.purchaseContent.fieldId, 数据.采购内容 || 数据.字段映射.purchaseContentValue),
     构建附件字段(字段.purchaseAttachment.fieldId, 数据.采购订单附件),
-    构建附件字段(字段.quoteAttachment.fieldId, 数据.报价单附件),
+    构建附件字段(字段.quoteAttachment.fieldId, 数据.收益表附件),
   ];
   return [
     "{",

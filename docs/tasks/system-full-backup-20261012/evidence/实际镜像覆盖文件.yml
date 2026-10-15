@@ -1,0 +1,23 @@
+services:
+  nginx:
+    image: "lianruan-crm-v3-nginx:3.0.0-stage10.20261012-kb027"
+  api-1:
+    image: "lianruan-crm-v3-api:3.0.0-stage10.20260929-quotefix1"
+  api-2:
+    image: "lianruan-crm-v3-api:3.0.0-stage10.20260929-quotefix1"
+  worker:
+    image: "lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1"
+  worker-message-critical:
+    image: "lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1"
+  worker-message-maintenance:
+    image: "lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1"
+  worker-message-integration:
+    image: "lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1"
+  worker-order-preapproval:
+    image: "lianruan-crm-v3-worker:3.0.0-stage10.20260929-quotefix1"
+  postgres:
+    image: "postgres:16.4-alpine"
+  redis-state:
+    image: "redis:7.2.5-alpine"
+  redis-cache:
+    image: "redis:7.2.5-alpine"

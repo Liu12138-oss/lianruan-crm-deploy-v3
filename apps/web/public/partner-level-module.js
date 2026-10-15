@@ -8,6 +8,16 @@
  * 3. 二级渠道商订单确认流程
  */
 
+// 统一取消息：优先复用 api-client.js 暴露的实现，避免提示出现 [object Object]
+function 读取接口错误消息(value, fallback) {
+  if (typeof window.readApiErrorMessage === 'function') {
+    return window.readApiErrorMessage(value, fallback);
+  }
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value && typeof value === 'object') return value.message || value.error || value.msg || fallback;
+  return fallback;
+}
+
 // ============================================
 // 1. 分级报价工具函数
 // ============================================
@@ -283,7 +293,7 @@ const PARTNER_LEVEL_METHODS = {
         }
         alert('分销层级设置成功！');
       } else {
-        alert('设置失败：' + (result.error || '未知错误'));
+        alert('设置失败：' + 读取接口错误消息(result, '未知错误'));
       }
     } catch (err) {
       console.error('设置渠道分销层级失败:', err);
@@ -311,7 +321,7 @@ const PARTNER_LEVEL_METHODS = {
         }
         alert('绑定成功！');
       } else {
-        alert('绑定失败：' + (result.error || '未知错误'));
+        alert('绑定失败：' + 读取接口错误消息(result, '未知错误'));
       }
     } catch (err) {
       console.error('绑定上级渠道商失败:', err);
@@ -341,7 +351,7 @@ const PARTNER_LEVEL_METHODS = {
         }
         alert('解绑成功！');
       } else {
-        alert('解绑失败：' + (result.error || '未知错误'));
+        alert('解绑失败：' + 读取接口错误消息(result, '未知错误'));
       }
     } catch (err) {
       console.error('解绑失败:', err);
@@ -418,7 +428,7 @@ const SECONDARY_ORDER_METHODS = {
         }
         alert('订单已确认，等待区域管理员审批');
       } else {
-        alert('确认失败：' + (result.error || '未知错误'));
+        alert('确认失败：' + 读取接口错误消息(result, '未知错误'));
       }
     } catch (err) {
       console.error('确认订单失败:', err);
@@ -445,7 +455,7 @@ const SECONDARY_ORDER_METHODS = {
         }
         alert('订单已驳回');
       } else {
-        alert('驳回失败：' + (result.error || '未知错误'));
+        alert('驳回失败：' + 读取接口错误消息(result, '未知错误'));
       }
     } catch (err) {
       console.error('驳回订单失败:', err);

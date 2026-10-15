@@ -57,6 +57,30 @@ describe("微盾报价收益定点计算", () => {
     );
   });
 
+  it("区管调价后使用产品合同额计算收益，不再依赖模块折后金额", () => {
+    const 结果 = 计算微盾报价收益(
+      创建完整输入({
+        productContractAmount: "150000.00",
+        softwareItems: [
+          {
+            id: "微盾软件",
+            quantity: 1,
+            discountedUnitPrice: "1.00",
+            publicUnitPrice: "100000.00",
+            scopeCode: "weidun",
+          },
+        ],
+      }),
+    );
+
+    expect(结果.formulaVersion).toBe("weidun-v2-total-input");
+    expect(结果.complete).toBe(true);
+    expect(结果.details.productContractAmount).toBe("150000.000000");
+    expect(结果.details.productTaxAmount).toBe("6200.000000");
+    expect(结果.details.effectiveContractIncome).toBe("128960.000000");
+    expect(结果.details.projectProfit).toBe("125960.000000");
+  });
+
   it("质保一年和采购维保零年均计算为真正的零值", () => {
     const 结果 = 计算微盾报价收益(
       创建完整输入({ warrantyYears: 1, procurementMaintenanceYears: 0 }),

@@ -1,0 +1,12 @@
+备份格式版本=V3单机系统备份v2
+备份时间=2026-10-12 10:17:52 +0800
+安装目录=/opt/lianruan-crm-v3
+备份类型=manual
+系统归档=system.zip
+Redis归档=redis.zip
+数据库归档=database/postgres.dump
+Docker镜像归档=docker-images.tar
+实际容器镜像覆盖文件=metadata/actual-images.override.yml
+容器快照清单=metadata/container-snapshot.tsv
+镜像对账状态=存在不一致
+说明=系统归档不包含PostgreSQL原始目录、Redis原始目录、历史备份、运行日志和Docker运行时数据；前两者由独立一致性归档替代。备份后的原机恢复直接启动原容器，不重建容器且不访问镜像仓库；跨机器还原使用实际容器镜像覆盖文件并禁止拉取镜像。

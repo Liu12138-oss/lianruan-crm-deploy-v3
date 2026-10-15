@@ -111,11 +111,52 @@ function buildAuthHeaders(headers = {}) {
   return result;
 }
 
+// 统一错误提示取消息：兼容字符串、Error 与结构化错误对象（如 {error:{code,message}}），
+// 避免页面出现 "[object Object]"。
+function readApiErrorMessage(value, fallback = '未知错误') {
+  if (value === null || value === undefined) return fallback;
+  if (value instanceof Error) return readApiErrorMessage(value.message, fallback);
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text && text !== '[object Object]' ? text : fallback;
+  }
+  if (typeof value === 'object') {
+    return (
+      readApiErrorMessage(value.message, '') ||
+      readApiErrorMessage(value.error, '') ||
+      readApiErrorMessage(value.msg, '') ||
+      readApiErrorMessage(value.detail, '') ||
+      readApiErrorMessage(value.data?.error, '') ||
+      readApiErrorMessage(value.data?.message, '') ||
+      fallback
+    );
+  }
+  const text = String(value || '').trim();
+  return text && text !== '[object Object]' ? text : fallback;
+}
+
+// 登录与单点登录接口自身的 401 不触发会话失效处理
+function isAuthEntryRequest(url) {
+  return /\/auth\/login|\/sso\//.test(String(url || ''));
+}
+
+// 业务接口返回 401 时向页面派发会话失效事件，由各页面决定清理登录态并回到登录页
+const API_AUTH_EXPIRED_EVENT = 'api-auth-expired';
+
 function apiFetch(url, options = {}) {
   return window.fetch(url, {
     ...options,
     credentials: 'include',
     headers: buildAuthHeaders(options.headers || {})
+  }).then((res) => {
+    if (res.status === 401 && !isAuthEntryRequest(url)) {
+      try {
+        window.dispatchEvent(
+          new CustomEvent(API_AUTH_EXPIRED_EVENT, { detail: { url: String(url || '') } })
+        );
+      } catch (error) {}
+    }
+    return res;
   });
 }
 
@@ -128,7 +169,7 @@ const apiClient = {
       body: JSON.stringify({ username, password })
     });
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (data.error) throw new Error(readApiErrorMessage(data.error, '登录失败，请稍后重试。'));
     
     currentUser = data.user;
     authToken = data.token;
@@ -340,7 +381,7 @@ const apiClient = {
       let message = `报价单 PDF 下载失败（HTTP ${res.status}）。`;
       try {
         const data = text ? JSON.parse(text) : null;
-        message = data?.error?.message || data?.error || data?.message || message;
+        message = readApiErrorMessage(data, message);
       } catch (error) {
         if (text) message = text;
       }
@@ -833,3 +874,4 @@ const legacyStorage = {
 window.apiClient = apiClient;
 window.legacyStorage = legacyStorage;
 window.syncUser = syncUser;
+window.readApiErrorMessage = readApiErrorMessage;

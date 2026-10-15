@@ -22,7 +22,9 @@ COPY apps apps
 COPY packages packages
 RUN npm --workspace @lianruan/shared run build \
   && npm --workspace @lianruan/config run build \
+  && npm --workspace @lianruan/contracts run build \
   && npm --workspace @lianruan/testing run build \
+  && npm --workspace @lianruan/api run build \
   && npm --workspace @lianruan/worker run build
 
 FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS prod-deps
@@ -56,6 +58,7 @@ COPY --from=build /app/apps/worker/dist apps/worker/dist
 COPY --from=build /app/packages/config/dist packages/config/dist
 COPY --from=build /app/packages/contracts/dist packages/contracts/dist
 COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/assets packages/shared/assets
 COPY --from=build /app/packages/testing/dist packages/testing/dist
 
 USER node

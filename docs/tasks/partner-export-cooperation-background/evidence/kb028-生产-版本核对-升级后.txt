@@ -1,0 +1,5 @@
+=== 版本核对（升级后）===
+/opt/lianruan-crm-v3/compose/.env:V3_IMAGE_TAG=3.0.0-stage10.20261014-kb028
+/opt/lianruan-crm-v3/config/deploy.env:V3_IMAGE_TAG=3.0.0-stage10.20261014-kb028
+/opt/lianruan-crm-v3/config/v3.env:V3_BUILD_VERSION=3.0.0-stage10.20261014-kb028
+/opt/lianruan-crm-v3/config/v3.env:V3_BUILD_COMMIT=bab11f6-kb028

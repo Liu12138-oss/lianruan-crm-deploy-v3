@@ -146,12 +146,13 @@ export class 报价收益任务存储 {
       confirmed_at: string;
       approval_round: number;
       revision_no: number;
+      formula_version: string;
     }>(
       `SELECT DISTINCT ON (o.id)
           o.id::text AS order_id,q.id::text AS quote_id,
           COALESCE(h.changed_at,o.updated_at) AS confirmed_at,
           COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
-          COALESCE(o.revision_no,0) AS revision_no
+          COALESCE(o.revision_no,0) AS revision_no,p.formula_version
        FROM crm.quote_profit_calculations p
        JOIN crm.quotes q ON q.id=p.quote_id
        JOIN crm.orders o ON o.quote_id=q.id
@@ -182,7 +183,7 @@ export class 报价收益任务存储 {
             orderRevisionNo: 行.revision_no,
             confirmedAt: 行.confirmed_at,
             eventCode: "profit_freeze_requested",
-            formulaVersion: "weidun-v1",
+            formulaVersion: 行.formula_version,
           }),
         ],
       );
@@ -201,6 +202,10 @@ export class 报价收益任务存储 {
     approvalRound: number;
     revisionNo: number;
     orderStatus: string;
+    productContractAmount: string | null;
+    serviceContractAmount: string | null;
+    warrantyYears: number | null;
+    procurementMaintenanceYears: number | null;
   } | null> {
     const 结果 = await 执行器.query<{
       order_id: string;
@@ -210,11 +215,19 @@ export class 报价收益任务存储 {
       approval_round: number;
       revision_no: number;
       status_code: string;
+      product_contract_amount: string | null;
+      service_contract_amount: string | null;
+      warranty_years: number | null;
+      procurement_maintenance_years: number | null;
     }>(
       `SELECT o.id::text AS order_id,q.id::text AS quote_id,q.region_id::text AS region_id,
               o.total_amount::text AS total_amount,
               COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
-              COALESCE(o.revision_no,0) AS revision_no,o.status_code
+              COALESCE(o.revision_no,0) AS revision_no,o.status_code,
+              q.extra_json->'priceAdjustment'->>'productContractAmount' AS product_contract_amount,
+              q.extra_json->'priceAdjustment'->>'serviceContractAmount' AS service_contract_amount,
+              NULLIF(q.extra_json->'priceAdjustment'->>'warrantyYears','')::integer AS warranty_years,
+              NULLIF(q.extra_json->'priceAdjustment'->>'procurementMaintenanceYears','')::integer AS procurement_maintenance_years
        FROM crm.orders o JOIN crm.quotes q ON q.id=o.quote_id
        WHERE ($1 <> '' AND o.id::text=$1) OR ($1 = '' AND q.id::text=$2)
        ORDER BY o.created_at DESC LIMIT 1`,
@@ -230,6 +243,10 @@ export class 报价收益任务存储 {
           approvalRound: 行.approval_round,
           revisionNo: 行.revision_no,
           orderStatus: 行.status_code,
+          productContractAmount: 行.product_contract_amount,
+          serviceContractAmount: 行.service_contract_amount,
+          warrantyYears: 行.warranty_years,
+          procurementMaintenanceYears: 行.procurement_maintenance_years,
         }
       : null;
   }
@@ -293,6 +310,10 @@ export class 报价收益任务存储 {
       totalAmount: string;
       approvalRound: number;
       revisionNo: number;
+      productContractAmount: string | null;
+      serviceContractAmount: string | null;
+      warrantyYears: number | null;
+      procurementMaintenanceYears: number | null;
     },
     确认时间: string,
     年数: { warrantyYears: number; procurementMaintenanceYears: number },
@@ -329,6 +350,25 @@ export class 报价收益任务存储 {
         continue;
       }
       未知分类 = true;
+    }
+    if (订单.productContractAmount) {
+      软件明细.push({
+        id: "订单软件汇总",
+        quantity: "1",
+        discountedUnitPrice: "0",
+        publicUnitPrice: 软件公开金额.toFixed(6),
+        scopeCode: 未知分类 ? "unclassified" : "weidun",
+      });
+      return 计算微盾报价收益({
+        scopeCode: 未知分类 ? "unclassified" : "weidun",
+        softwareItems: 软件明细,
+        hardwareItems: 硬件明细,
+        productContractAmount: 订单.productContractAmount,
+        serviceContractAmount: 订单.serviceContractAmount || "0",
+        warrantyYears: 订单.warrantyYears ?? 年数.warrantyYears,
+        procurementMaintenanceYears:
+          订单.procurementMaintenanceYears ?? 年数.procurementMaintenanceYears,
+      });
     }
     const 软件折后金额 =
       Math.round((Number(订单.totalAmount) - 硬件金额 - 服务金额) * 1_000_000) / 1_000_000;
@@ -394,7 +434,7 @@ export class 报价收益任务存储 {
     const 结果 = await 执行器.query(
       `SELECT 1 FROM crm.quote_profit_calculations
        WHERE quote_id=$1::uuid AND approval_round=$2 AND order_revision_no=$3
-         AND formula_version='weidun-v1' AND status_code='frozen' LIMIT 1`,
+         AND formula_version IN ('weidun-v1','weidun-v2-total-input') AND status_code='frozen' LIMIT 1`,
       [quoteId, approvalRound, revisionNo],
     );
     return (结果.rowCount || 0) > 0;

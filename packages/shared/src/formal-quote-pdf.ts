@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
+
+import { openSync, type 字体子集, type 字体对象 } from "fontkit";
 
 export type 正式报价单明细类型 = "软件产品" | "硬件设备" | "服务项";
 
@@ -28,6 +32,37 @@ export interface 正式报价单数据 {
   报价状态?: string;
 }
 
+export interface 收益核算表PDF数据 {
+  订单编号?: string;
+  报价编号: string;
+  合同对方: string;
+  最终用户: string;
+  所属区域: string;
+  收益状态: string;
+  公式版本: string;
+  质保年限: number;
+  采购维保年限: number;
+  生成时间: string;
+  产品合同额: string | null;
+  服务合同额: string | null;
+  硬件内部成本: string | null;
+  硬件年度质保成本: string | null;
+  硬件年度维保成本: string | null;
+  产品税费: string | null;
+  服务税费: string | null;
+  质保成本: string | null;
+  采购维保成本: string | null;
+  合同有效收入: string | null;
+  项目收益: string | null;
+  硬件明细: Array<{
+    型号: string;
+    数量: string;
+    内部成本合计: string | null;
+    年度成本合计: string | null;
+  }>;
+  缺失说明: string[];
+}
+
 /** 兼容订单预审 Worker 的既有类型名。 */
 export type 订单预审报价单 = 正式报价单数据;
 
@@ -43,11 +78,45 @@ const 边框色 = "0.84 0.88 0.94";
 const 正文色 = "0.12 0.16 0.23";
 const 次要色 = "0.38 0.43 0.51";
 
+/** 内置中文字体路径，随包发布，运行期直接按路径读取。 */
+const 中文字体路径 = fileURLToPath(new URL("../assets/NotoSerifSC-Regular.otf", import.meta.url));
+const 中文字体基础名 = "NotoSerifSC-Regular";
+let 中文字体缓存: 字体对象 | null = null;
+
+function 取中文字体(): 字体对象 {
+  if (!中文字体缓存) 中文字体缓存 = openSync(中文字体路径);
+  return 中文字体缓存;
+}
+
+/** 单份 PDF 的中文字体子集上下文：按实际用字累积字形、宽度和 Unicode 映射。 */
+interface 嵌入中文字体 {
+  源字体: 字体对象;
+  子集: 字体子集;
+  宽度表: Map<number, number>;
+  字符表: Map<number, number>;
+}
+
+function 创建嵌入中文字体(): 嵌入中文字体 {
+  const 源字体 = 取中文字体();
+  return { 源字体, 子集: 源字体.createSubset(), 宽度表: new Map(), 字符表: new Map() };
+}
+
+function 编码中文字符(字体: 嵌入中文字体, 字符: string): { 编号: number; 宽度: number } {
+  const 码点 = 字符.codePointAt(0) ?? 0;
+  const 字形 = 字体.源字体.glyphForCodePoint(码点);
+  const 编号 = 字体.子集.includeGlyph(字形);
+  const 宽度 = (字形.advanceWidth / 字体.源字体.unitsPerEm) * 1000;
+  if (!字体.宽度表.has(编号)) 字体.宽度表.set(编号, Math.round(宽度));
+  if (!字体.字符表.has(编号)) 字体.字符表.set(编号, 码点);
+  return { 编号, 宽度 };
+}
+
 /**
  * 生成页面下载和 OA 附件共用的正式报价单 PDF。
  *
- * PDF 只使用 PDF 标准字体：中文使用 STSong-Light，英文和数字使用
- * Helvetica。两种字体按字符分段绘制，避免中文字体把英文和数字拉成全角间距。
+ * 中文使用随包内置的 Noto Serif SC（SIL OFL 1.1），生成时按实际用字做子集并嵌入 PDF，
+ * 英文和数字继续使用 PDF 标准字体 Helvetica。历史实现只引用未嵌入的 STSong-Light，
+ * 阅读器缺少 Adobe 中文字体时会显示乱码，因此改为内嵌字体。
  */
 export function 生成正式报价单PDF(报价单: 正式报价单数据): Buffer {
   const 明细 = 补齐默认明细(报价单.明细);
@@ -56,12 +125,97 @@ export function 生成正式报价单PDF(报价单: 正式报价单数据): Buff
     { 标题: "硬件设备", 数量列名: "数量", 数据: 明细.filter((项) => 项.类型 === "硬件设备") },
     { 标题: "服务项", 数量列名: "数量", 数据: 明细.filter((项) => 项.类型 === "服务项") },
   ].filter((项) => 项.数据.length > 0);
-  const 页面列表 = 创建页面内容(报价单, 分组);
-  return 生成PDF(页面列表, `${报价单.报价编号}:${报价单.生成时间}`);
+  const 字体 = 创建嵌入中文字体();
+  const 页面列表 = 创建页面内容(报价单, 分组, 字体);
+  return 生成PDF(页面列表, `${报价单.报价编号}:${报价单.生成时间}`, 字体);
+}
+
+/** 生成订单预审 OA 使用的收益核算表 PDF。 */
+export function 生成收益核算表PDF(数据: 收益核算表PDF数据): Buffer {
+  const 字体 = 创建嵌入中文字体();
+  const 页面列表: 页面内容[] = [];
+  let 当前页 = 创建收益空页面(字体);
+  let y = 202;
+  添加收益页眉(当前页, 数据);
+
+  const 换页 = () => {
+    页面列表.push(当前页);
+    当前页 = 创建收益空页面(字体);
+    y = 66;
+    添加收益续页标题(当前页, 数据);
+  };
+
+  y = 添加收益键值区(
+    当前页,
+    "收入口径",
+    [
+      ["产品合同额", 数据.产品合同额],
+      ["服务合同额", 数据.服务合同额],
+      ["合同有效收入", 数据.合同有效收入],
+      ["项目收益", 数据.项目收益],
+    ],
+    y,
+  );
+  y += 16;
+  y = 添加收益键值区(
+    当前页,
+    "成本与税费",
+    [
+      ["硬件内部成本", 数据.硬件内部成本],
+      ["硬件年度质保成本", 数据.硬件年度质保成本],
+      ["硬件年度维保成本", 数据.硬件年度维保成本],
+      ["产品税费", 数据.产品税费],
+      ["服务税费", 数据.服务税费],
+      ["质保成本", 数据.质保成本],
+      ["采购维保成本", 数据.采购维保成本],
+    ],
+    y,
+  );
+
+  if (数据.硬件明细.length) {
+    y += 18;
+    if (y + 58 > 790) {
+      换页();
+    }
+    y = 添加收益硬件表(当前页, 数据.硬件明细, y);
+  }
+
+  if (数据.缺失说明.length) {
+    y += 18;
+    if (y + 50 + Math.min(数据.缺失说明.length, 4) * 16 > 790) 换页();
+    填充矩形(
+      当前页,
+      左边距,
+      y,
+      内容宽度,
+      34 + Math.min(数据.缺失说明.length, 4) * 16,
+      "1 0.97 0.90",
+    );
+    添加文本(当前页, "核算说明", 左边距 + 12, y + 16, 10, "bold", "0.65 0.30 0.02");
+    数据.缺失说明.slice(0, 4).forEach((说明, 下标) => {
+      添加文本(
+        当前页,
+        截断文本(`• ${说明}`, 66),
+        左边距 + 12,
+        y + 34 + 下标 * 16,
+        8.5,
+        "regular",
+        "0.60 0.28 0.02",
+      );
+    });
+  }
+
+  添加收益页脚(当前页, y + (数据.缺失说明.length ? 60 : 34), 数据);
+  页面列表.push(当前页);
+  return 生成PDF(页面列表, `${数据.报价编号}:profit:${数据.生成时间}`, 字体);
 }
 
 /** 生成泛微 OA 的采购内容字段；硬件只在 PDF 附件中展示。 */
-export function 生成订单预审采购内容(明细: 正式报价单明细[], 是否补充标准质保 = true): string {
+export function 生成订单预审采购内容(
+  明细: 正式报价单明细[],
+  是否补充标准质保 = true,
+  选项: { 模块金额显示为斜杠?: boolean; 合计金额?: string } = {},
+): string {
   const 标准明细 = 补齐默认明细(明细, 是否补充标准质保);
   const 软件 = 标准明细.filter((项) => 项.类型 === "软件产品");
   const 服务 = 标准明细.filter((项) => 项.类型 === "服务项");
@@ -70,7 +224,9 @@ export function 生成订单预审采购内容(明细: 正式报价单明细[], 
     行.push("软件产品：");
     软件.forEach((项, 下标) => {
       行.push(
-        `${下标 + 1}. ${项.名称}，授权端点数：${规范数量标签(项.数量标签 || `${项.数量} 点`)}，小计：${格式金额带符号(项.金额)}`,
+        `${下标 + 1}. ${项.名称}，授权端点数：${规范数量标签(项.数量标签 || `${项.数量} 点`)}，小计：${
+          选项.模块金额显示为斜杠 || 项.金额 === "/" ? "/" : 格式金额带符号(项.金额)
+        }`,
       );
     });
   }
@@ -79,25 +235,161 @@ export function 生成订单预审采购内容(明细: 正式报价单明细[], 
     行.push("服务项：");
     服务.forEach((项, 下标) => {
       行.push(
-        `${下标 + 1}. ${项.名称}，数量：${规范数量标签(项.数量标签 || 项.数量)}，小计：${格式金额带符号(项.金额)}`,
+        `${下标 + 1}. ${项.名称}，数量：${规范数量标签(项.数量标签 || 项.数量)}，小计：${
+          选项.模块金额显示为斜杠 || 项.金额 === "/" ? "/" : 格式金额带符号(项.金额)
+        }`,
       );
     });
   }
+  if (选项.合计金额) {
+    if (行.length) 行.push("");
+    行.push(`合计金额：¥${格式金额(选项.合计金额)}`);
+  }
   return 行.join("\n");
+}
+
+function 创建收益空页面(字体: 嵌入中文字体): 页面内容 {
+  return 创建空页面(字体);
+}
+
+function 添加收益页眉(页面: 页面内容, 数据: 收益核算表PDF数据): void {
+  填充矩形(页面, 0, 0, 页面宽度, 178, 蓝色);
+  添加文本(页面, "联软科技（深圳）有限公司", 左边距, 36, 14, "bold", "1 1 1");
+  添加文本(
+    页面,
+    "UniSoft Technology (Shenzhen) Co., Ltd.",
+    左边距,
+    57,
+    8.5,
+    "regular",
+    "0.76 0.86 1",
+  );
+  添加文本(页面, "微盾产品收益核算表", 左边距, 95, 23, "bold", "1 1 1");
+  添加文本(页面, "Weidun Product Profit Calculation", 左边距, 118, 10, "regular", "0.76 0.86 1");
+  const 元数据: Array<[string, string]> = [
+    ["订单编号", 数据.订单编号 || "—"],
+    ["报价编号", 数据.报价编号 || "—"],
+    ["客户名称", 数据.最终用户 || "—"],
+    ["渠道商", 数据.合同对方 || "—"],
+    ["所属区域", 数据.所属区域 || "—"],
+    ["收益状态", 数据.收益状态 || "—"],
+  ];
+  元数据.forEach(([标签, 值], 下标) => {
+    const 列 = 下标 % 3;
+    const 行 = Math.floor(下标 / 3);
+    const x = 左边距 + 列 * 171;
+    const y = 137 + 行 * 25;
+    填充矩形(页面, x, y, 160, 20, "0.12 0.25 0.43");
+    添加文本(页面, 标签, x + 8, y + 8, 7, "regular", "0.67 0.78 0.92");
+    添加文本(页面, 截断文本(值, 18), x + 8, y + 17, 8.2, "bold", "1 1 1");
+  });
+}
+
+function 添加收益续页标题(页面: 页面内容, 数据: 收益核算表PDF数据): void {
+  填充矩形(页面, 0, 0, 页面宽度, 48, 蓝色);
+  添加文本(页面, "微盾产品收益核算表（续）", 左边距, 28, 14, "bold", "1 1 1");
+  添加文本(页面, 数据.报价编号 || "—", 页面宽度 - 160, 28, 9, "regular", "0.78 0.86 1");
+}
+
+function 添加收益键值区(
+  页面: 页面内容,
+  标题: string,
+  items: Array<[string, string | null]>,
+  起始Y: number,
+): number {
+  let y = 起始Y;
+  填充矩形(页面, 左边距, y, 内容宽度, 26, 浅蓝色);
+  添加文本(页面, 标题, 左边距 + 10, y + 17, 10, "bold", 强调蓝色);
+  y += 26;
+  const 行高 = 27;
+  const 列宽 = 内容宽度 / 2;
+  for (let 下标 = 0; 下标 < items.length; 下标 += 2) {
+    if (下标 % 2 === 1) 填充矩形(页面, 左边距, y, 内容宽度, 行高, "0.98 0.99 1");
+    for (let 列 = 0; 列 < 2; 列 += 1) {
+      const 项 = items[下标 + 列];
+      if (!项) continue;
+      const x = 左边距 + 列 * 列宽;
+      添加文本(页面, 项[0], x + 10, y + 18, 8.5, "regular", 次要色);
+      添加文本(页面, 格式金额(项[1] || "—"), x + 126, y + 18, 9.2, "bold", 正文色);
+    }
+    y += 行高;
+  }
+  画表格线(
+    页面,
+    起始Y,
+    y,
+    [内容宽度 / 2, 内容宽度 / 2],
+    [
+      起始Y + 26,
+      ...Array.from(
+        { length: Math.ceil(items.length / 2) },
+        (_, index) => 起始Y + 26 + (index + 1) * 行高,
+      ),
+    ],
+  );
+  return y;
+}
+
+function 添加收益硬件表(
+  页面: 页面内容,
+  明细: 收益核算表PDF数据["硬件明细"],
+  起始Y: number,
+): number {
+  const 列 = [左边距, 218, 292, 398];
+  const 表头Y = 起始Y;
+  添加文本(页面, "硬件成本明细", 左边距, 表头Y + 12, 10, "bold", 强调蓝色);
+  填充矩形(页面, 左边距, 表头Y + 20, 内容宽度, 24, 浅蓝色);
+  ["硬件型号", "数量", "内部成本合计", "年度成本合计"].forEach((标题, 下标) => {
+    添加文本(页面, 标题, 列[下标]! + 8, 表头Y + 36, 8.2, "bold", 正文色);
+  });
+  let y = 表头Y + 44;
+  明细.forEach((项, 下标) => {
+    if (下标 % 2 === 1) 填充矩形(页面, 左边距, y, 内容宽度, 28, "0.98 0.99 1");
+    添加文本(页面, 截断文本(项.型号, 28), 列[0]! + 8, y + 18, 8.2, "regular", 正文色);
+    添加文本(页面, 项.数量, 列[1]! + 8, y + 18, 8.2, "regular", 正文色);
+    添加文本(页面, 格式金额(项.内部成本合计 || "—"), 列[2]! + 8, y + 18, 8.2, "regular", 正文色);
+    添加文本(页面, 格式金额(项.年度成本合计 || "—"), 列[3]! + 8, y + 18, 8.2, "regular", 正文色);
+    y += 28;
+  });
+  画表格线(
+    页面,
+    表头Y + 20,
+    y,
+    [160, 74, 106, 154],
+    [表头Y + 44, ...明细.map((_, index) => 表头Y + 44 + (index + 1) * 28)],
+  );
+  return y;
+}
+
+function 添加收益页脚(页面: 页面内容, y: number, 数据: 收益核算表PDF数据): void {
+  const 页脚Y = Math.min(Math.max(y + 26, 720), 802);
+  画线(页面, 左边距, 页脚Y, 页面宽度 - 42, 页脚Y, 边框色, 0.7);
+  添加文本(页面, `公式版本：${数据.公式版本}`, 左边距, 页脚Y + 20, 8, "regular", 次要色);
+  添加文本(页面, "本表由联软渠道管理平台自动生成", 300, 页脚Y + 20, 8, "regular", 次要色);
+  添加文本(
+    页面,
+    "内部收益数据，请按授权范围使用",
+    左边距,
+    页脚Y + 36,
+    7.5,
+    "regular",
+    "0.55 0.59 0.66",
+  );
 }
 
 function 创建页面内容(
   报价单: 正式报价单数据,
   分组: Array<{ 标题: string; 数量列名: string; 数据: 正式报价单明细[] }>,
+  字体: 嵌入中文字体,
 ): 页面内容[] {
   const 内容: 页面内容[] = [];
-  let 当前页 = 创建空页面();
+  let 当前页 = 创建空页面(字体);
   let y = 214;
   添加页眉(当前页, 报价单);
 
   const 添加到下一页 = () => {
     内容.push(当前页);
-    当前页 = 创建空页面();
+    当前页 = 创建空页面(字体);
     y = 72;
     添加续页标题(当前页, 报价单);
   };
@@ -127,10 +419,11 @@ function 创建页面内容(
 
 interface 页面内容 {
   指令: string[];
+  字体: 嵌入中文字体;
 }
 
-function 创建空页面(): 页面内容 {
-  return { 指令: [] };
+function 创建空页面(字体: 嵌入中文字体): 页面内容 {
+  return { 指令: [], 字体 };
 }
 
 function 添加页眉(页面: 页面内容, 报价单: 正式报价单数据): void {
@@ -325,28 +618,47 @@ function 添加文本(
   const 片段 = 文本.replace(/[\r\n]/g, " ").match(/[\x20-\x7e]+|[^\x20-\x7e]+/g) || [];
   for (const 一段 of 片段) {
     const 是否拉丁 = /^[\x20-\x7e]+$/.test(一段);
-    const 字体 = 是否拉丁 ? (字重 === "bold" ? "/F3" : "/F2") : "/F1";
-    const 内容 = 是否拉丁 ? `(${转义PDF文本(一段)}) Tj` : `<${转换为UCS2十六进制(一段)}> Tj`;
+    let 字体名 = "/F1";
+    let 内容 = "";
+    let 推进 = 0;
+    if (是否拉丁) {
+      字体名 = 字重 === "bold" ? "/F3" : "/F2";
+      内容 = `(${转义PDF文本(一段)}) Tj`;
+      推进 = 估算文本宽度(一段, 字号, true);
+    } else {
+      let 十六进制 = "";
+      for (const 字符 of Array.from(一段)) {
+        const { 编号, 宽度 } = 编码中文字符(页面.字体, 字符);
+        十六进制 += 编号.toString(16).padStart(4, "0").toUpperCase();
+        推进 += (宽度 / 1000) * 字号;
+      }
+      内容 = `<${十六进制}> Tj`;
+    }
     页面.指令.push(
-      `BT ${颜色} rg ${字体} ${数字(字号)} Tf 1 0 0 1 ${数字(当前X)} ${数字(页面高度 - y)} Tm ${内容} ET`,
+      `BT ${颜色} rg ${字体名} ${数字(字号)} Tf 1 0 0 1 ${数字(当前X)} ${数字(页面高度 - y)} Tm ${内容} ET`,
     );
-    当前X += 估算文本宽度(一段, 字号, 是否拉丁);
+    当前X += 推进;
   }
 }
 
-function 生成PDF(页面列表: 页面内容[], 标识: string): Buffer {
-  const 对象: string[] = [];
+function 生成PDF(页面列表: 页面内容[], 标识: string, 字体: 嵌入中文字体): Buffer {
+  const 对象: Array<string | Buffer> = [];
   const 页面对象起始编号 = 7;
   const 内容对象起始编号 = 页面对象起始编号 + 页面列表.length;
+  const 描述符编号 = 内容对象起始编号 + 页面列表.length;
+  const 字体文件编号 = 描述符编号 + 1;
+  const 字符映射编号 = 描述符编号 + 2;
+  const 字体名 = `${生成字体标识(标识)}+${中文字体基础名}`;
+  const 缩放 = 1000 / 字体.源字体.unitsPerEm;
   对象.push("<< /Type /Catalog /Pages 2 0 R >>");
   对象.push(
     `<< /Type /Pages /Kids [${页面列表.map((_, i) => `${页面对象起始编号 + i} 0 R`).join(" ")}] /Count ${页面列表.length} >>`,
   );
   对象.push(
-    "<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>",
+    `<< /Type /Font /Subtype /Type0 /BaseFont /${字体名} /Encoding /Identity-H /DescendantFonts [4 0 R] /ToUnicode ${字符映射编号} 0 R >>`,
   );
   对象.push(
-    "<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> /DW 1000 >>",
+    `<< /Type /Font /Subtype /CIDFontType0 /BaseFont /${字体名} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${描述符编号} 0 R /DW 1000 /W [${生成宽度数组(字体)}] >>`,
   );
   对象.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
   对象.push(
@@ -367,14 +679,23 @@ function 生成PDF(页面列表: 页面内容[], 标识: string): Buffer {
     ].join("\n");
     对象.push(`<< /Length ${Buffer.byteLength(内容, "binary")} >>\nstream\n${内容}\nendstream`);
   }
+  对象.push(生成字体描述符(字体名, 字体, 缩放, 字体文件编号));
+  对象.push(生成字体文件对象(字体));
+  对象.push(生成字符映射对象(字体));
   const 文件头 = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n";
   const 分段: Buffer[] = [Buffer.from(文件头, "binary")];
   const 偏移 = [0];
   let 已写字节 = Buffer.byteLength(文件头, "binary");
   for (let i = 0; i < 对象.length; i += 1) {
     偏移.push(已写字节);
-    const 内容 = `${i + 1} 0 obj\n${对象[i]}\nendobj\n`;
-    const 二进制 = Buffer.from(内容, "binary");
+    const 单项 = 对象[i];
+    const 二进制 = Buffer.isBuffer(单项)
+      ? Buffer.concat([
+          Buffer.from(`${i + 1} 0 obj\n`, "binary"),
+          单项,
+          Buffer.from("\nendobj\n", "binary"),
+        ])
+      : Buffer.from(`${i + 1} 0 obj\n${单项}\nendobj\n`, "binary");
     分段.push(二进制);
     已写字节 += 二进制.length;
   }
@@ -478,12 +799,95 @@ function 转义PDF文本(文本: string): string {
   return 文本.replace(/[\\()]/g, (字符) => `\\${字符}`);
 }
 
-function 转换为UCS2十六进制(文本: string): string {
-  const 缓冲区 = Buffer.from(文本.replace(/[\r\n]/g, " "), "utf16le");
-  for (let i = 0; i < 缓冲区.length; i += 2) {
-    const 临时 = 缓冲区[i] || 0;
-    缓冲区[i] = 缓冲区[i + 1] || 0;
-    缓冲区[i + 1] = 临时;
+/** PDF 规范要求子集字体带 6 位大写字母前缀，这里由文档标识稳定派生。 */
+function 生成字体标识(标识: string): string {
+  const 摘要 = crypto.createHash("md5").update(标识, "utf8").digest();
+  return Array.from({ length: 6 }, (_, 下标) =>
+    String.fromCharCode(65 + ((摘要[下标] ?? 0) % 26)),
+  ).join("");
+}
+
+function 生成宽度数组(字体: 嵌入中文字体): string {
+  return [...字体.宽度表.entries()]
+    .sort((左, 右) => 左[0] - 右[0])
+    .map(([编号, 宽度]) => `${编号} [${宽度}]`)
+    .join(" ");
+}
+
+function 生成字体描述符(
+  字体名: string,
+  字体: 嵌入中文字体,
+  缩放: number,
+  字体文件编号: number,
+): string {
+  const { bbox, ascent, descent, capHeight } = 字体.源字体;
+  const 上沿 = 数字(ascent * 缩放);
+  const 下沿 = 数字(descent * 缩放);
+  return [
+    "<< /Type /FontDescriptor",
+    `/FontName /${字体名}`,
+    "/Flags 4",
+    `/FontBBox [${数字(bbox.minX * 缩放)} ${数字(bbox.minY * 缩放)} ${数字(bbox.maxX * 缩放)} ${数字(bbox.maxY * 缩放)}]`,
+    `/ItalicAngle ${数字(字体.源字体.italicAngle || 0)}`,
+    `/Ascent ${上沿}`,
+    `/Descent ${下沿}`,
+    `/CapHeight ${数字((capHeight || ascent) * 缩放)}`,
+    "/StemV 0",
+    `/FontFile3 ${字体文件编号} 0 R >>`,
+  ].join(" ");
+}
+
+function 生成字体文件对象(字体: 嵌入中文字体): Buffer {
+  const 子集字节 = Buffer.from(字体.子集.encode());
+  const 压缩字节 = zlib.deflateSync(子集字节);
+  return Buffer.concat([
+    Buffer.from(
+      `<< /Length ${压缩字节.length} /Filter /FlateDecode /Subtype /CIDFontType0C >>\nstream\n`,
+      "binary",
+    ),
+    压缩字节,
+    Buffer.from("\nendstream", "binary"),
+  ]);
+}
+
+/** 生成 CID 到 Unicode 的 ToUnicode CMap，保证复制和检索报价单文字不乱码。 */
+function 生成字符映射对象(字体: 嵌入中文字体): string {
+  const 条目 = [...字体.字符表.entries()].sort((左, 右) => 左[0] - 右[0]);
+  const 映射段: string[] = [];
+  for (let 下标 = 0; 下标 < 条目.length; 下标 += 100) {
+    const 分片 = 条目.slice(下标, 下标 + 100);
+    映射段.push(`${分片.length} beginbfrange`);
+    for (const [编号, 码点] of 分片) {
+      const 编号十六进制 = 编号.toString(16).padStart(4, "0").toUpperCase();
+      映射段.push(`<${编号十六进制}> <${编号十六进制}> <${转UTF16十六进制(码点)}>`);
+    }
+    映射段.push("endbfrange");
   }
-  return 缓冲区.toString("hex").toUpperCase();
+  const 内容 = [
+    "/CIDInit /ProcSet findresource begin",
+    "12 dict begin",
+    "begincmap",
+    "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def",
+    "/CMapName /Adobe-Identity-UCS def",
+    "/CMapType 2 def",
+    "1 begincodespacerange",
+    "<0000> <ffff>",
+    "endcodespacerange",
+    ...映射段,
+    "endcmap",
+    "CMapName currentdict /CMap defineresource pop",
+    "end",
+    "end",
+  ].join("\n");
+  return `<< /Length ${Buffer.byteLength(内容, "binary")} >>\nstream\n${内容}\nendstream`;
+}
+
+function 转UTF16十六进制(码点: number): string {
+  if (码点 > 0xffff) {
+    const 余值 = 码点 - 0x10000;
+    const 高位 = 0xd800 | (余值 >>> 10);
+    const 低位 = 0xdc00 | (余值 & 0x3ff);
+    return `${高位.toString(16).padStart(4, "0")}${低位.toString(16).padStart(4, "0")}`.toUpperCase();
+  }
+  return 码点.toString(16).padStart(4, "0").toUpperCase();
 }

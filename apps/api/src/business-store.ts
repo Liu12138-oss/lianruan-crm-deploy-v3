@@ -3806,6 +3806,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
         region_confirmed_by_user_id: string | null;
         region_confirmed_at: Date | null;
         v2_source_id: string | null;
+        quote_id: string | null;
         legacy_v2_status: string | null;
         is_legacy_v2_initial: boolean;
       }>(
@@ -3820,6 +3821,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
           o.region_confirmed_by_user_id::text AS region_confirmed_by_user_id,
           o.region_confirmed_at,
           o.v2_source_id,
+          o.quote_id::text AS quote_id,
           COALESCE(
             NULLIF(migration.v2_data(v2_raw.redacted_json)->>'status', ''),
             NULLIF(o.extra_json->>'status', '')
@@ -3962,16 +3964,25 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
       const 操作人 = 用户?.displayName || 读取文本(输入, ["operatorName"], "阶段9测试账号");
       const 旧金额 = Number(订单.total_amount) || 0;
       const extra = 订单.extra_json || {};
+      const 调价后金额 = 是否调价 ? (调价金额 ?? 旧金额) : null;
+      const 调价收益口径 = 调价后金额 === null ? null : 读取订单调价收益口径(输入, 调价后金额);
+      const 既有调价记录 = Array.isArray(extra.priceAdjustments) ? extra.priceAdjustments : [];
+      const 调价序号 = 既有调价记录.length + 1;
       const 调价记录 = 是否调价
         ? [
-            ...(Array.isArray(extra.priceAdjustments) ? extra.priceAdjustments : []),
+            ...既有调价记录,
             {
               oldAmount: 旧金额,
-              newAmount: 调价金额 ?? 旧金额,
+              newAmount: 调价后金额,
               reason: 原因,
               operatorName: 操作人,
               timestamp: new Date().toISOString(),
               adjustedAt: new Date().toISOString(),
+              productContractAmount: 调价收益口径?.productContractAmount ?? 调价后金额,
+              serviceContractAmount: 调价收益口径?.serviceContractAmount ?? 0,
+              warrantyYears: 调价收益口径?.warrantyYears ?? 3,
+              procurementMaintenanceYears: 调价收益口径?.procurementMaintenanceYears ?? 0,
+              formulaVersion: "weidun-v2-total-input",
             },
           ]
         : undefined;
@@ -4027,7 +4038,7 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
             regionConfirmedEmailPrefix: 正式编号结果?.邮箱前缀,
             numberNotice: 正式编号结果?.邮箱缺失提示 || undefined,
           }),
-          调价金额,
+          调价后金额,
           正式编号结果?.订单编号 || null,
           正式编号结果?.前置订单编号 || null,
           正式编号结果?.区管用户编号 || null,
@@ -4052,6 +4063,17 @@ class PostgreSQL业务数据服务 implements 业务数据服务 {
               : "订单状态流转"),
         用户,
       });
+      if (是否调价 && 订单.quote_id && 调价后金额 !== null && 调价收益口径) {
+        await 同步区管调价到报价(client, {
+          订单编号: 订单.id,
+          报价编号: 订单.quote_id,
+          调整后总价: 调价后金额,
+          收益口径: 调价收益口径,
+          原因,
+          调整序号: 调价序号,
+          操作人名称: 操作人,
+        });
+      }
       if (按V2历史流程) {
         await 关闭V2历史订单审批待办(client, 订单.id, 用户);
       } else {
@@ -6015,6 +6037,96 @@ async function 同步订单关联报价(
   );
 }
 
+async function 同步区管调价到报价(
+  client: PoolClient,
+  参数: {
+    订单编号: string;
+    报价编号: string;
+    调整后总价: number;
+    收益口径: 订单调价收益口径;
+    原因: string;
+    调整序号: number;
+    操作人名称: string;
+  },
+): Promise<Record<string, unknown>> {
+  const 报价结果 = await client.query<{
+    id: string;
+    quote_no: string | null;
+    total_amount: string | number;
+    status_code: string;
+    extra_json: Record<string, unknown> | null;
+  }>(
+    `SELECT id::text AS id,quote_no,total_amount,status_code,extra_json
+     FROM crm.quotes
+     WHERE id::text=$1 OR quote_no=$1 OR v2_source_id=$1
+     LIMIT 1 FOR UPDATE`,
+    [参数.报价编号],
+  );
+  const 报价 = 报价结果.rows[0];
+  if (!报价) throw new 应用错误("V3_ORDER_PRICE_ADJUST_QUOTE_NOT_FOUND", "关联报价单不存在。", 404);
+  const 明细 = await client.query<Record<string, unknown>>(
+    `SELECT id::text AS id,product_ref_type AS "productRefType",product_ref_id::text AS "productRefId",
+            item_name AS "itemName",quantity,unit_price AS "unitPrice",line_amount AS "lineAmount",sort_order AS "sortOrder"
+     FROM crm.quote_items WHERE quote_id=$1::uuid ORDER BY sort_order,id`,
+    [报价.id],
+  );
+  const 调整记录 = {
+    mode: "total_contract",
+    orderId: 参数.订单编号,
+    originalTotalAmount: Number(报价.total_amount) || 0,
+    productContractAmount: Number(参数.收益口径.productContractAmount.toFixed(2)),
+    serviceContractAmount: Number(参数.收益口径.serviceContractAmount.toFixed(2)),
+    warrantyYears: 参数.收益口径.warrantyYears,
+    procurementMaintenanceYears: 参数.收益口径.procurementMaintenanceYears,
+    reason: 参数.原因,
+    operatorName: 参数.操作人名称,
+    adjustedAt: new Date().toISOString(),
+    formulaVersion: "weidun-v2-total-input",
+  };
+  const 前快照 = `region-price-adjust-before:${参数.订单编号}:${参数.调整序号}`;
+  const 后快照 = `region-price-adjust-after:${参数.订单编号}:${参数.调整序号}`;
+  await client.query(
+    `INSERT INTO crm.quote_snapshots(quote_id,snapshot_code,snapshot_json)
+     VALUES($1::uuid,$2,$3::jsonb)
+     ON CONFLICT(quote_id,snapshot_code) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json`,
+    [报价.id, 前快照, JSON.stringify({ quote: 报价, items: 明细.rows, reason: 参数.原因 })],
+  );
+  await client.query(
+    `UPDATE crm.quotes
+     SET total_amount=$2,updated_at=now(),row_version=row_version+1,
+         extra_json=extra_json || $3::jsonb
+     WHERE id=$1::uuid`,
+    [
+      报价.id,
+      参数.调整后总价,
+      JSON.stringify({
+        total: 参数.调整后总价,
+        amount: 参数.调整后总价,
+        priceAdjustment: 调整记录,
+        updatedByName: 参数.操作人名称,
+      }),
+    ],
+  );
+  await client.query(
+    `INSERT INTO crm.quote_snapshots(quote_id,snapshot_code,snapshot_json)
+     VALUES($1::uuid,$2,$3::jsonb)
+     ON CONFLICT(quote_id,snapshot_code) DO UPDATE SET snapshot_json=EXCLUDED.snapshot_json`,
+    [
+      报价.id,
+      后快照,
+      JSON.stringify({
+        quoteId: 报价.id,
+        quoteNo: 报价.quote_no,
+        total: 参数.调整后总价,
+        items: 明细.rows,
+        priceAdjustment: 调整记录,
+        reason: 参数.原因,
+      }),
+    ],
+  );
+  return 调整记录;
+}
+
 async function 查询或创建工作量分类(client: PoolClient, tag: string): Promise<string> {
   const result = await client.query<{ id: string }>(
     `
@@ -6674,9 +6786,9 @@ function 报价查询SQL(where: string): string {
       SELECT jsonb_agg(
         jsonb_build_object(
           'name', qi.item_name,
-          'quantity', qi.quantity::text,
-          'unitPrice', qi.unit_price::text,
-          'lineAmount', qi.line_amount::text,
+          'quantity', trim_scale(qi.quantity)::text,
+          'unitPrice', CASE WHEN q.extra_json ? 'priceAdjustment' THEN '/' ELSE qi.unit_price::text END,
+          'lineAmount', CASE WHEN q.extra_json ? 'priceAdjustment' THEN '/' ELSE qi.line_amount::text END,
           'type', CASE
             WHEN qi.product_ref_type = 'hardware'
               OR qi.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN '硬件设备'
@@ -6685,10 +6797,10 @@ function 报价查询SQL(where: string): string {
             ELSE '软件产品'
           END,
           'quantityLabel', CASE
-            WHEN qi.item_name ~ '(质保|年)' THEN qi.quantity::text || ' 年'
+            WHEN qi.item_name ~ '(质保|年)' THEN trim_scale(qi.quantity)::text || ' 年'
             WHEN qi.product_ref_type = 'hardware'
-              OR qi.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN qi.quantity::text || ' 台'
-            ELSE qi.quantity::text || ' 点'
+              OR qi.item_name ~ '(硬件|设备|服务器|网关|探针)' THEN trim_scale(qi.quantity)::text || ' 台'
+            ELSE trim_scale(qi.quantity)::text || ' 点'
           END
         ) ORDER BY qi.sort_order, qi.id
       ) AS items
@@ -6788,6 +6900,8 @@ function 订单查询SQL(where: string): string {
         'revisionRequestStatus', COALESCE(revision_request.status_code, ''),
         'revisionRequestReason', COALESCE(revision_request.reason, ''),
         'revisionResultOrderId', COALESCE(revision_request.result_order_id, ''),
+        'priceAdjusted', COALESCE(related_quote.extra_json ? 'priceAdjustment', false),
+        'priceAdjustment', COALESCE(related_quote.extra_json->'priceAdjustment', '{}'::jsonb),
         'items', COALESCE(order_items.items, '[]'::jsonb),
         'statusHistory', COALESCE(order_history.status_history, '[]'::jsonb)
       ) AS "原始数据"
@@ -6813,8 +6927,8 @@ function 订单查询SQL(where: string): string {
           'productRefType', qi.product_ref_type,
           'productRefId', COALESCE(qi.product_ref_id::text, ''),
           'quantity', oi.quantity,
-          'unitPrice', oi.unit_price,
-          'lineAmount', oi.line_amount
+          'unitPrice', CASE WHEN related_quote.extra_json ? 'priceAdjustment' THEN '/' ELSE oi.unit_price::text END,
+          'lineAmount', CASE WHEN related_quote.extra_json ? 'priceAdjustment' THEN '/' ELSE oi.line_amount::text END
         ) ORDER BY oi.id
       ) AS items
       FROM crm.order_items oi
@@ -7892,11 +8006,13 @@ async function 同步订单审批链路(
       order_row_version: number;
       approval_round: number;
       revision_no: number;
+      price_adjusted: boolean;
     }>(
       `SELECT q.id::text AS quote_id,q.row_version::int AS quote_row_version,
               o.row_version::int AS order_row_version,
               COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
-              COALESCE(o.revision_no,0) AS revision_no
+              COALESCE(o.revision_no,0) AS revision_no,
+              COALESCE(q.extra_json ? 'priceAdjustment',false) AS price_adjusted
        FROM crm.orders o
        JOIN crm.quotes q ON q.id=o.quote_id
        WHERE o.id=$1::uuid`,
@@ -7918,7 +8034,7 @@ async function 同步订单审批链路(
             orderRevisionNo: 收益.revision_no,
             confirmedAt: new Date().toISOString(),
             eventCode: "profit_freeze_requested",
-            formulaVersion: "weidun-v1",
+            formulaVersion: 收益.price_adjusted ? "weidun-v2-total-input" : "weidun-v1",
           }),
         ],
       );
@@ -8265,6 +8381,70 @@ function 读取订单调整金额(输入: Record<string, unknown>): number | nul
   return null;
 }
 
+function 读取订单调价收益口径(输入: Record<string, unknown>, 调价金额: number): 订单调价收益口径 {
+  const 有产品额 = ["productContractAmount", "产品合同额", "productAmount"].some((键) =>
+    Object.prototype.hasOwnProperty.call(输入, 键),
+  );
+  const 有服务额 = ["serviceContractAmount", "服务合同额", "serviceAmount"].some((键) =>
+    Object.prototype.hasOwnProperty.call(输入, 键),
+  );
+  const 读取金额 = (键组: string[], 默认值: number, 字段名: string): number => {
+    for (const 键 of 键组) {
+      if (!Object.prototype.hasOwnProperty.call(输入, 键)) continue;
+      const 原值 = 输入[键];
+      if (原值 === null || 原值 === undefined || 原值 === "") continue;
+      const 数值 = typeof 原值 === "number" ? 原值 : Number(原值);
+      if (!Number.isFinite(数值) || 数值 < 0)
+        throw new 应用错误("V3_ORDER_PRICE_ADJUST_INPUT_INVALID", `${字段名}必须为非负金额。`, 400);
+      return Math.round(数值 * 100) / 100;
+    }
+    return 默认值;
+  };
+  const 读取年限 = (键组: string[], 默认值: number, 字段名: string, 最小值: number): number => {
+    for (const 键 of 键组) {
+      if (!Object.prototype.hasOwnProperty.call(输入, 键)) continue;
+      const 原值 = 输入[键];
+      if (原值 === null || 原值 === undefined || 原值 === "") continue;
+      const 数值 = Number(原值);
+      if (!Number.isInteger(数值) || 数值 < 最小值 || 数值 > 20)
+        throw new 应用错误(
+          "V3_ORDER_PRICE_ADJUST_INPUT_INVALID",
+          `${字段名}必须在${最小值}至20年之间。`,
+          400,
+        );
+      return 数值;
+    }
+    return 默认值;
+  };
+
+  const 产品合同额 =
+    有产品额 || 有服务额
+      ? 读取金额(["productContractAmount", "产品合同额", "productAmount"], 0, "产品合同额")
+      : 调价金额;
+  const 服务合同额 =
+    有产品额 || 有服务额
+      ? 读取金额(["serviceContractAmount", "服务合同额", "serviceAmount"], 0, "服务合同额")
+      : 0;
+  if (Math.abs(产品合同额 + 服务合同额 - 调价金额) > 0.01) {
+    throw new 应用错误(
+      "V3_ORDER_PRICE_ADJUST_AMOUNT_MISMATCH",
+      "产品合同额与服务合同额之和必须等于调整后总价。",
+      400,
+    );
+  }
+  return {
+    productContractAmount: 产品合同额,
+    serviceContractAmount: 服务合同额,
+    warrantyYears: 读取年限(["warrantyYears", "质保年限"], 3, "质保年限", 1),
+    procurementMaintenanceYears: 读取年限(
+      ["procurementMaintenanceYears", "采购维保年限"],
+      0,
+      "采购维保年限",
+      0,
+    ),
+  };
+}
+
 type 订单修订明细项 = {
   itemName: string;
   quantity: number;
@@ -8272,6 +8452,13 @@ type 订单修订明细项 = {
   lineAmount: number;
   productRefType?: "feature" | "hardware" | "package" | "manual";
   productRefId?: string;
+};
+
+type 订单调价收益口径 = {
+  productContractAmount: number;
+  serviceContractAmount: number;
+  warrantyYears: number;
+  procurementMaintenanceYears: number;
 };
 
 type 订单重提定价上下文 = {
@@ -8612,13 +8799,41 @@ async function 查询区域快照(
     `
     SELECT id::text AS id, region_name
     FROM org.regions
-    WHERE id::text = $1 OR region_code = $1 OR region_name = $1
+    WHERE id::text = $1 OR region_code = $1
     LIMIT 1
     `,
     [id],
   );
-  const row = result.rows[0];
+  const row = result.rows[0] || (await 查询唯一启用正式区域名称(client, id));
   return row ? { id: row.id, name: row.region_name } : null;
+}
+
+async function 查询唯一启用正式区域名称(
+  client: PoolClient,
+  regionName: string,
+): Promise<{ id: string; region_name: string } | null> {
+  const normalizedName = regionName.trim();
+  if (!normalizedName) return null;
+  const result = await client.query<{ id: string; region_name: string }>(
+    `
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE btrim(region_name) = btrim($1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY id
+    LIMIT 2
+    `,
+    [normalizedName],
+  );
+  if (result.rows.length > 1) {
+    throw new 应用错误(
+      "V3_BUSINESS_REGION_AMBIGUOUS",
+      `区域“${normalizedName}”存在重复配置，请先完成区域治理。`,
+      409,
+    );
+  }
+  return result.rows[0] || null;
 }
 
 async function 查询区域编号(client: PoolClient, 输入名称: string): Promise<string | null> {
@@ -8627,13 +8842,23 @@ async function 查询区域编号(client: PoolClient, 输入名称: string): Pro
     `
     SELECT id::text AS id
     FROM org.regions
-    WHERE region_name = $1 OR region_code = $1 OR id::text = $1
-    ORDER BY region_level DESC
-    LIMIT 1
+    WHERE (id::text = $1 OR region_code = $1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY CASE WHEN id::text = $1 THEN 0 ELSE 1 END
+    LIMIT 2
     `,
     [输入名称],
   );
-  return result.rows[0]?.id || null;
+  if (result.rows.length > 1) {
+    throw new 应用错误(
+      "V3_BUSINESS_REGION_AMBIGUOUS",
+      `区域“${输入名称}”存在重复配置，请先完成区域治理。`,
+      409,
+    );
+  }
+  if (result.rows[0]) return result.rows[0].id;
+  return (await 查询唯一启用正式区域名称(client, 输入名称))?.id || null;
 }
 
 function 分页列表(记录集合: 阶段9记录[], 查询: 阶段9查询参数): 阶段9列表结果 {

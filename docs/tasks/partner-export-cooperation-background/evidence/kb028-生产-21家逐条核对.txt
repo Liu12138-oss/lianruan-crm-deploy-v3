@@ -1,0 +1,17 @@
+=== 生产核对：导出「合作背景」列 21 家有值渠道商 vs 数据库逐条比对 ===
+采集时间：2026-10-14 11:56:35 +0800
+
+比对方法：
+  导出侧：升级后在生产环境实际导出《渠道商导出.xlsx》，提取末列「合作背景」非空行（partner_code + 值）。
+  数据库侧：channel.partners JOIN channel.partner_profiles，取 extra_json->>'cooperationBackground' 非空行，换行统一为空格。
+  两侧均按 partner_code 排序后逐条 diff。
+
+导出侧行数：21
+数据库侧行数：21
+
+diff 输出（无输出即完全一致）：
+（无差异，两侧逐条完全一致）
+
+文件摘要：
+5cd48787fd37a7daa1c31599bb7365dad5a4000d5154aadc9d1fa110ea4f24e1  生产核对-21家-导出侧.tsv
+20f6674a67d679f211ff2eda9eb0219733381cf312e649c6e4e101581a26c63c  生产核对-21家-数据库侧.tsv

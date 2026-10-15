@@ -319,6 +319,22 @@ describe("阶段9业务兼容接口", () => {
     expect(报价PDF.headers["content-type"]).toMatch(/^application\/pdf/);
     expect(报价PDF.headers["content-disposition"]).toContain("filename*=UTF-8''");
     expect(报价PDF.body.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
+    const 报价PDF文本 = 报价PDF.body.toString("binary");
+    // 中文必须内嵌字体子集，禁止回退到未嵌入的 STSong-Light（会导致下载的 PDF 乱码）。
+    expect(报价PDF文本).not.toContain("/STSong-Light");
+    expect(报价PDF文本).toContain("/Subtype /CIDFontType0C");
+    expect(报价PDF文本).toContain("/ToUnicode");
+
+    const V2报价详情 = await request(app)
+      .get(`/api/v2/quotes/${encodeURIComponent(报价.body.data.id)}`)
+      .expect(200);
+    const 报价明细 = V2报价详情.body.data.items || [];
+    expect(报价明细.length).toBeGreaterThan(0);
+    for (const 明细 of 报价明细) {
+      // quantity 来自 numeric(18,4)，接口必须去掉补零，否则页面会显示“120.0000 点”。
+      expect(String(明细.quantity)).not.toContain(".0000");
+      expect(String(明细.quantityLabel)).toMatch(/^\d+(\.\d+)? (点|台|年)$/);
+    }
 
     const 订单 = await request(app)
       .post("/api/orders")
@@ -900,13 +916,75 @@ describe("阶段9业务兼容接口", () => {
         .expect(200);
       expect(一级确认.body.data.状态).toBe("primary_confirmed");
 
+      const 调价口径不一致 = await request(app)
+        .put(`/api/orders/${订单.body.data.id}/price-adjust`)
+        .send({
+          newAmount: 16880,
+          productContractAmount: 16880,
+          serviceContractAmount: 1000,
+          adjustmentReason: "金额不一致测试",
+        })
+        .set("Authorization", 签发测试V2令牌(区域管理员.username))
+        .expect(400);
+      expect(调价口径不一致.body.error?.code).toBe("V3_ORDER_PRICE_ADJUST_AMOUNT_MISMATCH");
+
       const 区管调价 = await request(app)
         .put(`/api/orders/${订单.body.data.id}/price-adjust`)
-        .send({ newAmount: 16880, adjustmentReason: "区管调价" })
+        .send({
+          newAmount: 16880,
+          productContractAmount: 15880,
+          serviceContractAmount: 1000,
+          warrantyYears: 3,
+          procurementMaintenanceYears: 0,
+          adjustmentReason: "区管调价",
+        })
         .set("Authorization", 签发测试V2令牌(区域管理员.username))
         .expect(200);
       expect(区管调价.body.data.状态).toBe("pending_superadmin_confirm");
       expect(区管调价.body.data.编号).toBe(`${批次}-协议-smb-${区域管理员.username}-025-01`);
+      const 调价后报价 = await pool.query<{
+        quote_id: string;
+        quote_total: string;
+        product_contract_amount: string;
+        service_contract_amount: string;
+        item_unit_price: string;
+      }>(
+        `
+        SELECT q.id::text AS quote_id,q.total_amount::text AS quote_total,
+          q.extra_json->'priceAdjustment'->>'productContractAmount' AS product_contract_amount,
+          q.extra_json->'priceAdjustment'->>'serviceContractAmount' AS service_contract_amount,
+          COALESCE((SELECT qi.unit_price::text FROM crm.quote_items qi WHERE qi.quote_id=q.id ORDER BY qi.sort_order LIMIT 1), '') AS item_unit_price
+        FROM crm.quotes q WHERE q.id = (SELECT quote_id FROM crm.orders WHERE id=$1::uuid)
+        `,
+        [订单.body.data.id],
+      );
+      expect(Number(调价后报价.rows[0]?.quote_total)).toBe(16880);
+      expect(调价后报价.rows[0]?.product_contract_amount).toBe("15880");
+      expect(调价后报价.rows[0]?.service_contract_amount).toBe("1000");
+      expect(调价后报价.rows[0]?.item_unit_price).toEqual(expect.any(String));
+      const 收益应用 = 创建应用({
+        env: {
+          ...测试环境变量,
+          V3_DELIVERY_AUTH_ENABLED: "true",
+          V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
+        },
+      });
+      const 超管会话 = request.agent(收益应用);
+      await 超管会话
+        .post("/api/auth/login")
+        .send({ username: 超级管理员.username, password: "LrCRM@2026!" })
+        .expect(200);
+      const 调价后收益 = await 超管会话
+        .get(`/api/quotes/${调价后报价.rows[0]!.quote_id}/profit-calculation`)
+        .expect(200);
+      expect(调价后收益.body.data.formulaVersion).toBe("weidun-v2-total-input");
+      expect(Number(调价后收益.body.data.details.productContractAmount)).toBe(15880);
+      expect(Number(调价后收益.body.data.details.serviceContractAmount)).toBe(1000);
+      expect(
+        (
+          区管调价.body.data.原始数据.items as Array<{ unitPrice: string; lineAmount: string }>
+        ).every((项目) => 项目.unitPrice === "/" && 项目.lineAmount === "/"),
+      ).toBe(true);
       const 调价前预审 = await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM integration.order_preapproval_requests WHERE order_id = $1::uuid`,
         [订单.body.data.id],
@@ -939,6 +1017,18 @@ describe("阶段9业务兼容接口", () => {
         .set("Authorization", 签发测试V2令牌(超级管理员.username))
         .expect(200);
       expect(超管确认.body.data.状态).toBe("confirmed");
+      const 收益冻结事件 = await pool.query<{ formula_version: string }>(
+        `
+        SELECT payload_json->>'formulaVersion' AS formula_version
+        FROM ops.outbox_events
+        WHERE event_type = 'crm.quote.profit.freeze.requested'
+          AND aggregate_id = (SELECT quote_id FROM crm.orders WHERE id=$1::uuid)
+        ORDER BY created_at DESC
+        LIMIT 1
+        `,
+        [订单.body.data.id],
+      );
+      expect(收益冻结事件.rows[0]?.formula_version).toBe("weidun-v2-total-input");
       const 调价超管确认后的预审 = await pool.query<{ trigger_code: string; status_code: string }>(
         `
         SELECT trigger_code, status_code

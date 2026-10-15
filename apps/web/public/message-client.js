@@ -24,6 +24,9 @@
 
   function readError(result, fallback) {
     const value = result?.error || result?.message || result?.msg;
+    if (typeof window.readApiErrorMessage === 'function') {
+      return window.readApiErrorMessage(value, fallback);
+    }
     return typeof value === 'string' && value.trim() ? value.trim() : fallback;
   }
 

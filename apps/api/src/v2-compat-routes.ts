@@ -134,6 +134,11 @@ const V2渠道简介列 = [
   { header: "资料是否已核验", key: "verified" },
 ] as const;
 
+const V2渠道导出简介列 = [
+  ...V2渠道简介列,
+  { header: "合作背景", key: "cooperationBackground" },
+] as const;
+
 const V2导入模板: Record<V2导入类型, V2导入模板配置> = {
   partners: {
     name: "渠道商导入模板",
@@ -326,7 +331,7 @@ const V2导出配置: Record<V2导入类型, { fileName: string; sheetName: stri
       "报价数",
       "订单数",
       "累计金额",
-      ...V2渠道简介列.map((item) => item.header),
+      ...V2渠道导出简介列.map((item) => item.header),
     ],
   },
   staff: {
@@ -1678,6 +1683,9 @@ function 注册导入导出路由(
     捕获(async (req, res) => {
       const type = 读取导入类型(读取路由参数(req, "type"));
       const data = await 查询导出数据(需要服务(service), type, req, 参数);
+      if (type === "partners") {
+        await 补齐渠道商合作背景(需要数据库(pool), data);
+      }
       const config = V2导出配置[type];
       const buffer = 生成ExcelBuffer(
         config.sheetName,
@@ -3213,13 +3221,8 @@ async function 保存V2渠道商(
       countryCallingCode: countryCallingCode || "",
     };
     const regionName = 读取正文文本(输入, ["region", "区域"], "").trim();
-    const regionResult = regionName
-      ? await client.query<{ id: string }>(
-          `SELECT id::text AS id FROM org.regions WHERE region_name = $1 OR region_code = $1 LIMIT 1`,
-          [regionName],
-        )
-      : { rows: [] as Array<{ id: string }> };
-    const regionUuid = regionResult.rows[0]?.id || null;
+    const region = regionName ? await 查询唯一启用正式区域(client, regionName) : null;
+    const regionUuid = region?.id || null;
     const params = [
       code,
       name,
@@ -5097,6 +5100,34 @@ async function 查询导出数据(
     );
 }
 
+async function 补齐渠道商合作背景(pool: Pool, items: 字典[]) {
+  const 渠道标识 = Array.from(
+    new Set(items.map((item) => 读取对象文本(item, "uuid")).filter(Boolean)),
+  );
+  if (!渠道标识.length) return;
+  const result = await pool.query<{ partner_id: string; cooperation_background: string | null }>(
+    `
+    SELECT pp.partner_id::text AS partner_id,
+           NULLIF(BTRIM(pp.extra_json->>'cooperationBackground'), '') AS cooperation_background
+    FROM channel.partner_profiles pp
+    WHERE pp.status_code = 'active'
+      AND pp.partner_id = ANY($1::uuid[])
+    ORDER BY pp.id
+    `,
+    [渠道标识],
+  );
+  const 合作背景表 = new Map<string, string>();
+  for (const row of result.rows) {
+    if (!row.cooperation_background) continue;
+    if (合作背景表.has(row.partner_id)) continue;
+    合作背景表.set(row.partner_id, row.cooperation_background);
+  }
+  for (const item of items) {
+    const 值 = 合作背景表.get(读取对象文本(item, "uuid"));
+    if (值) item.cooperationBackground = 值;
+  }
+}
+
 function 读取导入类型(type: string): V2导入类型 {
   if ((V2导入类型列表 as readonly string[]).includes(type)) return type as V2导入类型;
   throw Object.assign(new Error("不支持的导入导出类型。"), { statusCode: 400 });
@@ -5177,7 +5208,7 @@ function 构建导出行(type: V2导入类型, item: 字典): unknown[] {
       读取对象数字(item, "quoteCount", 0),
       读取对象数字(item, "orderCount", 0),
       读取对象数字(item, "totalAmt", 0),
-      ...V2渠道简介列.map((column) => 导出简介字段(item, column.key)),
+      ...V2渠道导出简介列.map((column) => 导出简介字段(item, column.key)),
     ];
   }
   if (type === "staff") {
@@ -5901,21 +5932,77 @@ async function 确保客户(
   return inserted.rows[0]?.id || "";
 }
 
-async function 确保区域(pool: Pool, regionName: string): Promise<string | null> {
-  if (!regionName) return null;
-  const code = "IMP-REG-" + crypto.createHash("sha1").update(regionName).digest("hex").slice(0, 12);
-  const result = await pool.query<{ id: string }>(
+async function 查询唯一启用正式区域(
+  pool: 数据库查询器,
+  regionName: string,
+): Promise<{ id: string; name: string } | null> {
+  const normalizedName = regionName.trim();
+  if (!normalizedName) return null;
+
+  const exact = await pool.query<{ id: string; region_name: string }>(
     `
-    INSERT INTO org.regions (region_code, region_name, region_level, status_code)
-    VALUES ($1, $2, 'region', 'active')
-    ON CONFLICT (region_code) DO UPDATE
-    SET region_name = EXCLUDED.region_name,
-        status_code = EXCLUDED.status_code
-    RETURNING id::text AS id
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE (id::text = $1 OR region_code = $1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY CASE WHEN id::text = $1 THEN 0 ELSE 1 END
+    LIMIT 2
     `,
-    [code, regionName],
+    [normalizedName],
   );
-  return result.rows[0]?.id || null;
+  if (exact.rows.length > 1) {
+    throw Object.assign(new Error(`区域“${normalizedName}”存在重复配置，请先完成区域治理。`), {
+      statusCode: 409,
+    });
+  }
+  if (exact.rows[0]) return { id: exact.rows[0].id, name: exact.rows[0].region_name };
+
+  const sameName = await pool.query<{ id: string; region_name: string }>(
+    `
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE btrim(region_name) = btrim($1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY id
+    LIMIT 2
+    `,
+    [normalizedName],
+  );
+  if (sameName.rows.length > 1) {
+    throw Object.assign(new Error(`区域“${normalizedName}”存在重复配置，请先完成区域治理。`), {
+      statusCode: 409,
+    });
+  }
+  const row = sameName.rows[0];
+  return row ? { id: row.id, name: row.region_name } : null;
+}
+
+async function 确保区域(pool: Pool, regionName: string): Promise<string | null> {
+  if (!regionName.trim()) return null;
+  const existing = await 查询唯一启用正式区域(pool, regionName);
+  if (existing) return existing.id;
+  const code = "IMP-REG-" + crypto.createHash("sha1").update(regionName).digest("hex").slice(0, 12);
+  try {
+    const result = await pool.query<{ id: string }>(
+      `
+      INSERT INTO org.regions (region_code, region_name, region_level, status_code)
+      VALUES ($1, $2, 'region', 'active')
+      ON CONFLICT (region_code) DO UPDATE
+      SET region_name = EXCLUDED.region_name,
+          status_code = EXCLUDED.status_code
+      RETURNING id::text AS id
+      `,
+      [code, regionName.trim()],
+    );
+    return result.rows[0]?.id || null;
+  } catch (error) {
+    if (String((error as { code?: unknown })?.code || "") !== "23505") throw error;
+    const concurrent = await 查询唯一启用正式区域(pool, regionName);
+    if (concurrent) return concurrent.id;
+    throw error;
+  }
 }
 
 function 标准化导入表头(value: unknown): string {

@@ -715,6 +715,66 @@ describe("V2真实页面兼容接口", () => {
     expect(Array.isArray(地市.body.data)).toBe(true);
   });
 
+  it("渠道商导出新增合作背景列且取值来自渠道商信息简介", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 导出解析 = async (路径: string) => {
+      const 响应 = await request(app)
+        .get(路径)
+        .buffer(true)
+        .parse((res, 回调) => {
+          const 片段: Buffer[] = [];
+          res.on("data", (数据片段: Buffer) => 片段.push(数据片段));
+          res.on("end", () => 回调(null, Buffer.concat(片段)));
+        })
+        .expect(200);
+      const 工作簿 = XLSX.read(响应.body as Buffer, { type: "buffer" });
+      const 工作表 = 工作簿.Sheets[工作簿.SheetNames[0]!]!;
+      return XLSX.utils.sheet_to_json<unknown[]>(工作表, {
+        header: 1,
+        raw: false,
+        defval: "",
+      }) as unknown[][];
+    };
+
+    const 渠道商列表 = await request(app).get("/api/v2/partners?pageSize=2").expect(200);
+    const 有值渠道商 = 渠道商列表.body.data[0] as { id: string };
+    const 空值渠道商 = 渠道商列表.body.data[1] as { id: string };
+    expect(有值渠道商?.id).toBeTruthy();
+    expect(空值渠道商?.id).toBeTruthy();
+    const 标记 = `阶段9导出合作背景-${Date.now()}`;
+
+    await request(app)
+      .put(`/api/v2/partners/${有值渠道商.id}/profile`)
+      .send({ cooperationBackground: 标记 })
+      .expect(200);
+    await request(app)
+      .put(`/api/v2/partners/${空值渠道商.id}/profile`)
+      .send({ cooperationBackground: "" })
+      .expect(200);
+
+    const 导出行 = await 导出解析("/api/v2/export/partners");
+    const 表头 = 导出行[0]!.map((单元格) => String(单元格 ?? ""));
+    expect(表头).toHaveLength(40);
+    expect(表头[0]).toBe("渠道商ID");
+    expect(表头[16]).toBe("累计金额");
+    expect(表头[17]).toBe("地址");
+    expect(表头[38]).toBe("资料是否已核验");
+    expect(表头[39]).toBe("合作背景");
+    expect(表头.filter((标题) => 标题 === "合作背景")).toHaveLength(1);
+
+    const 有值行 = 导出行.find((行) => String(行[0] ?? "") === 有值渠道商.id);
+    const 空值行 = 导出行.find((行) => String(行[0] ?? "") === 空值渠道商.id);
+    expect(有值行).toBeTruthy();
+    expect(空值行).toBeTruthy();
+    expect(String(有值行![39] ?? "")).toBe(标记);
+    expect(String(空值行![39] ?? "")).toBe("");
+
+    const 模板行 = await 导出解析("/api/v2/import/partners/template");
+    const 模板表头 = 模板行[0]!.map((单元格) => String(单元格 ?? ""));
+    expect(模板表头).not.toContain("合作背景");
+    expect(模板表头[模板表头.length - 1]).toBe("资料是否已核验");
+  });
+
   it("V2导入导出真实解析Excel并写入PostgreSQL，兼容裸/api/import路径", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const { 渠道商名称, 员工姓名 } = await 读取可导入负责人(app);

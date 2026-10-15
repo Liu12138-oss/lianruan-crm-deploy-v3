@@ -1,0 +1,38 @@
+采集时间：2026-10-14 11:57:27 +0800
+
+=== 一、当日（14/Oct/2026，UTC）状态码统计 ===
+5xx 总量：0
+4xx 总量：1
+全部请求数：1587
+
+=== 二、升级窗口（03:52:00-03:55:00 UTC）请求状态码分布 ===
+     73 200
+窗口请求合计：73
+
+=== 三、升级前后相邻 5 分钟（03:51:00-03:56:00 UTC）状态码分布 ===
+    119 200
+窗口请求合计：119
+
+=== 四、升级窗口逐分钟明细（03:51-03:56，非 200 计数）===
+03:51 请求数=6 非200数=0
+03:52 请求数=8 非200数=0
+03:53 请求数=59 非200数=0
+03:54 请求数=6 非200数=0
+03:55 请求数=34 非200数=0
+03:56 请求数=6 非200数=0
+
+=== 五、error.log 最近记录（升级前后）===
+2026/10/14 03:49:44 [notice] 1#1: start worker process 50
+2026/10/14 03:49:44 [notice] 1#1: start worker process 51
+2026/10/14 03:49:44 [notice] 1#1: start worker process 52
+2026/10/14 03:52:32 [warn] 39#39: *35 an upstream response is buffered to a temporary file /var/cache/nginx/proxy_temp/1/00/0000000001 while reading upstream, client: 10.20.23.185, server: _, request: "GET /api/export/pa
+2026/10/14 03:53:47 [warn] 24#24: *135 an upstream response is buffered to a temporary file /var/cache/nginx/proxy_temp/2/00/0000000002 while reading upstream, client: 10.20.23.185, server: _, request: "GET /api/export/p
+
+=== 六、健康接口（实时）===
+{"success":true,"data":{"status":"ok","service":"api","checkedAt":"2026-10-14T03:57:33.572Z"},"meta":{"requestId":"d0efd2914e21a5216119f55874c6b747","build":{"版本":"3.0.0-stage10.20261014-kb028","提交":"bab11f6-kb028","构建时间":"2026-10-14T11:24:21+08:00"}}}
+{"success":true,"data":{"status":"ok","service":"api","checkedAt":"2026-10-14T03:57:33.637Z","dependencies":[{"name":"config","status":"ok","message":"配置已通过校验","checkedAt":"2026-10-14T03:57:33.586Z"},{"name":"postgres","status":"ok","message":"PostgreSQL连接正常","checkedAt":"2026-10-14T03:57:33.607Z","latencyMs":21},{"name":"redis","status":"ok","message":"Redis连接正常","checkedAt":"2026-10-14T03:57:33.610Z","latencyMs":3},{"name":"migration","status":"ok","message":"数据库迁移状态正常，已执行69个版本","checkedAt":"2026-10-14T03:57:33.637Z","latencyMs":27}]},"meta":{"requestId":"4451c736b9b0608e1458597d43ed3b47","build":{"版本":"3.0.0-stage10.20261014-kb028","提交":"bab11f6-kb028","构建时间":"2026-10-14T11:24:21+08:00"}}}
+
+=== 七、api 日志最近 buildVersion 记录 ===
+{"buildVersion":"3.0.0-stage10.20261014-kb028","buildCommit":"bab11f6-kb028","event":"api.request.completed","requestId":"91df23663753ad25546b0f25c109876e","method":"GET","path":"/live","route":"/live","statusCode":200,"statusFamily":"2xx","resultCode":"success","durationMs":1,"queryKeys":[],"responseBytes":268,"ip":"127.0.0.1","userAgent":"Wget","referer":"","time":"2026-10-14T03:57:19.395Z","level":"info","service":"api","appEnv":"production","message":"接口请求完成"}
+{"buildVersion":"3.0.0-stage10.20261014-kb028","buildCommit":"bab11f6-kb028","event":"api.request.completed","requestId":"925ecafa-207c-4da8-b9a5-825358c7ea6f","method":"GET","path":"/live","route":"/live","statusCode":200,"statusFamily":"2xx","resultCode":"success","durationMs":1,"queryKeys":[],"responseBytes":272,"ip":"127.0.0.1","userAgent":"node","referer":"","time":"2026-10-14T03:57:24.451Z","level":"info","service":"api","appEnv":"production","message":"接口请求完成"}
+{"buildVersion":"3.0.0-stage10.20261014-kb028","buildCommit":"bab11f6-kb028","event":"api.request.completed","requestId":"d0efd2914e21a5216119f55874c6b747","method":"GET","path":"/live","route":"/live","statusCode":200,"statusFamily":"2xx","resultCode":"success","durationMs":1,"queryKeys":[],"responseBytes":268,"ip":"172.19.0.1","userAgent":"curl/8.4.0","referer":"","time":"2026-10-14T03:57:33.573Z","level":"info","service":"api","appEnv":"production","message":"接口请求完成"}

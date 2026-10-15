@@ -34,6 +34,8 @@ export interface 收益计算响应 {
   calculatedAt: string;
   frozenAt: string | null;
   inputHash: string | null;
+  priceAdjustment: 报价基础["priceAdjustment"];
+  inputLocked: boolean;
   summary: {
     productContractAmount: string | null;
     serviceContractAmount: string | null;
@@ -77,6 +79,12 @@ interface 报价基础 {
   orderStatus: string | null;
   approvalRound: number;
   orderRevisionNo: number;
+  priceAdjustment: {
+    productContractAmount: string;
+    serviceContractAmount: string;
+    warrantyYears: number;
+    procurementMaintenanceYears: number;
+  } | null;
 }
 
 interface 报价明细行 {
@@ -220,7 +228,7 @@ export class QuoteProfitStore implements 收益数据服务 {
       const 已有 = await this.读取当前计算记录(db, 报价.id);
       if (已有?.statusCode === "frozen")
         return { quoteId: 报价.id, orderId: 报价.orderId, eventId: 已有.id, statusCode: "frozen" };
-      const 年数 = this.读取年限输入(输入, 已有);
+      const 年数 = this.读取年限输入(输入, 已有, 报价.priceAdjustment);
       const 计算结果 = await this.计算(
         db,
         报价.id,
@@ -471,7 +479,7 @@ export class QuoteProfitStore implements 收益数据服务 {
           "报价数据已被其他操作更新，请刷新后重试。",
           409,
         );
-      const 年数 = this.读取年限输入(输入, 现有);
+      const 年数 = this.读取年限输入(输入, 现有, 报价.priceAdjustment);
       const 计算结果 = await this.计算(
         db,
         报价.id,
@@ -514,8 +522,8 @@ export class QuoteProfitStore implements 收益数据服务 {
           报价.rowVersion,
           报价.approvalRound,
           报价.orderRevisionNo,
-          年数.warrantyYears,
-          年数.procurementMaintenanceYears,
+          计算结果.warrantyYears,
+          计算结果.procurementMaintenanceYears,
           this.可选金额(金额.softwareDiscountedAmount),
           this.可选金额(金额.softwarePublicAmount),
           this.可选金额(金额.hardwareQuoteAmount),
@@ -532,8 +540,8 @@ export class QuoteProfitStore implements 收益数据服务 {
           this.可选金额(金额.projectProfit),
           JSON.stringify(计算结果.missingRules),
           JSON.stringify({
-            warrantyYears: 年数.warrantyYears,
-            procurementMaintenanceYears: 年数.procurementMaintenanceYears,
+            warrantyYears: 计算结果.warrantyYears,
+            procurementMaintenanceYears: 计算结果.procurementMaintenanceYears,
           }),
           JSON.stringify(计算结果),
           计算结果.inputHash,
@@ -575,6 +583,21 @@ export class QuoteProfitStore implements 收益数据服务 {
     procurementMaintenanceYears: number,
     asOf: Date,
   ) {
+    const 调价结果 = await 执行器.query<{
+      product_contract_amount: string | null;
+      service_contract_amount: string | null;
+      warranty_years: number | null;
+      procurement_maintenance_years: number | null;
+    }>(
+      `SELECT extra_json->'priceAdjustment'->>'productContractAmount' AS product_contract_amount,
+              extra_json->'priceAdjustment'->>'serviceContractAmount' AS service_contract_amount,
+              NULLIF(extra_json->'priceAdjustment'->>'warrantyYears','')::integer AS warranty_years,
+              NULLIF(extra_json->'priceAdjustment'->>'procurementMaintenanceYears','')::integer AS procurement_maintenance_years
+       FROM crm.quotes WHERE id::text=$1 OR quote_no=$1 OR v2_source_id=$1 LIMIT 1`,
+      [quoteId],
+    );
+    const 调价 = 调价结果.rows[0];
+    const 使用总价口径 = Boolean(调价?.product_contract_amount);
     const 明细 = await this.读取报价明细(执行器, quoteId);
     const 输入: 计算输入 = {
       softwareItems: [],
@@ -620,9 +643,15 @@ export class QuoteProfitStore implements 收益数据服务 {
       scopeCode: 输入.topScope,
       softwareItems: 输入.softwareItems,
       hardwareItems: 输入.hardwareItems,
-      serviceContractAmount: 输入.serviceContractAmount,
-      warrantyYears,
-      procurementMaintenanceYears,
+      ...(使用总价口径
+        ? { productContractAmount: 格式化金额(调价!.product_contract_amount!) }
+        : {}),
+      serviceContractAmount: 使用总价口径
+        ? 格式化金额(调价!.service_contract_amount || "0")
+        : 输入.serviceContractAmount,
+      warrantyYears: 调价?.warranty_years ?? warrantyYears,
+      procurementMaintenanceYears:
+        调价?.procurement_maintenance_years ?? procurementMaintenanceYears,
     });
   }
 
@@ -640,11 +669,19 @@ export class QuoteProfitStore implements 收益数据服务 {
       order_status: string | null;
       approval_round: number | null;
       revision_no: number | null;
+      product_contract_amount: string | null;
+      service_contract_amount: string | null;
+      warranty_years: number | null;
+      procurement_maintenance_years: number | null;
     }>(
       `SELECT q.id::text AS id,q.quote_no,q.row_version::int AS row_version,q.region_id::text AS region_id,
               o.id::text AS order_id,o.status_code AS order_status,
               COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
-              COALESCE(o.revision_no,0) AS revision_no
+              COALESCE(o.revision_no,0) AS revision_no,
+              q.extra_json->'priceAdjustment'->>'productContractAmount' AS product_contract_amount,
+              q.extra_json->'priceAdjustment'->>'serviceContractAmount' AS service_contract_amount,
+              NULLIF(q.extra_json->'priceAdjustment'->>'warrantyYears','')::integer AS warranty_years,
+              NULLIF(q.extra_json->'priceAdjustment'->>'procurementMaintenanceYears','')::integer AS procurement_maintenance_years
        FROM crm.quotes q
        LEFT JOIN LATERAL (
          SELECT id,status_code,revision_no FROM crm.orders
@@ -665,6 +702,14 @@ export class QuoteProfitStore implements 收益数据服务 {
       orderStatus: 行.order_status,
       approvalRound: 行.approval_round || 0,
       orderRevisionNo: 行.revision_no || 0,
+      priceAdjustment: 行.product_contract_amount
+        ? {
+            productContractAmount: 行.product_contract_amount,
+            serviceContractAmount: 行.service_contract_amount || "0",
+            warrantyYears: 行.warranty_years ?? 3,
+            procurementMaintenanceYears: 行.procurement_maintenance_years ?? 0,
+          }
+        : null,
     };
   }
 
@@ -835,7 +880,14 @@ export class QuoteProfitStore implements 收益数据服务 {
   private 读取年限输入(
     输入: Record<string, unknown>,
     现有: 当前计算记录 | null,
+    价格调整: 报价基础["priceAdjustment"],
   ): { warrantyYears: number; procurementMaintenanceYears: number } {
+    if (价格调整) {
+      return {
+        warrantyYears: 价格调整.warrantyYears,
+        procurementMaintenanceYears: 价格调整.procurementMaintenanceYears,
+      };
+    }
     const warrantyYears = 读取可选整数(输入.warrantyYears) ?? 现有?.warrantyYears ?? 3;
     const procurementMaintenanceYears =
       读取可选整数(输入.procurementMaintenanceYears) ?? 现有?.procurementMaintenanceYears ?? 0;
@@ -872,6 +924,8 @@ export class QuoteProfitStore implements 收益数据服务 {
       calculatedAt: new Date().toISOString(),
       frozenAt: 现有?.frozenAt ?? null,
       inputHash: 计算结果.inputHash,
+      priceAdjustment: 报价.priceAdjustment,
+      inputLocked: Boolean(报价.priceAdjustment),
       summary: {
         productContractAmount: 计算结果.details.productContractAmount,
         serviceContractAmount: 计算结果.details.serviceContractAmount,
@@ -901,6 +955,8 @@ export class QuoteProfitStore implements 收益数据服务 {
       calculatedAt: 现有.frozenAt || new Date().toISOString(),
       frozenAt: 现有.frozenAt,
       inputHash: 现有.inputHash,
+      priceAdjustment: 报价.priceAdjustment,
+      inputLocked: Boolean(报价.priceAdjustment),
       summary: {
         productContractAmount: 现有.details.productContractAmount ?? null,
         serviceContractAmount: 现有.details.serviceContractAmount ?? null,

@@ -77,6 +77,14 @@ function clearAdminLoginState() {
   store.user = null;
 }
 
+// 业务接口 401：统一清理登录态并回到登录页（由 api-client.js 派发 api-auth-expired）
+window.addEventListener('api-auth-expired', () => {
+  clearAdminLoginState();
+  if (window.location.hash !== '#/login') {
+    window.location.hash = '#/login';
+  }
+});
+
 function isAdminLoginRequest(endpoint) {
   return endpoint === '/auth/login' || endpoint.startsWith('/sso/iam/');
 }
@@ -86,7 +94,7 @@ async function getApiErrorMessage(res) {
   if (!errorText) return `HTTP ${res.status}`;
   try {
     const data = JSON.parse(errorText);
-    return data?.error || data?.message || `HTTP ${res.status}`;
+    return readApiErrorMessage(data, `HTTP ${res.status}`);
   } catch (err) {
     return errorText || `HTTP ${res.status}`;
   }
@@ -187,7 +195,7 @@ async function downloadExportFile(type, fileName, params = {}) {
     let message = `HTTP ${res.status}`;
     try {
       const data = await res.json();
-      if (data?.error) message = data.error;
+      message = readApiErrorMessage(data, message);
     } catch (e) {}
     throw new Error(message);
   }
@@ -398,6 +406,7 @@ function sumOpportunityAmount(list) {
   return (Array.isArray(list) ? list : []).reduce((sum, opp) => sum + toMoneyNumber(opp?.amount), 0);
 }
 function fmt(n) {
+  if (n === '/') return '/';
   if (!n && n !== 0) return '—';
   return '¥ ' + toMoneyNumber(n).toLocaleString('zh-CN');
 }
@@ -516,7 +525,7 @@ const LoginPage = {
         });
         
         if (res.error) {
-          errMsg.value = res.error;
+          errMsg.value = readApiErrorMessage(res, '登录失败，请稍后重试。');
           loading.value = false;
           return;
         }
@@ -584,20 +593,20 @@ const AdminSingleSignOnPage = {
     <div class="login-bg-circles"><span/><span/><span/></div>
     <div class="login-card">
       <div class="login-logo">
-        <div class="logo-icon">馃彚</div>
-        <h1>鑱旇蒋娓犻亾绠＄悊骞冲彴</h1>
-        <p>鍘傚晢绠＄悊鍚庡彴 <span class="admin-badge">SSO</span></p>
+        <div class="logo-icon">🏢</div>
+        <h1>联软渠道管理平台</h1>
+        <p>厂商管理后台 <span class="admin-badge">SSO</span></p>
       </div>
       <p style="font-size:14px;text-align:center;color:#666;line-height:1.7">{{ message }}</p>
       <button v-if="showBack" class="btn btn-primary" style="width:100%;justify-content:center;padding:11px;font-size:15px;margin-top:18px" @click="goLogin">
-        杩斿洖鐧诲綍椤?
+        返回登录页
       </button>
     </div>
   </div>`,
   setup() {
     const router = VueRouter.useRouter();
     const showBack = ref(false);
-    const message = ref('姝ｅ湪楠岃瘉 IAM 鐧诲綍淇℃伅锛岃绋嶅€欍€?');
+    const message = ref('正在验证 IAM 登录信息，请稍候。');
 
     function goLogin() {
       router.replace('/login');
@@ -612,7 +621,7 @@ const AdminSingleSignOnPage = {
       const urlParams = new URLSearchParams(window.location.search || '');
       const token = (urlParams.get('token') || '').trim();
       if (!token) {
-        message.value = '缂哄皯鍗曠偣鐧诲綍鍑瘉锛岃浠?IAM 鍏ュ彛閲嶆柊杩涘叆銆?';
+        message.value = '缺少单点登录凭证，请从 IAM 入口重新进入。';
         showBack.value = true;
         return;
       }
@@ -620,7 +629,7 @@ const AdminSingleSignOnPage = {
       try {
         const res = await apiRequest('POST', '/sso/iam/admin-login', { token });
         if (!res.success || !res.user || !res.token) {
-          throw new Error(res.error || '鍗曠偣鐧诲綍澶辫触');
+          throw new Error(readApiErrorMessage(res, '单点登录失败'));
         }
 
         persistAdminLogin(res.user, res.token);
@@ -633,7 +642,7 @@ const AdminSingleSignOnPage = {
         router.replace('/dashboard');
         setTimeout(() => showLoginDueReminderDialog(getLoginDueReminders(res)), 300);
       } catch (err) {
-        message.value = err.message || '鍗曠偣鐧诲綍澶辫触';
+        message.value = err.message || '单点登录失败';
         showBack.value = true;
       }
     }
@@ -1121,7 +1130,7 @@ const MainLayout = {
         });
         const 内容 = await 响应.json().catch(() => null);
         if (!响应.ok || !内容?.success) {
-          throw new Error(内容?.error || '账号或密码不正确。');
+          throw new Error(readApiErrorMessage(内容, '账号或密码不正确。'));
         }
         if (String(内容.user?.username || '').trim().toLowerCase() !== username.toLowerCase() || 内容.user?.role !== 'superadmin') {
           await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
@@ -1246,7 +1255,7 @@ const MainLayout = {
           alert('密码修改成功！');
           showChangePassword.value = false;
         } else {
-          passwordError.value = res.error || '修改失败';
+          passwordError.value = readApiErrorMessage(res, '修改失败');
         }
       } catch (err) {
         passwordError.value = '操作失败：' + err.message;
@@ -2247,7 +2256,7 @@ const RegistrationList = {
           }
           alert('保存成功');
         } else {
-          alert('保存失败：' + (result.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('保存报备编辑失败:', err);
@@ -2903,7 +2912,7 @@ const RegistrationNew = {
           alert(isAutoApproved ? '报备提交成功！已自动通过审核。' : '报备提交成功！等待厂商审核。');
           router.push('/registration');
         } else {
-          alert('提交失败：' + (result.error || '未知错误'));
+          alert('提交失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('提交报备失败:', err);
@@ -2965,10 +2974,12 @@ const QuoteProfitPanel = {
     const canFreezeQuoteProfit = computed(() => 当前用户可冻结收益());
     const isFrozen = computed(() => quoteProfit.value?.statusCode === 'frozen');
     const isNotApplicable = computed(() => quoteProfit.value?.statusCode === 'not_applicable');
-    const showEditActions = computed(() => !props.readonly && !isFrozen.value && !isNotApplicable.value);
+    const inputLocked = computed(() => Boolean(quoteProfit.value?.inputLocked));
+    const showEditActions = computed(() => !props.readonly && !isFrozen.value && !isNotApplicable.value && !inputLocked.value);
     const readonlyNotice = computed(() => {
       if (isFrozen.value) return '该订单已形成正式收益快照，以下金额只读且不可覆盖。';
       if (isNotApplicable.value) return '该报价包含非微盾范围产品，不适用本收益核算。';
+      if (inputLocked.value) return '该订单已按区管调价口径确认产品合同额和服务合同额，收益参数不可再改。';
       return '订单尚未形成正式收益快照，以下为最新核算结果，仅供内部参考。';
     });
 
@@ -2979,7 +2990,7 @@ const QuoteProfitPanel = {
       quoteProfitLoading.value = true;
       try {
         const response = await apiClient.getQuoteProfit(props.quoteId);
-        if (!response?.success) throw new Error(response?.error || '收益数据加载失败');
+        if (!response?.success) throw new Error(readApiErrorMessage(response, '收益数据加载失败'));
         quoteProfit.value = response.data || null;
         quoteProfitWarrantyYears.value = Number(response.data?.warrantyYears) || 3;
         quoteProfitMaintenanceYears.value = Number(response.data?.procurementMaintenanceYears) || 0;
@@ -3003,7 +3014,7 @@ const QuoteProfitPanel = {
         const response = recalculate
           ? await apiClient.recalculateQuoteProfit(quoteProfit.value.quoteId, payload)
           : await apiClient.saveQuoteProfitDraft(quoteProfit.value.quoteId, payload);
-        if (!response?.success) throw new Error(response?.error || '收益保存失败');
+        if (!response?.success) throw new Error(readApiErrorMessage(response, '收益保存失败'));
         quoteProfit.value = response.data || quoteProfit.value;
         quoteProfitWarrantyYears.value = Number(quoteProfit.value.warrantyYears) || 3;
         quoteProfitMaintenanceYears.value = Number(quoteProfit.value.procurementMaintenanceYears) || 0;
@@ -3022,7 +3033,7 @@ const QuoteProfitPanel = {
         const response = await apiClient.freezeQuoteProfit(quoteProfit.value.quoteId, {
           expectedRowVersion: quoteProfit.value.quoteRowVersion
         });
-        if (!response?.success) throw new Error(response?.error || '正式收益冻结请求提交失败');
+        if (!response?.success) throw new Error(readApiErrorMessage(response, '正式收益冻结请求提交失败'));
         await loadQuoteProfit();
       } catch (error) {
         quoteProfitError.value = error?.message || '正式收益冻结请求提交失败';
@@ -3047,7 +3058,7 @@ const QuoteProfitPanel = {
       quoteProfit, quoteProfitLoading, quoteProfitSaving, quoteProfitError,
       quoteProfitWarrantyYears, quoteProfitMaintenanceYears,
       canViewQuoteProfit, canFreezeQuoteProfit, isFrozen, isNotApplicable,
-      showEditActions, readonlyNotice, loadQuoteProfit, saveQuoteProfit,
+      inputLocked, showEditActions, readonlyNotice, loadQuoteProfit, saveQuoteProfit,
       freezeQuoteProfit, quoteProfitStatusClass: 收益状态样式, fmt
     };
   },
@@ -3066,12 +3077,15 @@ const QuoteProfitPanel = {
       <div v-if="readonly" :style="{padding:'10px 12px',borderRadius:'6px',background:isFrozen ? '#f6ffed' : '#fff7e6',color:isFrozen ? '#237804' : '#ad4e00',fontSize:'13px',marginBottom:'12px'}">
         {{ readonlyNotice }}
       </div>
+      <div v-else-if="inputLocked" style="padding:10px 12px;border-radius:6px;background:#f6ffed;color:#237804;font-size:13px;margin-bottom:12px">
+        {{ readonlyNotice }}
+      </div>
       <div v-if="!readonly" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
         <label style="font-size:13px;color:#555">质保年限
-          <input type="number" min="1" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitWarrantyYears" :disabled="isFrozen || isNotApplicable">
+          <input type="number" min="1" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitWarrantyYears" :disabled="isFrozen || isNotApplicable || inputLocked">
         </label>
         <label style="font-size:13px;color:#555">采购维保年限
-          <input type="number" min="0" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitMaintenanceYears" :disabled="isFrozen || isNotApplicable">
+          <input type="number" min="0" max="20" step="1" class="form-control" style="margin-top:6px" v-model.number="quoteProfitMaintenanceYears" :disabled="isFrozen || isNotApplicable || inputLocked">
         </label>
       </div>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px">
@@ -3805,7 +3819,7 @@ const QuoteList = {
           if (idx !== -1) Object.assign(store.quotes[idx], result.data);
           detail.value = result.data;
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) { alert('操作失败'); }
     }
@@ -3819,7 +3833,7 @@ const QuoteList = {
           if (idx !== -1) Object.assign(store.quotes[idx], result.data);
           detail.value = result.data;
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) { alert('操作失败'); }
     }
@@ -3834,7 +3848,7 @@ const QuoteList = {
           if (idx !== -1) Object.assign(store.quotes[idx], result.data);
           detail.value = result.data;
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) { alert('操作失败'); }
     }
@@ -3861,7 +3875,7 @@ const QuoteList = {
           if (idx !== -1) store.quotes.splice(idx, 1);
           detail.value = null;
         } else {
-          alert('删除失败：' + (result.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) { alert('删除失败'); }
     }
@@ -3919,7 +3933,7 @@ const QuoteList = {
           currentQuoteForOrder.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -5230,8 +5244,10 @@ const QuoteNew = {
       form.validDays = quote.validDays || 30;
 
       const allIds = Array.isArray(quote.products) ? [...quote.products] : [];
-      let resolvedPackageId = quote.packageId || '';
-      if ((!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
+      // 明确为自定义报价时不回推套餐：子集匹配会把自定义功能误判成某个套餐（例如只含网络准入+桌面管理就算命中“远程办公”）
+      const isExplicitCustomQuote = quote.quoteMode === 'custom';
+      let resolvedPackageId = isExplicitCustomQuote ? '' : quote.packageId || '';
+      if (!isExplicitCustomQuote && (!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
         resolvedPackageId = findMatchingPackageId(allIds);
       }
       let resolvedMode = quote.quoteMode || '';
@@ -5337,7 +5353,7 @@ const QuoteNew = {
         if (result.success) {
           ipgQuotePreview.value = result.data || null;
         } else {
-          throw new Error(result.error || 'IPG参考价计算失败');
+          throw new Error(readApiErrorMessage(result, 'IPG参考价计算失败'));
         }
       } catch (err) {
         if (requestSeq !== ipgQuoteRequestSeq) return;
@@ -5601,7 +5617,7 @@ const QuoteNew = {
             alert('报价单已更新！');
             router.push('/quote');
           } else {
-            alert('更新失败：' + (result.error || '未知错误'));
+            alert('更新失败：' + (readApiErrorMessage(result, '未知错误')));
           }
           return;
         }
@@ -5654,7 +5670,7 @@ const QuoteNew = {
           alert(replaceId ? '报价单已重新生成！' : '报价单已生成！');
           router.push('/quote');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('保存报价单失败:', err);
@@ -5923,21 +5939,35 @@ const OrderList = {
           <div v-if="isAdmin" style="margin-top:20px;padding:16px;background:#fffbe6;border-radius:8px;border:1px solid #ffe58f">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
               <div style="font-size:13px;font-weight:700;color:#d48806">💰 价格调整</div>
-              <button class="btn btn-sm" style="background:#faad14;color:#fff" @click="showPriceAdjust=true" v-if="!showPriceAdjust">调整价格</button>
+              <button class="btn btn-sm" style="background:#faad14;color:#fff" @click="openPriceAdjust(detail)" v-if="!showPriceAdjust">调整价格</button>
             </div>
             <!-- 价格调整表单 -->
             <div v-if="showPriceAdjust" style="margin-top:12px">
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
                 <div style="font-size:13px;color:#666">当前价格：<b style="color:#faad14">{{ fmt(detail.amount || detail.total) }}</b></div>
                 <span style="color:#999">→</span>
-                <input class="form-control" type="number" v-model.number="adjustForm.newAmount" placeholder="调整后价格" style="width:120px"/>
+                <div style="font-size:13px;color:#666">调整后总价：<b style="color:#52c41a">{{ fmt(adjustTotal) }}</b></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+                <label style="font-size:12px;color:#666">产品合同额
+                  <input class="form-control" type="number" min="0" step="0.01" v-model.number="adjustForm.productContractAmount" placeholder="软件+硬件合同额" style="margin-top:5px"/>
+                </label>
+                <label style="font-size:12px;color:#666">服务合同额
+                  <input class="form-control" type="number" min="0" step="0.01" v-model.number="adjustForm.serviceContractAmount" placeholder="服务合同额" style="margin-top:5px"/>
+                </label>
+                <label style="font-size:12px;color:#666">质保年限
+                  <input class="form-control" type="number" min="1" max="20" step="1" v-model.number="adjustForm.warrantyYears" style="margin-top:5px"/>
+                </label>
+                <label style="font-size:12px;color:#666">采购维保年限
+                  <input class="form-control" type="number" min="0" max="20" step="1" v-model.number="adjustForm.procurementMaintenanceYears" style="margin-top:5px"/>
+                </label>
               </div>
               <div style="margin-bottom:10px">
                 <textarea class="form-control" v-model="adjustForm.reason" placeholder="请填写价格调整原因（必填）" rows="2" style="resize:none"></textarea>
               </div>
               <div style="display:flex;gap:10px">
                 <button class="btn btn-sm" style="background:#faad14;color:#fff" @click="submitPriceAdjust(detail)">确认调整</button>
-                <button class="btn btn-sm btn-default" @click="showPriceAdjust=false;adjustForm={newAmount:null,reason:''}">取消</button>
+                <button class="btn btn-sm btn-default" @click="showPriceAdjust=false;adjustForm={productContractAmount:null,serviceContractAmount:null,warrantyYears:3,procurementMaintenanceYears:0,reason:''}">取消</button>
               </div>
               <div v-if="adjustError" style="color:#ff4d4f;font-size:12px;margin-top:8px">{{ adjustError }}</div>
             </div>
@@ -5948,6 +5978,7 @@ const OrderList = {
                 <span style="color:#999">{{ formatTime(adj.timestamp) }}</span>
                 <span style="margin-left:8px">{{ adj.operatorName }}</span>
                 <span style="margin-left:8px">将价格从 <b style="color:#faad14">¥{{ fmt(adj.oldAmount) }}</b> 调整为 <b style="color:#52c41a">¥{{ fmt(adj.newAmount) }}</b></span>
+                <span v-if="adj.productContractAmount !== undefined" style="margin-left:8px">产品合同额 ¥{{ fmt(adj.productContractAmount) }}，服务合同额 ¥{{ fmt(adj.serviceContractAmount) }}</span>
                 <div style="margin-top:2px;margin-left:80px;color:#888">(原因：{{ adj.reason }})</div>
               </div>
             </div>
@@ -6313,7 +6344,7 @@ const OrderList = {
           const 编号提示 = result.data?.原始数据?.numberNotice ? `\n${result.data.原始数据.numberNotice}` : '';
           alert((isLegacyV2Order ? '订单已确认，进入处理中' : (isSuperConfirm ? '订单已由超管确认' : '订单已提交超管确认')) + 编号提示);
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -6332,7 +6363,7 @@ const OrderList = {
           }
           alert('订单已标记为已发货');
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -6351,7 +6382,7 @@ const OrderList = {
           }
           alert('订单已完成');
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -6371,7 +6402,7 @@ const OrderList = {
           }
           alert('订单已取消');
         } else {
-          alert('操作失败：' + (result.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -6380,8 +6411,21 @@ const OrderList = {
     
     // 价格调整相关
     const showPriceAdjust = ref(false);
-    const adjustForm = ref({ newAmount: null, reason: '' });
+    const adjustForm = ref({ productContractAmount: null, serviceContractAmount: null, warrantyYears: 3, procurementMaintenanceYears: 0, reason: '' });
+    const adjustTotal = computed(() => Math.round(((Number(adjustForm.value.productContractAmount) || 0) + (Number(adjustForm.value.serviceContractAmount) || 0)) * 100) / 100);
     const adjustError = ref('');
+
+    function openPriceAdjust(order) {
+      adjustForm.value = {
+        productContractAmount: Number(order?.amount ?? order?.total ?? 0),
+        serviceContractAmount: 0,
+        warrantyYears: 3,
+        procurementMaintenanceYears: 0,
+        reason: '',
+      };
+      adjustError.value = '';
+      showPriceAdjust.value = true;
+    }
 
     function getReturnTargets(order) {
       if (!order) return [];
@@ -6415,7 +6459,7 @@ const OrderList = {
       rejectOrderSubmitting.value = true;
       try {
         const result = await apiClient.updateOrderStatus(order.id, `returned_to_${rejectOrderForm.value.target}`, reason, { returnTarget: rejectOrderForm.value.target });
-        if (!result.success) { alert('操作失败：' + (result.error || '未知错误')); return; }
+        if (!result.success) { alert('操作失败：' + (readApiErrorMessage(result, '未知错误'))); return; }
         const idx = store.orders.findIndex(item => item.id === order.id);
         if (idx !== -1) store.orders[idx] = result.data;
         if (detail.value?.id === order.id) detail.value = result.data;
@@ -6443,7 +6487,7 @@ const OrderList = {
       revisionReviewSubmitting.value = true;
       try {
         const result = await apiClient.reviewOrderRevision(requestId, revisionReviewForm.value.action, reason);
-        if (!result.success) { alert('处理失败：' + (result.error || '未知错误')); return; }
+        if (!result.success) { alert('处理失败：' + (readApiErrorMessage(result, '未知错误'))); return; }
         await loadOrders();
         closeRevisionReviewModal();
         detail.value = null;
@@ -6472,7 +6516,7 @@ const OrderList = {
       resubmitSubmitting.value = true;
       try {
         const result = await apiClient.resubmitOrder(detail.value.id, { reason: resubmitForm.value.reason.trim(), newAmount: amount, items });
-        if (!result.success) { alert('重新提交失败：' + (result.error || '未知错误')); return; }
+        if (!result.success) { alert('重新提交失败：' + (readApiErrorMessage(result, '未知错误'))); return; }
         showResubmitModal.value = false;
         await loadOrders();
         const updated = store.orders.find(order => order.id === detail.value.id);
@@ -6484,10 +6528,21 @@ const OrderList = {
     
     async function submitPriceAdjust(order) {
       adjustError.value = '';
-      const { newAmount, reason } = adjustForm.value;
-      
-      if (!newAmount || newAmount <= 0) {
-        adjustError.value = '请输入有效的调整后价格';
+      const { productContractAmount, serviceContractAmount, warrantyYears, procurementMaintenanceYears, reason } = adjustForm.value;
+      const 产品合同额 = Number(productContractAmount);
+      const 服务合同额 = Number(serviceContractAmount);
+      const 调整后总价 = Math.round((产品合同额 + 服务合同额) * 100) / 100;
+
+      if (!Number.isFinite(产品合同额) || 产品合同额 < 0 || !Number.isFinite(服务合同额) || 服务合同额 < 0 || 调整后总价 <= 0) {
+        adjustError.value = '请输入有效的产品合同额和服务合同额';
+        return;
+      }
+      if (!Number.isInteger(Number(warrantyYears)) || Number(warrantyYears) < 1 || Number(warrantyYears) > 20) {
+        adjustError.value = '质保年限必须在1至20年之间';
+        return;
+      }
+      if (!Number.isInteger(Number(procurementMaintenanceYears)) || Number(procurementMaintenanceYears) < 0 || Number(procurementMaintenanceYears) > 20) {
+        adjustError.value = '采购维保年限必须在0至20年之间';
         return;
       }
       if (!reason || reason.trim() === '') {
@@ -6497,7 +6552,11 @@ const OrderList = {
       
       try {
         const res = await apiRequest('PUT', `/orders/${order.id}/price-adjust`, {
-          newAmount,
+          newAmount: 调整后总价,
+          productContractAmount: 产品合同额,
+          serviceContractAmount: 服务合同额,
+          warrantyYears: Number(warrantyYears),
+          procurementMaintenanceYears: Number(procurementMaintenanceYears),
           adjustmentReason: reason,
           operatorId: store.user.id,
           operatorName: store.user.name,
@@ -6506,7 +6565,7 @@ const OrderList = {
         
         if (res && res.success) {
           const 编号提示 = res.data?.原始数据?.numberNotice ? `\n${res.data.原始数据.numberNotice}` : '';
-          alert(`价格已从 ¥${(order.amount || order.total).toLocaleString()} 调整为 ¥${newAmount.toLocaleString()}，已提交超管确认${编号提示}`);
+          alert(`价格已从 ¥${(order.amount || order.total).toLocaleString()} 调整为 ¥${调整后总价.toLocaleString()}，已提交超管确认${编号提示}`);
           // 更新本地订单数据
           const idx = store.orders.findIndex(o => o.id === order.id);
           if (idx !== -1) {
@@ -6515,9 +6574,9 @@ const OrderList = {
           // 更新详情中的订单数据
           detail.value = res.data;
           showPriceAdjust.value = false;
-          adjustForm.value = { newAmount: null, reason: '' };
+          adjustForm.value = { productContractAmount: null, serviceContractAmount: null, warrantyYears: 3, procurementMaintenanceYears: 0, reason: '' };
         } else {
-          adjustError.value = (res && res.error) || '调整失败';
+          adjustError.value = readApiErrorMessage(res, '调整失败');
         }
       } catch (err) {
         adjustError.value = '操作失败：' + err.message;
@@ -6526,7 +6585,7 @@ const OrderList = {
     
     return { store, kw, filterStatus, partnerFilter, adminRegion, isStaff, isAdmin, isSuperAdmin, filtered, paginatedData, detail, loading, fmt, oClass, oLabel, view, loadOrders, canManageOrder, confirmOrder, rejectOrder, shipOrder, completeOrder, cancelOrder, reviewOrderRevision, getReturnTargets, showRejectOrderModal, rejectOrderTarget, rejectOrderForm, rejectOrderSubmitting, closeRejectOrderModal, submitRejectOrder, showRevisionReviewModal, revisionReviewTarget, revisionReviewForm, revisionReviewSubmitting, closeRevisionReviewModal, submitRevisionReview, getShippedTime, formatTime, canResubmit, openResubmitModal, showResubmitModal, resubmitSubmitting, resubmitForm, resubmitTotal, moduleLineTotal, syncResubmitTotal, addResubmitItem, removeResubmitItem, submitResubmit, revisionProducts, selectRevisionProduct,
       currentPage, totalPages, pageNumbers, prevPage, nextPage, goToPage, getPartnerDisplayName,
-      showPriceAdjust, adjustForm, adjustError, submitPriceAdjust, orderPartners };
+      showPriceAdjust, adjustForm, adjustTotal, adjustError, openPriceAdjust, submitPriceAdjust, orderPartners };
   }
 };
 
@@ -8158,7 +8217,7 @@ const ProductCatalog = {
       costError.value = '';
       try {
         const response = await apiClient.getHardwareCostRules(filters);
-        if (!response?.success) throw new Error(response?.error || '成本规则加载失败');
+        if (!response?.success) throw new Error(readApiErrorMessage(response, '成本规则加载失败'));
         costRules.value = normalizeCostRuleResponse(response, filters.hardwareProductId || '');
       } catch (error) {
         costRules.value = [];
@@ -8214,7 +8273,7 @@ const ProductCatalog = {
           effectiveFrom: String(costForm.effectiveFrom).trim(),
           sourceReference: String(costForm.sourceReference).trim()
         });
-        if (!response?.success) throw new Error(response?.error || '成本规则保存失败');
+        if (!response?.success) throw new Error(readApiErrorMessage(response, '成本规则保存失败'));
         await loadHardwareCostRules();
         fillCostDialogFromEntry(getHardwareCostEntry(costHardware.value));
         alert('成本版本已新增');
@@ -8374,7 +8433,7 @@ const ProductCatalog = {
         });
         const data = await res.json();
         if (data.success) { showCategoryDialog.value = false; loadAll(); }
-        else alert(data.error || '保存失败');
+        else alert(readApiErrorMessage(data, '保存失败'));
       } catch (err) { alert(err.message); }
       saving.value = false;
     }
@@ -8385,7 +8444,7 @@ const ProductCatalog = {
         const res = await adminFetch(`${window.API_BASE}/categories/${cat.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
-        else alert(data.error || '删除失败');
+        else alert(readApiErrorMessage(data, '删除失败'));
       } catch (err) { alert(err.message); }
     }
     
@@ -8412,7 +8471,7 @@ const ProductCatalog = {
         });
         const data = await res.json();
         if (data.success) { showModuleDialog.value = false; loadAll(); }
-        else alert(data.error || '保存失败');
+        else alert(readApiErrorMessage(data, '保存失败'));
       } catch (err) { alert(err.message); }
       saving.value = false;
     }
@@ -8423,7 +8482,7 @@ const ProductCatalog = {
         const res = await adminFetch(`${window.API_BASE}/modules/${mod.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
-        else alert(data.error || '删除失败');
+        else alert(readApiErrorMessage(data, '删除失败'));
       } catch (err) { alert(err.message); }
     }
     
@@ -8599,7 +8658,7 @@ const ProductCatalog = {
         });
         const data = await res.json();
         if (data.success) { showFeatureDialog.value = false; loadAll(); }
-        else alert(data.error || '保存失败');
+        else alert(readApiErrorMessage(data, '保存失败'));
       } catch (err) { alert(err.message); }
       saving.value = false;
     }
@@ -8621,7 +8680,7 @@ const ProductCatalog = {
         const res = await adminFetch(`${window.API_BASE}/features/${feat.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
-        else alert(data.error || '删除失败');
+        else alert(readApiErrorMessage(data, '删除失败'));
       } catch (err) { alert(err.message); }
     }
     
@@ -8648,7 +8707,7 @@ const ProductCatalog = {
         });
         const data = await res.json();
         if (data.success) { showHardwareDialog.value = false; loadAll(); }
-        else alert(data.error || '保存失败');
+        else alert(readApiErrorMessage(data, '保存失败'));
       } catch (err) { alert(err.message); }
       saving.value = false;
     }
@@ -8670,7 +8729,7 @@ const ProductCatalog = {
         const res = await adminFetch(`${window.API_BASE}/hardware/${hw.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
-        else alert(data.error || '删除失败');
+        else alert(readApiErrorMessage(data, '删除失败'));
       } catch (err) { alert(err.message); }
     }
     
@@ -8697,7 +8756,7 @@ const ProductCatalog = {
         });
         const data = await res.json();
         if (data.success) { showPackageDialog.value = false; loadAll(); }
-        else alert(data.error || '保存失败');
+        else alert(readApiErrorMessage(data, '保存失败'));
       } catch (err) { alert(err.message); }
       saving.value = false;
     }
@@ -8719,7 +8778,7 @@ const ProductCatalog = {
         const res = await adminFetch(`${window.API_BASE}/packages/${pkg.id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) loadAll();
-        else alert(data.error || '删除失败');
+        else alert(readApiErrorMessage(data, '删除失败'));
       } catch (err) { alert(err.message); }
     }
     
@@ -10882,7 +10941,7 @@ const Partners = {
             syncProfileForm(res.data);
           }
         } else {
-          profileError.value = res.error || '加载渠道商信息简介失败';
+          profileError.value = readApiErrorMessage(res, '加载渠道商信息简介失败');
         }
       } catch (err) {
         profileError.value = err.message;
@@ -10940,7 +10999,7 @@ const Partners = {
           resetProductForm();
           alert('渠道商信息简介已保存');
         } else {
-          alert('保存失败：' + (res.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('保存失败：' + err.message);
@@ -11007,7 +11066,7 @@ const Partners = {
           if (profileEditVisible.value) restoreProfileDraft(draft);
           alert(wasEditing ? '矩阵产品已更新' : '矩阵产品已新增');
         } else {
-          alert('保存失败：' + (res.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('保存失败：' + err.message);
@@ -11025,7 +11084,7 @@ const Partners = {
           if (profileEditVisible.value) restoreProfileDraft(draft);
           alert(res.message || '矩阵产品已处理');
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -11063,7 +11122,7 @@ const Partners = {
           p.status = 'pending';
           store.notifications.unshift({ id:Date.now(), title:'渠道商重新提交', desc:`${p.name} 已重新提交审核`, time:'刚刚', unread:true });
         } else {
-          alert('重新提交失败：' + (res.error || '未知错误'));
+          alert('重新提交失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('重新提交失败：' + err.message);
@@ -11182,7 +11241,7 @@ const Partners = {
             }
             alert('渠道商信息更新成功');
           } else {
-            alert('更新失败：' + (res.error || '未知错误'));
+            alert('更新失败：' + (readApiErrorMessage(res, '未知错误')));
             return;
           }
         } catch (err) {
@@ -11229,7 +11288,7 @@ const Partners = {
               alert('渠道商创建成功');
             }
           } else {
-            alert('创建失败：' + (res.error || '未知错误'));
+            alert('创建失败：' + (readApiErrorMessage(res, '未知错误')));
             return;
           }
         } catch (err) {
@@ -11315,7 +11374,7 @@ const Partners = {
             }
             alert(res.message || '员工信息更新成功');
           } else {
-            alert('更新失败：' + (res.error || '未知错误'));
+            alert('更新失败：' + (readApiErrorMessage(res, '未知错误')));
             return;
           }
         } catch (err) {
@@ -11342,12 +11401,12 @@ const Partners = {
             email: staffForm.email
           });
           if (!res.success) {
-            alert('创建账号失败：' + (res.message || res.error || '未知错误'));
+            alert('创建账号失败：' + readApiErrorMessage(res, '未知错误'));
             return;
           }
         } catch (err) {
           console.log('创建后端用户账号失败（可能已存在）:', err);
-          alert('创建账号失败：' + (err.error || err.message));
+          alert('创建账号失败：' + readApiErrorMessage(err, '未知错误'));
           return;
         }
         
@@ -11416,7 +11475,7 @@ const Partners = {
             unread: true
           });
         } else {
-          alert('切换状态失败：' + (res.error || '未知错误'));
+          alert('切换状态失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('切换状态失败：' + err.message);
@@ -11435,7 +11494,7 @@ const Partners = {
         if (res.success) {
           alert('密码已重置为：123456');
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -11467,7 +11526,7 @@ const Partners = {
             unread: true
           });
         } else {
-          alert('删除失败：' + (res.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('删除失败：' + err.message);
@@ -11486,7 +11545,7 @@ const Partners = {
           if (detail.value && detail.value.id === p.id) detail.value = null;
           alert('渠道商已删除');
         } else {
-          alert('删除失败：' + (res.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('删除失败：' + err.message);
@@ -11559,7 +11618,7 @@ const Partners = {
           alert('渠道分销层级设置成功');
         } else {
           console.error('[等级管理] 请求失败:', res.error);
-          alert('设置失败：' + (res.error || '未知错误'));
+          alert('设置失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         console.error('[等级管理] 异常:', err);
@@ -11874,7 +11933,7 @@ const PartnerAdminManage = {
       }
 
       if (!userRes.success) {
-        alert('创建失败：' + (userRes.error || userRes.message || '未知错误'));
+        alert('创建失败：' + readApiErrorMessage(userRes, '未知错误'));
         return;
       }
 
@@ -11977,7 +12036,7 @@ const PartnerAdminManage = {
           closeEditModal();
           alert(res.message || '保存成功');
         } else {
-          alert('保存失败：' + (res.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('保存失败：' + err.message);
@@ -12003,7 +12062,7 @@ const PartnerAdminManage = {
           await loadPartners();
           alert(res.message || `账号已${action}`);
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -12023,7 +12082,7 @@ const PartnerAdminManage = {
         if (res.success) {
           alert('密码已重置为：123456');
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -12045,7 +12104,7 @@ const PartnerAdminManage = {
           await loadPartners();
           alert(res.message || '已从当前渠道移除并归档');
         } else {
-          alert('删除失败：' + (res.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('删除失败：' + err.message);
@@ -12657,7 +12716,7 @@ const PartnerReport = {
             businessRoleCode: staffForm.role === '技术' ? 'channel_technical' : 'channel_sales'
           });
           if (!res.success) {
-            alert('更新失败：' + (res.error || '未知错误'));
+            alert('更新失败：' + (readApiErrorMessage(res, '未知错误')));
             return;
           }
           const idx = partner.staff.findIndex(staff => staff.id === staffForm.id);
@@ -12694,7 +12753,7 @@ const PartnerReport = {
             createdByRole: store.user?.role || ''
           });
           if (!res.success) {
-            alert('创建失败：' + (res.error || res.message || '未知错误'));
+            alert('创建失败：' + readApiErrorMessage(res, '未知错误'));
             return;
           }
           const detailRes = await apiRequest('GET', `/partners/${encodeApiPathValue(partner.id)}`);
@@ -12727,7 +12786,7 @@ const PartnerReport = {
       try {
         const res = await apiRequest('PUT', `${staffPath}/status`, { status: nextStatus });
         if (!res.success) {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
           return;
         }
         const target = partner.staff.find(item => item.id === staff.id);
@@ -12753,7 +12812,7 @@ const PartnerReport = {
         if (res.success) {
           alert('密码已重置为：123456');
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('操作失败：' + err.message);
@@ -12772,7 +12831,7 @@ const PartnerReport = {
       try {
         const res = await apiRequest('DELETE', staffPath);
         if (!res.success) {
-          alert('删除失败：' + (res.error || '未知错误'));
+          alert('删除失败：' + (readApiErrorMessage(res, '未知错误')));
           return;
         }
         partner.staff = removePartnerStaffFromList(partner.staff, staff);
@@ -13111,7 +13170,7 @@ const AccountManage = {
         if (res.success) {
           alert('密码已重置为：123456');
         } else {
-          alert('操作失败：' + (res.error || '未知错误'));
+          alert('操作失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (e) {
         alert('操作失败：' + e.message);
@@ -13192,7 +13251,7 @@ const AccountManage = {
             showForm.value = false;
             loadAdminAccounts();
           } else {
-            alert('保存失败：' + (res.error || '未知错误'));
+            alert('保存失败：' + (readApiErrorMessage(res, '未知错误')));
           }
         } else {
           if (adminAccounts.value.find(a => String(a.username || '').toLowerCase() === String(form.username || '').toLowerCase())) {
@@ -13218,7 +13277,7 @@ const AccountManage = {
             showForm.value = false;
             loadAdminAccounts();
           } else {
-            alert('创建账号失败：' + (res.message || res.error || '未知错误'));
+            alert('创建账号失败：' + readApiErrorMessage(res, '未知错误'));
           }
         }
       } catch (e) {
@@ -13618,7 +13677,7 @@ const AdminReview = {
           r.status = 'approved';
           store.notifications.unshift({ id:Date.now(), title:'报备审批通过', desc:`${r.customer} 已审批通过`, time:'刚刚', unread:true });
         } else {
-          alert('审批失败：' + (res.error || '未知错误'));
+          alert('审批失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -13631,7 +13690,7 @@ const AdminReview = {
           r.status = 'rejected';
           store.notifications.unshift({ id:Date.now(), title:'报备已拒绝', desc:`${r.customer} 已被拒绝`, time:'刚刚', unread:true });
         } else {
-          alert('拒绝失败：' + (res.error || '未知错误'));
+          alert('拒绝失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -13644,7 +13703,7 @@ const AdminReview = {
           r.status = 'pending';
           store.notifications.unshift({ id:Date.now(), title:'报备重新提交', desc:`${r.customer} 已重新提交审核`, time:'刚刚', unread:true });
         } else {
-          alert('重新提交失败：' + (res.error || '未知错误'));
+          alert('重新提交失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('重新提交失败：' + err.message);
@@ -13664,7 +13723,7 @@ const AdminReview = {
           // 刷新待审批列表
           loadPendingApprovals();
         } else {
-          alert('审批失败：' + (res.error || '未知错误'));
+          alert('审批失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -13680,7 +13739,7 @@ const AdminReview = {
           p.status = 'rejected';
           loadPendingApprovals();
         } else {
-          alert('拒绝失败：' + (res.error || '未知错误'));
+          alert('拒绝失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -13700,7 +13759,7 @@ const AdminReview = {
           }
           store.notifications.unshift({ id:Date.now(), title:'渠道商重新提交', desc:`${p.name} 已重新提交审核`, time:'刚刚', unread:true });
         } else {
-          alert('重新提交失败：' + (res.error || '未知错误'));
+          alert('重新提交失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('重新提交失败：' + err.message);
@@ -13722,7 +13781,7 @@ const AdminReview = {
           loadPendingApprovals();
           window.__refreshPendingApprovals?.();
         } else {
-          alert('审批失败：' + (res.error || res.message || '未知错误'));
+          alert('审批失败：' + readApiErrorMessage(res, '未知错误'));
         }
       } catch (err) {
         alert('审批失败：' + err.message);
@@ -13741,7 +13800,7 @@ const AdminReview = {
           loadPendingApprovals();
           window.__refreshPendingApprovals?.();
         } else {
-          alert('拒绝失败：' + (res.error || res.message || '未知错误'));
+          alert('拒绝失败：' + readApiErrorMessage(res, '未知错误'));
         }
       } catch (err) {
         alert('拒绝失败：' + err.message);
@@ -13762,7 +13821,7 @@ const AdminReview = {
           }
           store.notifications.unshift({ id:Date.now(), title:'员工重新提交', desc:`${s.name} 已重新提交审核`, time:'刚刚', unread:true });
         } else {
-          alert('重新提交失败：' + (res.error || '未知错误'));
+          alert('重新提交失败：' + (readApiErrorMessage(res, '未知错误')));
         }
       } catch (err) {
         alert('重新提交失败：' + err.message);
@@ -15017,7 +15076,7 @@ const OpportunityList = {
           showInlineQuote.value = false;
           alert('报价单已创建！');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建报价单失败:', err);
@@ -15117,7 +15176,7 @@ const OpportunityList = {
           detail.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('赢单转订单失败:', err);
@@ -15189,7 +15248,7 @@ const OpportunityList = {
           detail.value = null;
           router.push('/order');
         } else {
-          alert('创建订单失败：' + (result.error || '未知错误'));
+          alert('创建订单失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建订单失败:', err);
@@ -15409,7 +15468,7 @@ const OpportunityList = {
           const idx = store.opportunities.findIndex(x => x.id === d.id);
           if (idx !== -1) store.opportunities[idx].stage = newStage;
         } else {
-          alert('阶段更新失败：' + (result.error || '未知错误'));
+          alert('阶段更新失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('更新商机阶段失败:', err);
@@ -15551,7 +15610,7 @@ const OpportunityList = {
           editChangeReason.value = '';
           alert('保存成功');
         } else {
-          alert('保存失败：' + (result.error || '未知错误'));
+          alert('保存失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('保存商机编辑失败:', err);
@@ -16165,7 +16224,7 @@ const OpportunityNew = {
           alert('商机创建成功！');
           router.push('/opportunity');
         } else {
-          alert('创建失败：' + (result.error || '未知错误'));
+          alert('创建失败：' + (readApiErrorMessage(result, '未知错误')));
         }
       } catch (err) {
         console.error('创建商机失败:', err);
@@ -16302,7 +16361,7 @@ const OpportunityImport = {
           totalCount.value = data.totalCount;
           errorCount.value = data.errorCount || 0;
         } else {
-          alert(data.error || '预览失败');
+          alert(readApiErrorMessage(data, '预览失败'));
           fileName.value = '';
           selectedFile.value = null;
         }
@@ -16336,7 +16395,7 @@ const OpportunityImport = {
           // 刷新全局数据
           if (typeof refreshStoreData === 'function') refreshStoreData();
         } else {
-          alert(data.error || '导入失败');
+          alert(readApiErrorMessage(data, '导入失败'));
         }
       } catch (err) { alert('导入失败: ' + err.message); }
       finally { importing.value = false; }
@@ -16449,7 +16508,7 @@ const RegistrationImport = {
           totalCount.value = data.totalCount;
           errorCount.value = data.errorCount || 0;
         } else {
-          alert(data.error || '预览失败');
+          alert(readApiErrorMessage(data, '预览失败'));
           fileName.value = '';
           selectedFile.value = null;
         }
@@ -16475,7 +16534,7 @@ const RegistrationImport = {
           fileName.value = '';
           selectedFile.value = null;
           if (typeof refreshStoreData === 'function') refreshStoreData();
-        } else { alert(data.error || '导入失败'); }
+        } else { alert(readApiErrorMessage(data, '导入失败')); }
       } catch (err) { alert('导入失败: ' + err.message); }
       finally { importing.value = false; }
     }
@@ -16587,7 +16646,7 @@ const PartnerImport = {
           totalCount.value = data.totalCount;
           errorCount.value = data.errorCount || 0;
         } else {
-          alert(data.error || '预览失败');
+          alert(readApiErrorMessage(data, '预览失败'));
           fileName.value = '';
           selectedFile.value = null;
         }
@@ -16613,7 +16672,7 @@ const PartnerImport = {
           fileName.value = '';
           selectedFile.value = null;
           if (typeof refreshStoreData === 'function') refreshStoreData();
-        } else { alert(data.error || '导入失败'); }
+        } else { alert(readApiErrorMessage(data, '导入失败')); }
       } catch (err) { alert('导入失败: ' + err.message); }
       finally { importing.value = false; }
     }
@@ -16725,7 +16784,7 @@ const StaffImport = {
           totalCount.value = data.totalCount;
           errorCount.value = data.errorCount || 0;
         } else {
-          alert(data.error || '预览失败');
+          alert(readApiErrorMessage(data, '预览失败'));
           fileName.value = '';
           selectedFile.value = null;
         }
@@ -16751,7 +16810,7 @@ const StaffImport = {
           fileName.value = '';
           selectedFile.value = null;
           if (typeof refreshStoreData === 'function') refreshStoreData();
-        } else { alert(data.error || '导入失败'); }
+        } else { alert(readApiErrorMessage(data, '导入失败')); }
       } catch (err) { alert('导入失败: ' + err.message); }
       finally { importing.value = false; }
     }
@@ -17252,7 +17311,7 @@ const AuditLogs = {
         if (res.success) {
           detailData.value = res.data;
         } else {
-          detailError.value = res.error || '加载详情失败';
+          detailError.value = readApiErrorMessage(res, '加载详情失败');
         }
       } catch (err) {
         detailError.value = err.message;
@@ -17756,7 +17815,7 @@ const OpenApiIntegration = {
         const endpoint = editing.value ? `/open-api/clients/${encodeURIComponent(editingId.value)}` : '/open-api/clients';
         const res = await apiRequest(editing.value ? 'PUT' : 'POST', endpoint, payload);
         if (!res.success) {
-          formError.value = res.error || '保存失败';
+          formError.value = readApiErrorMessage(res, '保存失败');
           return;
         }
         if (!editing.value && res.data?.appSecret) {
@@ -17785,7 +17844,7 @@ const OpenApiIntegration = {
           secretVisible.value = true;
           await loadClients();
         } else {
-          alert(res.error || '重置失败');
+          alert(readApiErrorMessage(res, '重置失败'));
         }
       } catch (err) {
         alert('重置密钥失败: ' + err.message);
@@ -17935,7 +17994,7 @@ const MessagePlatform = {
     const channels = ref([]);
     const canTest = computed(() => readiness.value?.encryptionKeyConfigured && readiness.value?.messageWorkerEnabled && readiness.value?.cutoverAtConfigured);
     function endpoint(path) { return '/api/messages/platform' + path; }
-    async function request(method, path, body) { const response = await adminFetch(endpoint(path), { method, headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : undefined }); const json = await response.json(); if (!response.ok || !json.success) { const detail=json.error; throw new Error((typeof detail==='object' && detail?.message) || detail || json.message || '操作失败'); } return json.data; }
+    async function request(method, path, body) { const response = await adminFetch(endpoint(path), { method, headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : undefined }); const json = await response.json(); if (!response.ok || !json.success) { const detail=json.error; throw new Error(readApiErrorMessage(json.error ?? json, '操作失败')); } return json.data; }
     async function loadDeliveries() { try { deliveries.value=await request('GET','/deliveries?limit=30'); } catch(e) { error.value=e.message||'加载投递状态失败'; } }
     async function load() { if (!isSuperAdmin.value) return; loading.value=true; error.value=''; try { const [data, runtime] = await Promise.all([request('GET','/channels'), request('GET','/channels/readiness')]); channels.value=(data||[]).map(item=>({...meta[item.channelCode],...item,code:item.channelCode})).filter(item=>item.name); readiness.value=runtime; await loadDeliveries(); } catch(e) { error.value=e.message||'加载失败'; } finally { loading.value=false; } }
     async function save(channel) { saving.value=channel.code; error.value=''; try { const data=await request('PUT','/channels/'+channel.code,forms[channel.code]); Object.assign(channel,data); ['webhook','corpId','secret','apiKey','apiSecret','password'].forEach(key=>{ if (key in forms[channel.code]) forms[channel.code][key]=''; }); alert('配置已加密保存，正式投递仍保持未启用。'); } catch(e) { error.value=e.message||'保存失败'; } finally { saving.value=''; } }
@@ -18505,7 +18564,7 @@ ${MESSAGE_RULES_VARIABLE_TAGS}
     async function request(method, path, body) {
       const response = await adminFetch(endpoint(path), { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok || !json.success) { const detail = json.error; throw new Error((typeof detail === 'object' && detail?.message) || detail || json.message || '操作失败'); }
+      if (!response.ok || !json.success) { const detail = json.error; throw new Error(readApiErrorMessage(json.error ?? json, '操作失败')); }
       return json.data;
     }
     async function load() {
@@ -19169,7 +19228,7 @@ const WorkloadConfig = {
         deliveryTags,
         active: true
       });
-      if (!result.success) return alert(result.error || '保存失败');
+      if (!result.success) return alert(readApiErrorMessage(result, '保存失败'));
       alert('映射已保存');
       loadMappings();
     }
@@ -19187,14 +19246,14 @@ const WorkloadConfig = {
     async function saveRule() {
       const payload = { name: ruleForm.name, minPoints: ruleForm.minPoints, maxPoints: ruleForm.maxPoints, productType: ruleForm.productType, sensitiveKeyword: ruleForm.sensitiveKeyword, personDays: ruleForm.personDays, active: ruleForm.active };
       const result = editingRuleId.value ? await apiClient.updateWorkloadRule(editingRuleId.value, payload) : await apiClient.createWorkloadRule(payload);
-      if (!result.success) return alert(result.error || '保存失败');
+      if (!result.success) return alert(readApiErrorMessage(result, '保存失败'));
       showRuleDialog.value = false;
       loadRules();
     }
     async function removeRule(rule) {
       if (!confirm('确认删除规则“' + rule.name + '”吗？')) return;
       const result = await apiClient.deleteWorkloadRule(rule.id);
-      if (!result.success) return alert(result.error || '删除失败');
+      if (!result.success) return alert(readApiErrorMessage(result, '删除失败'));
       loadRules();
     }
     watch(mappingKeyword, () => { loadMappings(); });
@@ -19416,7 +19475,7 @@ const WorkloadConfigV2 = {
         deliveryTags,
         active: true
       });
-      if (!result.success) return alert(result.error || '保存失败');
+      if (!result.success) return alert(readApiErrorMessage(result, '保存失败'));
       alert('映射已保存');
       loadMappings();
     }
@@ -19446,7 +19505,7 @@ const WorkloadConfigV2 = {
         active: deliveryRuleForm.active
       };
       const result = await apiClient.updateWorkloadDeliveryRule(editingDeliveryRuleId.value, payload);
-      if (!result.success) return alert(result.error || '保存失败');
+      if (!result.success) return alert(readApiErrorMessage(result, '保存失败'));
       showDeliveryRuleDialog.value = false;
       loadDeliveryRules();
     }
@@ -21302,7 +21361,7 @@ const OrganizationWorkspace = {
     }
 
     function 读取错误信息(error, 默认信息) {
-      return error instanceof Error ? error.message : 默认信息;
+      return readApiErrorMessage(error, 默认信息);
     }
 
     async function 加载账号冲突清单() {
@@ -22317,7 +22376,7 @@ const OrganizationWorkspace = {
           email: 基本信息表单.email,
         });
         if (!结果.success) {
-          ElementPlus.ElMessage.error('保存失败：' + (结果.error || '未知错误'));
+          ElementPlus.ElMessage.error('保存失败：' + (readApiErrorMessage(结果, '未知错误')));
           return;
         }
         ElementPlus.ElMessage.success('基本信息已保存。');
@@ -22336,7 +22395,7 @@ const OrganizationWorkspace = {
       if (!confirm('确认将「' + 编辑用户.value.name + '」的密码重置为 123456 吗？')) return;
       try {
         const 结果 = await apiRequest('PUT', '/users/' + encodeURIComponent(编辑用户.value.id) + '/password', { password: '123456' });
-        if (!结果.success) { ElementPlus.ElMessage.error('重置失败：' + (结果.error || '未知错误')); return; }
+        if (!结果.success) { ElementPlus.ElMessage.error('重置失败：' + (readApiErrorMessage(结果, '未知错误'))); return; }
         ElementPlus.ElMessage.success('密码已重置为 123456。');
       } catch (error) {
         ElementPlus.ElMessage.error('重置失败：' + 读取错误信息(error, '未知错误'));
@@ -22653,7 +22712,7 @@ const OrganizationWorkspace = {
         };
         const 创建结果 = await apiRequest('POST', '/users', 账号载荷);
         if (!创建结果.success) {
-          ElementPlus.ElMessage.error('创建账号失败：' + (创建结果.error || '未知错误'));
+          ElementPlus.ElMessage.error('创建账号失败：' + (readApiErrorMessage(创建结果, '未知错误')));
           return;
         }
         const 检索结果 = await 组织查询账号({ keyword: String(新建用户表单.username).trim() });

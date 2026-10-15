@@ -6,6 +6,9 @@ export type 微盾收益范围 = "weidun" | "xcad" | "unclassified";
 /** 收益计算结果状态。 */
 export type 微盾收益状态 = "complete" | "incomplete" | "not_applicable";
 
+/** 收益计算公式版本。调价订单使用总价输入口径，历史记录继续使用模块金额口径。 */
+export type 微盾收益公式版本代码 = "weidun-v1" | "weidun-v2-total-input";
+
 /** 计算引擎使用的十进制定点金额字符串。 */
 export type 定点金额 = string;
 
@@ -33,6 +36,8 @@ export interface 微盾收益计算输入 {
   scopeCode?: 微盾收益范围 | null;
   softwareItems?: 微盾软件收益明细[];
   hardwareItems?: 微盾硬件收益明细[];
+  /** 区管调价后直接确认的产品合同额；存在时不再使用模块金额汇总该字段。 */
+  productContractAmount?: 定点金额;
   serviceContractAmount?: 定点金额;
   warrantyYears: number | string;
   procurementMaintenanceYears: number | string;
@@ -67,7 +72,7 @@ export interface 微盾硬件收益行结果 {
 }
 
 export interface 微盾收益计算结果 {
-  formulaVersion: "weidun-v1";
+  formulaVersion: 微盾收益公式版本代码;
   scopeCode: 微盾收益范围 | null;
   statusCode: 微盾收益状态;
   complete: boolean;
@@ -97,6 +102,7 @@ export interface 微盾收益计算结果 {
 }
 
 export const 微盾收益公式版本 = "weidun-v1" as const;
+export const 微盾总价收益公式版本 = "weidun-v2-total-input" as const;
 const 金额倍率 = 1_000_000n;
 const 数量倍率 = 10_000n;
 const 产品税率 = 50_000n;
@@ -114,16 +120,25 @@ export function 计算微盾报价收益(输入: 微盾收益计算输入): 微�
   const 硬件明细 = 输入.hardwareItems || [];
   const 质保年限 = 解析年限(输入.warrantyYears, "质保年限", 1);
   const 采购维保年限 = 解析年限(输入.procurementMaintenanceYears, "采购维保年限", 0);
+  const 公式版本: 微盾收益公式版本代码 =
+    输入.productContractAmount === undefined ? 微盾收益公式版本 : 微盾总价收益公式版本;
   const 范围判定 = 判定收益范围(输入.scopeCode, 软件明细, 硬件明细);
 
   if (范围判定.statusCode === "not_applicable") {
-    const 输入指纹 = 生成输入指纹(输入, 质保年限, 采购维保年限);
+    const 输入指纹 = 生成输入指纹(输入, 质保年限, 采购维保年限, 公式版本);
     return 创建不适用结果(
       范围判定.scopeCode,
       输入指纹,
       质保年限,
       采购维保年限,
       范围判定.missingRules,
+      公式版本,
+      输入.productContractAmount === undefined
+        ? null
+        : 解析金额或抛错(输入.productContractAmount, "产品合同额"),
+      输入.serviceContractAmount === undefined
+        ? null
+        : 解析金额或抛错(输入.serviceContractAmount, "服务合同额"),
     );
   }
 
@@ -142,7 +157,7 @@ export function 计算微盾报价收益(输入: 微盾收益计算输入): 微�
 
   const 软件结果 = 软件明细.map((明细, 下标) => 计算软件行(明细, 下标, 缺失规则));
   const 硬件结果 = 硬件明细.map((明细, 下标) => 计算硬件行(明细, 下标, 缺失规则));
-  const 输入指纹 = 生成输入指纹(输入, 质保年限, 采购维保年限);
+  const 输入指纹 = 生成输入指纹(输入, 质保年限, 采购维保年限, 公式版本);
   const 无商品明细 = 软件明细.length === 0 && 硬件明细.length === 0;
   const 软件折后价 = 无商品明细
     ? null
@@ -186,7 +201,10 @@ export function 计算微盾报价收益(输入: 微盾收益计算输入): 微�
         缺失规则,
         "hardwareAnnualMaintenanceCost",
       );
-  const 产品合同额 = 相加(软件折后价, 硬件报价);
+  const 产品合同额 =
+    公式版本 === 微盾总价收益公式版本
+      ? 解析金额或缺失(输入.productContractAmount, "产品合同额", 缺失规则)
+      : 相加(软件折后价, 硬件报价);
   const 产品税费 = 乘倍率(相减(产品合同额, 硬件内部成本), 产品税率);
   const 服务税费 = 乘倍率(服务合同额, 服务税率);
   const 质保基础 = 相加(硬件年度质保成本, 乘倍率(软件公开价, 软件年度成本率));
@@ -201,7 +219,7 @@ export function 计算微盾报价收益(输入: 微盾收益计算输入): 微�
   const 是否完整 = 缺失规则.length === 0;
 
   return {
-    formulaVersion: 微盾收益公式版本,
+    formulaVersion: 公式版本,
     scopeCode: 范围判定.scopeCode,
     statusCode: 是否完整 ? "complete" : "incomplete",
     complete: 是否完整,
@@ -237,13 +255,16 @@ function 创建不适用结果(
   质保年限: number,
   采购维保年限: number,
   缺失规则: 微盾收益缺失规则[],
+  公式版本: 微盾收益公式版本代码,
+  产品合同额: bigint | null,
+  服务合同额: bigint | null,
 ): 微盾收益计算结果 {
   const 空结果 = {
     softwareDiscountedAmount: null,
     softwarePublicAmount: null,
     hardwareQuoteAmount: null,
-    productContractAmount: null,
-    serviceContractAmount: null,
+    productContractAmount: 格式金额(产品合同额),
+    serviceContractAmount: 格式金额(服务合同额),
     hardwareInternalCost: null,
     hardwareAnnualWarrantyCost: null,
     hardwareAnnualMaintenanceCost: null,
@@ -255,7 +276,7 @@ function 创建不适用结果(
     projectProfit: null,
   } as const;
   return {
-    formulaVersion: 微盾收益公式版本,
+    formulaVersion: 公式版本,
     scopeCode: 范围,
     statusCode: "not_applicable",
     complete: false,
@@ -510,7 +531,12 @@ function 去重缺失规则(规则列表: 微盾收益缺失规则[]): 微盾收
   });
 }
 
-function 生成输入指纹(输入: 微盾收益计算输入, 质保年限: number, 采购维保年限: number): string {
+function 生成输入指纹(
+  输入: 微盾收益计算输入,
+  质保年限: number,
+  采购维保年限: number,
+  公式版本: 微盾收益公式版本代码,
+): string {
   const 软件明细 = (输入.softwareItems || [])
     .map((明细) => ({
       id: 明细.id,
@@ -534,10 +560,12 @@ function 生成输入指纹(输入: 微盾收益计算输入, 质保年限: numb
     }))
     .sort((左, 右) => 左.productId.localeCompare(右.productId));
   const 规范输入 = {
-    formulaVersion: 微盾收益公式版本,
+    formulaVersion: 公式版本,
     scopeCode: 输入.scopeCode || null,
     softwareItems: 软件明细,
     hardwareItems: 硬件明细,
+    productContractAmount:
+      输入.productContractAmount === undefined ? null : 规范金额文本(输入.productContractAmount),
     serviceContractAmount:
       输入.serviceContractAmount === undefined
         ? "0.000000"

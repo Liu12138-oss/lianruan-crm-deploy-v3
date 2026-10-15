@@ -9,7 +9,9 @@ export {
   type 正式报价单数据,
   type 正式报价单明细,
   type 正式报价单明细类型,
+  type 收益核算表PDF数据,
   生成正式报价单PDF,
+  生成收益核算表PDF,
   生成订单预审采购内容,
   type 订单预审报价单,
 } from "./formal-quote-pdf.js";
@@ -30,6 +32,8 @@ export {
 export {
   type 定点金额,
   微盾收益公式版本,
+  微盾总价收益公式版本,
+  type 微盾收益公式版本代码 as 微盾收益公式版本类型,
   type 微盾收益状态,
   type 微盾收益缺失规则,
   type 微盾收益范围,
