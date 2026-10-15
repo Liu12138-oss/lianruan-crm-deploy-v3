@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>客户管理、客户新增、客户跟进视觉原型</title>
+    <link rel="stylesheet" href="../visual-designs/assets/visual-ui.css" />
+    <link rel="stylesheet" href="customer-prototype.css" />
+  </head>
+  <body>
+    <svg aria-hidden="true" width="0" height="0" style="position: absolute; overflow: hidden">
+      <symbol id="i-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7"></circle>
+        <path d="m20 20-4-4"></path>
+      </symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path>
+        <path d="M10 21h4"></path>
+      </symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path
+          d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"
+        ></path>
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+      <symbol id="i-trend" viewBox="0 0 24 24">
+        <path d="m3 17 6-6 4 4 8-8"></path>
+        <path d="M15 7h6v6"></path>
+      </symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24">
+        <path d="M12 20h9"></path>
+        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"></path>
+      </symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24">
+        <path
+          d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2.1Z"
+        ></path>
+      </symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24">
+        <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+        <path d="M16 3v4M8 3v4M3 11h18"></path>
+      </symbol>
+      <symbol id="i-message" viewBox="0 0 24 24">
+        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path>
+      </symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"></path></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24">
+        <path
+          d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0Z"
+        ></path>
+        <path d="M12 9v4M12 17h.01"></path>
+      </symbol>
+      <symbol id="i-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path>
+        <path d="M14 2v6h6M8 13h8M8 17h6"></path>
+      </symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24">
+        <path d="M12 16V4M7 9l5-5 5 5M5 20h14"></path>
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"></path></symbol>
+      <symbol id="i-user-plus" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+        <circle cx="9" cy="7" r="4"></circle>
+        <path d="M19 8v6M16 11h6"></path>
+      </symbol>
+    </svg>
+
+    <div class="customer-review-shell">
+      <header class="customer-review-head">
+        <div>
+          <strong>客户管理视觉原型</strong>
+          <span
+            >沿用方案 02
+            三栏作战室：左列表、中业务上下文、右决策与操作。演示数据仅用于视觉评审。</span
+          >
+        </div>
+        <span class="review-note">客户管理 · 客户新增 · 客户跟进</span>
+      </header>
+
+      <section class="artboard customer-artboard management" id="customer-management">
+        <div class="app-canvas">
+          <header class="top-nav">
+            <div class="top-brand">
+              <span class="brand-logo">L</span>
+              <div class="brand-copy">
+                <strong>联软渠道管理平台</strong><span>V3 工程化应用 · 客户运营中心</span>
+              </div>
+            </div>
+            <nav class="top-menu">
+              <span class="nav-link active">客户管理</span><span class="nav-link">商机作战</span
+              ><span class="nav-link">报价管理</span><span class="nav-link">渠道管理</span
+              ><span class="nav-link">订单中心</span><span class="nav-link">运营交付</span
+              ><span class="nav-link">数据看板</span><span class="nav-link">管理配置</span>
+            </nav>
+            <div class="top-actions">
+              <span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-search"></use></svg
+              ></span>
+              <span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-bell"></use></svg><i class="count">5</i></span
+              >
+              <span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-settings"></use></svg
+              ></span>
+              <button class="button primary" type="button">
+                <svg class="ui-icon"><use href="#i-plus"></use></svg> 新建客户
+              </button>
+              <span class="user-mini"><span class="user-avatar">刘</span>刘管理员</span>
+            </div>
+          </header>
+
+          <div class="war-kpis">
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>客户总数</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>1,286</strong><small>家</small></div>
+              <div class="metric-foot">本月新增 42 家</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>待审核报备</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>9</strong><small>家</small></div>
+              <div class="metric-foot">平均 0.8 天完成</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>保护期内</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>58</strong><small>家</small></div>
+              <div class="metric-foot">30 天内到期 15 家</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>重点客户</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>36</strong><small>家</small></div>
+              <div class="metric-foot">贡献 62% 商机金额</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>本月已跟进</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>126</strong><small>次</small></div>
+              <div class="metric-foot">覆盖 78 家客户</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>风险客户</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>7</strong><small>家</small></div>
+              <div class="metric-foot">连续 30 天未跟进</div>
+            </article>
+          </div>
+
+          <div class="war-layout">
+            <aside class="war-panel war-list">
+              <div class="war-list-head">
+                <div class="war-title-row">
+                  <strong>客户列表</strong><span class="count-badge">1,286</span>
+                </div>
+                <div class="war-search">
+                  <svg class="ui-icon"><use href="#i-search"></use></svg>
+                  搜索客户名称、信用代码或负责人
+                </div>
+                <div class="war-tabs">
+                  <span class="war-tab active">全部</span><span class="war-tab">我的客户</span
+                  ><span class="war-tab">重点</span><span class="war-tab">待跟进</span>
+                </div>
+              </div>
+              <div class="war-list-body">
+                <article class="war-record active priority">
+                  <div class="war-record-top">
+                    <strong>华南某智能制造集团</strong><span class="status green">保护期内</span>
+                  </div>
+                  <p>制造 · 华南区域 · 深圳示例数字科技</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：张明</span><strong>¥ 42.8 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="hot">重点客户</span><span class="good">2 个商机</span
+                    ><span>今日已跟进</span>
+                  </div>
+                </article>
+                <article class="war-record warning">
+                  <div class="war-record-top">
+                    <strong>华东某商业银行</strong><span class="status amber">待跟进</span>
+                  </div>
+                  <p>金融 · 华东区域 · 上海启辰信息技术</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：陈佳</span><strong>¥ 68.0 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="hot">7 天未联系</span><span>报价待确认</span>
+                  </div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>某省级政务服务中心</strong><span class="status blue">商机推进</span>
+                  </div>
+                  <p>政府 · 华北区域 · 北京中安网络技术</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：周宁</span><strong>¥ 51.7 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="good">信息完整</span><span>方案确认</span>
+                  </div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>华北某医疗集团</strong><span class="status gray">持续运营</span>
+                  </div>
+                  <p>医疗 · 华北区域 · 北京中安网络技术</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：王卓</span><strong>¥ 24.6 万</strong>
+                  </div>
+                  <div class="record-tags"><span>已成交</span><span>复购机会</span></div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>西南某能源集团</strong><span class="status amber">即将到期</span>
+                  </div>
+                  <p>能源 · 西南区域 · 成都智联安全服务</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：李楠</span><strong>¥ 18.8 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="hot">保护期 12 天</span><span>需续报</span>
+                  </div>
+                </article>
+              </div>
+            </aside>
+
+            <main class="war-panel war-center">
+              <div class="war-center-head">
+                <div class="deal-title">
+                  <strong>华南某智能制造集团</strong
+                  ><span
+                    >CU202609150021 · 制造业 · 华南区域 · 归属渠道：深圳示例数字科技有限公司</span
+                  >
+                </div>
+                <div class="center-actions">
+                  <button class="button" type="button">
+                    <svg class="ui-icon"><use href="#i-edit"></use></svg> 编辑资料
+                  </button>
+                  <button class="button primary" type="button">
+                    <svg class="ui-icon"><use href="#i-message"></use></svg> 新建跟进
+                  </button>
+                </div>
+              </div>
+
+              <div class="stage-band customer-stage-band">
+                <div class="step-head">
+                  <span>客户全生命周期</span><strong>当前阶段：商机创建</strong>
+                </div>
+                <div class="step-dots">
+                  <div class="step-item done">
+                    <span class="dot">1</span><strong>客户报备</strong>
+                  </div>
+                  <div class="step-item done">
+                    <span class="dot">2</span><strong>审核通过</strong>
+                  </div>
+                  <div class="step-item done">
+                    <span class="dot">3</span><strong>保护期</strong>
+                  </div>
+                  <div class="step-item current">
+                    <span class="dot">4</span><strong>商机创建</strong>
+                  </div>
+                  <div class="step-item"><span class="dot">5</span><strong>报价推进</strong></div>
+                  <div class="step-item"><span class="dot">6</span><strong>订单交付</strong></div>
+                  <div class="step-item"><span class="dot">7</span><strong>持续运营</strong></div>
+                </div>
+              </div>
+
+              <div class="detail-grid customer-detail-grid">
+                <article class="detail-card compact-card">
+                  <div class="card-head"><strong>客户档案</strong><span>工商信息已核验</span></div>
+                  <div class="info-grid compact">
+                    <div class="info-item">
+                      <span>客户编号</span><strong>CU202609150021</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>统一社会信用代码</span><strong>91440300MA5F8X2D7Q</strong>
+                    </div>
+                    <div class="info-item"><span>所属行业</span><strong>制造业</strong></div>
+                    <div class="info-item"><span>客户等级</span><strong>重点客户</strong></div>
+                    <div class="info-item">
+                      <span>所属区域</span><strong>华南区域 / 广东省</strong>
+                    </div>
+                    <div class="info-item"><span>客户来源</span><strong>渠道自主报备</strong></div>
+                  </div>
+                </article>
+
+                <article class="detail-card compact-card soft">
+                  <div class="card-head"><strong>联系人信息</strong><span>2 位联系人</span></div>
+                  <div class="info-grid compact">
+                    <div class="info-item">
+                      <span>主要联系人</span><strong>张明 · 信息中心负责人</strong>
+                    </div>
+                    <div class="info-item"><span>手机</span><strong>138****6621</strong></div>
+                    <div class="info-item">
+                      <span>邮箱</span><strong>zhangming@example.com</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>偏好方式</span><strong>企业微信 / 电话</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>次要联系人</span><strong>刘颖 · 采购经理</strong>
+                    </div>
+                    <div class="info-item"><span>联系状态</span><strong>决策链已确认</strong></div>
+                  </div>
+                </article>
+
+                <article class="detail-card compact-card span-two">
+                  <div class="card-head">
+                    <strong>最近跟进</strong><span>共 12 条 · 最近更新 2026-09-17 09:18</span>
+                  </div>
+                  <div class="followup-preview-list">
+                    <div class="followup-preview">
+                      <span class="followup-date">2026-09-17 09:18</span>
+                      <div>
+                        <strong>电话沟通 · 方案预算确认</strong>
+                        <p>
+                          客户确认一期预算约 42.8 万，优先覆盖 1,200 台终端，计划 10
+                          月中旬完成采购审批。
+                        </p>
+                      </div>
+                      <span class="followup-owner">张明</span>
+                    </div>
+                    <div class="followup-preview">
+                      <span class="followup-date">2026-09-12 15:40</span>
+                      <div>
+                        <strong>现场拜访 · 需求复核</strong>
+                        <p>
+                          完成现有终端资产梳理，确认需同时覆盖 EDR
+                          与数据防泄漏能力，关键技术负责人支持项目立项。
+                        </p>
+                      </div>
+                      <span class="followup-owner">张明</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </main>
+
+            <aside class="war-panel war-right">
+              <div class="right-section">
+                <article class="right-card highlight">
+                  <div class="right-card-title"><strong>客户状态</strong><span>实时快照</span></div>
+                  <div class="info-grid compact">
+                    <div class="info-item">
+                      <span>当前状态</span><strong>保护期内 · 活跃</strong>
+                    </div>
+                    <div class="info-item"><span>保护期剩余</span><strong>88 天</strong></div>
+                    <div class="info-item">
+                      <span>关联商机</span><strong>2 个 · ¥ 61.6 万</strong>
+                    </div>
+                    <div class="info-item"><span>本月跟进</span><strong>4 次</strong></div>
+                  </div>
+                </article>
+
+                <article class="right-card">
+                  <div class="right-card-title">
+                    <strong>客户健康度</strong><span>综合评分 86</span>
+                  </div>
+                  <div class="progress-list">
+                    <div class="progress-row">
+                      <span>资料完整度</span>
+                      <div class="progress-track"><i style="width: 100%"></i></div>
+                      <strong>100%</strong>
+                    </div>
+                    <div class="progress-row">
+                      <span>跟进连续度</span>
+                      <div class="progress-track"><i style="width: 82%"></i></div>
+                      <strong>82%</strong>
+                    </div>
+                    <div class="progress-row">
+                      <span>商机推进度</span>
+                      <div class="progress-track"><i style="width: 68%"></i></div>
+                      <strong>68%</strong>
+                    </div>
+                    <div class="progress-row">
+                      <span>关键人覆盖</span>
+                      <div class="progress-track"><i style="width: 92%"></i></div>
+                      <strong>92%</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="right-card">
+                  <div class="right-card-title">
+                    <strong>下一步建议</strong><span>业务助手</span>
+                  </div>
+                  <div class="note-box compact">
+                    建议在本周内完成技术方案评审，并同步确认采购流程、预算归属和合同主体。当前未发现归属冲突或资料阻断项。
+                  </div>
+                  <div class="action-stack" style="margin-top: 9px">
+                    <button class="button primary" type="button">
+                      <svg class="ui-icon"><use href="#i-user-plus"></use></svg> 创建关联商机
+                    </button>
+                    <button class="button" type="button">
+                      <svg class="ui-icon"><use href="#i-calendar"></use></svg> 安排下次跟进
+                    </button>
+                  </div>
+                </article>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="artboard customer-artboard create" id="customer-create">
+        <div class="app-canvas">
+          <header class="top-nav">
+            <div class="top-brand">
+              <span class="brand-logo">L</span>
+              <div class="brand-copy">
+                <strong>联软渠道管理平台</strong><span>V3 工程化应用 · 客户运营中心</span>
+              </div>
+            </div>
+            <nav class="top-menu">
+              <span class="nav-link active">客户管理</span><span class="nav-link">商机作战</span
+              ><span class="nav-link">报价管理</span><span class="nav-link">渠道管理</span
+              ><span class="nav-link">订单中心</span><span class="nav-link">运营交付</span
+              ><span class="nav-link">数据看板</span><span class="nav-link">管理配置</span>
+            </nav>
+            <div class="top-actions">
+              <span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-search"></use></svg></span
+              ><span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-bell"></use></svg><i class="count">5</i></span
+              ><span class="user-mini"><span class="user-avatar">刘</span>刘管理员</span>
+            </div>
+          </header>
+
+          <div class="customer-form-head">
+            <div>
+              <div class="crumb">首页 / 客户管理 / 新建客户</div>
+              <h2>新建客户与报备</h2>
+              <p>
+                客户名称支持工商信息查询回填，提交后进入厂商运营审核，审核通过后进入报备保护期。
+              </p>
+            </div>
+            <div class="head-actions">
+              <button class="button" type="button">取消</button>
+              <button class="button" type="button">
+                <svg class="ui-icon"><use href="#i-file"></use></svg> 保存草稿
+              </button>
+              <button class="button primary" type="button">
+                <svg class="ui-icon"><use href="#i-check"></use></svg> 提交审核
+              </button>
+            </div>
+          </div>
+
+          <div class="customer-form-layout">
+            <aside class="form-sidebar">
+              <h3 class="side-title">填写进度</h3>
+              <div class="stepper">
+                <div class="step-row active">
+                  <span class="step-index">1</span>
+                  <div><strong>客户主体信息</strong><span>录入企业名称、行业与工商信息</span></div>
+                </div>
+                <div class="step-row">
+                  <span class="step-index">2</span>
+                  <div><strong>联系人与需求</strong><span>补充联系人、预算与项目背景</span></div>
+                </div>
+                <div class="step-row">
+                  <span class="step-index">3</span>
+                  <div><strong>归属与保护</strong><span>确认区域、渠道和跟进人员</span></div>
+                </div>
+                <div class="step-row">
+                  <span class="step-index">4</span>
+                  <div><strong>资料附件</strong><span>上传营业执照或项目材料</span></div>
+                </div>
+                <div class="step-row">
+                  <span class="step-index">5</span>
+                  <div><strong>确认提交</strong><span>校验查重结果后提交审核</span></div>
+                </div>
+              </div>
+              <section class="side-rule">
+                <strong>提交后流转</strong>
+                <ul>
+                  <li>生成客户编号和报备编号</li>
+                  <li>厂商运营核验客户归属与保护期</li>
+                  <li>审核通过后可创建关联商机</li>
+                </ul>
+              </section>
+              <section class="side-rule">
+                <strong>字段来源</strong>
+                <ul>
+                  <li>区域、渠道和创建人取当前登录会话</li>
+                  <li>信用代码、工商状态由查询结果回填</li>
+                  <li>页面不提交权限和归属字段</li>
+                </ul>
+              </section>
+            </aside>
+
+            <main class="form-main">
+              <section class="form-section">
+                <div class="form-section-head">
+                  <strong>客户主体信息</strong
+                  ><span><span style="color: #ce4b58">*</span> 为必填项</span>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field full">
+                    <label class="form-label required">客户名称（工商全称）</label>
+                    <div class="form-control">
+                      <span>华南某智能制造集团股份有限公司</span
+                      ><svg class="ui-icon"><use href="#i-search"></use></svg>
+                    </div>
+                    <div class="helper-text">
+                      已通过工商数据完成查询，可点击重新检索或手工修正。
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label required">统一社会信用代码</label>
+                    <div class="form-control readonly">91440300MA5F8X2D7Q</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label required">所属行业</label>
+                    <div class="form-control">
+                      <span>制造业 / 智能制造</span
+                      ><svg class="ui-icon"><use href="#i-chevron"></use></svg>
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">客户等级</label>
+                    <div class="form-control">
+                      <span>重点客户</span><svg class="ui-icon"><use href="#i-chevron"></use></svg>
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">企业规模</label>
+                    <div class="form-control">
+                      <span>1,000-5,000 人</span
+                      ><svg class="ui-icon"><use href="#i-chevron"></use></svg>
+                    </div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">注册资本</label>
+                    <div class="form-control readonly">12,000 万元人民币</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">经营状态</label>
+                    <div class="form-control readonly">存续</div>
+                  </div>
+                </div>
+                <div class="enterprise-card">
+                  <div><span>法定代表人</span><strong>刘振华</strong></div>
+                  <div><span>成立日期</span><strong>2012-06-18</strong></div>
+                  <div><span>注册地</span><strong>广东省 · 深圳市</strong></div>
+                  <div><span>工商更新时间</span><strong>2026-09-17 09:22</strong></div>
+                  <div style="grid-column: 1/-1">
+                    <span>注册地址</span
+                    ><strong>广东省深圳市南山区科技园示例路 88 号 A 栋 12 层</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section class="form-section">
+                <div class="form-section-head">
+                  <strong>联系人与项目需求</strong><span>用于运营审核和后续跟进</span>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field">
+                    <label class="form-label required">主要联系人</label>
+                    <div class="form-control">张明</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">联系人职务</label>
+                    <div class="form-control">信息中心负责人</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label required">联系电话</label>
+                    <div class="form-control">138****6621</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">联系邮箱</label>
+                    <div class="form-control placeholder">zhangming@example.com</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label required">预计金额</label>
+                    <div class="form-control">¥ 428,000</div>
+                  </div>
+                  <div class="form-field">
+                    <label class="form-label">预计签约时间</label>
+                    <div class="form-control">
+                      <span>2026-10-18</span
+                      ><svg class="ui-icon"><use href="#i-calendar"></use></svg>
+                    </div>
+                  </div>
+                  <div class="form-field full">
+                    <label class="form-label">项目需求说明</label>
+                    <div class="form-control textarea">
+                      客户计划替换现有终端防护体系，一期覆盖 1,200 台办公终端，重点关注
+                      EDR、数据防泄漏与等保合规能力。预算已进入内部审批流程。
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section class="form-section">
+                <div class="form-section-head">
+                  <strong>资料附件</strong
+                  ><span>支持 PDF、JPG、PNG、XLSX，单个文件不超过 10 MB</span>
+                </div>
+                <div class="form-grid">
+                  <div class="form-field full upload-row">
+                    <div class="upload-zone">
+                      <svg class="ui-icon"><use href="#i-upload"></use></svg
+                      ><span>上传营业执照、项目需求或客户授权材料</span>
+                    </div>
+                    <button class="button" type="button">选择文件</button>
+                  </div>
+                </div>
+              </section>
+            </main>
+
+            <aside class="form-inspector">
+              <section class="inspector-card highlight">
+                <div class="inspector-title">
+                  <strong>查重结果</strong><span>2026-09-17 09:24</span>
+                </div>
+                <span class="matched-badge"
+                  ><svg class="ui-icon"><use href="#i-check"></use></svg> 未发现重复客户</span
+                >
+                <div class="info-grid compact" style="margin-top: 10px">
+                  <div class="info-item"><span>名称匹配</span><strong>无高相似记录</strong></div>
+                  <div class="info-item"><span>信用代码匹配</span><strong>无历史报备</strong></div>
+                </div>
+              </section>
+
+              <section class="inspector-card">
+                <div class="inspector-title">
+                  <strong>归属与保护</strong><span>按当前账号带入</span>
+                </div>
+                <div class="info-grid compact">
+                  <div class="info-item">
+                    <span>所属区域</span><strong>华南区域 / 广东省</strong>
+                  </div>
+                  <div class="info-item">
+                    <span>归属渠道</span><strong>深圳示例数字科技有限公司</strong>
+                  </div>
+                  <div class="info-item"><span>跟进人员</span><strong>张明</strong></div>
+                  <div class="info-item">
+                    <span>预计保护期</span><strong>审核通过后 90 天</strong>
+                  </div>
+                  <div class="info-item"><span>客户来源</span><strong>渠道自主报备</strong></div>
+                  <div class="info-item"><span>当前状态</span><strong>新建草稿</strong></div>
+                </div>
+              </section>
+
+              <section class="inspector-card">
+                <div class="inspector-title">
+                  <strong>提交校验</strong><span>4 / 6 已完成</span>
+                </div>
+                <div class="check-list">
+                  <div class="check-item">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-check"></use></svg
+                    ></span>
+                    <div><strong>工商主体已核验</strong><span>企业名称和信用代码一致</span></div>
+                  </div>
+                  <div class="check-item">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-check"></use></svg
+                    ></span>
+                    <div><strong>主要联系人已填写</strong><span>手机号格式校验通过</span></div>
+                  </div>
+                  <div class="check-item">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-check"></use></svg
+                    ></span>
+                    <div>
+                      <strong>区域与渠道已带入</strong><span>权限范围内，无需手工选择</span>
+                    </div>
+                  </div>
+                  <div class="check-item">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-check"></use></svg
+                    ></span>
+                    <div><strong>预计金额已填写</strong><span>用于商机线索分级</span></div>
+                  </div>
+                  <div class="check-item warning">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-alert"></use></svg
+                    ></span>
+                    <div>
+                      <strong>营业执照待上传</strong><span>可提交后补充，但会延长审核时间</span>
+                    </div>
+                  </div>
+                  <div class="check-item warning">
+                    <span class="check-icon"
+                      ><svg class="ui-icon"><use href="#i-alert"></use></svg
+                    ></span>
+                    <div>
+                      <strong>项目需求待完善</strong><span>建议补充采购流程与关键决策人</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="artboard customer-artboard followup" id="customer-followup">
+        <div class="app-canvas">
+          <header class="top-nav">
+            <div class="top-brand">
+              <span class="brand-logo">L</span>
+              <div class="brand-copy">
+                <strong>联软渠道管理平台</strong><span>V3 工程化应用 · 客户运营中心</span>
+              </div>
+            </div>
+            <nav class="top-menu">
+              <span class="nav-link active">客户管理</span><span class="nav-link">商机作战</span
+              ><span class="nav-link">报价管理</span><span class="nav-link">渠道管理</span
+              ><span class="nav-link">订单中心</span><span class="nav-link">运营交付</span
+              ><span class="nav-link">数据看板</span><span class="nav-link">管理配置</span>
+            </nav>
+            <div class="top-actions">
+              <span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-search"></use></svg></span
+              ><span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-bell"></use></svg><i class="count">5</i></span
+              ><span class="top-icon"
+                ><svg class="ui-icon"><use href="#i-settings"></use></svg></span
+              ><button class="button primary" type="button">
+                <svg class="ui-icon"><use href="#i-message"></use></svg> 记录跟进</button
+              ><span class="user-mini"><span class="user-avatar">刘</span>刘管理员</span>
+            </div>
+          </header>
+
+          <div class="war-kpis">
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>今日待跟进</span><svg class="ui-icon"><use href="#i-calendar"></use></svg>
+              </div>
+              <div class="metric-value"><strong>18</strong><small>项</small></div>
+              <div class="metric-foot">10:00 前优先处理</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>已逾期</span><svg class="ui-icon"><use href="#i-alert"></use></svg>
+              </div>
+              <div class="metric-value"><strong>5</strong><small>项</small></div>
+              <div class="metric-foot">最长逾期 3 天</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>本月跟进</span><svg class="ui-icon"><use href="#i-message"></use></svg>
+              </div>
+              <div class="metric-value"><strong>126</strong><small>次</small></div>
+              <div class="metric-foot">环比增长 18%</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>本周新增</span><svg class="ui-icon"><use href="#i-trend"></use></svg>
+              </div>
+              <div class="metric-value"><strong>34</strong><small>次</small></div>
+              <div class="metric-foot">覆盖 27 家客户</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>平均响应</span><svg class="ui-icon"><use href="#i-phone"></use></svg>
+              </div>
+              <div class="metric-value"><strong>1.2</strong><small>天</small></div>
+              <div class="metric-foot">目标不超过 2 天</div>
+            </article>
+            <article class="list-kpi">
+              <div class="metric-label">
+                <span>转商机</span><svg class="ui-icon"><use href="#i-user-plus"></use></svg>
+              </div>
+              <div class="metric-value"><strong>12</strong><small>家</small></div>
+              <div class="metric-foot">本月转化率 24%</div>
+            </article>
+          </div>
+
+          <div class="war-layout">
+            <aside class="war-panel war-list">
+              <div class="war-list-head">
+                <div class="war-title-row">
+                  <strong>待跟进客户</strong><span class="count-badge">18</span>
+                </div>
+                <div class="war-search">
+                  <svg class="ui-icon"><use href="#i-search"></use></svg> 搜索客户、联系人、负责人
+                </div>
+                <div class="war-tabs">
+                  <span class="war-tab active">今日</span><span class="war-tab">逾期 5</span
+                  ><span class="war-tab">未来 7 天</span><span class="war-tab">我的</span>
+                </div>
+              </div>
+              <div class="war-list-body">
+                <article class="war-record active priority">
+                  <div class="war-record-top">
+                    <strong>华南某智能制造集团</strong><span class="status amber">即将超时</span>
+                  </div>
+                  <p>需求确认 · 下次联系 10:30</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：张明</span><strong>¥ 42.8 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="hot">技术方案待确认</span><span>重点客户</span>
+                  </div>
+                </article>
+                <article class="war-record warning">
+                  <div class="war-record-top">
+                    <strong>华东某商业银行</strong><span class="status red">已逾期 1 天</span>
+                  </div>
+                  <p>报价确认 · 承诺 09-16 回复</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：陈佳</span><strong>¥ 68.0 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="hot">客户未回复</span><span>报价待确认</span>
+                  </div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>某省级政务服务中心</strong><span class="status blue">今日 14:00</span>
+                  </div>
+                  <p>方案交流 · 线上会议</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：周宁</span><strong>¥ 51.7 万</strong>
+                  </div>
+                  <div class="record-tags"><span>已预约</span><span>技术负责人参加</span></div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>华北某医疗集团</strong><span class="status green">今日 16:30</span>
+                  </div>
+                  <p>复购机会 · 回访交付效果</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：王卓</span><strong>¥ 24.6 万</strong>
+                  </div>
+                  <div class="record-tags">
+                    <span class="good">老客户</span><span>二期预算待确认</span>
+                  </div>
+                </article>
+                <article class="war-record">
+                  <div class="war-record-top">
+                    <strong>西南某能源集团</strong><span class="status gray">明日 09:30</span>
+                  </div>
+                  <p>首次联系 · 安全现状调研</p>
+                  <div class="war-record-bottom">
+                    <span>负责人：李楠</span><strong>¥ 18.8 万</strong>
+                  </div>
+                  <div class="record-tags"><span>新报备客户</span><span>待介绍方案</span></div>
+                </article>
+              </div>
+            </aside>
+
+            <main class="war-panel war-center">
+              <div class="war-center-head">
+                <div class="deal-title">
+                  <strong>华南某智能制造集团</strong
+                  ><span>需求确认 · 最近联系 2026-09-17 09:18 · 保护期剩余 88 天</span>
+                </div>
+                <div class="followup-actions">
+                  <button class="button" type="button">
+                    <svg class="ui-icon"><use href="#i-phone"></use></svg> 拨打电话</button
+                  ><button class="button" type="button">
+                    <svg class="ui-icon"><use href="#i-edit"></use></svg> 编辑客户</button
+                  ><button class="button primary" type="button">
+                    <svg class="ui-icon"><use href="#i-message"></use></svg> 记录跟进
+                  </button>
+                </div>
+              </div>
+
+              <div class="stage-band customer-stage-band">
+                <div class="step-head">
+                  <span>客户跟进阶段</span><strong>当前阶段：需求确认</strong>
+                </div>
+                <div class="step-dots">
+                  <div class="step-item done">
+                    <span class="dot">1</span><strong>首次联系</strong>
+                  </div>
+                  <div class="step-item current">
+                    <span class="dot">2</span><strong>需求确认</strong>
+                  </div>
+                  <div class="step-item"><span class="dot">3</span><strong>方案交流</strong></div>
+                  <div class="step-item"><span class="dot">4</span><strong>商务推进</strong></div>
+                  <div class="step-item"><span class="dot">5</span><strong>成交交付</strong></div>
+                  <div class="step-item"><span class="dot">6</span><strong>持续运营</strong></div>
+                </div>
+              </div>
+
+              <div class="detail-grid customer-detail-grid">
+                <article class="detail-card compact-card">
+                  <div class="card-head">
+                    <strong>客户与联系人</strong><span>决策链已确认</span>
+                  </div>
+                  <div class="info-grid compact triple">
+                    <div class="info-item">
+                      <span>客户负责人</span><strong>张明 · 信息中心</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>主要联系人</span><strong>张明 · 138****6621</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>采购联系人</span><strong>刘颖 · 采购经理</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>归属渠道</span><strong>深圳示例数字科技</strong>
+                    </div>
+                    <div class="info-item">
+                      <span>当前需求</span><strong>终端安全 + EDR</strong>
+                    </div>
+                    <div class="info-item"><span>预计规模</span><strong>1,200 台终端</strong></div>
+                  </div>
+                </article>
+
+                <article class="detail-card compact-card soft">
+                  <div class="card-head">
+                    <strong>本次跟进计划</strong><span>系统提醒 10:30</span>
+                  </div>
+                  <div class="note-box compact">
+                    <strong>目标：</strong>完成技术方案确认并约定采购流程评审时间。<br /><strong
+                      >客户承诺：</strong
+                    >本周内给出预算审批结果。<br /><strong>风险：</strong
+                    >采购部门尚未正式介入，需补充商务触点。
+                  </div>
+                </article>
+
+                <article class="detail-card compact-card span-two followup-timeline-card">
+                  <div class="card-head">
+                    <strong>客户跟进记录</strong><span>共 12 条 · 按时间倒序</span>
+                  </div>
+                  <div class="followup-preview-list">
+                    <div class="followup-preview">
+                      <span class="followup-date">2026-09-17 09:18</span>
+                      <div>
+                        <strong>电话 · 预算与项目范围确认</strong>
+                        <p>
+                          确认一期预算约 42.8 万，优先覆盖 1,200
+                          台终端；客户要求本周五前提交技术方案和初步实施计划。
+                        </p>
+                      </div>
+                      <span class="followup-owner">张明</span>
+                    </div>
+                    <div class="followup-preview">
+                      <span class="followup-date">2026-09-12 15:40</span>
+                      <div>
+                        <strong>拜访 · 现有资产与安全需求</strong>
+                        <p>
+                          完成终端资产梳理，确认需要 EDR
+                          和数据防泄漏能力，技术负责人支持项目立项，采购流程待确认。
+                        </p>
+                      </div>
+                      <span class="followup-owner">张明</span>
+                    </div>
+                    <div class="followup-preview">
+                      <span class="followup-date">2026-09-05 11:20</span>
+                      <div>
+                        <strong>会议 · 初步方案交流</strong>
+                        <p>介绍终端安全整体建设思路，客户关注与现有系统的兼容性和实施周期。</p>
+                      </div>
+                      <span class="followup-owner">李楠</span>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </main>
+
+            <aside class="war-panel war-right">
+              <div class="right-section">
+                <article class="right-card highlight">
+                  <div class="right-card-title">
+                    <strong>记录本次跟进</strong><span>客户级活动</span>
+                  </div>
+                  <div class="followup-record-form">
+                    <div class="segment-row">
+                      <span class="active">电话</span><span>拜访</span><span>会议</span
+                      ><span>邮件</span>
+                    </div>
+                    <div class="followup-textarea">
+                      记录沟通对象、客户诉求、承诺事项和下一次跟进计划……
+                    </div>
+                    <div class="form-mini-grid">
+                      <div class="form-control">
+                        <span>今天 10:30</span
+                        ><svg class="ui-icon"><use href="#i-calendar"></use></svg>
+                      </div>
+                      <div class="form-control">
+                        <span>张明</span><svg class="ui-icon"><use href="#i-chevron"></use></svg>
+                      </div>
+                    </div>
+                    <div class="form-control">
+                      <span>下一步：提交技术与实施方案</span
+                      ><svg class="ui-icon"><use href="#i-chevron"></use></svg>
+                    </div>
+                    <div class="reminder-row">
+                      <span class="fake-checkbox"
+                        ><svg class="ui-icon"><use href="#i-check"></use></svg></span
+                      ><span>设置下次跟进提醒</span
+                      ><span style="margin-left: auto; color: var(--text-3)">2026-09-19 10:00</span>
+                    </div>
+                    <button class="button primary" type="button" style="justify-content: center">
+                      <svg class="ui-icon"><use href="#i-check"></use></svg> 保存跟进记录
+                    </button>
+                  </div>
+                </article>
+
+                <article class="right-card">
+                  <div class="right-card-title">
+                    <strong>近期提醒</strong><span>2 项待处理</span>
+                  </div>
+                  <div class="task-list">
+                    <div class="task-item danger">
+                      <i></i>
+                      <div>
+                        <strong>逾期：确认采购部门联系人</strong><span>客户需要补充商务触点</span>
+                      </div>
+                      <em>今天</em>
+                    </div>
+                    <div class="task-item">
+                      <i></i>
+                      <div><strong>提交技术与实施方案</strong><span>客户承诺周五前反馈</span></div>
+                      <em>09-19</em>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="right-card">
+                  <div class="right-card-title">
+                    <strong>客户健康度</strong><span>综合评分 86</span>
+                  </div>
+                  <div class="progress-list">
+                    <div class="progress-row">
+                      <span>联系活跃度</span>
+                      <div class="progress-track"><i style="width: 92%"></i></div>
+                      <strong>92%</strong>
+                    </div>
+                    <div class="progress-row">
+                      <span>需求清晰度</span>
+                      <div class="progress-track"><i style="width: 78%"></i></div>
+                      <strong>78%</strong>
+                    </div>
+                    <div class="progress-row">
+                      <span>决策链覆盖</span>
+                      <div class="progress-track"><i style="width: 68%"></i></div>
+                      <strong>68%</strong>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="right-card">
+                  <div class="right-card-title">
+                    <strong>关联业务</strong><span>全链路快照</span>
+                  </div>
+                  <div class="info-grid compact">
+                    <div class="info-item"><span>关联商机</span><strong>2 个</strong></div>
+                    <div class="info-item"><span>关联报价</span><strong>1 份</strong></div>
+                    <div class="info-item"><span>预计金额</span><strong>¥ 61.6 万</strong></div>
+                    <div class="info-item"><span>保护期剩余</span><strong>88 天</strong></div>
+                  </div>
+                </article>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

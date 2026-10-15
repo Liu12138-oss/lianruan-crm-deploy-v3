@@ -319,6 +319,22 @@ describe("阶段9业务兼容接口", () => {
     expect(报价PDF.headers["content-type"]).toMatch(/^application\/pdf/);
     expect(报价PDF.headers["content-disposition"]).toContain("filename*=UTF-8''");
     expect(报价PDF.body.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
+    const 报价PDF文本 = 报价PDF.body.toString("binary");
+    // 中文必须内嵌字体子集，禁止回退到未嵌入的 STSong-Light（会导致下载的 PDF 乱码）。
+    expect(报价PDF文本).not.toContain("/STSong-Light");
+    expect(报价PDF文本).toContain("/Subtype /CIDFontType0C");
+    expect(报价PDF文本).toContain("/ToUnicode");
+
+    const V2报价详情 = await request(app)
+      .get(`/api/v2/quotes/${encodeURIComponent(报价.body.data.id)}`)
+      .expect(200);
+    const 报价明细 = V2报价详情.body.data.items || [];
+    expect(报价明细.length).toBeGreaterThan(0);
+    for (const 明细 of 报价明细) {
+      // quantity 来自 numeric(18,4)，接口必须去掉补零，否则页面会显示“120.0000 点”。
+      expect(String(明细.quantity)).not.toContain(".0000");
+      expect(String(明细.quantityLabel)).toMatch(/^\d+(\.\d+)? (点|台|年)$/);
+    }
 
     const 订单 = await request(app)
       .post("/api/orders")
@@ -411,6 +427,14 @@ describe("阶段9业务兼容接口", () => {
       [订单.body.data.id],
     );
     expect(调价后的预审.rows[0]?.count).toBe("1");
+    const 收益冻结事件 = await pool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM ops.outbox_events
+       WHERE event_type='crm.quote.profit.freeze.requested'
+         AND payload_json->>'orderId'=$1`,
+      [订单.body.data.id],
+    );
+    expect(收益冻结事件.rows[0]?.count).toBe("1");
     await pool.end();
   });
 
@@ -835,6 +859,12 @@ describe("阶段9业务兼容接口", () => {
       );
       const 报价 = 报价结果.rows[0];
       if (!报价) throw new Error("创建二级订单审批测试报价失败。");
+      await pool.query(
+        `INSERT INTO crm.quote_items (
+           quote_id, product_ref_type, item_name, quantity, unit_price, line_amount, sort_order
+         ) VALUES ($1::uuid, 'manual', '二级审批测试模块', 1, 16800, 16800, 0)`,
+        [报价.id],
+      );
 
       const 一级渠道查询 = await request(app)
         .get(`/api/quotes/${报价.id}/parent-partners`)
@@ -2189,9 +2219,20 @@ describe("阶段9业务兼容接口", () => {
 
   it("可以使用PostgreSQL正式表维护OpenAPI客户端并完成授权调用", async () => {
     const app = 创建应用({ env: 测试环境变量 });
-    const 用户列表 = await request(app).get("/api/users?pageSize=1").expect(200);
-    const 绑定用户 = 用户列表.body.data.数据[0] as { id: string };
-    expect(绑定用户.id).toBeTruthy();
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 超级管理员结果 = await pool.query<{ id: string }>(
+      `
+      SELECT u.id::text AS id
+      FROM iam.users u
+      JOIN iam.user_roles ur ON ur.user_id = u.id
+      JOIN iam.roles r ON r.id = ur.role_id
+      WHERE u.status_code = 'active' AND r.role_code = 'superadmin'
+      ORDER BY u.created_at
+      LIMIT 1
+      `,
+    );
+    const 绑定用户 = 超级管理员结果.rows[0];
+    if (!绑定用户?.id) throw new Error("未找到用于OpenAPI绑定验收的超级管理员。");
 
     const 创建 = await request(app)
       .post("/api/open-api/clients")
@@ -2233,6 +2274,7 @@ describe("阶段9业务兼容接口", () => {
         `${项.path} ${项.resultMessage}`.includes("/api/open/v1/registrations"),
       ),
     ).toBe(true);
+    await pool.end();
   });
 
   it("可以维护工作量映射和交付规则，并影响报价工作量试算", async () => {

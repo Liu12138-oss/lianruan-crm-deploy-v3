@@ -64,12 +64,24 @@ describe("订单预审外部集成", () => {
       生成时间: "2026-08-27T00:00:00.000Z",
     });
 
+    const 文本 = PDF.toString("binary");
     expect(PDF.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
-    expect(PDF.toString("binary")).toContain("/STSong-Light");
-    expect(PDF.toString("binary")).toContain("xref");
-    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("联软安全产品报价单"));
-    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("软件产品"));
-    expect(PDF.toString("binary")).toContain(转换为PDF中文十六进制("服务项"));
+    // 历史实现只引用未嵌入的 STSong-Light，阅读器缺字体时中文乱码，禁止回退到该写法。
+    expect(文本).not.toContain("/STSong-Light");
+    expect(文本).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSerifSC-Regular/);
+    expect(文本).toContain("/Encoding /Identity-H");
+    expect(文本).toContain("/Subtype /CIDFontType0C");
+    expect(文本).toContain("/ToUnicode");
+    expect(文本).toContain("xref");
+
+    // 内嵌子集用字形编号绘制，中文靠 ToUnicode 映射回 Unicode，这里校验标题关键字可被检索。
+    const 字符映射表 = 读取PDF流(
+      文本,
+      文本.indexOf("/CIDInit /ProcSet findresource begin"),
+    ).toString("binary");
+    for (const 字符 of "联软安全产品报价单软件产品服务项") {
+      expect(字符映射表).toContain(字符.codePointAt(0)!.toString(16).padStart(4, "0").toUpperCase());
+    }
   });
 
   it("采购内容只列软件产品和服务项并包含数量与小计", () => {
@@ -357,12 +369,9 @@ describe("订单预审外部集成", () => {
   });
 });
 
-function 转换为PDF中文十六进制(文本: string): string {
-  const 缓冲区 = Buffer.from(文本, "utf16le");
-  for (let 下标 = 0; 下标 < 缓冲区.length; 下标 += 2) {
-    const 临时 = 缓冲区[下标] || 0;
-    缓冲区[下标] = 缓冲区[下标 + 1] || 0;
-    缓冲区[下标 + 1] = 临时;
-  }
-  return 缓冲区.toString("hex").toUpperCase();
+/** 从二进制视角读取 PDF 流内容：起点为流数据首字节偏移。 */
+function 读取PDF流(文本: string, 起点: number): Buffer {
+  const 终点 = 文本.indexOf("\nendstream", 起点);
+  if (起点 < 0 || 终点 < 0) throw new Error("未找到 PDF 流内容。");
+  return Buffer.from(文本.slice(起点, 终点), "binary");
 }

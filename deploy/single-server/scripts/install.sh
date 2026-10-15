@@ -274,6 +274,10 @@ if [ ! -f "${install_root}/config/v3.env" ]; then
 else
   echo "检测到已有 ${install_root}/config/v3.env，保留敏感配置并同步版本字段。"
 fi
+if [ ! -f "${install_root}/config/mcp.env" ]; then
+  cp "${package_root}/config/mcp.env.template" "${install_root}/config/mcp.env"
+  chmod 600 "${install_root}/config/mcp.env"
+fi
 更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_VERSION" "${build_version}"
 更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_COMMIT" "${build_commit}"
 更新环境变量 "${install_root}/config/v3.env" "V3_BUILD_TIME" "${build_time}"

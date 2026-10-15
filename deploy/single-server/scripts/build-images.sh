@@ -46,6 +46,18 @@ docker build \
   -t "lianruan-crm-v3-worker:${version_tag}" \
   .
 
+docker build \
+  --platform "${target_platform}" \
+  --build-arg "TARGET_PLATFORM=${target_platform}" \
+  --build-arg "NODE_IMAGE=${node_image}" \
+  --label "org.opencontainers.image.title=联软CRM V3 MCP" \
+  --label "org.opencontainers.image.version=${version_tag}" \
+  --label "org.opencontainers.image.revision=${build_commit}" \
+  --label "org.opencontainers.image.created=${build_time}" \
+  -f deploy/single-server/docker/mcp.Dockerfile \
+  -t "lianruan-crm-v3-mcp:${version_tag}" \
+  .
+
 if ! docker build \
   --platform "${target_platform}" \
   --build-arg "TARGET_PLATFORM=${target_platform}" \

@@ -12,6 +12,7 @@ const workspaces = [
   "@lianruan/contracts",
   "@lianruan/testing",
   "@lianruan/api",
+  "@lianruan/mcp",
   "@lianruan/worker",
   "@lianruan/web",
 ];

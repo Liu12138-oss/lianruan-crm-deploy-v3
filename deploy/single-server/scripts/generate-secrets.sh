@@ -29,4 +29,20 @@ create_secret_file "${secrets_dir}/redis_password" 24
 create_secret_file "${secrets_dir}/session_secret" 48
 create_secret_file "${secrets_dir}/backup_encryption_key" 32
 
+if [ ! -f "${secrets_dir}/mcp_principal_private.pem" ]; then
+  openssl genpkey -algorithm ED25519 -out "${secrets_dir}/mcp_principal_private.pem"
+  chmod 600 "${secrets_dir}/mcp_principal_private.pem"
+  echo "已生成：${secrets_dir}/mcp_principal_private.pem"
+else
+  echo "已存在，跳过：${secrets_dir}/mcp_principal_private.pem"
+fi
+
+if [ ! -f "${secrets_dir}/mcp_principal_public.pem" ]; then
+  openssl pkey -in "${secrets_dir}/mcp_principal_private.pem" -pubout -out "${secrets_dir}/mcp_principal_public.pem"
+  chmod 600 "${secrets_dir}/mcp_principal_public.pem"
+  echo "已生成：${secrets_dir}/mcp_principal_public.pem"
+else
+  echo "已存在，跳过：${secrets_dir}/mcp_principal_public.pem"
+fi
+
 echo "密钥生成完成。请勿把 ${secrets_dir} 内容复制到代码仓库或普通日志。"

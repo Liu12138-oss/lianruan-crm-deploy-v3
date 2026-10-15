@@ -74,6 +74,31 @@ describe("环境配置", () => {
     expect(配置.message.channels.wecomApp.enabled).toBe(false);
   });
 
+  it("报价收益任务默认关闭，启用时必须固定事件切换时间", () => {
+    expect(读取应用配置({ APP_ENV: "development" }).quoteProfit).toEqual({
+      enabled: false,
+      pollIntervalMs: 5000,
+      maxRetries: 5,
+    });
+    expect(() =>
+      读取应用配置({ APP_ENV: "development", QUOTE_PROFIT_WORKER_ENABLED: "true" }),
+    ).toThrow("QUOTE_PROFIT_EVENT_CUTOVER_AT");
+    expect(
+      读取应用配置({
+        APP_ENV: "development",
+        QUOTE_PROFIT_WORKER_ENABLED: "true",
+        QUOTE_PROFIT_EVENT_CUTOVER_AT: "2026-09-16T10:00:00.000Z",
+        QUOTE_PROFIT_POLL_INTERVAL_MS: "3000",
+        QUOTE_PROFIT_MAX_RETRIES: "8",
+      }).quoteProfit,
+    ).toEqual({
+      enabled: true,
+      eventCutoverAt: "2026-09-16T10:00:00.000Z",
+      pollIntervalMs: 3000,
+      maxRetries: 8,
+    });
+  });
+
   it("账号停用归档任务默认关闭，轮询间隔受边界约束", () => {
     expect(读取应用配置({ APP_ENV: "development" }).organization).toEqual({
       channelPhoneEditEnabled: false,

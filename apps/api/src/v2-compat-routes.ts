@@ -1513,7 +1513,10 @@ function 注册后台维护路由(
             需要数据库(pool),
             "",
             读取正文(req),
-            读取请求会话用户名(req, { sessionSecret: 参数.sessionSecret || "", ...(参数.env ? { env: 参数.env } : {}) }),
+            读取请求会话用户名(req, {
+              sessionSecret: 参数.sessionSecret || "",
+              ...(参数.env ? { env: 参数.env } : {}),
+            }),
           ),
         ),
       );
@@ -1528,7 +1531,10 @@ function 注册后台维护路由(
             需要数据库(pool),
             "",
             读取正文(req),
-            读取请求会话用户名(req, { sessionSecret: 参数.sessionSecret || "", ...(参数.env ? { env: 参数.env } : {}) }),
+            读取请求会话用户名(req, {
+              sessionSecret: 参数.sessionSecret || "",
+              ...(参数.env ? { env: 参数.env } : {}),
+            }),
             { 同步管理组织: true },
           ),
         ),
@@ -1925,6 +1931,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
     partner_id: string | null;
     partner_name: string | null;
     row_version: number;
+    role_codes: string[] | null;
   }>(
     `
     SELECT
@@ -1935,6 +1942,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
       pc.password_hash,
       u.status_code,
       u.row_version,
+      ARRAY_REMOVE(ARRAY_AGG(DISTINCT r.role_code) FILTER (WHERE r.role_code IS NOT NULL), NULL) AS role_codes,
       COALESCE((array_agg(r.role_code ORDER BY
         CASE r.role_code
           WHEN 'superadmin' THEN 1
@@ -1986,6 +1994,7 @@ async function 查询V2用户(pool: 数据库查询器, username: string, 包含
     displayName: row.display_name || 读取对象文本(extra, "name") || row.username,
     role,
     roleName: row.role_name || 转V2角色名称(role),
+    roleCodes: Array.isArray(row.role_codes) ? row.role_codes : [],
     status: extra.status || row.status_code,
     region: 读取对象文本(extra, "region") || row.region_name || "",
     bigRegion: 读取对象文本(extra, "bigRegion"),
@@ -2683,10 +2692,16 @@ async function 保存内部账号(
     const 账号 = await 保存V2用户(client, id, 输入);
     if (!id) {
       const userId = await 查找用户UUID(client, 账号.id || 账号.username);
-      if (!userId) throw Object.assign(new Error("用户保存失败，未找到用户标识。"), { statusCode: 500 });
+      if (!userId)
+        throw Object.assign(new Error("用户保存失败，未找到用户标识。"), { statusCode: 500 });
       const partnerId = 读取正文文本(输入, ["partnerId"], "");
       if (!partnerId) {
-        await 维护新建用户外部身份(client, userId, 输入, 当前会话用户名 || 读取正文文本(输入, ["createdBy"], ""));
+        await 维护新建用户外部身份(
+          client,
+          userId,
+          输入,
+          当前会话用户名 || 读取正文文本(输入, ["createdBy"], ""),
+        );
         if (选项.同步管理组织) {
           const 角色 = 转V3角色(读取正文文本(输入, ["role"], "staff"));
           if (["region_manager", "superadmin", "admin"].includes(角色)) {
@@ -2715,24 +2730,58 @@ async function 维护新建用户外部身份(
   输入: 字典,
   操作人标识: string,
 ) {
-  const 泛微编号 = 读取正文文本(输入, ["eteamsUserId", "eteamsUserid", "eteamsExternalSubject"], "");
+  const 泛微编号 = 读取正文文本(
+    输入,
+    ["eteamsUserId", "eteamsUserid", "eteamsExternalSubject"],
+    "",
+  );
   const 企微编号 = 读取正文文本(输入, ["wecomUserId", "wecomUserid", "wecomExternalSubject"], "");
   if (!泛微编号 && !企微编号) return;
   const 操作人 = 操作人标识 ? await 查找用户UUID(pool, 操作人标识) : "";
   if (泛微编号 && !操作人)
-    throw Object.assign(new Error("填写泛微 OA userid 时必须提供有效的创建人账号。"), { statusCode: 400 });
+    throw Object.assign(new Error("填写泛微 OA userid 时必须提供有效的创建人账号。"), {
+      statusCode: 400,
+    });
   if (泛微编号) {
     const 泛微姓名或登录名 = 读取正文文本(输入, ["eteamsUsername", "eteamsName"], "");
     if (!泛微姓名或登录名)
-      throw Object.assign(new Error("填写泛微 OA userid 时必须同时填写泛微姓名或登录名。"), { statusCode: 400 });
-    const 已占用 = await pool.query("SELECT 1 FROM iam.external_identities WHERE provider_code='eteams' AND external_subject=$1 AND status_code='active' UNION ALL SELECT 1 FROM iam.external_identity_candidates WHERE provider_code='eteams' AND external_subject=$1 AND status_code='pending' LIMIT 1", [泛微编号]);
-    if (已占用.rows[0]) throw Object.assign(new Error("该泛微 OA userid 已被占用，请先核对外部身份映射。"), { statusCode: 409 });
-    await pool.query("INSERT INTO iam.external_identity_candidates(user_id,provider_code,external_subject,external_username,source_code,created_by_user_id) VALUES($1::uuid,'eteams',$2,$3,'manual',$4::uuid)", [userId, 泛微编号, 泛微姓名或登录名, 操作人]);
+      throw Object.assign(new Error("填写泛微 OA userid 时必须同时填写泛微姓名或登录名。"), {
+        statusCode: 400,
+      });
+    const 已占用 = await pool.query(
+      "SELECT 1 FROM iam.external_identities WHERE provider_code='eteams' AND external_subject=$1 AND status_code='active' UNION ALL SELECT 1 FROM iam.external_identity_candidates WHERE provider_code='eteams' AND external_subject=$1 AND status_code='pending' LIMIT 1",
+      [泛微编号],
+    );
+    if (已占用.rows[0])
+      throw Object.assign(new Error("该泛微 OA userid 已被占用，请先核对外部身份映射。"), {
+        statusCode: 409,
+      });
+    await pool.query(
+      "INSERT INTO iam.external_identity_candidates(user_id,provider_code,external_subject,external_username,source_code,created_by_user_id) VALUES($1::uuid,'eteams',$2,$3,'manual',$4::uuid)",
+      [userId, 泛微编号, 泛微姓名或登录名, 操作人],
+    );
   }
   if (企微编号) {
-    const 已占用 = await pool.query("SELECT 1 FROM iam.external_identities WHERE provider_code='wecom' AND external_subject=$1 AND status_code='active'", [企微编号]);
-    if (已占用.rows[0]) throw Object.assign(new Error("该企业微信 userid 已被占用，请先核对外部身份映射。"), { statusCode: 409 });
-    await pool.query("INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code) VALUES($1::uuid,'wecom',$2,$3,'active')", [userId, 企微编号, 读取正文文本(输入, ["wecomUsername", "wecomName"], 读取正文文本(输入, ["name", "displayName"], ""))]);
+    const 已占用 = await pool.query(
+      "SELECT 1 FROM iam.external_identities WHERE provider_code='wecom' AND external_subject=$1 AND status_code='active'",
+      [企微编号],
+    );
+    if (已占用.rows[0])
+      throw Object.assign(new Error("该企业微信 userid 已被占用，请先核对外部身份映射。"), {
+        statusCode: 409,
+      });
+    await pool.query(
+      "INSERT INTO iam.external_identities(user_id,provider_code,external_subject,external_username,status_code) VALUES($1::uuid,'wecom',$2,$3,'active')",
+      [
+        userId,
+        企微编号,
+        读取正文文本(
+          输入,
+          ["wecomUsername", "wecomName"],
+          读取正文文本(输入, ["name", "displayName"], ""),
+        ),
+      ],
+    );
   }
 }
 
@@ -2742,23 +2791,41 @@ async function 同步新建管理账号组织归属(
   role: string,
   regionId: string | null,
 ) {
-  const 根 = await pool.query("SELECT id::text AS id FROM org.org_units WHERE parent_unit_id IS NULL AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1");
+  const 根 = await pool.query(
+    "SELECT id::text AS id FROM org.org_units WHERE parent_unit_id IS NULL AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1",
+  );
   if (!根.rows[0])
     throw Object.assign(new Error("组织架构缺少根部门，无法同步新建管理员。"), { statusCode: 400 });
   let 组织Id = 根.rows[0].id as string;
   if (role === "region_manager" && regionId) {
-    const 区域 = await pool.query("SELECT r.region_name AS name,b.region_name AS big_name FROM org.regions r LEFT JOIN org.regions b ON b.id=r.parent_region_id WHERE r.id=$1::uuid", [regionId]);
+    const 区域 = await pool.query(
+      "SELECT r.region_name AS name,b.region_name AS big_name FROM org.regions r LEFT JOIN org.regions b ON b.id=r.parent_region_id WHERE r.id=$1::uuid",
+      [regionId],
+    );
     const 取部门 = async (名称: string, 父Id: string) => {
-      const 已有 = await pool.query("SELECT id::text AS id FROM org.org_units WHERE parent_unit_id=$1::uuid AND unit_name=$2 AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1", [父Id, 名称]);
+      const 已有 = await pool.query(
+        "SELECT id::text AS id FROM org.org_units WHERE parent_unit_id=$1::uuid AND unit_name=$2 AND unit_type NOT LIKE 'channel_%' AND status_code='active' ORDER BY created_at LIMIT 1",
+        [父Id, 名称],
+      );
       if (已有.rows[0]) return 已有.rows[0].id as string;
-      const 新建 = await pool.query("INSERT INTO org.org_units(unit_code,unit_name,unit_type,parent_unit_id,status_code,sort_order) VALUES($1,$2,'department',$3::uuid,'active',0) RETURNING id::text AS id", [`auto-${crypto.randomUUID()}`, 名称, 父Id]);
+      const 新建 = await pool.query(
+        "INSERT INTO org.org_units(unit_code,unit_name,unit_type,parent_unit_id,status_code,sort_order) VALUES($1,$2,'department',$3::uuid,'active',0) RETURNING id::text AS id",
+        [`auto-${crypto.randomUUID()}`, 名称, 父Id],
+      );
       return 新建.rows[0].id as string;
     };
     if (区域.rows[0]?.big_name) 组织Id = await 取部门(区域.rows[0].big_name, 组织Id);
     if (区域.rows[0]?.name) 组织Id = await 取部门(区域.rows[0].name, 组织Id);
   }
-  const 已有任职 = await pool.query("SELECT 1 FROM org.staff_assignments WHERE user_id=$1::uuid AND expired_at IS NULL LIMIT 1", [userId]);
-  if (!已有任职.rows[0]) await pool.query("INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,source_code) VALUES($1::uuid,$2::uuid,NULL,true,now(),'manual')", [userId, 组织Id]);
+  const 已有任职 = await pool.query(
+    "SELECT 1 FROM org.staff_assignments WHERE user_id=$1::uuid AND expired_at IS NULL LIMIT 1",
+    [userId],
+  );
+  if (!已有任职.rows[0])
+    await pool.query(
+      "INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,source_code) VALUES($1::uuid,$2::uuid,NULL,true,now(),'manual')",
+      [userId, 组织Id],
+    );
 }
 
 async function 是已保存区域管理员(pool: 数据库查询器, id: string): Promise<boolean> {
@@ -3146,13 +3213,8 @@ async function 保存V2渠道商(
       countryCallingCode: countryCallingCode || "",
     };
     const regionName = 读取正文文本(输入, ["region", "区域"], "").trim();
-    const regionResult = regionName
-      ? await client.query<{ id: string }>(
-          `SELECT id::text AS id FROM org.regions WHERE region_name = $1 OR region_code = $1 LIMIT 1`,
-          [regionName],
-        )
-      : { rows: [] as Array<{ id: string }> };
-    const regionUuid = regionResult.rows[0]?.id || null;
+    const region = regionName ? await 查询唯一启用正式区域(client, regionName) : null;
+    const regionUuid = region?.id || null;
     const params = [
       code,
       name,
@@ -5834,21 +5896,79 @@ async function 确保客户(
   return inserted.rows[0]?.id || "";
 }
 
-async function 确保区域(pool: Pool, regionName: string): Promise<string | null> {
-  if (!regionName) return null;
-  const code = "IMP-REG-" + crypto.createHash("sha1").update(regionName).digest("hex").slice(0, 12);
-  const result = await pool.query<{ id: string }>(
+async function 查询唯一启用正式区域(
+  pool: 数据库查询器,
+  regionName: string,
+): Promise<{ id: string; name: string } | null> {
+  const normalizedName = regionName.trim();
+  if (!normalizedName) return null;
+
+  const exact = await pool.query<{ id: string; region_name: string }>(
     `
-    INSERT INTO org.regions (region_code, region_name, region_level, status_code)
-    VALUES ($1, $2, 'region', 'active')
-    ON CONFLICT (region_code) DO UPDATE
-    SET region_name = EXCLUDED.region_name,
-        status_code = EXCLUDED.status_code
-    RETURNING id::text AS id
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE (id::text = $1 OR region_code = $1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY CASE WHEN id::text = $1 THEN 0 ELSE 1 END
+    LIMIT 2
     `,
-    [code, regionName],
+    [normalizedName],
   );
-  return result.rows[0]?.id || null;
+  if (exact.rows.length > 1) {
+    throw Object.assign(
+      new Error(`区域“${normalizedName}”存在重复配置，请先完成区域治理。`),
+      { statusCode: 409 },
+    );
+  }
+  if (exact.rows[0]) return { id: exact.rows[0].id, name: exact.rows[0].region_name };
+
+  const sameName = await pool.query<{ id: string; region_name: string }>(
+    `
+    SELECT id::text AS id, region_name
+    FROM org.regions
+    WHERE btrim(region_name) = btrim($1)
+      AND region_level = 'region'
+      AND status_code = 'active'
+    ORDER BY id
+    LIMIT 2
+    `,
+    [normalizedName],
+  );
+  if (sameName.rows.length > 1) {
+    throw Object.assign(
+      new Error(`区域“${normalizedName}”存在重复配置，请先完成区域治理。`),
+      { statusCode: 409 },
+    );
+  }
+  const row = sameName.rows[0];
+  return row ? { id: row.id, name: row.region_name } : null;
+}
+
+async function 确保区域(pool: Pool, regionName: string): Promise<string | null> {
+  if (!regionName.trim()) return null;
+  const existing = await 查询唯一启用正式区域(pool, regionName);
+  if (existing) return existing.id;
+  const code = "IMP-REG-" + crypto.createHash("sha1").update(regionName).digest("hex").slice(0, 12);
+  try {
+    const result = await pool.query<{ id: string }>(
+      `
+      INSERT INTO org.regions (region_code, region_name, region_level, status_code)
+      VALUES ($1, $2, 'region', 'active')
+      ON CONFLICT (region_code) DO UPDATE
+      SET region_name = EXCLUDED.region_name,
+          status_code = EXCLUDED.status_code
+      RETURNING id::text AS id
+      `,
+      [code, regionName.trim()],
+    );
+    return result.rows[0]?.id || null;
+  } catch (error) {
+    if (String((error as { code?: unknown })?.code || "") !== "23505") throw error;
+    const concurrent = await 查询唯一启用正式区域(pool, regionName);
+    if (concurrent) return concurrent.id;
+    throw error;
+  }
 }
 
 function 标准化导入表头(value: unknown): string {

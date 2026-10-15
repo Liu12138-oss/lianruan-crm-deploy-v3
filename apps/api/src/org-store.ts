@@ -552,6 +552,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     );
     const parent = 可选标识(input, "parentRegionId");
     const code = 可选文本(input, "regionCode") || "AUTO-" + crypto.randomBytes(6).toString("hex");
+    if (level === "region") {
+      const 同名 = await this.pool.query(
+        "SELECT id::text AS id FROM org.regions WHERE status_code='active' AND region_level='region' AND region_name=$1 LIMIT 2",
+        [name],
+      );
+      if (同名.rows.length) {
+        throw new 应用错误("ORG_REGION_NAME_CONFLICT", `启用区域“${name}”已存在，请勿重复创建。`, 409);
+      }
+    }
     return this.写入(
       'INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level) VALUES($1,$2,$3::uuid,$4) RETURNING id::text,region_code AS "regionCode",region_name AS "regionName",parent_region_id::text AS "parentRegionId",region_level AS "regionLevel",status_code AS "statusCode",row_version AS "rowVersion"',
       [code, name, parent, level],
@@ -573,13 +582,27 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         if (环.rows.length)
           throw new 应用错误("ORG_REGION_PARENT_INVALID", "不能把区域挂到渠道商或子区域下。", 409);
       }
+      const name = 文本(input, "regionName", before.region_name);
+      if (before.region_level === "region") {
+        const 同名 = await db.query(
+          "SELECT id::text AS id FROM org.regions WHERE status_code='active' AND region_level='region' AND region_name=$1 AND id<>$2::uuid LIMIT 1",
+          [name, id],
+        );
+        if (同名.rows.length) {
+          throw new 应用错误(
+            "ORG_REGION_NAME_CONFLICT",
+            `启用区域“${name}”已存在，请使用其他名称。`,
+            409,
+          );
+        }
+      }
       const r = await db.query(
         `UPDATE org.regions SET region_name=$1,parent_region_id=$2::uuid,row_version=row_version+1
          WHERE id=$3::uuid AND row_version=$4
          RETURNING id::text,region_code AS "regionCode",region_name AS "regionName",
            parent_region_id::text AS "parentRegionId",region_level AS "regionLevel",
            status_code AS "statusCode",row_version AS "rowVersion"`,
-        [文本(input, "regionName", before.region_name), parent, id, 版本(input)],
+        [name, parent, id, 版本(input)],
       );
       if (!r.rows[0]) throw 冲突();
       const user = await this.操作人(db, actor);

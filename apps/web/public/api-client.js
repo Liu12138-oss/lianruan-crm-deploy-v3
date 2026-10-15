@@ -15,6 +15,12 @@ if (typeof window.API_BASE === 'undefined') {
 }
 const API_BASE = window.API_BASE;
 
+// 收益核算接口挂载在 /api；管理端默认的 /api/v2 仅用于兼容目录和报价接口。
+function getQuoteProfitApiBase() {
+  const base = String(API_BASE || '/api').replace(/\/$/, '');
+  return base.replace(/\/v2$/, '') || '/api';
+}
+
 // API 基础配置（确保 window.APP_PREFIX 在加载前已定义）
 // APP_PREFIX 通过 window.APP_PREFIX 设置（在 HTML 中或 api-client.js 之前）
 const APP_PREFIX = window.APP_PREFIX || '';
@@ -745,6 +751,66 @@ const apiClient = {
         action,
         approvedBy: currentUser?.name
       })
+    });
+    return res.json();
+  },
+
+  // 获取硬件内部成本规则（仅超级管理员调用）
+  async getHardwareCostRules(filters = {}) {
+    loadUserFromStorage();
+    const params = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.set(key, value);
+    });
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quote-profit/hardware-cost-rules${query}`);
+    return res.json();
+  },
+
+  // 新增硬件内部成本规则版本（历史版本不可覆盖）
+  async createHardwareCostRule(payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quote-profit/hardware-cost-rules`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(withOperatorPayload(payload))
+    });
+    return res.json();
+  },
+
+  // 报价收益核算（仅区管和超管由服务端授权）
+  async getQuoteProfit(quoteId) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quotes/${encodeURIComponent(quoteId)}/profit-calculation`);
+    return res.json();
+  },
+
+  async saveQuoteProfitDraft(quoteId, payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quotes/${encodeURIComponent(quoteId)}/profit-calculation/draft`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+
+  async recalculateQuoteProfit(quoteId, payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quotes/${encodeURIComponent(quoteId)}/profit-calculation/recalculate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return res.json();
+  },
+
+  async freezeQuoteProfit(quoteId, payload = {}) {
+    loadUserFromStorage();
+    const res = await apiFetch(`${getQuoteProfitApiBase()}/quotes/${encodeURIComponent(quoteId)}/profit-calculation/freeze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
     return res.json();
   }

@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -144,8 +145,15 @@ describe("统一提醒变量目录", () => {
   });
 });
 
+/** 从二进制视角读取 PDF 流内容：起点为流数据首字节偏移。 */
+function 读取PDF流(文本: string, 起点: number): Buffer {
+  const 终点 = 文本.indexOf("\nendstream", 起点);
+  if (起点 < 0 || 终点 < 0) throw new Error("未找到 PDF 流内容。");
+  return Buffer.from(文本.slice(起点, 终点), "binary");
+}
+
 describe("正式报价单 PDF", () => {
-  it("生成 A4 PDF 并固化中文字体、产品分组和金额汇总", () => {
+  it("生成 A4 PDF 并内嵌中文字体子集、产品分组和金额汇总", () => {
     const 内容 = 生成正式报价单PDF({
       订单编号: "LS-2026-0001",
       报价编号: "BJ-2026-0001",
@@ -162,17 +170,30 @@ describe("正式报价单 PDF", () => {
 
     const 文本 = 内容.toString("binary");
     expect(内容.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
-    expect(文本).toContain("/STSong-Light");
+    // 历史实现只引用未嵌入的 STSong-Light，阅读器缺字体时中文乱码，禁止回退到该写法。
+    expect(文本).not.toContain("/STSong-Light");
     expect(文本).toContain("/Helvetica");
     expect(文本).toContain("/Helvetica-Bold");
     expect(文本).toContain("xref");
     expect(文本).toContain("/MediaBox [0 0 595 842]");
-    expect(文本).toContain(
-      "终端管理许可"
-        .split("")
-        .map((字符) => Buffer.from(字符, "utf16le").swap16().toString("hex").toUpperCase())
-        .join(""),
+    expect(文本).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSerifSC-Regular/);
+    expect(文本).toContain("/Encoding /Identity-H");
+    expect(文本).toContain("/Subtype /CIDFontType0C");
+    expect(文本).toContain("/ToUnicode");
+
+    const 字体流标记 = "/Subtype /CIDFontType0C >>\nstream\n";
+    const 字体字节 = zlib.inflateSync(
+      读取PDF流(文本, 文本.indexOf(字体流标记) + 字体流标记.length),
     );
+    expect(字体字节.subarray(0, 2).toString("hex")).toBe("0100");
+    expect(字体字节.length).toBeGreaterThan(1000);
+
+    const 字符映射表 = 读取PDF流(
+      文本,
+      文本.indexOf("/CIDInit /ProcSet findresource begin"),
+    ).toString("binary");
+    expect(字符映射表).toContain("begincmap");
+    expect(字符映射表).toContain("7EC8");
   });
 
   it("采购内容只输出软件产品和服务项明细", () => {

@@ -22,6 +22,14 @@ http_port="${HTTP_PORT:-80}"
   fi
 }
 
+读取MCP配置() {
+  local key="$1"
+  local config_file="${install_root}/config/mcp.env"
+  if [ -f "${config_file}" ]; then
+    awk -F '=' -v key="${key}" '$1 == key { value=substr($0, length(key) + 2) } END { print value }' "${config_file}" | tr -d '\r'
+  fi
+}
+
 cd "${install_root}/compose"
 
 echo "启动联软CRM V3单机服务。"
@@ -34,6 +42,20 @@ else
 fi
 
 docker compose up -d api-1 api-2 worker nginx
+
+mcp_enabled="$(读取MCP配置 V3_MCP_ENABLED)"
+api_mcp_enabled="$(读取配置 V3_MCP_API_ENABLED)"
+if [ "${mcp_enabled}" = "true" ]; then
+  if [ "${api_mcp_enabled}" != "true" ]; then
+    echo "MCP已启用但V3_MCP_API_ENABLED不是true，拒绝启动MCP profile。" >&2
+    exit 1
+  fi
+  echo "显式启动MCP profile；外部HTTPS入口仍需Nginx证书模板单独启用。"
+  docker compose --profile mcp up -d mcp
+else
+  echo "MCP保持默认关闭，确保MCP profile已停止。"
+  docker compose --profile mcp stop mcp || true
+fi
 
 message_worker_enabled="$(读取配置 MESSAGE_WORKER_ENABLED)"
 if [ "${message_worker_enabled}" = "true" ]; then

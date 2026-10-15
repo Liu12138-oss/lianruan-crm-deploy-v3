@@ -73,6 +73,18 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   const 读取用户 = (req: Request) => 读取当前业务用户(req, 参数);
   const 读取移动用户 = (req: Request) => 读取当前移动端业务用户(req, 参数);
 
+  router.use((req, _res, next) => {
+    if (!是受保护业务路由(req) || 是公开业务路由(req) || 使用独立认证的业务路由(req)) {
+      next();
+      return;
+    }
+    if (!读取用户(req)) {
+      next(new 应用错误("V3_AUTH_REQUIRED", "请先登录后再访问业务接口。", 401));
+      return;
+    }
+    next();
+  });
+
   router.get("/dashboard/stats", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.读取概览()));
@@ -715,7 +727,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       clientId = 身份.clientId;
       校验开放接口资源权限(身份.allowedResources, resource);
       const 模块 = 读取开放资源模块(resource);
-      const 数据 = await service.查询列表(模块, 读取查询(req));
+      const 数据 = await service.查询列表(模块, 读取查询(req), 读取开放接口业务用户(req, 身份));
       await service.记录开放接口调用({
         clientId,
         requestId: req.requestId,
@@ -1126,6 +1138,49 @@ function 读取正整数(req: Request, key: string, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function 是公开业务路由(req: Request): boolean {
+  const path = req.path;
+  if (req.method !== "GET") return false;
+  return (
+    path === "/products" ||
+    path === "/products/stats" ||
+    path === "/product-tree" ||
+    path === "/features" ||
+    path === "/hardware" ||
+    path === "/packages"
+  );
+}
+
+function 使用独立认证的业务路由(req: Request): boolean {
+  return (
+    req.path.startsWith("/open/v1/") ||
+    req.path === "/open/v1" ||
+    req.path.startsWith("/mobile/")
+  );
+}
+
+function 是受保护业务路由(req: Request): boolean {
+  const path = req.path;
+  return [
+    "/dashboard/stats",
+    "/stage9",
+    "/notifications",
+    "/registrations",
+    "/opportunities",
+    "/quotes",
+    "/orders",
+    "/order-revision-requests",
+    "/partners",
+    "/users",
+    "/audit-logs",
+    "/workload",
+    "/open-api",
+    "/openapi-integration",
+    "/approvals",
+    "/import-export",
+  ].some((prefix) => path === prefix || path.startsWith(prefix + "/"));
+}
+
 function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当前业务用户 | null {
   const 会话用户名 = 读取请求会话用户名(req, {
     sessionSecret: 参数.sessionSecret || "",
@@ -1139,14 +1194,20 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
       roleName: "V3登录用户",
     };
   }
+  if (参数.env?.V3_BUSINESS_LEGACY_IDENTITY_ENABLED === "true") {
+    return 读取兼容业务用户(req, 参数.env);
+  }
+  return null;
+}
 
+function 读取兼容业务用户(req: Request, env: NodeJS.ProcessEnv): 当前业务用户 | null {
   const v2用户名 = 读取V2令牌用户名(req);
   if (v2用户名) {
     return {
       requestId: req.requestId,
       username: v2用户名,
       displayName: v2用户名,
-      roleName: "V2页面用户",
+      roleName: "V2兼容用户",
     };
   }
 
@@ -1162,13 +1223,41 @@ function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当
   }
 
   const operatorId = 读取查询文本(req, "operatorId") || 读取请求体文本(req, "operatorId");
-  if (!operatorId) return null;
+  if (operatorId) {
+    return {
+      requestId: req.requestId,
+      username: operatorId,
+      externalUserId: operatorId,
+      displayName: 读取请求体文本(req, "operatorName") || operatorId,
+      roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
+    };
+  }
+  const 测试默认用户 = env.V3_BUSINESS_LEGACY_DEFAULT_USER?.trim();
+  const 是测试环境 = env.NODE_ENV === "test" || env.APP_ENV === "test";
+  if (测试默认用户 && 是测试环境) {
+    return {
+      requestId: req.requestId,
+      username: 测试默认用户,
+      displayName: "测试兼容用户",
+      roleName: "兼容测试用户",
+    };
+  }
+  return null;
+}
+
+function 读取开放接口业务用户(
+  req: Request,
+  身份: { boundUserId: string; boundUserName: string },
+): 当前业务用户 {
+  if (!身份.boundUserId) {
+    throw new 应用错误("V3_OPEN_API_USER_REQUIRED", "开放接口未绑定有效业务用户。", 403);
+  }
   return {
     requestId: req.requestId,
-    username: operatorId,
-    externalUserId: operatorId,
-    displayName: 读取请求体文本(req, "operatorName") || operatorId,
-    roleName: 读取请求体文本(req, "operatorRole") || "兼容操作用户",
+    userId: 身份.boundUserId,
+    username: 身份.boundUserName,
+    displayName: 身份.boundUserName,
+    roleName: "OpenAPI绑定用户",
   };
 }
 

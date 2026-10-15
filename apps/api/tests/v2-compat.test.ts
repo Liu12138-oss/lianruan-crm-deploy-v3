@@ -38,6 +38,17 @@ const 区管正式区域绑定回退迁移 = fs.readFileSync(
   ),
   "utf8",
 );
+const 区域重复归并迁移 = fs.readFileSync(
+  path.resolve(当前目录, "../../../database/migrations/20260923_S10_025_区域重复归并与唯一约束.sql"),
+  "utf8",
+);
+const 区域重复归并回退迁移 = fs.readFileSync(
+  path.resolve(
+    当前目录,
+    "../../../database/migrations/20260923_S10_025_区域重复归并与唯一约束.rollback.sql",
+  ),
+  "utf8",
+);
 
 if (!测试环境变量.DATABASE_URL) {
   throw new Error("V2兼容接口测试必须配置 PostgreSQL DATABASE_URL，禁止回退内存模式。");
@@ -70,6 +81,7 @@ describe("V2真实页面兼容接口", () => {
 
     expect(登录.body.success).toBe(true);
     expect(登录.body.user.username).toBe(用户.username);
+    expect(Array.isArray(登录.body.user.roleCodes)).toBe(true);
     expect(登录.body.token).toMatch(/^v2\./);
     expect(登录.headers["set-cookie"]?.[0]).toContain("HttpOnly");
 
@@ -312,18 +324,32 @@ describe("V2真实页面兼容接口", () => {
       expect(数据.rows[0]).toEqual({ assignment_count: 1, pending_eteams: 1, active_wecom: 1 });
     } finally {
       await pool
-        .query("DELETE FROM iam.external_identity_candidates WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.external_identity_candidates WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM iam.external_identities WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.external_identities WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM org.staff_assignments WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM org.staff_assignments WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
       await pool
-        .query("DELETE FROM iam.user_roles WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)", [登录账号])
+        .query(
+          "DELETE FROM iam.user_roles WHERE user_id=(SELECT id FROM iam.users WHERE username=$1::citext)",
+          [登录账号],
+        )
         .catch(() => {});
-      await pool.query("DELETE FROM iam.users WHERE username=$1::citext", [登录账号]).catch(() => {});
+      await pool
+        .query("DELETE FROM iam.users WHERE username=$1::citext", [登录账号])
+        .catch(() => {});
       await pool.end();
     }
   });
@@ -337,6 +363,8 @@ describe("V2真实页面兼容接口", () => {
     let 唯一用户Id = "";
     let 重复用户Id = "";
     try {
+      // 该用例需要构造迁移前的历史重名数据；结束时会恢复活动区域唯一索引。
+      await pool.query("DROP INDEX IF EXISTS org.uq_regions_active_region_name");
       const 大区 = await pool.query<{ id: string }>(
         "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移测试大区','big_region','active') RETURNING id::text AS id",
         [批次 + "_big"],
@@ -435,6 +463,11 @@ describe("V2真实页面兼容接口", () => {
         .catch(() => {});
       await pool
         .query("DELETE FROM org.regions WHERE region_code = $1", [批次 + "_big"])
+        .catch(() => {});
+      await pool
+        .query(
+          "CREATE UNIQUE INDEX IF NOT EXISTS uq_regions_active_region_name ON org.regions(region_name) WHERE status_code='active' AND region_level='region'",
+        )
         .catch(() => {});
       await pool.end();
     }
@@ -800,6 +833,359 @@ describe("V2真实页面兼容接口", () => {
     expect(回读.body.data.some((item: { customer?: string }) => item.customer === 客户名称)).toBe(
       true,
     );
+  });
+
+  it("V2渠道商导入复用同名启用正式区域且不创建IMP-REG区域", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `region_import_reuse_${Date.now()}`;
+    const 区域名称 = `${批次}-正式区域`;
+    const 渠道商名称 = `${批次}-渠道商`;
+
+    try {
+      const 正式区域 = await pool.query<{ id: string }>(
+        `
+        INSERT INTO org.regions (region_code, region_name, region_level, status_code)
+        VALUES ($1, $2, 'region', 'active')
+        RETURNING id::text AS id
+        `,
+        [`REG-${批次}`, 区域名称],
+      );
+      const 正式区域编号 = 正式区域.rows[0]?.id;
+      expect(正式区域编号).toBeTruthy();
+
+      const 导入文件 = 生成Excel([
+        ["渠道商名称*", "合作级别", "所在区域*", "所在城市*", "联系人", "联系电话"],
+        [渠道商名称, "gold", 区域名称, "南京市", "导入负责人", "13800138001"],
+      ]);
+      const 执行导入 = await request(app)
+        .post("/api/v2/import/partners/execute")
+        .attach("file", 导入文件, {
+          filename: "渠道商区域复用导入.xlsx",
+          contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        .expect(200);
+      expect(执行导入.body.success).toBe(true);
+      expect(执行导入.body.results.success + 执行导入.body.results.updated).toBeGreaterThanOrEqual(1);
+
+      const 回读 = await pool.query<{ region_id: string; duplicate_count: string }>(
+        `
+        SELECT
+          partner.region_id::text AS region_id,
+          (
+            SELECT COUNT(*)::text
+            FROM org.regions region
+            WHERE region.region_name = $2
+              AND region.region_level = 'region'
+              AND region.status_code = 'active'
+          ) AS duplicate_count
+        FROM channel.partners partner
+        WHERE partner.partner_name = $1
+        ORDER BY partner.created_at DESC
+        LIMIT 1
+        `,
+        [渠道商名称, 区域名称],
+      );
+      expect(回读.rows[0]?.region_id).toBe(正式区域编号);
+      expect(回读.rows[0]?.duplicate_count).toBe("1");
+    } finally {
+      await pool
+        .query(
+          "DELETE FROM channel.partner_profiles WHERE partner_id IN (SELECT id FROM channel.partners WHERE partner_name=$1)",
+          [渠道商名称],
+        )
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM channel.partners WHERE partner_name=$1", [渠道商名称])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM org.regions WHERE region_name=$1 AND region_code LIKE 'IMP-REG-%'", [区域名称])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM org.regions WHERE region_name=$1 AND region_code=$2", [
+          区域名称,
+          `REG-${批次}`,
+        ])
+        .catch(() => {});
+      await pool.end();
+    }
+  });
+
+  it("重复区域归并和回退可执行，归并后区管可指派同区渠道商且跨区仍拒绝", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `region_merge_e2e_${Date.now()}`;
+    const 区域名称 = `${批次}-正式区域`;
+    const 外区名称 = `${批次}-外区`;
+    const 同区渠道名称 = `${批次}-同区渠道`;
+    const 外区渠道名称 = `${批次}-外区渠道`;
+    const 区管账号 = `${批次}_manager`;
+    let 正式区域编号 = "";
+    let 导入区域编号 = "";
+    let 外区编号 = "";
+    let 同区渠道编号 = "";
+    let 外区渠道编号 = "";
+    let 区管编号 = "";
+
+    try {
+      await pool.query("DROP INDEX IF EXISTS org.uq_regions_active_region_name");
+      await pool.query(
+        `
+        INSERT INTO iam.roles (role_code, role_name, status_code)
+        VALUES ('region_manager', '区域管理员', 'active')
+        ON CONFLICT (role_code) DO UPDATE SET status_code = 'active'
+        `,
+      );
+      const [正式区域, 导入区域, 外区] = await Promise.all([
+        pool.query<{ id: string }>(
+          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
+          [`REG-${批次}`, 区域名称],
+        ),
+        pool.query<{ id: string }>(
+          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
+          [`IMP-REG-${批次}`, 区域名称],
+        ),
+        pool.query<{ id: string }>(
+          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
+          [`REG-${批次}-OUT`, 外区名称],
+        ),
+      ]);
+      正式区域编号 = 正式区域.rows[0]!.id;
+      导入区域编号 = 导入区域.rows[0]!.id;
+      外区编号 = 外区.rows[0]!.id;
+
+      const [同区渠道, 外区渠道] = await Promise.all([
+        pool.query<{ id: string }>(
+          `
+          INSERT INTO channel.partners (
+            v2_source_id, partner_code, partner_name, normalized_name,
+            partner_level_code, region_id, status_code, extra_json
+          )
+          VALUES ($1,$1,$2,$3,'primary',$4::uuid,'active',$5::jsonb)
+          RETURNING id::text AS id
+          `,
+          [
+            `${批次}-P-IN`,
+            同区渠道名称,
+            同区渠道名称.toLowerCase().replace(/\s+/g, ""),
+            导入区域编号,
+            JSON.stringify({ id: `${批次}-P-IN`, name: 同区渠道名称 }),
+          ],
+        ),
+        pool.query<{ id: string }>(
+          `
+          INSERT INTO channel.partners (
+            v2_source_id, partner_code, partner_name, normalized_name,
+            partner_level_code, region_id, status_code, extra_json
+          )
+          VALUES ($1,$1,$2,$3,'primary',$4::uuid,'active',$5::jsonb)
+          RETURNING id::text AS id
+          `,
+          [
+            `${批次}-P-OUT`,
+            外区渠道名称,
+            外区渠道名称.toLowerCase().replace(/\s+/g, ""),
+            外区编号,
+            JSON.stringify({ id: `${批次}-P-OUT`, name: 外区渠道名称 }),
+          ],
+        ),
+      ]);
+      同区渠道编号 = 同区渠道.rows[0]!.id;
+      外区渠道编号 = 外区渠道.rows[0]!.id;
+
+      const 区管 = await pool.query<{ id: string }>(
+        `
+        INSERT INTO iam.users (v2_source_id, username, display_name, status_code, region_id, extra_json)
+        VALUES ($1, $2::citext, $3, 'active', $4::uuid, $5::jsonb)
+        RETURNING id::text AS id
+        `,
+        [
+          区管账号,
+          区管账号,
+          `${批次}-区管`,
+          正式区域编号,
+          JSON.stringify({ id: 区管账号, userId: 区管账号, role: "region_manager" }),
+        ],
+      );
+      区管编号 = 区管.rows[0]!.id;
+      await pool.query(
+        "INSERT INTO iam.user_roles (user_id, role_id) SELECT $1::uuid, id FROM iam.roles WHERE role_code='region_manager' ON CONFLICT DO NOTHING",
+        [区管编号],
+      );
+      await pool.query(
+        "INSERT INTO org.staff_profiles (user_id, employee_no, title, data_scope_code) VALUES ($1::uuid,$2,$3,'region') ON CONFLICT (user_id) DO UPDATE SET data_scope_code='region'",
+        [区管编号, 区管账号, `${批次}-区管`],
+      );
+
+      const 重名渠道保存 = await request(app)
+        .post("/api/v2/partners")
+        .send({
+          id: `${批次}-P-BLOCKED`,
+          name: `${批次}-重名拦截渠道`,
+          region: 区域名称,
+          city: "南京市",
+          contact: "重名拦截",
+          phone: "13800138005",
+          status: "active",
+        })
+        .expect(409);
+      expect(重名渠道保存.body.error).toContain("存在重复配置");
+
+      const 授权 = `Bearer v2.${Buffer.from(区管账号, "utf8").toString("base64url")}.test`;
+      const 归并前 = await request(app)
+        .post("/api/registrations")
+        .set("Authorization", 授权)
+        .send({
+          customer: `${批次}-归并前客户`,
+          partnerId: `${批次}-P-IN`,
+          contact: "归并前",
+          phone: "13800138002",
+        })
+        .expect(403);
+      expect(归并前.body.error.code).toBe("V3_BUSINESS_REGION_SCOPE_FORBIDDEN");
+
+      await pool.query(区域重复归并迁移);
+      const 归并后数据 = await pool.query<{
+        partner_region_id: string;
+        duplicate_status: string;
+        canonical_id: string;
+      }>(
+        `
+        SELECT
+          partner.region_id::text AS partner_region_id,
+          duplicate.status_code AS duplicate_status,
+          merge.canonical_region_id::text AS canonical_id
+        FROM channel.partners partner
+        JOIN migration.region_duplicate_merges merge ON merge.duplicate_region_id = $2::uuid
+        JOIN org.regions duplicate ON duplicate.id = merge.duplicate_region_id
+        WHERE partner.id = $1::uuid
+        `,
+        [同区渠道编号, 导入区域编号],
+      );
+      expect(归并后数据.rows[0]).toEqual({
+        partner_region_id: 正式区域编号,
+        duplicate_status: "disabled",
+        canonical_id: 正式区域编号,
+      });
+
+      await pool.query(区域重复归并回退迁移);
+      const 回退后 = await pool.query<{ partner_region_id: string; duplicate_status: string }>(
+        `
+        SELECT partner.region_id::text AS partner_region_id, region.status_code AS duplicate_status
+        FROM channel.partners partner
+        JOIN org.regions region ON region.id = $2::uuid
+        WHERE partner.id = $1::uuid
+        `,
+        [同区渠道编号, 导入区域编号],
+      );
+      expect(回退后.rows[0]).toEqual({
+        partner_region_id: 导入区域编号,
+        duplicate_status: "active",
+      });
+
+      await pool.query(区域重复归并迁移);
+      const 同区报备 = await request(app)
+        .post("/api/registrations")
+        .set("Authorization", 授权)
+        .send({
+          customer: `${批次}-同区客户`,
+          partnerId: `${批次}-P-IN`,
+          contact: "同区负责人",
+          phone: "13800138003",
+        })
+        .expect(200);
+      expect(同区报备.body.success).toBe(true);
+      const 同区报备归属 = await pool.query<{ partner_id: string; region_id: string }>(
+        `
+        SELECT registration.partner_id::text AS partner_id, registration.region_id::text AS region_id
+        FROM crm.registrations registration
+        JOIN crm.customers customer ON customer.id = registration.customer_id
+        WHERE customer.customer_name = $1
+        ORDER BY registration.created_at DESC
+        LIMIT 1
+        `,
+        [`${批次}-同区客户`],
+      );
+      expect(同区报备归属.rows[0]).toEqual({
+        partner_id: 同区渠道编号,
+        region_id: 正式区域编号,
+      });
+
+      const 跨区报备 = await request(app)
+        .post("/api/registrations")
+        .set("Authorization", 授权)
+        .send({
+          customer: `${批次}-跨区客户`,
+          partnerId: `${批次}-P-OUT`,
+          contact: "跨区负责人",
+          phone: "13800138004",
+        })
+        .expect(403);
+      expect(跨区报备.body.error.code).toBe("V3_BUSINESS_REGION_SCOPE_FORBIDDEN");
+
+      const 最终区域状态 = await pool.query<{ duplicate_count: string }>(
+        `
+        SELECT COUNT(*)::text AS duplicate_count
+        FROM org.regions
+        WHERE region_name = $1
+          AND region_level = 'region'
+          AND status_code = 'active'
+        `,
+        [区域名称],
+      );
+      expect(最终区域状态.rows[0]?.duplicate_count).toBe("1");
+    } finally {
+      await pool
+        .query("DELETE FROM crm.registrations WHERE extra_json->>'customer' LIKE $1", [`${批次}%`])
+        .catch(() => {});
+      await pool
+        .query("DELETE FROM crm.customers WHERE customer_name LIKE $1", [`${批次}%`])
+        .catch(() => {});
+      if (同区渠道编号 || 外区渠道编号) {
+        await pool
+          .query(
+            "DELETE FROM migration.partner_region_duplicate_repairs WHERE partner_id IN ($1::uuid,$2::uuid)",
+            [同区渠道编号 || null, 外区渠道编号 || null],
+          )
+          .catch(() => {});
+      }
+      if (导入区域编号) {
+        await pool
+          .query("DELETE FROM migration.region_duplicate_merges WHERE duplicate_region_id=$1::uuid", [
+            导入区域编号,
+          ])
+          .catch(() => {});
+      }
+      await pool
+        .query("DELETE FROM channel.partners WHERE partner_name IN ($1,$2)", [同区渠道名称, 外区渠道名称])
+        .catch(() => {});
+      if (区管编号) {
+        await pool
+          .query("DELETE FROM org.staff_profiles WHERE user_id=$1::uuid", [区管编号])
+          .catch(() => {});
+        await pool
+          .query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [区管编号])
+          .catch(() => {});
+        await pool
+          .query("DELETE FROM iam.users WHERE id=$1::uuid", [区管编号])
+          .catch(() => {});
+      }
+      if (导入区域编号 || 正式区域编号 || 外区编号) {
+        await pool
+          .query("DELETE FROM org.regions WHERE id IN ($1::uuid,$2::uuid,$3::uuid)", [
+            导入区域编号 || null,
+            正式区域编号 || null,
+            外区编号 || null,
+          ])
+          .catch(() => {});
+      }
+      await pool
+        .query(
+          "CREATE UNIQUE INDEX IF NOT EXISTS uq_regions_active_region_name ON org.regions(region_name) WHERE status_code='active' AND region_level='region'",
+        )
+        .catch(() => {});
+      await pool.end();
+    }
   });
 
   it("审计日志按V2维护页字段返回列表和详情", async () => {

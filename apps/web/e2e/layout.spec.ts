@@ -844,6 +844,36 @@ test("管理端工作量配置展示V2映射规则和交付规则", async ({ pag
   await expect(page.getByRole("columnheader", { name: "标题" })).toHaveCount(0);
 });
 
+test("管理端侧栏直接展示消息中心和人天与工作量配置", async ({ page }) => {
+  await 模拟已登录(page);
+  await page.addInitScript((user) => {
+    const token = user.data.pageSession.token;
+    localStorage.setItem("admin_auth_token", token);
+    localStorage.setItem("admin_user_info", JSON.stringify(user.data.pageSession.user));
+    localStorage.setItem(
+      "admin_api_user",
+      JSON.stringify({ user: user.data.pageSession.user, token }),
+    );
+  }, 测试用户);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin.html#/dashboard");
+
+  const 侧栏 = page.locator(".sidebar-nav");
+  const 消息入口 = 侧栏.locator(".nav-item", { hasText: "消息中心" });
+  const 工作量入口 = 侧栏.locator(".nav-item", { hasText: "人天与工作量配置" });
+
+  await expect(消息入口).toBeVisible();
+  await expect(工作量入口).toBeVisible();
+
+  await 消息入口.click();
+  await expect(page).toHaveURL(/\/admin\.html#\/notifications$/);
+  await expect(page.getByRole("heading", { name: "消息中心" })).toBeVisible();
+
+  await 工作量入口.click();
+  await expect(page).toHaveURL(/\/admin\.html#\/workload-config$/);
+  await expect(page.getByText("标准工作量配置")).toBeVisible();
+});
+
 test("管理端新建商机展示V2业务字段", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });

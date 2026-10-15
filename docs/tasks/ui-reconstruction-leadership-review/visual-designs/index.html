@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>联软渠道管理平台 UI 重构视觉稿</title>
+    <link rel="stylesheet" href="assets/visual-ui.css" />
+    <style>
+      .gallery { width: min(100% - 64px, 1320px); margin: 0 auto; padding: 42px 0 72px; }
+      .gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+      .gallery-head h1 { margin: 0; font-size: 28px; }
+      .gallery-head p { margin: 5px 0 0; color: var(--text-3); }
+      .gallery-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 34px; }
+      .gallery-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: var(--shadow); transition: transform 180ms ease, box-shadow 180ms ease; }
+      .gallery-card:hover { transform: translateY(-4px); box-shadow: 0 24px 56px rgba(35, 76, 123, .16); }
+      .gallery-card img { display: block; width: 100%; height: 230px; object-fit: cover; object-position: top center; }
+      .gallery-card-body { padding: 18px; }
+      .gallery-card-body h2 { margin: 6px 0 7px; font-size: 20px; }
+      .gallery-card-body p { min-height: 45px; margin: 0 0 14px; color: var(--text-3); font-size: 12px; }
+      .gallery-link { color: var(--blue-strong); font-size: 12px; font-weight: 800; }
+      @media (max-width: 960px) { .gallery-grid { grid-template-columns: 1fr; } .gallery { width: min(100% - 28px, 1320px); } }
+    </style>
+  </head>
+  <body>
+    <main class="gallery">
+      <header class="gallery-head">
+        <div><h1>UI 重构视觉稿</h1><p>基于原领导评审稿与两张参考图重做，每套均包含渠道管理、商机管理和订单管理，方案 02 额外包含客户管理、报价管理和新建流程。</p></div>
+        <span class="status blue">3 套正式候选</span>
+      </header>
+      <section class="gallery-grid">
+        <a class="gallery-card" href="versions/01-list-workspace.html"><img src="screenshots/01-list-channels.png" alt="宽表工作台" /><div class="gallery-card-body"><span class="count-badge">方案 01</span><h2>宽表工作台</h2><p>参考图 1 扩展，适合渠道、商机和订单的大批量筛选与处理。</p><span class="gallery-link">打开完整视觉稿 →</span></div></a>
+        <a class="gallery-card" href="versions/02-war-room.html"><img src="screenshots/02-war-opportunities.png" alt="三栏作战室" /><div class="gallery-card-body"><span class="count-badge">方案 02</span><h2>三栏作战室</h2><p>六项指标卡 + 三栏结构，覆盖客户报备、商机、报价、渠道与订单，并补齐三类新建流程。</p><span class="gallery-link">打开完整视觉稿 →</span></div></a>
+        <a class="gallery-card" href="versions/03-brand-hybrid.html"><img src="screenshots/03-hybrid-channels.png" alt="品牌融合版" /><div class="gallery-card-body"><span class="count-badge">方案 03</span><h2>品牌融合版</h2><p>保留原评审稿的品牌体系，并吸收参考图的信息密度。</p><span class="gallery-link">打开完整视觉稿 →</span></div></a>
+      </section>
+    </main>
+  </body>
+</html>

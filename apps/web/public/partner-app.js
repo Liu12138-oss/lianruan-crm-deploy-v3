@@ -2742,6 +2742,30 @@ const QuoteList = {
       return maxPoints || baseEndpoints;
     }
 
+    function getOpportunityQuoteHardwareItems(quote) {
+      if (Array.isArray(quote?.hardwareItems) && quote.hardwareItems.length) {
+        return quote.hardwareItems.map(item => ({
+          productId: item.productId || item.productCode || item.hardwareId,
+          quantity: Math.max(1, Math.floor(Number(item.quantity) || 1))
+        })).filter(item => item.productId);
+      }
+      return Array.isArray(quote?.hardwareIds)
+        ? quote.hardwareIds.map(productId => ({ productId, quantity: 1 }))
+        : [];
+    }
+
+    function getQuoteHardwareItems(quote) {
+      if (Array.isArray(quote?.hardwareItems) && quote.hardwareItems.length) {
+        return quote.hardwareItems.map(item => ({
+          productId: item.productId || item.productCode || item.hardwareId,
+          quantity: Math.max(1, Math.floor(Number(item.quantity) || 1))
+        })).filter(item => item.productId);
+      }
+      return Array.isArray(quote?.hardwareIds)
+        ? quote.hardwareIds.map(productId => ({ productId, quantity: 1 }))
+        : [];
+    }
+
     function getComplimentaryWarrantyItem() {
       return {
         id: 'gift-standard-warranty-1y',
@@ -2768,11 +2792,11 @@ const QuoteList = {
       const items = [];
       // 功能模块
       const productIds = detail.value.products || [];
-      const hardwareIds = detail.value.hardwareIds || [];
+      const hardwareSelection = getQuoteHardwareItems(detail.value);
       const detailFeatures = productIds.map(id => allFeaturesForDetail.value.find(f => f.id === id)).filter(Boolean);
-      const detailHardwareTotal = hardwareIds.reduce((sum, hid) => {
-        const hw = allHardwareForDetail.value.find(h => h.id === hid);
-        return sum + (hw?.priceFixed || 0);
+      const detailHardwareTotal = hardwareSelection.reduce((sum, item) => {
+        const hw = allHardwareForDetail.value.find(h => h.id === item.productId);
+        return sum + (hw?.priceFixed || 0) * item.quantity;
       }, 0);
       let maintenanceSubtotal = 0;
       try {
@@ -2800,10 +2824,10 @@ const QuoteList = {
       });
       items.push(getComplimentaryWarrantyItem());
       // 硬件设备
-      hardwareIds.forEach(hid => {
-        const hw = allHardwareForDetail.value.find(h => h.id === hid);
+      hardwareSelection.forEach(item => {
+        const hw = allHardwareForDetail.value.find(h => h.id === item.productId);
         if (hw) {
-          const qty = hw.qty || 1;
+          const qty = item.quantity;
           items.push({ id: hw.id, name: hw.name, type: 'hardware', unitPrice: hw.priceFixed || 0, subtotal: (hw.priceFixed || 0) * qty, unit: `${qty} 台` });
         }
       });
@@ -3371,6 +3395,10 @@ const QuoteNew = {
               <div class="hw-model">{{ hw.model }}</div>
               <div class="hw-specs">{{ hw.specs }}</div>
               <div class="hw-price">{{ fmt(hw.priceFixed) }}/{{ hw.unit }}</div>
+              <div v-if="selectedHardware.includes(hw.id)" style="margin-top:8px;display:flex;align-items:center;gap:6px" @click.stop>
+                <span style="font-size:12px;color:#888">数量</span>
+                <input type="number" min="1" max="9999" step="1" class="form-control" style="width:84px;padding:4px 8px" :value="getHardwareQuantity(hw.id)" @input="setHardwareQuantity(hw.id, $event.target.value)">
+              </div>
             </div>
           </div>
         </div>
@@ -3394,6 +3422,10 @@ const QuoteNew = {
               <div class="hw-model">{{ hw.model }}</div>
               <div class="hw-specs">{{ hw.specs }}</div>
               <div class="hw-price">{{ fmt(hw.priceFixed) }}/{{ hw.unit }}</div>
+              <div v-if="selectedHardware.includes(hw.id)" style="margin-top:8px;display:flex;align-items:center;gap:6px" @click.stop>
+                <span style="font-size:12px;color:#888">数量</span>
+                <input type="number" min="1" max="9999" step="1" class="form-control" style="width:84px;padding:4px 8px" :value="getHardwareQuantity(hw.id)" @input="setHardwareQuantity(hw.id, $event.target.value)">
+              </div>
             </div>
           </div>
         </div>
@@ -3486,8 +3518,8 @@ const QuoteNew = {
         <div v-if="selectedHardware.length" class="summary-section hardware">
           <div class="summary-title">🖥️ 硬件设备</div>
           <div v-for="hid in selectedHardware" :key="hid" class="summary-row">
-            <span>{{ getHardwareName(hid) }}</span>
-            <span style="font-weight:600;color:#fa8c16">{{ fmt(getHardwarePrice(hid)) }}</span>
+            <span>{{ getHardwareName(hid) }} × {{ getHardwareQuantity(hid) }}</span>
+            <span style="font-weight:600;color:#fa8c16">{{ fmt(getHardwareSubtotal(hid)) }}</span>
           </div>
         </div>
         
@@ -3656,6 +3688,7 @@ const QuoteNew = {
     const supplementFeatures = ref([]);
     const customFeatures = ref([]);
     const selectedHardware = ref([]);
+    const hardwareQuantities = reactive({});
     const featurePointOverrides = reactive({});
     const featurePointDrafts = reactive({});
     const hasSensitiveKeywordWorkload = ref(false);
@@ -4136,6 +4169,23 @@ const QuoteNew = {
       const hw = publishedHardware.value.find(h => h.id === hid);
       return hw?.priceFixed || 0;
     }
+
+    function getHardwareQuantity(hid) {
+      const quantity = Number(hardwareQuantities[hid]);
+      return Number.isInteger(quantity) && quantity > 0 ? quantity : 1;
+    }
+
+    function setHardwareQuantity(hid, value) {
+      hardwareQuantities[hid] = Math.max(1, Math.min(9999, Math.floor(Number(value) || 1)));
+    }
+
+    function getHardwareSubtotal(hid) {
+      return getHardwarePrice(hid) * getHardwareQuantity(hid);
+    }
+
+    function buildHardwareItems() {
+      return selectedHardware.value.map(hid => ({ productId: hid, quantity: getHardwareQuantity(hid) }));
+    }
     
     // 获取可添加的功能（套餐内没有的）
     function getAvailableFeatures(catId) {
@@ -4205,8 +4255,10 @@ const QuoteNew = {
       const idx = selectedHardware.value.indexOf(hid);
       if (idx === -1) {
         selectedHardware.value.push(hid);
+        hardwareQuantities[hid] = 1;
       } else {
         selectedHardware.value.splice(idx, 1);
+        delete hardwareQuantities[hid];
       }
     }
     
@@ -4332,7 +4384,7 @@ const QuoteNew = {
     });
     
     const hardwareTotal = computed(() => {
-      return selectedHardware.value.reduce((sum, hid) => sum + getHardwarePrice(hid), 0);
+      return selectedHardware.value.reduce((sum, hid) => sum + getHardwareSubtotal(hid), 0);
     });
     
     const grandTotal = computed(() => subTotal.value + hardwareTotal.value);
@@ -4584,8 +4636,10 @@ const QuoteNew = {
       form.validDays = quote.validDays || 30;
 
       const allIds = Array.isArray(quote.products) ? [...quote.products] : [];
-      let resolvedPackageId = quote.packageId || '';
-      if ((!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
+      // 明确为自定义报价时不回推套餐：子集匹配会把自定义功能误判成某个套餐（例如只含网络准入+桌面管理就算命中“远程办公”）
+      const isExplicitCustomQuote = quote.quoteMode === 'custom';
+      let resolvedPackageId = isExplicitCustomQuote ? '' : quote.packageId || '';
+      if (!isExplicitCustomQuote && (!resolvedPackageId || !publishedPackages.value.some(pkg => pkg.id === resolvedPackageId)) && allIds.length) {
         resolvedPackageId = findMatchingPackageId(allIds);
       }
       let resolvedMode = quote.quoteMode || '';
@@ -4604,6 +4658,7 @@ const QuoteNew = {
       supplementFeatures.value = [];
       customFeatures.value = [];
       selectedHardware.value = [];
+      Object.keys(hardwareQuantities).forEach(key => delete hardwareQuantities[key]);
       applyFeaturePointOverrides(quote.featurePointOverrides);
 
       if (allIds.length) {
@@ -4618,8 +4673,17 @@ const QuoteNew = {
           customFeatures.value = [...allIds];
         }
       }
-      if (quote.hardwareIds?.length) {
+      if (Array.isArray(quote.hardwareItems) && quote.hardwareItems.length) {
+        selectedHardware.value = quote.hardwareItems
+          .map(item => item.productId || item.productCode || item.hardwareId)
+          .filter(Boolean);
+        quote.hardwareItems.forEach(item => {
+          const id = item.productId || item.productCode || item.hardwareId;
+          if (id) hardwareQuantities[id] = Math.max(1, Math.floor(Number(item.quantity) || 1));
+        });
+      } else if (quote.hardwareIds?.length) {
         selectedHardware.value = [...quote.hardwareIds];
+        quote.hardwareIds.forEach(id => { hardwareQuantities[id] = 1; });
       }
       hasSensitiveKeywordWorkload.value = false;
     }
@@ -4642,6 +4706,7 @@ const QuoteNew = {
         const result = await apiClient.previewQuoteWorkload({
           products: selectedQuoteProductIds.value,
           hardwareIds: [...selectedHardware.value],
+          hardwareItems: buildHardwareItems(),
           endpoints: form.endpoints,
           featurePointOverrides: { ...featurePointOverrides },
           hasSensitiveKeywordWorkload: false
@@ -4669,6 +4734,7 @@ const QuoteNew = {
         const result = await apiClient.previewIpgQuote({
           featureIds: selectedQuoteProductIds.value,
           hardwareIds: [...selectedHardware.value],
+          hardwareItems: buildHardwareItems(),
           endpoints: form.endpoints,
           lianruanTotal: grandTotal.value,
           projectParams: {
@@ -4709,6 +4775,7 @@ const QuoteNew = {
       
       // 添加硬件ID
       const hardwareIds = [...selectedHardware.value];
+      const hardwareItems = buildHardwareItems();
       const payloadFeaturePointOverrides = { ...featurePointOverrides };
 
       try {
@@ -4721,6 +4788,7 @@ const QuoteNew = {
             endpoints: form.endpoints,
             products: productIds,
             hardwareIds,
+            hardwareItems,
             quoteMode: quoteMode.value,
             packageId: selectedPackageId.value,
             featurePointOverrides: payloadFeaturePointOverrides,
@@ -4763,6 +4831,7 @@ const QuoteNew = {
           endpoints: form.endpoints,
           products: productIds,
           hardwareIds: hardwareIds,
+          hardwareItems,
           quoteMode: quoteMode.value,
             packageId: selectedPackageId.value,
             featurePointOverrides: payloadFeaturePointOverrides,
@@ -4872,6 +4941,7 @@ const QuoteNew = {
       supplementFeatures,
       customFeatures,
       selectedHardware,
+      hardwareQuantities,
       featurePointOverrides,
       () => form.endpoints,
       () => grandTotal.value
@@ -4883,12 +4953,12 @@ const QuoteNew = {
     
     return {
       form, quoteMode, publishedPackages, publishedHardware, categories, loadingPackages,
-      selectedPackageId, selectedPackage, supplementFeatures, customFeatures, selectedHardware,
+      selectedPackageId, selectedPackage, supplementFeatures, customFeatures, selectedHardware, hardwareQuantities,
       approvedRegs, relatedOpportunities, selectedReg, customerSearch, showCustomerDropdown, filteredRegs, subTotal, hardwareTotal, grandTotal, canSave,
       originalSubTotal, discountAmount, originalGrandTotal,
       ipgQuotePreview, ipgQuoteLoading, ipgQuoteError,
       setMode, selectPackage, toggleSupplementFeature, toggleCustomFeature, toggleHardware,
-      getFeatureName, getFeaturePrice, getFeatureTotalPrice, getFeaturePoints, getFeaturePointInputValue, startFeaturePointEditing, updateFeaturePointDraft, commitFeaturePointOverride, setFeaturePointOverride, getFeaturePriceDisplay, getFeatureQuantityUnit, getHardwareName, getHardwarePrice,
+      getFeatureName, getFeaturePrice, getFeatureTotalPrice, getFeaturePoints, getFeaturePointInputValue, startFeaturePointEditing, updateFeaturePointDraft, commitFeaturePointOverride, setFeaturePointOverride, getFeaturePriceDisplay, getFeatureQuantityUnit, getHardwareName, getHardwarePrice, getHardwareQuantity, setHardwareQuantity, getHardwareSubtotal,
       getAvailableFeatures, supplementCategories, packagePrice, recalcAll,
       onCustomerChange, openCustomerDropdown, onCustomerBlur, selectReg, clearRegSelection, saveQuote, fmt, quickQuoteMsg, stageLabel,
       hasSensitiveKeywordWorkload, workloadPreview, workloadLoading, effectiveSensitiveKeywordWorkload,
@@ -8091,6 +8161,7 @@ const OpportunityList = {
                 @click="toggleInlineHardware(h.id)">
                 <span>{{ h.name }}</span>
                 <span style="color:#fa8c16;font-weight:600">{{ fmt(h.price || 0) }}</span>
+                <input v-if="inlineSelectedHardware.includes(h.id)" type="number" min="1" max="9999" step="1" class="form-control" style="width:70px;padding:2px 6px" :value="getInlineHardwareQuantity(h.id)" @click.stop @input="setInlineHardwareQuantity(h.id, $event.target.value)">
               </div>
             </div>
           </div>
@@ -8138,8 +8209,8 @@ const OpportunityList = {
             <div v-if="inlineSelectedHardware.length" style="margin-bottom:12px;padding:10px 12px;background:#fff;border-radius:8px">
               <div style="font-size:12px;color:#888;margin-bottom:6px">硬件设备</div>
               <div v-for="hid in inlineSelectedHardware" :key="hid" style="display:flex;justify-content:space-between;font-size:13px">
-                <span>{{ getHardwareNameById(hid) }}</span>
-                <span style="color:#fa8c16;font-weight:600">{{ fmt(getHardwarePriceById(hid)) }}</span>
+                <span>{{ getHardwareNameById(hid) }} × {{ getInlineHardwareQuantity(hid) }}</span>
+                <span style="color:#fa8c16;font-weight:600">{{ fmt(getHardwarePriceById(hid) * getInlineHardwareQuantity(hid)) }}</span>
               </div>
             </div>
             
@@ -8520,6 +8591,7 @@ const OpportunityList = {
     const inlineSupplementFeatures = ref([]);
     const inlineCustomFeatures = ref([]);
     const inlineSelectedHardware = ref([]);
+    const inlineHardwareQuantities = reactive({});
     const STANDARD_MAINTENANCE_FEATURE_ID = 'FEAT-MOD-MAINTENANCE-01-01';
     const DEFAULT_MAINTENANCE_MONTHS = 12;
     const DEFAULT_STANDARD_MAINTENANCE_RATE = 15;
@@ -8714,9 +8786,9 @@ const OpportunityList = {
       const ep = quote.endpoints || 100;
       const overrideMap = quote.featurePointOverrides || {};
       const detailFeatures = (quote.products || []).map(pid => allFeatures.value.find(f => f.id === pid)).filter(Boolean);
-      const detailHardwareTotal = (quote.hardwareIds || []).reduce((sum, hid) => {
-        const hw = publishedHardware.value.find(h => h.id === hid);
-        return sum + (hw?.priceFixed || 0);
+      const detailHardwareTotal = getOpportunityQuoteHardwareItems(quote).reduce((sum, item) => {
+        const hw = publishedHardware.value.find(h => h.id === item.productId);
+        return sum + (hw?.priceFixed || 0) * item.quantity;
       }, 0);
       // 处理功能
       (quote.products || []).forEach(pid => {
@@ -8729,10 +8801,10 @@ const OpportunityList = {
         }
       });
       // 处理硬件
-      (quote.hardwareIds || []).forEach(hid => {
-        const hw = publishedHardware.value.find(h => h.id === hid);
+      getOpportunityQuoteHardwareItems(quote).forEach(item => {
+        const hw = publishedHardware.value.find(h => h.id === item.productId);
         if (hw) {
-          items.push({ name: hw.name, type: '硬件', qty: 1, unitPrice: hw.price || 0, subtotal: hw.price || 0 });
+          items.push({ name: hw.name, type: '硬件', qty: item.quantity, unitPrice: hw.price || 0, subtotal: (hw.price || 0) * item.quantity });
         }
       });
       items.push(getComplimentaryWarrantyItem());
@@ -8780,16 +8852,16 @@ const OpportunityList = {
           subtotal
         });
       });
-      (quote.hardwareIds || []).forEach(hid => {
-        const hw = publishedHardware.value.find(h => h.id === hid);
+      getOpportunityQuoteHardwareItems(quote).forEach(item => {
+        const hw = publishedHardware.value.find(h => h.id === item.productId);
         if (!hw) return;
         items.push({
           name: hw.name,
           productCode: hw.model || hw.productCode || hw.id,
           type: '硬件',
-          qty: 1,
+          qty: item.quantity,
           unitPrice: hw.priceFixed || 0,
-          subtotal: hw.priceFixed || 0
+          subtotal: (hw.priceFixed || 0) * item.quantity
         });
       });
       items.push(getComplimentaryWarrantyItem());
@@ -8812,7 +8884,7 @@ const OpportunityList = {
       return calculateOpportunityFeatureSetTotal(featureIds, inlineQuoteForm.endpoints);
     });
     const inlineHardwareTotal = computed(() => {
-      return inlineSelectedHardware.value.reduce((sum, hid) => sum + getHardwarePriceById(hid), 0);
+      return inlineSelectedHardware.value.reduce((sum, hid) => sum + getHardwarePriceById(hid) * Math.max(1, Math.floor(Number(inlineHardwareQuantities[hid]) || 1)), 0);
     });
     const inlineGrandTotal = computed(() => inlineSubTotal.value + inlineHardwareTotal.value);
     const inlineCanSave = computed(() => {
@@ -8887,6 +8959,7 @@ const OpportunityList = {
       inlineSupplementFeatures.value = [];
       inlineCustomFeatures.value = [];
       inlineSelectedHardware.value = [];
+      Object.keys(inlineHardwareQuantities).forEach(key => delete inlineHardwareQuantities[key]);
       inlineQuoteMode.value = 'package';
       showInlineQuote.value = true;
     }
@@ -8912,9 +8985,16 @@ const OpportunityList = {
     }
     function toggleInlineHardware(hid) {
       const idx = inlineSelectedHardware.value.indexOf(hid);
-      if (idx >= 0) inlineSelectedHardware.value.splice(idx, 1);
-      else inlineSelectedHardware.value.push(hid);
+      if (idx >= 0) {
+        inlineSelectedHardware.value.splice(idx, 1);
+        delete inlineHardwareQuantities[hid];
+      } else {
+        inlineSelectedHardware.value.push(hid);
+        inlineHardwareQuantities[hid] = 1;
+      }
     }
+    function getInlineHardwareQuantity(hid) { return Math.max(1, Math.floor(Number(inlineHardwareQuantities[hid]) || 1)); }
+    function setInlineHardwareQuantity(hid, value) { inlineHardwareQuantities[hid] = Math.max(1, Math.min(9999, Math.floor(Number(value) || 1))); }
     async function saveInlineQuote() {
       if (!inlineQuoteOpp.value) return;
       const o = inlineQuoteOpp.value;
@@ -8927,6 +9007,7 @@ const OpportunityList = {
         productIds = [...inlineCustomFeatures.value];
       }
       const hardwareIds = [...inlineSelectedHardware.value];
+      const hardwareItems = hardwareIds.map(hid => ({ productId: hid, quantity: getInlineHardwareQuantity(hid) }));
       
       try {
         const result = await apiClient.createQuote({
@@ -8937,6 +9018,7 @@ const OpportunityList = {
           endpoints: inlineQuoteForm.endpoints,
           products: productIds,
           hardwareIds: hardwareIds,
+          hardwareItems,
           quoteMode: inlineQuoteMode.value,
           packageId: inlineSelectedPackageId.value,
           total: inlineGrandTotal.value,
@@ -9223,7 +9305,7 @@ const OpportunityList = {
       showWonConfirmModal, wonDeliveryForm, currentWonOpp, wonQuoteData, openWonConfirmModal, editQuoteFromWonConfirm, confirmWonAndCreateOrder,
       // 内嵌报价单
       showInlineQuote, inlineQuoteOpp, inlineQuoteForm, inlineQuoteMode, inlineSelectedPackageId, inlineSelectedPackage,
-      inlineSupplementFeatures, inlineCustomFeatures, inlineSelectedHardware,
+      inlineSupplementFeatures, inlineCustomFeatures, inlineSelectedHardware, inlineHardwareQuantities, getInlineHardwareQuantity, setInlineHardwareQuantity,
       inlinePackagePrice, inlineSubTotal, inlineHardwareTotal, inlineGrandTotal, inlineCanSave,
       openInlineQuoteModal, noQuoteAlert, inlineQuoteSetMode, inlineSelectPackage, toggleInlineSupplement, toggleInlineCustom, toggleInlineHardware, saveInlineQuote,
       // 报价单详情
