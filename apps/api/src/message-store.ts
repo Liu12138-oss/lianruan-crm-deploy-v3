@@ -1,4 +1,4 @@
-import type { 消息个人偏好, 消息通知摘要 } from "@lianruan/contracts";
+import type { 消息个人偏好, 消息分类偏好, 消息通知摘要 } from "@lianruan/contracts";
 import { 应用错误 } from "@lianruan/shared";
 import { Pool } from "pg";
 
@@ -9,6 +9,7 @@ export interface 消息当前用户 {
 export interface 消息通知查询 {
   category?: string | undefined;
   status?: string | undefined;
+  keyword?: string | undefined;
   cursor?: string | undefined;
   limit: number;
 }
@@ -19,11 +20,13 @@ export interface 消息通知列表 {
 }
 
 export interface 消息偏好更新 {
+  inAppEnabled?: boolean | undefined;
   wecomEnabled?: boolean | undefined;
   smsEnabled?: boolean | undefined;
   emailEnabled?: boolean | undefined;
   doNotDisturbStart?: string | undefined;
   doNotDisturbEnd?: string | undefined;
+  categoryPreferences?: Partial<Record<"todo" | "business" | "system" | "security", 消息分类偏好>>;
 }
 
 export interface 消息数据服务 {
@@ -65,6 +68,7 @@ interface 偏好行 {
   email_enabled: boolean;
   do_not_disturb_start: string;
   do_not_disturb_end: string;
+  category_preferences: Record<string, 消息分类偏好> | null;
 }
 
 interface 游标 {
@@ -135,6 +139,16 @@ class PostgreSQL消息数据服务 implements 消息数据服务 {
       条件.push(`n.status_code = $${参数.length}`);
     } else {
       条件.push("n.status_code <> 'archived'");
+    }
+    if (查询.keyword) {
+      参数.push(`%${查询.keyword}%`);
+      条件.push(`(
+        n.title ILIKE $${参数.length}
+        OR n.body ILIKE $${参数.length}
+        OR n.event_code ILIKE $${参数.length}
+        OR n.id::text ILIKE $${参数.length}
+        OR COALESCE(n.aggregate_id::text, '') ILIKE $${参数.length}
+      )`);
     }
     const 游标 = 解析游标(查询.cursor);
     if (游标) {
@@ -229,6 +243,7 @@ class PostgreSQL消息数据服务 implements 消息数据服务 {
       VALUES ($1::uuid)
       ON CONFLICT (user_id) DO UPDATE SET updated_at = message.user_preferences.updated_at
       RETURNING in_app_enabled, wecom_enabled, sms_enabled, email_enabled,
+                category_preferences,
                 to_char(do_not_disturb_start, 'HH24:MI') AS do_not_disturb_start,
                 to_char(do_not_disturb_end, 'HH24:MI') AS do_not_disturb_end
       `,
@@ -242,29 +257,38 @@ class PostgreSQL消息数据服务 implements 消息数据服务 {
     const 用户编号 = await this.查询有效用户编号(用户);
     const 当前 = await this.查询偏好(用户);
     const 下一项 = {
+      inAppEnabled: 输入.inAppEnabled ?? 当前.inAppEnabled,
       wecomEnabled: 输入.wecomEnabled ?? 当前.wecomEnabled,
       smsEnabled: 输入.smsEnabled ?? 当前.smsEnabled,
       emailEnabled: 输入.emailEnabled ?? 当前.emailEnabled,
       doNotDisturbStart: 输入.doNotDisturbStart ?? 当前.doNotDisturbStart,
       doNotDisturbEnd: 输入.doNotDisturbEnd ?? 当前.doNotDisturbEnd,
+      categoryPreferences: {
+        ...当前.categoryPreferences,
+        ...(输入.categoryPreferences || {}),
+      },
     };
     const result = await this.pool.query<偏好行>(
       `
       UPDATE message.user_preferences
-      SET wecom_enabled = $2, sms_enabled = $3, email_enabled = $4,
-          do_not_disturb_start = $5::time, do_not_disturb_end = $6::time, updated_at = now()
+      SET in_app_enabled = $2, wecom_enabled = $3, sms_enabled = $4, email_enabled = $5,
+          do_not_disturb_start = $6::time, do_not_disturb_end = $7::time,
+          category_preferences = $8::jsonb, updated_at = now()
       WHERE user_id = $1::uuid
       RETURNING in_app_enabled, wecom_enabled, sms_enabled, email_enabled,
+                category_preferences,
                 to_char(do_not_disturb_start, 'HH24:MI') AS do_not_disturb_start,
                 to_char(do_not_disturb_end, 'HH24:MI') AS do_not_disturb_end
       `,
       [
         用户编号,
+        下一项.inAppEnabled,
         下一项.wecomEnabled,
         下一项.smsEnabled,
         下一项.emailEnabled,
         下一项.doNotDisturbStart,
         下一项.doNotDisturbEnd,
+        JSON.stringify(下一项.categoryPreferences),
       ],
     );
     return 转换偏好(result.rows[0]);
@@ -331,6 +355,7 @@ function 转换偏好(row: 偏好行 | undefined): 消息个人偏好 {
     emailEnabled: row.email_enabled,
     doNotDisturbStart: row.do_not_disturb_start,
     doNotDisturbEnd: row.do_not_disturb_end,
+    categoryPreferences: row.category_preferences || {},
   };
 }
 
@@ -341,6 +366,9 @@ function 校验通知查询(查询: 消息通知查询): void {
   if (查询.status && !允许状态.has(查询.status)) {
     throw new 应用错误("V3_MESSAGE_STATUS_INVALID", "通知状态无效。", 400);
   }
+  if (查询.keyword && 查询.keyword.length > 120) {
+    throw new 应用错误("V3_MESSAGE_KEYWORD_TOO_LONG", "检索关键词不能超过 120 个字符。", 400);
+  }
 }
 
 function 校验偏好更新(输入: 消息偏好更新): void {
@@ -349,6 +377,19 @@ function 校验偏好更新(输入: 消息偏好更新): void {
   }
   if (输入.doNotDisturbEnd && !时间格式.test(输入.doNotDisturbEnd)) {
     throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "免打扰结束时间必须为 HH:mm。", 400);
+  }
+  for (const [分类, 偏好] of Object.entries(输入.categoryPreferences || {})) {
+    if (!允许分类.has(分类)) {
+      throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类偏好包含未知分类。", 400);
+    }
+    if (!偏好 || typeof 偏好 !== "object") {
+      throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类偏好格式无效。", 400);
+    }
+    for (const 渠道 of ["inAppEnabled", "wecomEnabled", "smsEnabled", "emailEnabled"]) {
+      if (typeof (偏好 as unknown as Record<string, unknown>)[渠道] !== "boolean") {
+        throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类渠道开关必须为布尔值。", 400);
+      }
+    }
   }
 }
 

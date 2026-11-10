@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="theme-color" content="#2563c7" />
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>联软CRM V3 · 单点登录</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Times New Roman", "KaiTi", "楷体", "STKaiti", serif;
+        color: #123047;
+        background: #eef4fb;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100vh;
+        margin: 0;
+        padding: 24px 16px;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 50% 0, rgba(37, 99, 199, 0.16), transparent 42%),
+          #eef4fb;
+      }
+      main {
+        width: min(100%, 420px);
+      }
+      section {
+        padding: 24px;
+        border: 1px solid #d7e2ef;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 16px 48px rgba(31, 73, 125, 0.12);
+      }
+      .brand {
+        display: grid;
+        gap: 6px;
+        margin-bottom: 20px;
+      }
+      .brand strong {
+        font-size: 22px;
+        line-height: 1.3;
+      }
+      .brand span {
+        color: #61788d;
+        font-size: 14px;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 64px;
+        padding: 16px;
+        border: 1px solid #cfe0e5;
+        border-radius: 10px;
+        background: #eef8fa;
+        color: #15515d;
+      }
+      .status.failed {
+        border-color: #f2c7c2;
+        background: #fff4f2;
+        color: #b42318;
+      }
+      .dot {
+        flex: 0 0 auto;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #1f7a8c;
+        box-shadow: 0 0 0 6px rgba(31, 122, 140, 0.12);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      .failed .dot {
+        background: #b42318;
+        box-shadow: 0 0 0 6px rgba(180, 35, 24, 0.1);
+        animation: none;
+      }
+      .status p,
+      .error {
+        margin: 0;
+        font-size: 15px;
+        line-height: 1.7;
+        word-break: break-word;
+      }
+      .error {
+        margin-top: 14px;
+        color: #b42318;
+      }
+      .fallback {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 46px;
+        margin-top: 18px;
+        border-radius: 10px;
+        background: #2563c7;
+        color: #fff;
+        font-size: 15px;
+        text-decoration: none;
+      }
+      .fallback[hidden],
+      .error[hidden] {
+        display: none;
+      }
+      @keyframes pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section>
+        <div class="brand">
+          <strong>单点登录</strong>
+          <span id="entryName">统一单点登录入口</span>
+        </div>
+        <div class="status" id="statusBox" role="status" aria-live="polite">
+          <i class="dot" aria-hidden="true"></i>
+          <p id="statusText">正在准备单点登录...</p>
+        </div>
+        <p class="error" id="errorText" hidden></p>
+        <a class="fallback" id="fallbackLink" href="/login?ssoFallback=1&provider=iam" hidden>
+          返回账号密码登录
+        </a>
+      </section>
+    </main>
+    <script>
+      (function () {
+        "use strict";
+
+        var 凭证参数名 = new Set(["token", "ssotoken", "code"]);
+        var 状态框 = document.getElementById("statusBox");
+        var 状态文字 = document.getElementById("statusText");
+        var 错误文字 = document.getElementById("errorText");
+        var 回退链接 = document.getElementById("fallbackLink");
+        var 入口名称 = document.getElementById("entryName");
+        var 入口 = 识别入口();
+        var 客户端类型 = 读取查询文本("clientType") || "mobile";
+        var 单点提供方 = location.pathname.indexOf("/sso/unisdp") >= 0 ? "unisdp" : "iam";
+
+        if (入口 === "partner") 入口名称.textContent = "渠道伙伴入口";
+        if (入口 === "admin") 入口名称.textContent = "厂商管理入口";
+        回退链接.href = 构建登录地址();
+        执行单点登录();
+
+        async function 执行单点登录() {
+          try {
+            更新状态("正在读取单点登录凭证...");
+            var token = 读取凭证();
+            if (!token && 单点提供方 === "iam") {
+              var 配置 = await 读取配置();
+              token = await 读取EMM凭证(配置);
+            }
+            清理地址敏感参数();
+            if (!token) throw new Error("缺少单点登录凭证，请从 IAM 入口重新进入。");
+            更新状态("正在校验单点登录身份...");
+            var 结果 = await 提交单点登录(token);
+            保存页面会话(结果.pageSession);
+            更新状态("单点登录成功，正在进入系统...");
+            window.location.replace(读取跳转地址(结果.user));
+          } catch (错误) {
+            清理地址敏感参数();
+            显示错误(错误 instanceof Error ? 错误.message : "单点登录失败，请重新进入。");
+          }
+        }
+
+        function 更新状态(文字) {
+          状态文字.textContent = 文字;
+          状态框.classList.remove("failed");
+        }
+
+        function 显示错误(文字) {
+          状态文字.textContent = "单点登录未完成";
+          状态框.classList.add("failed");
+          错误文字.textContent = 文字;
+          错误文字.hidden = false;
+          回退链接.hidden = false;
+        }
+
+        function 读取查询文本(name) {
+          var 参数 = 读取全部参数();
+          var 目标 = 标准化参数名(name);
+          for (var i = 0; i < 参数.length; i += 1) {
+            if (标准化参数名(参数[i][0]) === 目标) return String(参数[i][1] || "").trim();
+          }
+          return "";
+        }
+
+        function 读取全部参数() {
+          var 结果 = [];
+          var 查询集合 = [
+            location.search.replace(/^\?/, ""),
+            location.hash.indexOf("?") >= 0
+              ? location.hash.slice(location.hash.indexOf("?") + 1)
+              : "",
+          ];
+          for (var i = 0; i < 查询集合.length; i += 1) {
+            if (!查询集合[i]) continue;
+            new URLSearchParams(查询集合[i]).forEach(function (值, 键) {
+              结果.push([键, 值]);
+            });
+          }
+          return 结果;
+        }
+
+        function 读取凭证() {
+          var 参数 = 读取全部参数();
+          for (var i = 0; i < 参数.length; i += 1) {
+            var 值 = String(参数[i][1] || "").trim();
+            if (凭证参数名.has(标准化参数名(参数[i][0])) && 值) return 值;
+          }
+          return "";
+        }
+
+        function 识别入口() {
+          var 值 = (读取查询文本("entry") || 读取查询文本("scope") || 读取查询文本("入口"))
+            .toLowerCase();
+          if (值 === "partner" || 值 === "渠道" || 值 === "渠道端") return "partner";
+          if (值 === "admin" || 值 === "厂商" || 值 === "管理端") return "admin";
+          var redirect = 读取查询文本("redirect");
+          if (redirect.indexOf("/partner") === 0 || redirect.indexOf("/mobile/partner") === 0) {
+            return "partner";
+          }
+          if (redirect.indexOf("/admin") === 0 || redirect.indexOf("/mobile/admin") === 0) {
+            return "admin";
+          }
+          return null;
+        }
+
+        function 标准化参数名(name) {
+          return String(name || "")
+            .replace(/[_-]/g, "")
+            .toLowerCase();
+        }
+
+        async function 读取配置() {
+          var 响应 = await 请求JSON("/api/auth/sso/iam/config");
+          if (!响应.success || !响应.data) {
+            throw new Error(读取错误信息(响应, "读取单点登录配置失败。"));
+          }
+          return 响应.data;
+        }
+
+        async function 读取EMM凭证(配置) {
+          if (!配置.enabled) throw new Error("单点登录未启用。");
+          await 加载EMM桥接脚本();
+          var 请求标识 = 读取EMM请求标识(配置);
+          return new Promise(function (resolve, reject) {
+            if (!window.JQAPI || typeof window.JQAPI.getSSOToken !== "function") {
+              reject(new Error("当前环境未检测到 EMM 单点登录能力。"));
+              return;
+            }
+            var 已结束 = false;
+            var 定时器 = window.setTimeout(function () {
+              if (已结束) return;
+              已结束 = true;
+              reject(new Error("未能从 EMM 获取单点登录凭证，请确认当前页面在 EMM 客户端中打开。"));
+            }, Number(配置.timeoutMs) || 8000);
+            function 完成(回调) {
+              return function (数据) {
+                if (已结束) return;
+                已结束 = true;
+                window.clearTimeout(定时器);
+                回调(数据);
+              };
+            }
+            window.JQAPI.getSSOToken(
+              { ISAID: 请求标识 },
+              完成(function (数据) {
+                var 内容 = 解析JSON(数据);
+                var 凭证 = 内容.SSOToken && (内容.SSOToken.token || 内容.SSOToken.ltpatoken);
+                if (!凭证) {
+                  reject(new Error("EMM 返回缺少单点登录凭证。"));
+                  return;
+                }
+                resolve(String(凭证).trim());
+              }),
+              完成(function (数据) {
+                var 内容 = 解析JSON(数据);
+                reject(new Error(内容.msg || "EMM 单点登录失败，请稍后重试。"));
+              }),
+            );
+          });
+        }
+
+        function 读取EMM请求标识(配置) {
+          var 映射 = 配置.requestIsaidByEntry || {};
+          if (入口 && 映射[入口]) return String(映射[入口]).trim();
+          var 管理员标识 = String(映射.admin || "").trim();
+          var 渠道标识 = String(映射.partner || "").trim();
+          if (管理员标识 && 渠道标识 && 管理员标识 !== 渠道标识) {
+            throw new Error("统一单点登录缺少入口，且管理员/渠道 EMM 标识不一致。");
+          }
+          var 标识 = 管理员标识 || 渠道标识;
+          if (!标识) throw new Error("单点登录配置缺少 EMM 标识。");
+          return 标识;
+        }
+
+        function 加载EMM桥接脚本() {
+          if (window.JQAPI && typeof window.JQAPI.getSSOToken === "function") {
+            return Promise.resolve();
+          }
+          return new Promise(function (resolve, reject) {
+            var 已存在 = document.querySelector('script[data-emm-h5-sso="true"]');
+            if (已存在) {
+              已存在.addEventListener("load", resolve, { once: true });
+              已存在.addEventListener(
+                "error",
+                function () {
+                  reject(new Error("EMM 单点登录桥接脚本加载失败。"));
+                },
+                { once: true },
+              );
+              return;
+            }
+            var 脚本 = document.createElement("script");
+            脚本.src = "/emm-h5-sso.js";
+            脚本.async = true;
+            脚本.dataset.emmH5Sso = "true";
+            脚本.addEventListener("load", resolve, { once: true });
+            脚本.addEventListener(
+              "error",
+              function () {
+                reject(new Error("EMM 单点登录桥接脚本加载失败。"));
+              },
+              { once: true },
+            );
+            document.head.appendChild(脚本);
+          });
+        }
+
+        function 解析JSON(数据) {
+          if (!数据) return {};
+          if (typeof 数据 === "string") {
+            try {
+              return JSON.parse(数据);
+            } catch {
+              return {};
+            }
+          }
+          return 数据;
+        }
+
+        async function 提交单点登录(token) {
+          var 请求体 = { token: token, clientType: 客户端类型 };
+          if (入口) 请求体.entry = 入口;
+          var 路径 =
+            单点提供方 === "unisdp"
+              ? "/api/auth/sso/unisdp/login"
+              : "/api/auth/sso/iam/login";
+          var 响应 = await 请求JSON(路径, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(请求体),
+          });
+          if (!响应.success || !响应.data) {
+            throw new Error(读取错误信息(响应, "单点登录失败，请重新进入。"));
+          }
+          return 响应.data;
+        }
+
+        async function 请求JSON(路径, 选项, 超时毫秒) {
+          var 控制器 = typeof AbortController === "function" ? new AbortController() : null;
+          var 定时器 = 控制器
+            ? window.setTimeout(function () {
+               控制器.abort();
+              }, 超时毫秒 || 20000)
+            : null;
+          try {
+            var 响应 = await fetch(路径, {
+              credentials: "include",
+              cache: "no-store",
+              ...(选项 || {}),
+              signal: 控制器 ? 控制器.signal : undefined,
+            });
+            var 内容 = await 响应.json().catch(function () {
+              return null;
+            });
+            if (!内容) throw new Error("服务返回内容为空，请稍后重试。");
+            if (!响应.ok) {
+              throw new Error(读取错误信息(内容, "单点登录请求失败。"));
+            }
+            return 内容;
+          } catch (错误) {
+            if (错误 && 错误.name === "AbortError") {
+              throw new Error("单点登录请求超时，请检查网络后重试。");
+            }
+            throw 错误;
+          } finally {
+            if (定时器) window.clearTimeout(定时器);
+          }
+        }
+
+        function 读取错误信息(响应, 默认文字) {
+          return (响应 && 响应.error && 响应.error.message) || 默认文字;
+        }
+
+        function 保存页面会话(页面会话) {
+          if (!页面会话 || !页面会话.token || !页面会话.user) {
+            throw new Error("登录响应缺少业务页面会话，请联系管理员更新服务。");
+          }
+          var 角色 = 页面会话.user.role;
+          var 前缀 = 角色 === "admin" || 角色 === "superadmin" ? "admin_" : "partner_";
+          if (角色 !== "admin" && 角色 !== "superadmin" && 角色 !== "partner_admin" && 角色 !== "staff") {
+            throw new Error("当前账号角色无法匹配业务页面。");
+          }
+          var 页面用户 = Object.assign({}, 页面会话.user, { _storagePrefix: 前缀 });
+          var 移动页面用户 = Object.assign({}, 页面会话.user, { _storagePrefix: 前缀 });
+          var 另一套前缀 = 前缀 === "admin_" ? "partner_" : "admin_";
+          try {
+            ["auth_token", "user_info", "api_user"].forEach(function (键) {
+              window.localStorage.removeItem(另一套前缀 + 键);
+            });
+            window.localStorage.setItem(前缀 + "auth_token", 页面会话.token);
+            window.localStorage.setItem(前缀 + "user_info", JSON.stringify(页面用户));
+            window.localStorage.setItem(
+              前缀 + "api_user",
+              JSON.stringify({ user: 页面用户, token: 页面会话.token }),
+            );
+            window.localStorage.setItem(前缀 + "mobile_auth_token", 页面会话.token);
+            window.localStorage.setItem(前缀 + "mobile_user_info", JSON.stringify(移动页面用户));
+            window.localStorage.setItem(
+              前缀 + "mobile_api_user",
+              JSON.stringify({ user: 移动页面用户, token: 页面会话.token }),
+            );
+            [另一套前缀 + "mobile_auth_token", 另一套前缀 + "mobile_user_info", 另一套前缀 + "mobile_api_user"].forEach(
+              function (键) {
+                window.localStorage.removeItem(键);
+              },
+            );
+            if (前缀 === "partner_") {
+              window.localStorage.setItem(
+                "api_user",
+                JSON.stringify({ user: 页面用户, token: 页面会话.token }),
+              );
+            } else {
+              window.localStorage.removeItem("api_user");
+            }
+          } catch {
+            throw new Error("浏览器无法保存登录状态，请检查隐私模式或存储权限后重试。");
+          }
+        }
+
+        function 读取跳转地址(用户) {
+          var 角色 = 用户 && 用户.role;
+          if (角色 === "partner_admin" || 角色 === "staff") {
+            return "/partner-mobile.html#/partner/home";
+          }
+          return "/admin-mobile.html#/admin/home";
+        }
+
+        function 构建登录地址() {
+          var 参数 = new URLSearchParams();
+          参数.set("ssoFallback", "1");
+          参数.set("provider", 单点提供方);
+          if (入口) 参数.set("entry", 入口);
+          return "/login?" + 参数.toString();
+        }
+
+        function 清理地址敏感参数() {
+          try {
+            var 查询 = new URLSearchParams(location.search);
+            Array.from(查询.keys()).forEach(function (键) {
+              if (凭证参数名.has(标准化参数名(键))) 查询.delete(键);
+            });
+            var 新查询 = 查询.toString();
+            window.history.replaceState(
+              window.history.state,
+              "",
+              location.pathname + (新查询 ? "?" + 新查询 : "") + location.hash,
+            );
+          } catch {
+            // 地址清理失败不影响已经完成的单点登录。
+          }
+        }
+      })();
+    </script>
+  </body>
+</html>

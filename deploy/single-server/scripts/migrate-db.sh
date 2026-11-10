@@ -72,6 +72,16 @@ docker compose exec -T postgres pg_isready -U lianruan_app -d lianruan_crm_v3 >/
 
 装载阶段8暂存包() {
   local count
+  local s8_004_applied
+
+  # 生产快照或既有环境已经执行过正式业务表落表迁移时，不再装载仓库内置的旧阶段8暂存包。
+  # 否则会在生产数据之上追加测试专用暂存批次，污染历史修复迁移的来源判定。
+  s8_004_applied="$(docker compose exec -T postgres psql -U lianruan_app -d lianruan_crm_v3 -tAc \
+    "SELECT EXISTS (SELECT 1 FROM migration.schema_migrations WHERE version LIKE '20260727_S8_004%')")"
+  if [ "${s8_004_applied}" = "t" ]; then
+    echo "正式业务表落表迁移已执行，跳过阶段8暂存包装载。"
+    return
+  fi
 
   if [ ! -d "${stage8_dir}" ]; then
     echo "未发现阶段8官方暂存包，跳过暂存装载。"

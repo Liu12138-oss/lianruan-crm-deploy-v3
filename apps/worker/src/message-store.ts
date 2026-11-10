@@ -177,18 +177,37 @@ export class 消息消费存储 {
           SELECT delivery.id,
                  notification.title,
                  notification.body,
-                 NULLIF(regexp_replace(COALESCE(recipient.phone, ''), '[^0-9]+', '', 'g'), '') AS phone,
                  CASE
-                   WHEN preference.email_enabled OR delivery.template_code LIKE 'platform_test_%'
+                   WHEN COALESCE(
+                     (preference.category_preferences -> notification.category_code ->> 'smsEnabled')::boolean,
+                     preference.sms_enabled,
+                     true
+                   ) THEN NULLIF(regexp_replace(COALESCE(recipient.phone, ''), '[^0-9]+', '', 'g'), '')
+                   ELSE NULL
+                 END AS phone,
+                 CASE
+                   WHEN COALESCE(
+                     (preference.category_preferences -> notification.category_code ->> 'emailEnabled')::boolean,
+                     preference.email_enabled
+                   ) OR delivery.template_code LIKE 'platform_test_%'
                      THEN NULLIF(recipient.email::text, '')
                    ELSE NULL
                  END AS email,
-                 (SELECT identity.external_subject::text
-                    FROM iam.external_identities identity
-                   WHERE identity.user_id = recipient.id
-                     AND identity.provider_code = 'wecom'
-                   ORDER BY identity.created_at
-                   LIMIT 1) AS wecom_user_id,
+                 CASE
+                   WHEN COALESCE(
+                     (preference.category_preferences -> notification.category_code ->> 'wecomEnabled')::boolean,
+                     preference.wecom_enabled,
+                     false
+                   ) THEN (
+                     SELECT identity.external_subject::text
+                       FROM iam.external_identities identity
+                      WHERE identity.user_id = recipient.id
+                        AND identity.provider_code = 'wecom'
+                      ORDER BY identity.created_at
+                      LIMIT 1
+                   )
+                   ELSE NULL
+                 END AS wecom_user_id,
                  delivery.test_recipient_cipher_text,
                  delivery.test_recipient_nonce,
                  delivery.test_recipient_auth_tag
@@ -770,7 +789,22 @@ export class 消息消费存储 {
         INSERT INTO message.deliveries (
           notification_id, recipient_user_id, channel_code, template_code, template_version,
           semantic_key, deduplication_key, status_code, finished_at
-        ) VALUES ($1::uuid, $2::uuid, 'in_app', $3, 1, $4, $5, 'success', now())
+        )
+        SELECT $1::uuid, $2::uuid, 'in_app', $3, 1, $4, $5,
+               CASE
+                 WHEN COALESCE(
+                   (SELECT (preference.category_preferences -> notification.category_code ->> 'inAppEnabled')::boolean
+                      FROM message.user_preferences preference
+                     WHERE preference.user_id = $2::uuid),
+                   (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                     WHERE preference.user_id = $2::uuid),
+                   true
+                 ) THEN 'success'
+                 ELSE 'ignored'
+               END,
+               now()
+        FROM message.notifications notification
+        WHERE notification.id = $1::uuid
         ON CONFLICT (deduplication_key) DO NOTHING
         `,
         [通知编号, 首项.recipientUserId, `${模板代码}_in_app`, 语义键, 站内去重键],
@@ -792,7 +826,14 @@ export class 消息消费存储 {
             FROM message.user_preferences preference
             JOIN iam.users recipient ON recipient.id = preference.user_id
             WHERE preference.user_id = $2::uuid
-              AND preference.email_enabled
+              AND COALESCE(
+                (preference.category_preferences -> (
+                  SELECT notification.category_code
+                    FROM message.notifications notification
+                   WHERE notification.id = $1::uuid
+                ) ->> 'emailEnabled')::boolean,
+                preference.email_enabled
+              )
               AND recipient.status_code = 'active'
               AND NULLIF(recipient.email::text, '') IS NOT NULL
           )
@@ -826,10 +867,20 @@ export class 消息消费存储 {
             SELECT 1
             FROM iam.external_identities identity
             JOIN iam.users recipient ON recipient.id = identity.user_id
+            LEFT JOIN message.user_preferences preference ON preference.user_id = recipient.id
             WHERE identity.user_id = $2::uuid
               AND identity.provider_code = 'wecom'
               AND NULLIF(identity.external_subject::text, '') IS NOT NULL
               AND recipient.status_code = 'active'
+              AND COALESCE(
+                (preference.category_preferences -> (
+                  SELECT notification.category_code
+                    FROM message.notifications notification
+                   WHERE notification.id = $1::uuid
+                ) ->> 'wecomEnabled')::boolean,
+                preference.wecom_enabled,
+                false
+              )
           )
           ON CONFLICT (deduplication_key) DO NOTHING
           `,
@@ -1091,31 +1142,41 @@ export class 消息消费存储 {
     }>(
       `
       WITH 候选 AS (
-        SELECT consumption.id
+        SELECT consumption.id, consumption.created_at
         FROM message.event_consumptions consumption
         WHERE consumption.consumer_code = $1
           AND (
             consumption.status_code = 'pending'
             OR (consumption.status_code = 'retry_wait' AND consumption.next_retry_at <= now())
           )
-        ORDER BY consumption.created_at
+        ORDER BY consumption.created_at, consumption.id
         FOR UPDATE SKIP LOCKED
         LIMIT $2
+      ),
+      已领取 AS (
+        UPDATE message.event_consumptions consumption
+        SET status_code = 'processing',
+            attempt_count = consumption.attempt_count + 1,
+            locked_until = now() + interval '120 seconds',
+            updated_at = now(),
+            last_error_summary = NULL
+        FROM 候选, ops.outbox_events outbox
+        WHERE consumption.id = 候选.id
+          AND outbox.id = consumption.source_event_id
+        RETURNING consumption.id AS id,
+                  consumption.source_event_id,
+                  consumption.event_code,
+                  outbox.aggregate_type,
+                  outbox.aggregate_id
       )
-      UPDATE message.event_consumptions consumption
-      SET status_code = 'processing',
-          attempt_count = consumption.attempt_count + 1,
-          locked_until = now() + interval '120 seconds',
-          updated_at = now(),
-          last_error_summary = NULL
-      FROM 候选, ops.outbox_events outbox
-      WHERE consumption.id = 候选.id
-        AND outbox.id = consumption.source_event_id
-      RETURNING consumption.id::text AS consumption_id,
-                consumption.source_event_id::text AS source_event_id,
-                consumption.event_code,
-                outbox.aggregate_type,
-                outbox.aggregate_id::text AS aggregate_id
+      SELECT 已领取.id::text AS consumption_id,
+             已领取.source_event_id::text AS source_event_id,
+             已领取.event_code,
+             已领取.aggregate_type,
+             已领取.aggregate_id::text AS aggregate_id
+      FROM 已领取
+      JOIN 候选 ON 候选.id = 已领取.id
+      ORDER BY 候选.created_at, 候选.id
       `,
       [消息消费者代码, 批量],
     );
@@ -1240,6 +1301,10 @@ export class 消息消费存储 {
     订阅: 已发布站内订阅,
   ): Promise<string[]> {
     const 规则 = 订阅.recipientRule;
+    // 账号审批会跨区管初审、超管终审两个阶段，接收人必须按当前阶段实时解析。
+    if (事件.eventCode === "iam.account.approval.pending") {
+      return 查询账号审批当前接收人(client, 事件.aggregateId);
+    }
     if (规则 === "business_owner") {
       if (事件.eventCode.startsWith("crm.order.")) return 查询订单负责人(client, 事件.aggregateId);
       if (事件.eventCode.startsWith("crm.quote."))
@@ -1480,10 +1545,33 @@ export class 消息消费存储 {
       `
       INSERT INTO message.notifications (
         recipient_user_id, source_event_id, event_code, category_code, priority_code,
-        aggregate_type, aggregate_id, target_action, template_version, title, body, payload_snapshot
+        aggregate_type, aggregate_id, target_action, template_version, title, body,
+        status_code, archived_at, payload_snapshot
       )
       SELECT $1::uuid, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::uuid,
              $8::text, $9::int, $10::text, $11::text,
+             CASE
+               WHEN COALESCE(
+                 (SELECT (preference.category_preferences -> $4::text ->> 'inAppEnabled')::boolean
+                    FROM message.user_preferences preference
+                   WHERE preference.user_id = $1::uuid),
+                 (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                   WHERE preference.user_id = $1::uuid),
+                 true
+               ) THEN 'unread'
+               ELSE 'archived'
+             END,
+             CASE
+               WHEN COALESCE(
+                 (SELECT (preference.category_preferences -> $4::text ->> 'inAppEnabled')::boolean
+                    FROM message.user_preferences preference
+                   WHERE preference.user_id = $1::uuid),
+                 (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                   WHERE preference.user_id = $1::uuid),
+                 true
+               ) THEN NULL
+               ELSE now()
+             END,
              jsonb_build_object('eventCode', $3, 'aggregateType', $6, 'aggregateId', $7)
       WHERE NOT EXISTS (
         SELECT 1 FROM message.deliveries
@@ -1534,7 +1622,19 @@ export class 消息消费存储 {
         notification_id, source_event_id, recipient_user_id, channel_code, template_code,
         template_version, semantic_key, deduplication_key, status_code, finished_at
       )
-      VALUES ($1::uuid, $2::uuid, $3::uuid, 'in_app', $4, $5, $6, $7, 'success', now())
+      SELECT $1::uuid, $2::uuid, $3::uuid, 'in_app', $4, $5, $6, $7,
+             CASE
+               WHEN COALESCE(
+                 (SELECT (preference.category_preferences -> $8::text ->> 'inAppEnabled')::boolean
+                    FROM message.user_preferences preference
+                   WHERE preference.user_id = $3::uuid),
+                 (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                   WHERE preference.user_id = $3::uuid),
+                 true
+               ) THEN 'success'
+               ELSE 'ignored'
+             END,
+             now()
       ON CONFLICT (deduplication_key) DO NOTHING
       `,
       [
@@ -1545,6 +1645,7 @@ export class 消息消费存储 {
         1,
         事件.sourceEventId,
         去重键,
+        订阅.categoryCode,
       ],
     );
     if (订阅.channelCodes.includes("wecom_app")) {
@@ -1569,10 +1670,20 @@ export class 消息消费存储 {
           SELECT 1
           FROM iam.external_identities identity
           JOIN iam.users recipient ON recipient.id = identity.user_id
+          LEFT JOIN message.user_preferences preference ON preference.user_id = recipient.id
           WHERE identity.user_id = $3::uuid
             AND identity.provider_code = 'wecom'
             AND NULLIF(identity.external_subject::text, '') IS NOT NULL
             AND recipient.status_code = 'active'
+            AND COALESCE(
+              (preference.category_preferences -> (
+                SELECT notification.category_code
+                  FROM message.notifications notification
+                 WHERE notification.id = $1::uuid
+              ) ->> 'wecomEnabled')::boolean,
+              preference.wecom_enabled,
+              false
+            )
         )
         ON CONFLICT (deduplication_key) DO NOTHING
         `,
@@ -1602,7 +1713,14 @@ export class 消息消费存储 {
           FROM message.user_preferences preference
           JOIN iam.users recipient ON recipient.id = preference.user_id
           WHERE preference.user_id = $3::uuid
-            AND preference.email_enabled
+            AND COALESCE(
+              (preference.category_preferences -> (
+                SELECT notification.category_code
+                  FROM message.notifications notification
+                 WHERE notification.id = $1::uuid
+              ) ->> 'emailEnabled')::boolean,
+              preference.email_enabled
+            )
             AND recipient.status_code = 'active'
             AND NULLIF(recipient.email::text, '') IS NOT NULL
         )
@@ -1845,9 +1963,25 @@ async function 写入提醒通知(
     `
     INSERT INTO message.notifications (
       recipient_user_id, event_code, category_code, priority_code, aggregate_type, aggregate_id,
-      target_action, template_version, title, body, payload_snapshot
+      target_action, template_version, title, body, status_code, archived_at, payload_snapshot
     )
     SELECT $1::uuid, $2::text, 'business', 'strong', $3::text, $4::uuid, 'view', 1, $5::text, $6::text,
+           CASE
+             WHEN COALESCE(
+               (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                 WHERE preference.user_id = $1::uuid),
+               true
+             ) THEN 'unread'
+             ELSE 'archived'
+           END,
+           CASE
+             WHEN COALESCE(
+               (SELECT preference.in_app_enabled FROM message.user_preferences preference
+                 WHERE preference.user_id = $1::uuid),
+               true
+             ) THEN NULL
+             ELSE now()
+           END,
            jsonb_build_object('eventCode', $2, 'aggregateType', $3, 'aggregateId', $4)
     WHERE NOT EXISTS (
       SELECT 1 FROM message.deliveries WHERE deduplication_key = $7
@@ -2043,6 +2177,49 @@ async function 查询平台管理员(client: PoolClient): Promise<string[]> {
       AND role.status_code = 'active'
       AND user_account.status_code = 'active'
     `,
+  );
+  return result.rows.map((行) => 行.user_id);
+}
+
+/**
+ * 账号审批当前接收人：
+ * - 区管初审：仅提醒渠道所属区域的区管；
+ * - 超管终审：仅提醒具备超管角色的账号。
+ *
+ * 阶段推进后复用同一条审批事件，不向其他角色扩大投递范围。
+ */
+export async function 查询账号审批当前接收人(
+  client: PoolClient,
+  审批编号: string,
+): Promise<string[]> {
+  const result = await client.query<{ user_id: string }>(
+    `
+    WITH 当前审批 AS (
+      SELECT
+        COALESCE(NULLIF(approval.extra_json->>'approvalStage', ''), 'superadmin_review') AS stage,
+        approval.applicant_partner_id
+      FROM ops.approvals approval
+      WHERE approval.id = $1::uuid
+      LIMIT 1
+    )
+    SELECT DISTINCT user_account.id::text AS user_id
+    FROM 当前审批 approval
+    JOIN iam.users user_account ON user_account.status_code = 'active'
+    JOIN iam.user_roles user_role ON user_role.user_id = user_account.id
+    JOIN iam.roles role ON role.id = user_role.role_id AND role.status_code = 'active'
+    LEFT JOIN channel.partners partner ON partner.id = approval.applicant_partner_id
+    WHERE (
+        approval.stage = 'region_review'
+        AND role.role_code = 'region_manager'
+        AND partner.region_id IS NOT NULL
+        AND user_account.region_id = partner.region_id
+      )
+      OR (
+        approval.stage <> 'region_review'
+        AND role.role_code = 'superadmin'
+      )
+    `,
+    [审批编号],
   );
   return result.rows.map((行) => 行.user_id);
 }

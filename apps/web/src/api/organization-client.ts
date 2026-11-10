@@ -4,6 +4,8 @@
  * 本模块只使用签名 Cookie 会话，不读取或写入业务页面本地令牌，避免影响既有业务。
  */
 
+import { 处理业务会话失效 } from "./auth-client.js";
+
 export type 接口对象 = Record<string, unknown>;
 
 export interface 接口元数据 {
@@ -14,10 +16,13 @@ export interface 接口元数据 {
 interface 标准响应<T> {
   success: boolean;
   data?: T;
-  error?: {
-    code?: string;
-    message?: string;
-  };
+  /** V3 接口返回对象型错误；V2 兼容接口（如账号写入）返回纯文本原因。 */
+  error?:
+    | {
+        code?: string;
+        message?: string;
+      }
+    | string;
   meta?: 接口元数据;
 }
 
@@ -47,6 +52,29 @@ export interface 写入选项 {
   幂等键?: string;
 }
 
+export interface 组织导入预览行 {
+  row: number;
+  status: "valid" | "error";
+  data: 接口对象;
+  errors: string[];
+}
+
+export interface 组织导入预览 {
+  batchId: string;
+  taskId: string;
+  rows: 组织导入预览行[];
+  totalCount: number;
+  validCount: number;
+  errorCount: number;
+  errorReportUrl: string;
+}
+
+export interface 组织导入结果 {
+  imported: number;
+  taskId: string;
+  replaceAll?: boolean;
+}
+
 export interface 分页参数 {
   page?: number;
   pageSize?: number;
@@ -67,6 +95,8 @@ export interface 组织单元 {
   unitName: string;
   unitType: string;
   parentUnitId: string | null;
+  /** 部门绑定的正式区域；为空时不能承载区域管理账号。 */
+  regionId?: string | null;
   statusCode: string;
   sortOrder: number;
   rowVersion: number;
@@ -76,6 +106,48 @@ export interface 区域 {
   id: string;
   regionCode: string;
   regionName: string;
+  parentRegionId?: string | null;
+  regionLevel?: string;
+  statusCode?: string;
+  rowVersion?: number;
+}
+
+/** 系统权限角色；与组织业务角色分属两套模型，页面只读展示，不相互替代。 */
+export interface 权限角色 {
+  id: string;
+  roleCode: string;
+  roleName: string;
+  description?: string | null;
+  statusCode: string;
+  isSystem?: boolean;
+  permissionCodes?: string[];
+  scopes?: Array<{
+    scopeType: string;
+    scopeRefId: string | null;
+    statusCode: string;
+  }>;
+  userCount?: number;
+}
+
+export interface 权限字典资源 {
+  resourceCode: string;
+  resourceName: string;
+  permissions: Array<{
+    permissionCode: string;
+    permissionName: string;
+    actionCode: string;
+    actionName: string;
+  }>;
+}
+
+export interface 数据范围绑定 {
+  id?: string;
+  roleId?: string;
+  resourceCode: string;
+  scopeType: string;
+  scopeRefId: string | null;
+  statusCode?: string;
+  rowVersion?: number;
 }
 
 export interface 组织树结果 {
@@ -150,6 +222,8 @@ export interface 证书模板 {
   templateCode: string;
   templateName: string;
   category: string;
+  issuerName?: string | null;
+  validityMonths?: number | null;
   statusCode?: string;
   rowVersion: number;
 }
@@ -262,6 +336,12 @@ export interface 外部身份映射结果 {
   items: 外部身份映射项[];
   summary: {
     total: number;
+    /** 目录内账号数（受筛选条件影响），不等同于映射记录数。 */
+    mappingTotal: number;
+    /** 状态为生效的映射记录数。 */
+    mappingActive: number;
+    mappingEteamsActive: number;
+    mappingWecomActive: number;
     eteamsActive: number;
     eteamsMissing: number;
     eteamsPending: number;
@@ -406,11 +486,13 @@ async function 发送请求<T>(
     });
   }
 
+  if (响应.status === 401) 处理业务会话失效();
   if (!响应.ok || !内容.success || 内容.data === undefined) {
+    const 错误信息 = typeof 内容.error === "string" ? 内容.error : 内容.error?.message;
     throw new 组织接口错误({
       状态码: 响应.status,
-      错误码: 内容.error?.code,
-      消息: 内容.error?.message || `组织架构接口请求失败（HTTP ${响应.status}）。`,
+      错误码: typeof 内容.error === "string" ? undefined : 内容.error?.code,
+      消息: 错误信息 || `组织架构接口请求失败（HTTP ${响应.status}）。`,
       请求编号: 内容.meta?.requestId,
     });
   }
@@ -418,7 +500,8 @@ async function 发送请求<T>(
 }
 
 function 读取<T>(路径: string): Promise<T> {
-  return 发送请求<T>(路径);
+  // 组织主数据包含并发版本号，读取必须绕过浏览器缓存，避免拿到旧 rowVersion 触发误冲突。
+  return 发送请求<T>(路径, { cache: "no-store" });
 }
 
 function 写入<T>(
@@ -452,8 +535,52 @@ export function 查询区域列表(): Promise<{ items: 区域[] }> {
   return 读取<{ items: 区域[] }>("/api/org/regions");
 }
 
-export function 导入部门(rows: 接口对象[], 选项: 写入选项 = {}): Promise<{ imported: number }> {
-  return 写入<{ imported: number }>("/api/org/units/import", "POST", { rows }, 选项);
+export function 查询权限角色(): Promise<{ items: 权限角色[] }> {
+  return 读取<{ items: 权限角色[] }>("/api/rbac/roles");
+}
+
+export function 查询权限字典(): Promise<{ resources: 权限字典资源[] }> {
+  return 读取<{ resources: 权限字典资源[] }>("/api/rbac/permissions");
+}
+
+export function 查询用户权限角色(
+  userId: string,
+): Promise<{ roleIds: string[]; roles: 权限角色[] }> {
+  return 读取<{ roleIds: string[]; roles: 权限角色[] }>(
+    `/api/rbac/users/${编码路径参数(userId)}/roles`,
+  );
+}
+
+export function 查询角色数据范围(roleId: string): Promise<{
+  subjectType: string;
+  subjectId: string;
+  runtimeApplied: boolean;
+  items: 数据范围绑定[];
+}> {
+  return 读取<{
+    subjectType: string;
+    subjectId: string;
+    runtimeApplied: boolean;
+    items: 数据范围绑定[];
+  }>(`/api/org/data-scopes/role/${编码路径参数(roleId)}`);
+}
+
+export function 预览部门导入(rows: 接口对象[], 选项: 写入选项 = {}): Promise<组织导入预览> {
+  return 写入<组织导入预览>("/api/org/units/import/preview", "POST", { rows }, 选项);
+}
+
+export function 导入部门(
+  rows: 接口对象[],
+  选项: 写入选项 = {},
+  任务编号 = "",
+  全量覆盖 = false,
+): Promise<组织导入结果> {
+  return 写入<组织导入结果>(
+    "/api/org/units/import",
+    "POST",
+    { rows, replaceAll: 全量覆盖, ...(任务编号 ? { taskId: 任务编号 } : {}) },
+    选项,
+  );
 }
 
 export function 导出部门(): Promise<{
@@ -469,8 +596,22 @@ export function 导出部门(): Promise<{
   }>("/api/org/units/export");
 }
 
-export function 导入成员(rows: 接口对象[], 选项: 写入选项 = {}): Promise<{ imported: number }> {
-  return 写入<{ imported: number }>("/api/org/staff/import", "POST", { rows }, 选项);
+export function 预览成员导入(rows: 接口对象[], 选项: 写入选项 = {}): Promise<组织导入预览> {
+  return 写入<组织导入预览>("/api/org/staff/import/preview", "POST", { rows }, 选项);
+}
+
+export function 导入成员(
+  rows: 接口对象[],
+  选项: 写入选项 = {},
+  任务编号 = "",
+  全量覆盖 = false,
+): Promise<组织导入结果> {
+  return 写入<组织导入结果>(
+    "/api/org/staff/import",
+    "POST",
+    { rows, replaceAll: 全量覆盖, ...(任务编号 ? { taskId: 任务编号 } : {}) },
+    选项,
+  );
 }
 
 export function 导出成员(): Promise<{
@@ -608,35 +749,57 @@ export function 创建证书模板(内容: 接口对象, 选项: 写入选项 = 
   return 写入<证书模板>("/api/org/certification-templates", "POST", 内容, 选项);
 }
 
+export function 更新证书模板(id: string, 内容: 接口对象, 选项: 写入选项): Promise<证书模板> {
+  return 写入<证书模板>(`/api/org/certification-templates/${编码路径参数(id)}`, "PUT", 内容, 选项);
+}
+
 export function 查询成员证书(userId?: string): Promise<{ items: 成员证书[] }> {
-  return 读取<{ items: 成员证书[] }>(`/api/org/member-certifications${构建查询参数({ userId })}`);
+  return 读取<{ items: 成员证书[] }>(
+    `/api/org/member-certifications${构建查询参数({ userId })}`,
+  ).then((结果) => ({ items: (结果.items || []).map(规范化成员证书) }));
 }
 
-export function 颁发证书(userId: string, 内容: 接口对象, 选项: 写入选项 = {}): Promise<成员证书> {
-  return 写入<成员证书>(
-    `/api/org/users/${编码路径参数(userId)}/certifications`,
-    "POST",
-    内容,
-    选项,
+export async function 颁发证书(
+  userId: string,
+  内容: 接口对象,
+  选项: 写入选项 = {},
+): Promise<成员证书> {
+  return 规范化成员证书(
+    await 写入<成员证书>(
+      `/api/org/users/${编码路径参数(userId)}/certifications`,
+      "POST",
+      内容,
+      选项,
+    ),
   );
 }
 
-export function 延期证书(id: string, 内容: 接口对象, 选项: 写入选项): Promise<成员证书> {
-  return 写入<成员证书>(
-    `/api/org/member-certifications/${编码路径参数(id)}/extend`,
-    "PUT",
-    内容,
-    选项,
+export async function 延期证书(id: string, 内容: 接口对象, 选项: 写入选项): Promise<成员证书> {
+  return 规范化成员证书(
+    await 写入<成员证书>(
+      `/api/org/member-certifications/${编码路径参数(id)}/extend`,
+      "PUT",
+      内容,
+      选项,
+    ),
   );
 }
 
-export function 撤销证书(id: string, 内容: 接口对象, 选项: 写入选项): Promise<成员证书> {
-  return 写入<成员证书>(
-    `/api/org/member-certifications/${编码路径参数(id)}/revoke`,
-    "PUT",
-    内容,
-    选项,
+export async function 撤销证书(id: string, 内容: 接口对象, 选项: 写入选项): Promise<成员证书> {
+  return 规范化成员证书(
+    await 写入<成员证书>(
+      `/api/org/member-certifications/${编码路径参数(id)}/revoke`,
+      "PUT",
+      内容,
+      选项,
+    ),
   );
+}
+
+/** PostgreSQL 的 bigint 默认以字符串返回；页面写操作必须统一提交数值版本。 */
+function 规范化成员证书(证书: 成员证书): 成员证书 {
+  const 版本 = Number(证书.rowVersion);
+  return { ...证书, rowVersion: Number.isSafeInteger(版本) && 版本 > 0 ? 版本 : 0 };
 }
 
 export function 查询离职交接(): Promise<{ items: 离职交接单[] }> {
@@ -847,25 +1010,27 @@ export function 读取用户列表(): Promise<{ 数据: 接口对象[]; 分页: 
 }
 
 export function 创建用户(内容: 接口对象): Promise<接口对象> {
-  return 发送请求<接口对象>("/api/users", { method: "POST", body: JSON.stringify(内容) });
+  // V3 主线未提供 POST /api/users；账号写入与老 UI 保持同一套 V2 兼容接口，
+  // 避免出现「界面可点、后端 404」的不可用入口。
+  return 发送请求<接口对象>("/api/v2/users", { method: "POST", body: JSON.stringify(内容) });
 }
 
 export function 更新用户(id: string, 内容: 接口对象): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}`, {
     method: "PUT",
     body: JSON.stringify(内容),
   });
 }
 
 export function 更新用户状态(id: string, 状态: string): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}/status`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}/status`, {
     method: "PUT",
     body: JSON.stringify({ status: 状态 }),
   });
 }
 
 export function 重置用户密码(id: string, 密码: string): Promise<接口对象> {
-  return 发送请求<接口对象>(`/api/users/${编码路径参数(id)}/password`, {
+  return 发送请求<接口对象>(`/api/v2/users/${编码路径参数(id)}/password`, {
     method: "PUT",
     body: JSON.stringify({ password: 密码 }),
   });

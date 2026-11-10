@@ -307,6 +307,12 @@
     return (rowsByType[type] || []).map(([label, value]) => ({ label, value: value === 0 ? '0' : (value || '—') }));
   }
 
+  /** 商机详情历史同时兼容服务端新字段 followups 与旧页面字段 followUps。 */
+  function followUpList(item) {
+    const list = item?.followups ?? item?.followUps;
+    return Array.isArray(list) ? list : [];
+  }
+
   const EmptyState = {
     props: { text: { type: String, default: '暂无数据' } },
     template: '<div class="empty-state"><span>◌</span><p>{{ text }}</p></div>'
@@ -338,12 +344,12 @@
 
   const DetailCard = {
     props: { item: { type: Object, required: true }, type: { type: String, required: true } },
-    methods: { detailRows, statusText, formatDateTime },
+    methods: { detailRows, followUpList, statusText, formatDateTime },
     template: `
       <article class="detail-card">
         <div class="detail-card__title"><h1>{{ item.name || item.customerName || item.customer || item.id }}</h1><span>{{ item.id }}</span></div>
         <dl class="detail-list"><div v-for="row in detailRows(item, type)" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div></dl>
-        <section v-if="type === 'opportunity' && Array.isArray(item.followUps) && item.followUps.length" class="detail-timeline"><h2>跟进记录</h2><div v-for="followUp in item.followUps" :key="followUp.id || followUp.date"><b>{{ followUp.type || '跟进' }}</b><p>{{ followUp.content || '—' }}</p><small>{{ followUp.user || '—' }} · {{ formatDateTime(followUp.date) }}<template v-if="followUp.stage"> · 阶段 {{ statusText(followUp.stage) }}</template><template v-if="followUp.nextFollowAt"> · 下次 {{ followUp.nextFollowAt }}</template></small></div></section>
+        <section v-if="type === 'opportunity' && followUpList(item).length" class="detail-timeline"><h2>跟进记录</h2><div v-for="followUp in followUpList(item)" :key="followUp.id || followUp.createdAt || followUp.date"><b>{{ followUp.type || followUp.method || '跟进' }}</b><p>{{ followUp.content || followUp.followup || '—' }}</p><small>{{ followUp.user || followUp.createdByName || '—' }} · {{ formatDateTime(followUp.date || followUp.createdAt) }}<template v-if="followUp.stage"> · 阶段 {{ statusText(followUp.stage) }}</template></small></div></section>
       </article>`
   };
 
@@ -417,8 +423,14 @@
       const registrationForm = reactive({ customer: '', creditCode: '', industry: '', contact: '', phone: '', city: '', notes: '' });
       const opportunityForm = reactive({ regId: '', name: '', customer: '', stage: 'contacted', amount: null, endpoints: null, expectedClose: '', notes: '' });
       const followUpTypeOptions = FOLLOW_UP_TYPE_OPTIONS;
-      const followUpForm = reactive({ type: '电话', stage: 'contacted', content: '', nextFollowAt: '' });
+      const followUpForm = reactive({ type: '电话', stage: 'contacted', content: '' });
       const quoteOrderForm = reactive({ deliveryContactName: '', deliveryContactPhone: '', deliveryAddress: '', invoiceTitle: '', remark: '' });
+      const quoteCreateForm = reactive({ opportunityId: '', endpoints: 100, productIds: [], note: '' });
+      const quoteProducts = ref([]);
+      const quotePreview = ref(null);
+      const quoteFormError = ref('');
+      const quoteFormLoading = ref(false);
+      const orderAction = reactive({ visible: false, key: '', title: '', reason: '', returnTarget: 'secondary', amount: 0, error: '' });
       const detailFormError = reactive({ followUp: '', convertOrder: '' });
       const registrationPicker = reactive({ keyword: '', items: [], selected: null, open: false, page: 1, pageSize: 10, total: 0, hasMore: false, loading: false, requestId: 0 });
       const companyPicker = reactive({ items: [], open: false, loading: false, filled: false, selectedName: '', filledCreditCode: '', filledIndustry: '', filledCity: '', requestId: 0 });
@@ -458,6 +470,7 @@
         if (current === '/partner/registrations/new') return 'registration-new';
         if (current.startsWith('/partner/registrations/')) return 'registration-detail';
         if (current === '/partner/quotes') return 'quotes';
+        if (current === '/partner/quotes/new') return 'quote-new';
         if (current.startsWith('/partner/quotes/')) return 'quote-detail';
         if (current === '/partner/orders') return 'orders';
         if (current.startsWith('/partner/orders/')) return 'order-detail';
@@ -473,7 +486,7 @@
       const pageTitle = computed(() => ({
         home: '工作台', opportunities: '商机', 'opportunity-new': '新建商机', 'opportunity-detail': '商机详情',
         registrations: '客户报备', 'registration-new': '新建报备', 'registration-detail': '报备详情',
-        quotes: '报价单', 'quote-detail': '报价详情', orders: '订单', 'order-detail': '订单详情',
+        quotes: '报价单', 'quote-new': '新建报价', 'quote-detail': '报价详情', orders: '订单', 'order-detail': '订单详情',
         reviews: '审核中心', business: '业务查询', 'business-detail': '业务详情', partners: '渠道商', notifications: '消息提醒',
         'partner-detail': '渠道商详情', me: '我的'
       }[page.value] || '移动端'));
@@ -511,6 +524,38 @@
       const selectedOrder = computed(() => detailItems.order);
       const selectedPartner = computed(() => detailItems.partner);
       const canAddFollowUp = computed(() => Boolean(isPartnerUser.value && selectedOpportunity.value));
+      const quoteOpportunityOptions = computed(() => opportunities.value.filter(item => !['lost', 'won'].includes(item.status)));
+      const selectedOrderStatus = computed(() => selectedOrder.value?.status || '');
+      const availableOrderActions = computed(() => {
+        const status = selectedOrderStatus.value;
+        const role = user.value?.role;
+        if (role === 'partner_admin' && ['pending', 'pending_primary_confirm'].includes(status)) {
+          return [
+            { key: 'primary_confirm', label: '一级确认', primary: true },
+            { key: 'primary_reject', label: '一级驳回', danger: true }
+          ];
+        }
+        if (role === 'admin' && status === 'primary_confirmed') {
+          return [
+            { key: 'region_confirm', label: '区管确认', primary: true },
+            { key: 'region_return', label: '区管退回', danger: true },
+            { key: 'region_price_adjust', label: '区管调价' }
+          ];
+        }
+        if (role === 'superadmin' && status === 'pending_superadmin_confirm') {
+          return [
+            { key: 'superadmin_confirm', label: '超管确认', primary: true },
+            { key: 'superadmin_return', label: '超管退回', danger: true }
+          ];
+        }
+        if (isAdminUser.value && ['confirmed', 'processing'].includes(status)) {
+          return [{ key: 'ship', label: '确认发货', primary: true }, { key: 'cancel', label: '取消订单', danger: true }];
+        }
+        if (isAdminUser.value && status === 'shipped') {
+          return [{ key: 'complete', label: '完成订单', primary: true }];
+        }
+        return [];
+      });
       const canConvertSelectedQuote = computed(() => Boolean(
         isPartnerUser.value &&
         selectedQuote.value &&
@@ -654,7 +699,7 @@
         const backMap = {
           'opportunity-new': '/partner/opportunities', 'opportunity-detail': '/partner/opportunities',
           'registration-new': '/partner/registrations', 'registration-detail': '/partner/registrations',
-          'quote-detail': '/partner/quotes', 'order-detail': '/partner/orders',
+          'quote-new': '/partner/quotes', 'quote-detail': '/partner/quotes', 'order-detail': '/partner/orders',
           'business-detail': '/admin/business', 'partner-detail': '/admin/partners'
         };
         go(backMap[page.value] || defaultHome());
@@ -799,12 +844,16 @@
           if (requestId !== detailRequestId[type]) return;
           detailItems[type] = result.data || null;
           if (type === 'opportunity') {
-            Object.assign(followUpForm, { type: '电话', stage: detailItems[type]?.stage || 'contacted', content: '', nextFollowAt: '' });
+            Object.assign(followUpForm, { type: '电话', stage: detailItems[type]?.stage || 'contacted', content: '' });
             detailFormError.followUp = '';
           }
           if (type === 'quote') {
             Object.assign(quoteOrderForm, { deliveryContactName: '', deliveryContactPhone: '', deliveryAddress: '', invoiceTitle: '', remark: '' });
             detailFormError.convertOrder = '';
+          }
+          if (type === 'order') {
+            orderAction.visible = false;
+            orderAction.error = '';
           }
         } catch (error) {
           if (requestId !== detailRequestId[type]) return;
@@ -926,6 +975,165 @@
         }
       }
 
+      function normalizeQuoteProduct(item) {
+        return {
+          id: item?.id || item?.uuid || '',
+          name: item?.name || item?.['名称'] || item?.['标题'] || '未命名产品',
+          type: item?.type || item?.['类型'] || '',
+          desc: item?.description || item?.desc || item?.['说明'] || ''
+        };
+      }
+
+      /** 移动端新建报价只加载可报价的产品目录，不展示内部成本、渠道等级价或价格规则。 */
+      async function loadQuoteFormData() {
+        if (quoteFormLoading.value) return;
+        quoteFormLoading.value = true;
+        quoteFormError.value = '';
+        try {
+          const [opportunityResult, productResult] = await Promise.all([
+            mobileRequest('/opportunities?page=1&pageSize=200'),
+            mobileRequest('/products?page=1&pageSize=500')
+          ]);
+          opportunities.value = Array.isArray(opportunityResult.data) ? opportunityResult.data : [];
+          quoteProducts.value = (Array.isArray(productResult.data) ? productResult.data : [])
+            .map(normalizeQuoteProduct)
+            .filter(product => product.id && !String(product.type).includes('硬件'));
+          const validProductIds = new Set(quoteProducts.value.map(product => product.id));
+          quoteCreateForm.productIds = quoteCreateForm.productIds.filter(id => validProductIds.has(id));
+          const availableOpportunities = quoteOpportunityOptions.value;
+          if (!quoteCreateForm.opportunityId && availableOpportunities.length) {
+            quoteCreateForm.opportunityId = availableOpportunities[0].id;
+            const endpoints = Number(availableOpportunities[0].endpoints);
+            if (Number.isInteger(endpoints) && endpoints > 0) quoteCreateForm.endpoints = endpoints;
+          }
+        } catch (error) {
+          quoteFormError.value = error.message || '报价数据加载失败，请稍后重试';
+        } finally {
+          quoteFormLoading.value = false;
+        }
+      }
+
+      function toggleQuoteProduct(productId) {
+        const current = quoteCreateForm.productIds;
+        quoteCreateForm.productIds = current.includes(productId)
+          ? current.filter(id => id !== productId)
+          : [...current, productId];
+        quotePreview.value = null;
+      }
+
+      function quoteRequestPayload() {
+        const opportunityId = String(quoteCreateForm.opportunityId || '').trim();
+        const endpoints = Number(quoteCreateForm.endpoints);
+        if (!opportunityId) throw new Error('请选择关联商机');
+        if (!Number.isInteger(endpoints) || endpoints < 1 || endpoints > 100000000) {
+          throw new Error('端点数量必须是 1 至 100000000 之间的整数');
+        }
+        if (!quoteCreateForm.productIds.length) throw new Error('请至少选择一个产品模块');
+        return {
+          opportunityId,
+          endpoints,
+          productIds: [...quoteCreateForm.productIds],
+          quoteMode: '自定义报价',
+          notes: quoteCreateForm.note.trim()
+        };
+      }
+
+      async function previewNewQuote() {
+        quoteFormError.value = '';
+        try {
+          const payload = quoteRequestPayload();
+          submitting.value = true;
+          quotePreview.value = await mobileRequest('/quotes/workload-preview', { method: 'POST', body: payload });
+        } catch (error) {
+          quoteFormError.value = error.message || '报价试算失败，请稍后重试';
+        } finally {
+          submitting.value = false;
+        }
+      }
+
+      async function submitNewQuote() {
+        quoteFormError.value = '';
+        try {
+          const payload = quoteRequestPayload();
+          submitting.value = true;
+          const result = await mobileRequest('/quotes', { method: 'POST', body: payload });
+          const quoteId = result.data?.id;
+          Object.assign(quoteCreateForm, { opportunityId: '', endpoints: 100, productIds: [], note: '' });
+          quotePreview.value = null;
+          await fetchCollection('quotes', '/quotes');
+          flash('报价单已创建');
+          if (quoteId) go(`/partner/quotes/${encodeURIComponent(quoteId)}`);
+        } catch (error) {
+          quoteFormError.value = error.message || '报价单创建失败，请稍后重试';
+        } finally {
+          submitting.value = false;
+        }
+      }
+
+      function openOrderAction(action) {
+        Object.assign(orderAction, {
+          visible: true,
+          key: action.key,
+          title: action.label,
+          reason: '',
+          returnTarget: action.key === 'superadmin_return' ? 'region' : 'secondary',
+          amount: Number(selectedOrder.value?.total ?? selectedOrder.value?.amount ?? 0),
+          error: ''
+        });
+      }
+
+      function closeOrderAction() {
+        Object.assign(orderAction, { visible: false, key: '', title: '', reason: '', returnTarget: 'secondary', amount: 0, error: '' });
+      }
+
+      async function submitOrderAction() {
+        if (!selectedOrder.value?.id || !orderAction.key || submitting.value) return;
+        orderAction.error = '';
+        const requiresReason = ['primary_reject', 'region_return', 'region_price_adjust', 'superadmin_return', 'cancel'].includes(orderAction.key);
+        if (requiresReason && !orderAction.reason.trim()) {
+          orderAction.error = '请填写业务原因';
+          return;
+        }
+        if (orderAction.reason.length > 500) {
+          orderAction.error = '业务原因不能超过 500 个字符';
+          return;
+        }
+        if (orderAction.key === 'region_price_adjust' && !(Number(orderAction.amount) > 0)) {
+          orderAction.error = '调价金额必须大于 0';
+          return;
+        }
+        const actionPayload = {
+          primary_confirm: { status: 'confirmed', action: 'primary_confirm' },
+          primary_reject: { status: 'returned_to_secondary', action: 'primary_return', returnTarget: 'secondary' },
+          region_confirm: { status: 'pending_superadmin_confirm', action: 'region_confirm' },
+          region_return: { status: `returned_to_${orderAction.returnTarget}`, action: 'return', returnTarget: orderAction.returnTarget },
+          region_price_adjust: { status: 'pending_superadmin_confirm', action: 'price_adjust', amount: Number(orderAction.amount), total: Number(orderAction.amount) },
+          superadmin_confirm: { status: 'confirmed', action: 'superadmin_confirm' },
+          superadmin_return: { status: `returned_to_${orderAction.returnTarget}`, action: 'return', returnTarget: orderAction.returnTarget },
+          ship: { status: 'shipped', action: 'fulfillment' },
+          complete: { status: 'completed', action: 'fulfillment' },
+          cancel: { status: 'cancelled', action: 'cancel' }
+        }[orderAction.key];
+        if (!actionPayload) {
+          orderAction.error = '当前订单动作不受支持，请刷新后重试';
+          return;
+        }
+        submitting.value = true;
+        try {
+          await mobileRequest(`/orders/${encodeURIComponent(selectedOrder.value.id)}/status`, {
+            method: 'PUT',
+            body: { ...actionPayload, reason: orderAction.reason.trim() }
+          });
+          closeOrderAction();
+          await Promise.all([loadDetail(), fetchCollection('orders', '/orders')]);
+          flash('订单动作已提交，审批状态已刷新');
+        } catch (error) {
+          orderAction.error = error.message || '订单动作提交失败，请稍后重试';
+        } finally {
+          submitting.value = false;
+        }
+      }
+
       async function reloadForRoute() {
         if (!user.value) return;
         if (page.value === 'notifications') {
@@ -938,6 +1146,10 @@
         }
         if (page.value === 'opportunity-new') {
           await loadApprovedRegistrations();
+          return;
+        }
+        if (page.value === 'quote-new') {
+          await loadQuoteFormData();
           return;
         }
         if (page.value === 'home') {
@@ -1189,8 +1401,22 @@
 
       async function restoreLogin() {
         const session = readSession();
-        let nextSession = session;
-        if (!nextSession?.user || !nextSession?.token) {
+        let nextSession = null;
+        if (session?.user && session?.token) {
+          // 本地缓存只用于恢复界面，必须由服务端校验签名和有效期，禁止仅凭 localStorage 进入业务页。
+          try {
+            const response = await fetch(`${window.API_BASE}/mobile/registrations?page=1&pageSize=1`, {
+              headers: { Accept: 'application/json', Authorization: `Bearer ${session.token}` },
+              credentials: 'include',
+              cache: 'no-store'
+            });
+            if (response.ok) nextSession = session;
+          } catch (error) {
+            nextSession = null;
+          }
+          if (!nextSession) clearMobileSession();
+        }
+        if (!nextSession) {
           try {
             const response = await fetch('/api/auth/me', { credentials: 'include', cache: 'no-store' });
             const result = await response.json();
@@ -1443,7 +1669,7 @@
                 : '记录跟进'
             }
           });
-          Object.assign(followUpForm, { type: '电话', stage: selectedOpportunity.value?.stage || 'contacted', content: '', nextFollowAt: '' });
+          Object.assign(followUpForm, { type: '电话', stage: selectedOpportunity.value?.stage || 'contacted', content: '' });
           await loadDetail();
           await fetchCollection('opportunities', '/opportunities');
           flash('商机跟进已记录');
@@ -1645,6 +1871,7 @@
         scope, ready, user, submitting, loginError, formError, toast, loginForm, ssoState, filters, businessType,
         opportunities, registrations, quotes, orders, partners, pendingApprovals, reviewRegistrations, reviewPartners, reviewPendingAccounts,
         pageMeta, loading, reviewPageMeta, reviewLoading, reviewDialog, registrationForm, opportunityForm, followUpTypeOptions, followUpForm, quoteOrderForm, detailFormError, companyPicker,
+        quoteCreateForm, quoteProducts, quotePreview, quoteFormError, quoteFormLoading, quoteOpportunityOptions, orderAction, availableOrderActions,
         isPartnerScope, isAdminScope, isSuperAdmin, roleName, stageOptions, registrationStatusOptions, industries, businessTabs,
         navigation, page, pageTitle, showNavigation, showBack, pendingRegistrations, pendingRegistrationCount, messageItems, messageUnreadCount, messageLoading, messageError,
         pendingPartners, pendingAccounts, pendingApprovalCount, filteredOpportunities, filteredRegistrations, filteredQuotes,
@@ -1652,7 +1879,7 @@
         selectedPartner, canAddFollowUp, canConvertSelectedQuote, selectedQuoteConvertedText, businessDetailType, selectedBusinessItem, reviewDialogRows,
         chooseScope, backToScope, go, goBack, isNavActive, loadPageData, loadMessages, markAllMessagesRead, openMessage, loadMore, loadMoreReview, loadMoreApprovedRegistrations, login, logout,
         submitRegistration, submitOpportunity, fillOpportunityFromRegistration, openOpportunityRegistrationPicker, hideOpportunityRegistrationPicker, selectOpportunityRegistration,
-        submitFollowUp, submitQuoteConvertOrder,
+        submitFollowUp, submitQuoteConvertOrder, toggleQuoteProduct, previewNewQuote, submitNewQuote, openOrderAction, closeOrderAction, submitOrderAction,
         openRegistrationCompanyPicker, hideRegistrationCompanyPicker, selectRegistrationCompany, openPartnerDetail, openBusinessDetail, openAdminPartner,
         openRegistrationReview, openPartnerReview, openAccountReview, closeReview, prepareReject, approveReview,
         registrationPicker, detailMessage, saveDraft, clearDraft, statusClass, stageText: statusText, recordName, formatDate, formatDateTime, formatAmount

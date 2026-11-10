@@ -10,6 +10,7 @@ import {
   组织离职交接单批最大数量,
   组织离职交接未结束订单状态,
 } from "../src/org-offboarding-worker.js";
+import { 执行审计维护删除 } from "./审计维护清理.js";
 
 const 测试数据库地址 = process.env.V3_TEST_DATABASE_URL;
 const 描述真实数据库 = 测试数据库地址 ? describe.sequential : describe.skip;
@@ -245,9 +246,9 @@ async function 查询动态待办数量(userId: string): Promise<number> {
 
   afterAll(async () => {
     if (!连接池) return;
-    await 连接池
-      .query("DELETE FROM audit.audit_logs WHERE target_id=ANY($1::text[])", [交接单编号集合])
-      .catch(() => undefined);
+    await 执行审计维护删除(连接池, "target_id=ANY($1::text[])", [交接单编号集合]).catch(
+      () => undefined,
+    );
     await 连接池
       .query("DELETE FROM ops.outbox_events WHERE aggregate_id=ANY($1::uuid[])", [交接单编号集合])
       .catch(() => undefined);

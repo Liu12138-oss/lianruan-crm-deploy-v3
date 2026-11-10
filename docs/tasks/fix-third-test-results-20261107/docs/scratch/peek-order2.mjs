@@ -1,0 +1,10 @@
+import { chromium } from "playwright";
+const b=await chromium.launch({headless:true});const c=await b.newContext({baseURL:"http://10.9.86.66"});const p=await c.newPage();
+await p.goto("/login",{waitUntil:"domcontentloaded"});
+await p.locator('input[autocomplete="username"]').fill("liulonghai");await p.locator('input[autocomplete="current-password"]').fill("LrCRM@2026!");
+await Promise.all([p.waitForURL(u=>!u.pathname.startsWith("/login")),p.getByRole("button",{name:/登\s*录/}).click()]);await p.waitForTimeout(1200);
+const r=await p.evaluate(async()=>{const x=await fetch("/api/stage9/orders?page=1&pageSize=1",{credentials:"include"});return await x.json()});
+const row=r.data?.数据?.[0];console.log("TOP KEYS",Object.keys(row));console.log("RAW KEYS",Object.keys(row?.原始数据||{}));
+const a=await p.evaluate(async()=>{const x=await fetch("/api/stage9/audit?keyword="+encodeURIComponent("leagsoft-smb-chenqinyu-0731-05")+"&page=1&pageSize=50",{credentials:"include"});return await x.json()});
+console.log("AUDIT", JSON.stringify((a.data?.数据||[]).map(x=>({编号:x.编号,标题:x.标题,targetId:x.原始数据?.targetId,targetName:x.原始数据?.targetName})),null,1));
+await b.close();

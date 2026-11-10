@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { 应用错误 } from "@lianruan/shared";
 import { Pool, type PoolClient } from "pg";
 
+import { 规范化联系电话 } from "./phone-normalization.js";
 import {
   type 企业微信映射导入文件,
   type 企业微信映射导入用户,
@@ -31,6 +32,48 @@ export interface 组织幂等参数 {
   幂等键: string;
   请求哈希: string;
 }
+export interface 组织导入预览行 {
+  row: number;
+  status: "valid" | "error";
+  data: Record<string, unknown>;
+  errors: string[];
+}
+export interface 组织导入预览 {
+  batchId: string;
+  taskId: string;
+  rows: 组织导入预览行[];
+  totalCount: number;
+  validCount: number;
+  errorCount: number;
+  errorReportUrl: string;
+}
+export interface 组织导入任务 {
+  id: string;
+  type: string;
+  status: string;
+  batchId: string;
+  totalCount: number;
+  validCount: number;
+  errorCount: number;
+  importedCount: number;
+  rows: 组织导入预览行[];
+  errorReportUrl: string;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** 执行组织导入前统一抛出逐行校验结果，禁止先删除现有组织再依赖外键回滚。 */
+function 抛出组织导入校验错误(预览行: 组织导入预览行[]): void {
+  const 失败行 = 预览行.filter((row) => row.status === "error");
+  if (!失败行.length) return;
+  throw new 应用错误(
+    "ORG_IMPORT_VALIDATION_FAILED",
+    `导入数据校验失败：${失败行.map((row) => `第 ${row.row} 行 ${row.errors.join("；")}`).join("；")}`,
+    400,
+    { rows: 失败行 },
+  );
+}
+
 export interface 组织数据服务 {
   查询组织树(): Promise<unknown>;
   查询渠道组织树(): Promise<unknown>;
@@ -39,10 +82,14 @@ export interface 组织数据服务 {
   查询区域列表(): Promise<unknown>;
   新建区域(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   更新区域(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
+  预览部门导入(input: Record<string, unknown>, actor: 组织操作人): Promise<组织导入预览>;
   导入部门(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   导出部门(): Promise<unknown>;
+  预览成员导入(input: Record<string, unknown>, actor: 组织操作人): Promise<组织导入预览>;
   导入成员(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   导出成员(): Promise<unknown>;
+  查询组织导入任务(id: string): Promise<组织导入任务 | null>;
+  生成组织导入错误报告(id: string): Promise<Buffer | null>;
   查询组织详情(id: string): Promise<unknown>;
   新建组织(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   更新组织(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
@@ -72,6 +119,7 @@ export interface 组织数据服务 {
   结束成员业务角色(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   查询证书模板(类别?: string): Promise<unknown>;
   新建证书模板(input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
+  更新证书模板(id: string, input: Record<string, unknown>, actor: 组织操作人): Promise<unknown>;
   查询成员证书(
     userId?: string,
     筛选?: {
@@ -167,7 +215,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
   }
   async 查询组织树() {
     const { rows } = await this.pool.query(
-      'SELECT id::text, unit_code AS "unitCode", unit_name AS "unitName", unit_type AS "unitType", parent_unit_id::text AS "parentUnitId", status_code AS "statusCode", sort_order AS "sortOrder", row_version AS "rowVersion" FROM org.org_units WHERE unit_type NOT LIKE \'channel_%\' AND status_code IN (\'active\',\'draft\') ORDER BY path_code, sort_order, unit_code',
+      'SELECT id::text, unit_code AS "unitCode", unit_name AS "unitName", unit_type AS "unitType", parent_unit_id::text AS "parentUnitId", region_id::text AS "regionId", status_code AS "statusCode", sort_order AS "sortOrder", row_version AS "rowVersion" FROM org.org_units WHERE unit_type NOT LIKE \'channel_%\' AND status_code IN (\'active\',\'draft\',\'disabled\') ORDER BY path_code, sort_order, unit_code',
     );
     const 成员 = await this.pool.query(
       'SELECT a.org_unit_id::text AS "orgUnitId", u.id::text AS "userId", u.username AS "username", u.display_name AS "displayName", a.id::text AS "assignmentId" FROM org.staff_assignments a JOIN iam.users u ON u.id=a.user_id WHERE a.expired_at IS NULL ORDER BY u.display_name',
@@ -202,7 +250,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         'SELECT id::text AS "id", partner_code AS "partnerCode", partner_name AS "partnerName", partner_level_code AS "partnerLevelCode", region_id::text AS "regionId", status_code AS "statusCode" FROM channel.partners ORDER BY normalized_name',
       ),
       this.pool.query(
-        'SELECT pm.id::text AS "id", pm.partner_id::text AS "partnerId", pp.partner_name AS "partnerName", pp.partner_code AS "partnerCode", u.id::text AS "userId", u.username AS "username", u.display_name AS "displayName", u.phone AS "phone", u.email AS "email", pm.member_role_code AS "memberRoleCode", pm.status_code AS "statusCode", pm.started_at AS "startedAt", pm.row_version AS "rowVersion" FROM channel.partner_members pm JOIN iam.users u ON u.id=pm.user_id LEFT JOIN channel.partners pp ON pp.id=pm.partner_id WHERE pm.status_code=\'active\' AND pm.archived_at IS NULL ORDER BY u.display_name',
+        'SELECT pm.id::text AS "id", pm.partner_id::text AS "partnerId", pp.partner_name AS "partnerName", pp.partner_code AS "partnerCode", u.id::text AS "userId", u.username AS "username", u.display_name AS "displayName", u.phone AS "phone", u.email AS "email", pm.member_role_code AS "memberRoleCode", pm.status_code AS "statusCode", pm.started_at AS "startedAt", pm.row_version AS "rowVersion" FROM channel.partner_members pm JOIN iam.users u ON u.id=pm.user_id LEFT JOIN channel.partners pp ON pp.id=pm.partner_id WHERE pm.archived_at IS NULL ORDER BY u.display_name',
       ),
     ]);
     const 区域节点 = new Map<
@@ -304,8 +352,11 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       const 节点 = 商节点.get(p.id)!;
       节点.members = 成员映射.get(p.id) || [];
       const 归属区域 = p.regionId ? 区域节点.get(p.regionId) : undefined;
-      if (归属区域) 归属区域.children.push(节点);
-      else 未分配渠道商.push(节点);
+      // 渠道商只能挂在正式区域下；历史数据若直接挂到大区/全国，统一进入未分配区域，
+      // 避免渠道组织树同时出现“大区→渠道商”和“大区→区域→渠道商”两种层级。
+      if (归属区域 && !["country", "big_region"].includes(归属区域.regionLevel)) {
+        归属区域.children.push(节点);
+      } else 未分配渠道商.push(节点);
     }
     const 被引用 = new Set<string>();
     for (const r of 区域.rows as Array<{ id: string; parentRegionId: string | null }>) {
@@ -319,7 +370,10 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     for (const r of 区域.rows as Array<{ id: string; regionLevel: string }>) {
       if (被引用.has(r.id)) continue;
       if (r.regionLevel === "country") continue;
-      roots.push(区域节点.get(r.id)!);
+      const 节点 = 区域节点.get(r.id)!;
+      // 没有下辖区域的大区不进入渠道组织树，防止历史重复大区显示为空壳根节点。
+      if (节点.regionLevel === "big_region" && 节点.children.length === 0) continue;
+      roots.push(节点);
     }
     if (未分配渠道商.length) {
       roots.push({
@@ -419,6 +473,22 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       const email = input.email === undefined ? member.email || "" : 字符串值(input, "email");
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
         throw new 应用错误("ORG_REQUEST_INVALID", "邮箱格式不正确。", 400);
+      const 规范化手机号 = 规范化联系电话(phone);
+      if (规范化手机号) {
+        const 手机号冲突 = await db.query<{ username: string }>(
+          `SELECT username::text AS username FROM iam.users
+            WHERE iam.normalize_phone(phone)=$1 AND id<>$2::uuid
+            LIMIT 1`,
+          [规范化手机号, member.user_id],
+        );
+        if (手机号冲突.rows[0]) {
+          throw new 应用错误(
+            "ORG_PHONE_DUPLICATED",
+            `联系电话已被账号「${手机号冲突.rows[0].username}」使用，请更换。`,
+            409,
+          );
+        }
+      }
       const roleName = roleCode === "channel_technical" ? "技术" : "销售";
       const actorUserId = await this.操作人(db, actor);
 
@@ -552,15 +622,6 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     );
     const parent = 可选标识(input, "parentRegionId");
     const code = 可选文本(input, "regionCode") || "AUTO-" + crypto.randomBytes(6).toString("hex");
-    if (level === "region") {
-      const 同名 = await this.pool.query(
-        "SELECT id::text AS id FROM org.regions WHERE status_code='active' AND region_level='region' AND region_name=$1 LIMIT 2",
-        [name],
-      );
-      if (同名.rows.length) {
-        throw new 应用错误("ORG_REGION_NAME_CONFLICT", `启用区域“${name}”已存在，请勿重复创建。`, 409);
-      }
-    }
     return this.写入(
       'INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level) VALUES($1,$2,$3::uuid,$4) RETURNING id::text,region_code AS "regionCode",region_name AS "regionName",parent_region_id::text AS "parentRegionId",region_level AS "regionLevel",status_code AS "statusCode",row_version AS "rowVersion"',
       [code, name, parent, level],
@@ -582,27 +643,13 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         if (环.rows.length)
           throw new 应用错误("ORG_REGION_PARENT_INVALID", "不能把区域挂到渠道商或子区域下。", 409);
       }
-      const name = 文本(input, "regionName", before.region_name);
-      if (before.region_level === "region") {
-        const 同名 = await db.query(
-          "SELECT id::text AS id FROM org.regions WHERE status_code='active' AND region_level='region' AND region_name=$1 AND id<>$2::uuid LIMIT 1",
-          [name, id],
-        );
-        if (同名.rows.length) {
-          throw new 应用错误(
-            "ORG_REGION_NAME_CONFLICT",
-            `启用区域“${name}”已存在，请使用其他名称。`,
-            409,
-          );
-        }
-      }
       const r = await db.query(
         `UPDATE org.regions SET region_name=$1,parent_region_id=$2::uuid,row_version=row_version+1
          WHERE id=$3::uuid AND row_version=$4
          RETURNING id::text,region_code AS "regionCode",region_name AS "regionName",
            parent_region_id::text AS "parentRegionId",region_level AS "regionLevel",
            status_code AS "statusCode",row_version AS "rowVersion"`,
-        [name, parent, id, 版本(input)],
+        [文本(input, "regionName", before.region_name), parent, id, 版本(input)],
       );
       if (!r.rows[0]) throw 冲突();
       const user = await this.操作人(db, actor);
@@ -610,53 +657,111 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       return r.rows[0];
     });
   }
+  async 预览部门导入(input: Record<string, unknown>, actor: 组织操作人) {
+    const rows = 读取行数组(input);
+    if (!rows.length) throw new 应用错误("ORG_IMPORT_EMPTY", "导入内容为空。", 400);
+    const 预览行 = await this.校验部门导入行(this.pool, rows);
+    return this.创建组织导入任务("org_units", actor, 预览行);
+  }
   async 导入部门(input: Record<string, unknown>, actor: 组织操作人) {
     const rows = 读取行数组(input);
     if (!rows.length) throw new 应用错误("ORG_IMPORT_EMPTY", "导入内容为空。", 400);
-    const 名称集合 = new Set<string>();
-    for (const row of rows) {
-      const name = 文本(row, "name");
-      if (名称集合.has(name))
-        throw new 应用错误("ORG_IMPORT_DUPLICATE_NAME", `部门名称重复：${name}`, 400);
-      名称集合.add(name);
-    }
-    return this.事务(async (db) => {
-      const user = await this.操作人(db, actor);
-      // 部门全量覆盖前，先解除内部账号对旧部门的 org_unit_id 绑定（V2 遗留字段），
-      // 避免外键拦截删除；成员归属以重新导入的任职为准。
-      await db.query(
-        "UPDATE iam.users SET org_unit_id=NULL WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
-      );
-      await db.query(
-        "DELETE FROM org.staff_assignments WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
-      );
-      await db.query(
-        "DELETE FROM org.positions WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
-      );
-      await db.query("DELETE FROM org.org_units WHERE unit_type NOT LIKE 'channel_%'");
-      const 编号映射 = new Map<string, string>();
-      for (const row of rows) {
-        const name = 文本(row, "name");
-        const parentName = 可选文本(row, "parentName");
-        const parentId = parentName ? 编号映射.get(parentName) : null;
-        if (parentName && !parentId)
-          throw new 应用错误(
-            "ORG_IMPORT_PARENT_MISSING",
-            `上级部门不存在或顺序错误：${parentName}`,
-            400,
+    const 全量覆盖 = input.replaceAll === true;
+    const 任务编号 = await this.确保组织导入任务(
+      "org_units",
+      actor,
+      rows,
+      可选文本(input, "taskId") || "",
+    );
+    try {
+      const 结果 = await this.事务(async (db) => {
+        const user = await this.操作人(db, actor);
+        const 预览行 = await this.校验部门导入行(db, rows);
+        抛出组织导入校验错误(预览行);
+        if (全量覆盖) {
+          // 仅当用户明确选择全量覆盖时才清理内部组织，避免“仅导入通过行”误删文件未包含的部门。
+          await db.query(
+            "UPDATE iam.users SET org_unit_id=NULL WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
           );
-        const id = crypto.randomUUID();
-        const status = 枚举(row, "statusCode", ["draft", "active", "disabled"], "active");
-        await db.query(
-          "INSERT INTO org.org_units(id,unit_code,unit_name,unit_type,parent_unit_id,status_code,sort_order,created_by_user_id) VALUES($1,$2,$3,'department',$4::uuid,$5,$6,$7::uuid)",
-          [id, 生成组织编码(), name, parentId, status, 整数(row, "sortOrder", 0), user],
-        );
-        编号映射.set(name, id);
-      }
-      await db.query("SELECT org.rebuild_unit_paths()");
-      await 审计(db, actor, user, "units.imported", "", { imported: rows.length });
-      return { imported: rows.length };
-    });
+          await db.query(
+            "DELETE FROM org.staff_assignments WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
+          );
+          await db.query(
+            "DELETE FROM org.positions WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
+          );
+          await db.query("DELETE FROM org.org_units WHERE unit_type NOT LIKE 'channel_%'");
+        }
+        const 编号映射 = new Map<string, string>();
+        if (!全量覆盖) {
+          const 已有部门 = await db.query<{ id: string; unit_name: string }>(
+            `SELECT id::text AS id, unit_name
+               FROM org.org_units
+              WHERE unit_type NOT LIKE 'channel_%'
+              ORDER BY path_code, created_at`,
+          );
+          for (const 部门 of 已有部门.rows) 编号映射.set(部门.unit_name.trim(), 部门.id);
+        }
+        for (const row of rows) {
+          const name = 文本(row, "name");
+          const parentName = 可选文本(row, "parentName");
+          const parentId = parentName ? 编号映射.get(parentName) : null;
+          if (parentName && !parentId)
+            throw new 应用错误(
+              "ORG_IMPORT_PARENT_MISSING",
+              `上级部门不存在或顺序错误：${parentName}`,
+              400,
+            );
+          const status = 枚举(row, "statusCode", ["draft", "active", "disabled"], "active");
+          const 已有编号 = 全量覆盖 ? null : 编号映射.get(name);
+          let id: string;
+          if (已有编号) {
+            id = 已有编号;
+            if (parentId) {
+              await db.query("SELECT org.assert_no_cycle($1::uuid,$2::uuid)", [已有编号, parentId]);
+              await db.query("SELECT org.assert_unit_parent_compatible($1::uuid,$2::uuid)", [
+                已有编号,
+                parentId,
+              ]);
+            }
+            await db.query(
+              `UPDATE org.org_units
+                  SET parent_unit_id=$1::uuid,status_code=$2,sort_order=$3,
+                      updated_at=now(),row_version=row_version+1
+                WHERE id=$4::uuid`,
+              [parentId, status, 整数(row, "sortOrder", 0), 已有编号],
+            );
+          } else {
+            id = crypto.randomUUID();
+            await db.query(
+              "INSERT INTO org.org_units(id,unit_code,unit_name,unit_type,parent_unit_id,status_code,sort_order,created_by_user_id) VALUES($1,$2,$3,'department',$4::uuid,$5,$6,$7::uuid)",
+              [id, 生成组织编码(), name, parentId, status, 整数(row, "sortOrder", 0), user],
+            );
+            if (parentId)
+              await db.query("SELECT org.assert_unit_parent_compatible($1::uuid,$2::uuid)", [
+                id,
+                parentId,
+              ]);
+          }
+          编号映射.set(name, id);
+        }
+        await db.query("SELECT org.rebuild_unit_paths()");
+        await 审计(db, actor, user, "units.imported", "", {
+          imported: rows.length,
+          replaceAll: 全量覆盖,
+        });
+        return { imported: rows.length, taskId: 任务编号, replaceAll: 全量覆盖 };
+      });
+      await this.完成组织导入任务(任务编号, 结果.imported, "succeeded");
+      return 结果;
+    } catch (error) {
+      await this.完成组织导入任务(
+        任务编号,
+        0,
+        "failed",
+        String((error as Error)?.message || error),
+      );
+      throw error;
+    }
   }
   async 导出部门() {
     const { rows } = await this.pool.query(
@@ -682,45 +787,151 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       })),
     };
   }
+  async 预览成员导入(input: Record<string, unknown>, actor: 组织操作人) {
+    const rows = 读取行数组(input);
+    if (!rows.length) throw new 应用错误("ORG_IMPORT_EMPTY", "导入内容为空。", 400);
+    const 预览行 = await this.校验成员导入行(this.pool, rows);
+    return this.创建组织导入任务("org_staff", actor, 预览行);
+  }
   async 导入成员(input: Record<string, unknown>, actor: 组织操作人) {
     const rows = 读取行数组(input);
     if (!rows.length) throw new 应用错误("ORG_IMPORT_EMPTY", "导入内容为空。", 400);
-    const 用户集合 = new Set<string>();
-    for (const row of rows) {
-      const username = 文本(row, "username");
-      const 键 = username.trim().toLowerCase();
-      if (用户集合.has(键))
-        throw new 应用错误("ORG_IMPORT_DUPLICATE_USER", `同一用户只能出现一次：${username}`, 400);
-      用户集合.add(键);
-    }
-    return this.事务(async (db) => {
-      const user = await this.操作人(db, actor);
-      await db.query(
-        "DELETE FROM org.staff_assignments WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
+    const 全量覆盖 = input.replaceAll === true;
+    const 任务编号 = await this.确保组织导入任务(
+      "org_staff",
+      actor,
+      rows,
+      可选文本(input, "taskId") || "",
+    );
+    try {
+      const 结果 = await this.事务(async (db) => {
+        const user = await this.操作人(db, actor);
+        const 预览行 = await this.校验成员导入行(db, rows);
+        抛出组织导入校验错误(预览行);
+        if (全量覆盖)
+          await db.query(
+            "DELETE FROM org.staff_assignments WHERE org_unit_id IN (SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%')",
+          );
+        for (const row of rows) {
+          const deptName = 文本(row, "departmentName");
+          const username = 文本(row, "username");
+          const dept = await db.query(
+            "SELECT id FROM org.org_units WHERE unit_name=$1 AND unit_type NOT LIKE 'channel_%' AND status_code IN ('active','draft') LIMIT 1",
+            [deptName],
+          );
+          if (!dept.rows[0])
+            throw new 应用错误("ORG_IMPORT_DEPARTMENT_MISSING", `部门不存在：${deptName}`, 400);
+          const u = await db.query(
+            "SELECT id FROM iam.users WHERE lower(username)=lower($1) AND status_code='active'",
+            [username],
+          );
+          if (!u.rows[0])
+            throw new 应用错误("ORG_IMPORT_USER_MISSING", `用户不存在或不可用：${username}`, 400);
+          const 已有任职 = 全量覆盖
+            ? { rows: [] as Array<{ id: string }> }
+            : await db.query<{ id: string }>(
+                `SELECT id::text AS id
+                   FROM org.staff_assignments
+                  WHERE user_id=$1::uuid AND expired_at IS NULL
+                    AND org_unit_id IN (
+                      SELECT id FROM org.org_units WHERE unit_type NOT LIKE 'channel_%'
+                    )
+                  ORDER BY is_primary DESC, created_at
+                  LIMIT 1
+                  FOR UPDATE`,
+                [u.rows[0].id],
+              );
+          if (已有任职.rows[0]) {
+            await db.query(
+              `UPDATE org.staff_assignments
+                  SET org_unit_id=$1::uuid,
+                      position_id=CASE WHEN org_unit_id=$1::uuid THEN position_id ELSE NULL END,
+                      is_primary=true,updated_at=now(),row_version=row_version+1
+                WHERE id=$2::uuid`,
+              [dept.rows[0].id, 已有任职.rows[0].id],
+            );
+          } else {
+            await db.query(
+              "INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,created_by_user_id) VALUES($1::uuid,$2::uuid,NULL,true,now(),$3::uuid)",
+              [u.rows[0].id, dept.rows[0].id, user],
+            );
+          }
+        }
+        await 审计(db, actor, user, "staff.imported", "", {
+          imported: rows.length,
+          replaceAll: 全量覆盖,
+        });
+        return { imported: rows.length, taskId: 任务编号, replaceAll: 全量覆盖 };
+      });
+      await this.完成组织导入任务(任务编号, 结果.imported, "succeeded");
+      return 结果;
+    } catch (error) {
+      await this.完成组织导入任务(
+        任务编号,
+        0,
+        "failed",
+        String((error as Error)?.message || error),
       );
-      for (const row of rows) {
-        const deptName = 文本(row, "departmentName");
-        const username = 文本(row, "username");
-        const dept = await db.query(
-          "SELECT id FROM org.org_units WHERE unit_name=$1 AND unit_type NOT LIKE 'channel_%' AND status_code IN ('active','draft') LIMIT 1",
-          [deptName],
-        );
-        if (!dept.rows[0])
-          throw new 应用错误("ORG_IMPORT_DEPARTMENT_MISSING", `部门不存在：${deptName}`, 400);
-        const u = await db.query(
-          "SELECT id FROM iam.users WHERE lower(username)=lower($1) AND status_code='active'",
-          [username],
-        );
-        if (!u.rows[0])
-          throw new 应用错误("ORG_IMPORT_USER_MISSING", `用户不存在或不可用：${username}`, 400);
-        await db.query(
-          "INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary,effective_at,created_by_user_id) VALUES($1::uuid,$2::uuid,NULL,true,now(),$3::uuid)",
-          [u.rows[0].id, dept.rows[0].id, user],
-        );
-      }
-      await 审计(db, actor, user, "staff.imported", "", { imported: rows.length });
-      return { imported: rows.length };
-    });
+      throw error;
+    }
+  }
+  async 查询组织导入任务(id: string): Promise<组织导入任务 | null> {
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+    const 结果 = await this.pool.query<{
+      id: string;
+      type: string;
+      status: string;
+      created_at: string;
+      finished_at: string | null;
+      extra_json: Record<string, unknown> | null;
+    }>(
+      `SELECT id::text AS id, business_type_code AS type, status_code AS status,
+              created_at::text AS created_at, finished_at::text AS finished_at, extra_json
+         FROM ops.import_export_tasks
+        WHERE id=$1::uuid AND task_type_code='import'
+          AND business_type_code IN ('org_units','org_staff')
+        LIMIT 1`,
+      [id],
+    );
+    const row = 结果.rows[0];
+    if (!row) return null;
+    const extra = row.extra_json || {};
+    return {
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      batchId: String(extra.batchId || ""),
+      totalCount: Number(extra.totalCount || 0),
+      validCount: Number(extra.validCount || 0),
+      errorCount: Number(extra.errorCount || 0),
+      importedCount: Number(extra.importedCount || 0),
+      rows: Array.isArray(extra.rows) ? (extra.rows as 组织导入预览行[]) : [],
+      errorReportUrl: String(extra.errorReportUrl || ""),
+      createdAt: row.created_at,
+      finishedAt: row.finished_at,
+    };
+  }
+  async 生成组织导入错误报告(id: string): Promise<Buffer | null> {
+    const 任务 = await this.查询组织导入任务(id);
+    if (!任务) return null;
+    const 转义 = (值: unknown) => `"${String(值 ?? "").replaceAll('"', '""')}"`;
+    const 失败行 = 任务.rows.filter((row) => row.status === "error");
+    const 行数据 = [
+      ["行号", "错误信息", "部门名称", "上级部门", "用户名", "所属部门"].map(转义).join(","),
+      ...失败行.map((row) =>
+        [
+          row.row,
+          row.errors.join("；"),
+          读取导入文本(row.data, "name"),
+          读取导入文本(row.data, "parentName"),
+          读取导入文本(row.data, "username"),
+          读取导入文本(row.data, "departmentName"),
+        ]
+          .map(转义)
+          .join(","),
+      ),
+    ];
+    return Buffer.from(`\uFEFF${行数据.join("\r\n")}`, "utf8");
   }
   async 导出成员() {
     const { rows } = await this.pool.query(
@@ -782,7 +993,9 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     return this.事务(async (db) => {
       const before = await 锁定(db, "org.org_units", id);
       const version = 版本(input);
-      const parent = 可选标识(input, "parentUnitId") ?? before.parent_unit_id;
+      const parent = Object.prototype.hasOwnProperty.call(input, "parentUnitId")
+        ? 可选标识(input, "parentUnitId")
+        : before.parent_unit_id;
       await db.query("SELECT org.assert_no_cycle($1::uuid,$2::uuid)", [id, parent]);
       await db.query("SELECT org.assert_unit_parent_compatible($1::uuid,$2::uuid)", [id, parent]);
       const r = await db.query(
@@ -870,8 +1083,16 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     );
   }
   async 查询任职(orgUnitId?: string) {
+    // 树节点 members 与成员接口统一为「直属成员」口径；页面点击部门时再递归汇总子部门，
+    // 避免同一部门在接口层已展开、页面又递归一次造成人数翻倍。
     const q = await this.pool.query(
-      'SELECT a.id::text,u.display_name AS "displayName",u.username AS "username",a.user_id::text AS "userId",a.org_unit_id::text AS "orgUnitId",a.position_id::text AS "positionId",p.position_name AS "positionName",a.is_primary AS "isPrimary",a.effective_at AS "effectiveAt",a.expired_at AS "expiredAt",a.row_version AS "rowVersion" FROM org.staff_assignments a JOIN iam.users u ON u.id=a.user_id LEFT JOIN org.positions p ON p.id=a.position_id WHERE ($1::uuid IS NULL OR a.org_unit_id=$1::uuid) ORDER BY u.display_name',
+      `SELECT a.id::text,u.display_name AS "displayName",u.username AS "username",a.user_id::text AS "userId",a.org_unit_id::text AS "orgUnitId",a.position_id::text AS "positionId",p.position_name AS "positionName",a.is_primary AS "isPrimary",a.effective_at AS "effectiveAt",a.expired_at AS "expiredAt",a.row_version AS "rowVersion"
+         FROM org.staff_assignments a
+         JOIN iam.users u ON u.id=a.user_id
+         LEFT JOIN org.positions p ON p.id=a.position_id
+        WHERE a.expired_at IS NULL
+          AND ($1::uuid IS NULL OR a.org_unit_id = $1::uuid)
+        ORDER BY u.display_name`,
       [orgUnitId || null],
     );
     return { items: q.rows };
@@ -897,6 +1118,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
         [userId, unit, position, user],
       );
       await db.query("SELECT org.assert_assignment_consistent($1::uuid)", [r.rows[0].id]);
+      await 同步任职账号区域(db, userId, unit);
       await 审计(db, actor, user, "assignment.created", r.rows[0].id, r.rows[0]);
       return r.rows[0];
     });
@@ -918,6 +1140,7 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       );
       if (!r.rows[0]) throw 冲突();
       await db.query("SELECT org.assert_assignment_consistent($1::uuid)", [id]);
+      await 同步任职账号区域(db, String(before.user_id), unit);
       const user = await this.操作人(db, actor);
       await 审计(db, actor, user, "assignment.updated", id, r.rows[0], before);
       return r.rows[0];
@@ -1303,7 +1526,12 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
   }
   async 查询证书模板(类别?: string) {
     const q = await this.pool.query(
-      'SELECT id::text,template_code AS "templateCode",template_name AS "templateName",category,status_code AS "statusCode",row_version AS "rowVersion" FROM org.certification_templates WHERE ($1::text IS NULL OR category=$1::text) ORDER BY template_code',
+      `SELECT id::text,template_code AS "templateCode",template_name AS "templateName",
+              category,issuer_name AS "issuerName",validity_months AS "validityMonths",
+              status_code AS "statusCode",row_version AS "rowVersion"
+         FROM org.certification_templates
+        WHERE ($1::text IS NULL OR category=$1::text)
+        ORDER BY template_code`,
       [类别 || null],
     );
     return { items: q.rows };
@@ -1321,6 +1549,32 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       actor,
       "certification_template.created",
     );
+  }
+  async 更新证书模板(id: string, input: Record<string, unknown>, actor: 组织操作人) {
+    return this.事务(async (db) => {
+      const before = await 锁定(db, "org.certification_templates", id);
+      const r = await db.query(
+        `UPDATE org.certification_templates
+            SET template_name=$1,category=$2,issuer_name=$3,validity_months=$4,
+                updated_at=now(),row_version=row_version+1
+          WHERE id=$5::uuid AND row_version=$6
+          RETURNING id::text,template_code AS "templateCode",template_name AS "templateName",
+                    category,issuer_name AS "issuerName",validity_months AS "validityMonths",
+                    status_code AS "statusCode",row_version AS "rowVersion"`,
+        [
+          文本(input, "templateName", before.template_name),
+          文本(input, "category", before.category),
+          可选文本默认(input, "issuerName", before.issuer_name),
+          可选正整数(input, "validityMonths") ?? before.validity_months,
+          id,
+          版本(input),
+        ],
+      );
+      if (!r.rows[0]) throw 冲突();
+      const user = await this.操作人(db, actor);
+      await 审计(db, actor, user, "certification_template.updated", id, r.rows[0], before);
+      return r.rows[0];
+    });
   }
   async 查询成员证书(
     userId?: string,
@@ -2479,6 +2733,16 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       ), filtered AS (
         SELECT * FROM base WHERE TRUE ${provider条件} ${状态条件}
       )`;
+    // 外部身份映射的卡片口径必须是「映射记录数」，不能复用 total（total 是目录内账号数）。
+    const 映射统计结果 = await this.pool.query(
+      `${基础查询} SELECT
+          count(*)::int AS "mappingTotal",
+          count(*) FILTER (WHERE e.status_code='active')::int AS "mappingActive",
+          count(*) FILTER (WHERE e.status_code='active' AND e.provider_code='eteams')::int AS "mappingEteamsActive",
+          count(*) FILTER (WHERE e.status_code='active' AND e.provider_code='wecom')::int AS "mappingWecomActive"
+        FROM filtered f JOIN iam.external_identities e ON e.user_id = f.user_id::uuid`,
+      参数值,
+    );
     const countResult = await this.pool.query(
       `${基础查询} SELECT count(*)::int AS total,
         count(*) FILTER (WHERE eteams_status='active')::int AS "eteamsActive",
@@ -2504,10 +2768,15 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
       [...参数值, 参数.pageSize, offset],
     );
     const summary = countResult.rows[0] || {};
+    const 映射统计 = 映射统计结果.rows[0] || {};
     return {
       items: rows.rows,
       summary: {
         total: Number(summary.total || 0),
+        mappingTotal: Number(映射统计.mappingTotal || 0),
+        mappingActive: Number(映射统计.mappingActive || 0),
+        mappingEteamsActive: Number(映射统计.mappingEteamsActive || 0),
+        mappingWecomActive: Number(映射统计.mappingWecomActive || 0),
         eteamsActive: Number(summary.eteamsActive || 0),
         eteamsMissing: Number(summary.eteamsMissing || 0),
         eteamsPending: Number(summary.eteamsPending || 0),
@@ -3284,6 +3553,172 @@ class PostgreSQL组织数据服务 implements 组织数据服务 {
     );
     return 构建企业微信映射导入预览(file, 用户.rows, 身份.rows);
   }
+  private async 校验部门导入行(
+    db: Pick<Pool, "query"> | PoolClient,
+    rows: Record<string, unknown>[],
+  ): Promise<组织导入预览行[]> {
+    const 已有部门 = await db.query<{ unit_name: string }>(
+      "SELECT unit_name FROM org.org_units WHERE unit_type NOT LIKE 'channel_%' AND status_code IN ('active','draft')",
+    );
+    const 已有名称 = new Set(已有部门.rows.map((row) => row.unit_name.trim()));
+    const 已出现名称 = new Set<string>();
+    return rows.map((data, index) => {
+      const errors: string[] = [];
+      const name = 读取导入文本(data, "name");
+      const parentName = 读取导入文本(data, "parentName");
+      const statusCode = 读取导入文本(data, "statusCode") || "active";
+      if (!name) errors.push("部门名称不能为空。");
+      if (name.length > 100) errors.push("部门名称不能超过 100 个字符。");
+      if (name && 已出现名称.has(name)) errors.push(`部门名称重复：${name}`);
+      if (name && !已出现名称.has(name)) 已出现名称.add(name);
+      if (parentName && !已有名称.has(parentName) && !已出现名称.has(parentName))
+        errors.push(`上级部门不存在或未排在当前行之前：${parentName}`);
+      if (!["active", "draft", "disabled"].includes(statusCode))
+        errors.push("状态只能是 active、draft 或 disabled。");
+      return {
+        row: index + 1,
+        status: errors.length ? "error" : "valid",
+        data,
+        errors,
+      };
+    });
+  }
+  private async 校验成员导入行(
+    db: Pick<Pool, "query"> | PoolClient,
+    rows: Record<string, unknown>[],
+  ): Promise<组织导入预览行[]> {
+    const 部门 = await db.query<{ unit_name: string; total: string }>(
+      `SELECT unit_name, COUNT(*)::text AS total
+         FROM org.org_units
+        WHERE unit_type NOT LIKE 'channel_%' AND status_code IN ('active','draft')
+        GROUP BY unit_name`,
+    );
+    const 部门数量 = new Map(部门.rows.map((row) => [row.unit_name.trim(), Number(row.total)]));
+    const 用户名列表 = Array.from(
+      new Set(rows.map((row) => 读取导入文本(row, "username").toLowerCase()).filter(Boolean)),
+    );
+    const 用户 = 用户名列表.length
+      ? await db.query<{ username: string }>(
+          "SELECT lower(username::text) AS username FROM iam.users WHERE lower(username::text)=ANY($1::text[]) AND status_code='active'",
+          [用户名列表],
+        )
+      : { rows: [] as Array<{ username: string }> };
+    const 有效用户 = new Set(用户.rows.map((row) => row.username));
+    const 已出现用户 = new Set<string>();
+    return rows.map((data, index) => {
+      const errors: string[] = [];
+      const username = 读取导入文本(data, "username");
+      const departmentName = 读取导入文本(data, "departmentName");
+      const 用户键 = username.toLowerCase();
+      if (!username) errors.push("用户名不能为空。");
+      if (!departmentName) errors.push("部门名称不能为空。");
+      if (用户键 && 已出现用户.has(用户键)) errors.push(`同一用户只能出现一次：${username}`);
+      if (用户键 && !已出现用户.has(用户键)) 已出现用户.add(用户键);
+      if (username && !有效用户.has(用户键)) errors.push(`用户不存在或不可用：${username}`);
+      if (departmentName) {
+        const 数量 = 部门数量.get(departmentName) || 0;
+        if (数量 === 0) errors.push(`部门不存在：${departmentName}`);
+        if (数量 > 1) errors.push(`部门名称不唯一，请先在组织架构中消除重名：${departmentName}`);
+      }
+      return {
+        row: index + 1,
+        status: errors.length ? "error" : "valid",
+        data,
+        errors,
+      };
+    });
+  }
+  private async 创建组织导入任务(
+    type: "org_units" | "org_staff",
+    actor: 组织操作人,
+    预览行: 组织导入预览行[],
+  ): Promise<组织导入预览> {
+    const batchId = `ORG-IMPORT-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
+    const validCount = 预览行.filter((row) => row.status === "valid").length;
+    const errorCount = 预览行.length - validCount;
+    const 结果 = await this.pool.query<{ id: string }>(
+      `INSERT INTO ops.import_export_tasks(
+         task_type_code,business_type_code,status_code,requested_by_user_id,
+         progress_percent,started_at,extra_json
+       ) VALUES(
+         'import',$1,'queued',
+         (SELECT id FROM iam.users WHERE lower(username::text)=lower($2) LIMIT 1),
+         0,now(),$3::jsonb
+       ) RETURNING id::text AS id`,
+      [
+        type,
+        actor.username,
+        JSON.stringify({
+          batchId,
+          totalCount: 预览行.length,
+          validCount,
+          errorCount,
+          uploadedBy: actor.username,
+          rows: 预览行,
+        }),
+      ],
+    );
+    const taskId = 结果.rows[0]?.id;
+    if (!taskId) throw new 应用错误("ORG_IMPORT_TASK_FAILED", "组织导入任务创建失败。", 500);
+    const errorReportUrl = this.组织导入错误报告地址(type, taskId);
+    await this.pool.query(
+      `UPDATE ops.import_export_tasks SET extra_json=extra_json || $2::jsonb WHERE id=$1::uuid`,
+      [taskId, JSON.stringify({ errorReportUrl })],
+    );
+    return {
+      batchId,
+      taskId,
+      rows: 预览行,
+      totalCount: 预览行.length,
+      validCount,
+      errorCount,
+      errorReportUrl,
+    };
+  }
+  private async 确保组织导入任务(
+    type: "org_units" | "org_staff",
+    actor: 组织操作人,
+    rows: Record<string, unknown>[],
+    taskId: string,
+  ): Promise<string> {
+    if (taskId) {
+      const 已有 = await this.查询组织导入任务(taskId);
+      if (!已有) throw new 应用错误("ORG_IMPORT_TASK_NOT_FOUND", "组织导入任务不存在。", 404);
+      if (已有.type !== type)
+        throw new 应用错误("ORG_IMPORT_TASK_TYPE_MISMATCH", "导入任务类型不匹配。", 409);
+      return taskId;
+    }
+    const 预览 = await this.创建组织导入任务(
+      type,
+      actor,
+      rows.map((data, index) => ({ row: index + 1, status: "valid", data, errors: [] })),
+    );
+    return 预览.taskId;
+  }
+  private async 完成组织导入任务(
+    taskId: string,
+    importedCount: number,
+    status: "succeeded" | "failed",
+    errorMessage = "",
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE ops.import_export_tasks
+          SET status_code=$2,progress_percent=100,finished_at=now(),
+              error_message=NULLIF($3,''),extra_json=extra_json || $4::jsonb
+        WHERE id=$1::uuid`,
+      [
+        taskId,
+        status,
+        errorMessage,
+        JSON.stringify({ importedCount, status, finishedAt: new Date().toISOString() }),
+      ],
+    );
+  }
+  private 组织导入错误报告地址(type: "org_units" | "org_staff", taskId: string): string {
+    return type === "org_units"
+      ? `/api/org/units/import/tasks/${taskId}/errors.csv`
+      : `/api/org/staff/import/tasks/${taskId}/errors.csv`;
+  }
   private async 事务<T>(
     action: (db: PoolClient) => Promise<T>,
     options: { serializable?: boolean } = {},
@@ -3329,6 +3764,11 @@ function 构建树(
 
 function 生成组织编码() {
   return `AUTO-${crypto.randomBytes(6).toString("hex")}-${Date.now().toString(36)}`;
+}
+
+function 读取导入文本(row: Record<string, unknown>, key: string): string {
+  const value = row[key];
+  return value === null || value === undefined ? "" : String(value).trim();
 }
 
 function 读取行数组(v: Record<string, unknown>) {
@@ -3818,6 +4258,75 @@ async function 锁定任职账号(db: PoolClient, userId: string): Promise<void>
   if (!结果.rows[0]) throw new 应用错误("ORG_USER_NOT_FOUND", "用户不存在。", 404);
 }
 
+/** 任职是账号数据范围的正式来源；部门调整必须在同一事务同步账号区域。 */
+async function 同步任职账号区域(db: PoolClient, userId: string, orgUnitId: string): Promise<void> {
+  await db.query(
+    `WITH 唯一匹配 AS (
+       SELECT ou.id AS unit_id, MIN(r.id::text)::uuid AS region_id
+         FROM org.org_units ou
+         JOIN org.regions r
+           ON r.region_level='region'
+          AND r.status_code='active'
+          AND btrim(r.region_name)=btrim(ou.unit_name)
+        WHERE ou.id=$1::uuid
+          AND ou.region_id IS NULL
+        GROUP BY ou.id
+       HAVING count(*)=1
+     )
+     UPDATE org.org_units ou
+        SET region_id=唯一匹配.region_id,updated_at=now()
+       FROM 唯一匹配
+      WHERE ou.id=唯一匹配.unit_id`,
+    [orgUnitId],
+  );
+  const 区域 = await db.query<{
+    regionId: string | null;
+    regionName: string | null;
+    bigRegionName: string | null;
+    unitName: string;
+  }>(
+    `SELECT ou.region_id::text AS "regionId",r.region_name AS "regionName",
+            b.region_name AS "bigRegionName",ou.unit_name AS "unitName"
+       FROM org.org_units ou
+       LEFT JOIN org.regions r ON r.id=ou.region_id
+       LEFT JOIN org.regions b ON b.id=r.parent_region_id
+      WHERE ou.id=$1::uuid`,
+    [orgUnitId],
+  );
+  const 行 = 区域.rows[0];
+  if (!行) throw new 应用错误("ORG_UNIT_NOT_FOUND", "任职部门不存在。", 404);
+  if (!行.regionId) {
+    const 角色 = await db.query<{ roleCodes: string[] }>(
+      `SELECT COALESCE(array_agg(r.role_code ORDER BY r.role_code)
+                       FILTER (WHERE r.status_code='active'),ARRAY[]::text[]) AS "roleCodes"
+         FROM iam.user_roles ur
+         JOIN iam.roles r ON r.id=ur.role_id
+        WHERE ur.user_id=$1::uuid`,
+      [userId],
+    );
+    const 角色编码 = 角色.rows[0]?.roleCodes || [];
+    const 需要区域 = 角色编码.some((编码) => ["admin", "region_manager"].includes(编码));
+    if (需要区域 && !角色编码.includes("superadmin"))
+      throw new 应用错误(
+        "ORG_UNIT_REGION_UNBOUND",
+        `任职部门“${行.unitName}”尚未绑定正式区域，不能调整区域管理账号。请先为部门绑定区域。`,
+        409,
+      );
+  }
+  await db.query(
+    `UPDATE iam.users
+        SET region_id=$2::uuid,
+            extra_json=extra_json || jsonb_build_object(
+              'region',COALESCE($3,''),
+              'bigRegion',COALESCE($4,'')
+            ),
+            updated_at=now(),
+            row_version=row_version+1
+      WHERE id=$1::uuid`,
+    [userId, 行.regionId, 行.regionName, 行.bigRegionName],
+  );
+}
+
 async function 锁定交接接收账号(db: PoolClient, userId: string): Promise<void> {
   const 结果 = await db.query("SELECT id FROM iam.users WHERE id=$1::uuid FOR UPDATE", [userId]);
   if (!结果.rows[0])
@@ -4108,7 +4617,10 @@ function 枚举(v: Record<string, unknown>, k: string, all: string[], d?: string
 }
 function 整数(v: Record<string, unknown>, k: string, d?: number) {
   const x = v[k] ?? d;
-  if (!Number.isInteger(x)) throw new 应用错误("ORG_REQUEST_INVALID", `${k}必须为整数。`, 400);
+  if (!Number.isInteger(x)) {
+    const 提示 = k === "rowVersion" ? "数据版本信息缺失，请刷新页面后重试。" : `${k}必须为整数。`;
+    throw new 应用错误("ORG_REQUEST_INVALID", 提示, 400);
+  }
   return x as number;
 }
 function 布尔(v: Record<string, unknown>, k: string, d: boolean) {

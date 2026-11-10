@@ -329,11 +329,11 @@ SELECT COALESCE(
       'passwordHash', :'password_hash',
       'defaultPath', CASE
         WHEN role_code IN ('partner_admin', 'staff') THEN '/partner/dashboard'
-        ELSE '/unified'
+        ELSE '/admin/dashboard'
       END,
       'allowedPaths', CASE
-        WHEN role_code IN ('superadmin', 'region_manager') THEN jsonb_build_array('/unified', '/admin', '/partner', '/mobile')
-        ELSE jsonb_build_array('/unified', '/partner', '/mobile')
+        WHEN role_code IN ('superadmin', 'region_manager') THEN jsonb_build_array('/admin', '/partner', '/mobile')
+        ELSE jsonb_build_array('/partner', '/mobile')
       END
     )
     ORDER BY username
@@ -374,13 +374,13 @@ def normalize_user(user):
         return None
     allowed_paths = user.get("allowedPaths")
     if not isinstance(allowed_paths, list) or not allowed_paths:
-        allowed_paths = ["/unified"]
+        allowed_paths = []
     return {
         "username": username,
         "displayName": str(user.get("displayName") or username),
         "roleName": str(user.get("roleName") or "用户"),
         "passwordHash": password_hash,
-        "defaultPath": str(user.get("defaultPath") or "/unified"),
+        "defaultPath": str(user.get("defaultPath") or "/403"),
         "allowedPaths": allowed_paths,
     }
 

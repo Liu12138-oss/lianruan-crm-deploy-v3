@@ -30,6 +30,8 @@ export interface 正式报价单数据 {
   有效期?: string;
   端点数量?: string;
   报价状态?: string;
+  /** 标准产品报价在区管补价前不得在 PDF 中出现任何价格。 */
+  隐藏价格?: boolean;
 }
 
 /** 兼容订单预审 Worker 的既有类型名。 */
@@ -47,9 +49,9 @@ const 边框色 = "0.84 0.88 0.94";
 const 正文色 = "0.12 0.16 0.23";
 const 次要色 = "0.38 0.43 0.51";
 
-/** 内置中文字体路径，随包发布，运行期直接按路径读取。 */
-const 中文字体路径 = fileURLToPath(new URL("../assets/NotoSerifSC-Regular.otf", import.meta.url));
-const 中文字体基础名 = "NotoSerifSC-Regular";
+/** 内置中文正楷字体路径（霞鹜文楷 GB，SIL OFL 1.1），随包发布，运行期直接按路径读取。 */
+const 中文字体路径 = fileURLToPath(new URL("../assets/LXGWWenKaiGB-Regular.ttf", import.meta.url));
+const 中文字体基础名 = "LXGWWenKaiGB-Regular";
 let 中文字体缓存: 字体对象 | null = null;
 
 function 取中文字体(): 字体对象 {
@@ -83,9 +85,9 @@ function 编码中文字符(字体: 嵌入中文字体, 字符: string): { 编�
 /**
  * 生成页面下载和 OA 附件共用的正式报价单 PDF。
  *
- * 中文使用随包内置的 Noto Serif SC（SIL OFL 1.1），生成时按实际用字做子集并嵌入 PDF，
- * 英文和数字继续使用 PDF 标准字体 Helvetica。历史实现只引用未嵌入的 STSong-Light，
- * 阅读器缺少 Adobe 中文字体时会显示乱码，因此改为内嵌字体。
+ * 中文使用随包内置的霞鹜文楷 GB（正楷，SIL OFL 1.1），生成时按实际用字做子集并嵌入 PDF；
+ * 英文和数字使用 PDF 标准字体 Times-Roman / Times-Bold（西文 Times New Roman 等价字体）。
+ * 历史实现只引用未嵌入的 STSong-Light，阅读器缺少 Adobe 中文字体时会显示乱码，因此改为内嵌字体。
  */
 export function 生成正式报价单PDF(报价单: 正式报价单数据): Buffer {
   const 明细 = 补齐默认明细(报价单.明细);
@@ -132,7 +134,7 @@ function 创建页面内容(
 ): 页面内容[] {
   const 内容: 页面内容[] = [];
   let 当前页 = 创建空页面(字体);
-  let y = 214;
+  let y = 238;
   添加页眉(当前页, 报价单);
 
   const 添加到下一页 = () => {
@@ -144,19 +146,51 @@ function 创建页面内容(
 
   添加文本(当前页, "产品明细", 左边距, y, 13, "bold", 正文色);
   y += 28;
+  const 明细行高 = (项: 正式报价单明细) => Math.max(1, 拆分文本(项.名称, 19).length) * 30;
   for (const 分组项 of 分组) {
-    const 行数 = 分组项.数据.reduce(
-      (总数, 项) => 总数 + Math.max(1, 拆分文本(项.名称, 25).length),
-      0,
-    );
-    const 组高度 = 48 + 行数 * 30;
-    if (y + 组高度 > 680) {
-      添加到下一页();
-      添加文本(当前页, "产品明细（续）", 左边距, y, 13, "bold", 正文色);
-      y += 28;
+    if (!分组项.数据.length) continue;
+    // 明细组可能超过一页。按实际行高逐行装箱，避免整组被推到下一页后首页只剩标题。
+    let 待排 = 分组项.数据;
+    let 首段 = true;
+    let 已排行数 = 0;
+    while (待排.length) {
+      if (y + 36 + 明细行高(待排[0]!) > 680) {
+        添加到下一页();
+        添加文本(当前页, "产品明细（续）", 左边距, y, 13, "bold", 正文色);
+        y += 28;
+      }
+      const 可用高度 = 680 - y - 36;
+      let 占用高度 = 0;
+      let 本段行数 = 0;
+      for (const 项 of 待排) {
+        const 行高 = 明细行高(项);
+        if (本段行数 > 0 && 占用高度 + 行高 > 可用高度) break;
+        占用高度 += 行高;
+        本段行数 += 1;
+      }
+      if (本段行数 === 0) 本段行数 = 1;
+      const 本段数据 = 待排.slice(0, 本段行数);
+      y = 添加明细分组(
+        当前页,
+        {
+          ...分组项,
+          标题: 首段 ? 分组项.标题 : `${分组项.标题}（续）`,
+          数据: 本段数据,
+        },
+        y,
+        报价单.隐藏价格 === true,
+        已排行数,
+      );
+      y += 18;
+      已排行数 += 本段行数;
+      待排 = 待排.slice(本段行数);
+      首段 = false;
+      if (待排.length) {
+        添加到下一页();
+        添加文本(当前页, "产品明细（续）", 左边距, y, 13, "bold", 正文色);
+        y += 28;
+      }
     }
-    y = 添加明细分组(当前页, 分组项, y);
-    y += 18;
   }
 
   if (y + 180 > 790) 添加到下一页();
@@ -175,27 +209,20 @@ function 创建空页面(字体: 嵌入中文字体): 页面内容 {
 }
 
 function 添加页眉(页面: 页面内容, 报价单: 正式报价单数据): void {
-  填充矩形(页面, 0, 0, 页面宽度, 200, 蓝色);
+  填充矩形(页面, 0, 0, 页面宽度, 224, 蓝色);
   添加文本(页面, "联软科技（深圳）有限公司", 左边距, 38, 14, "bold", "1 1 1");
-  添加文本(
-    页面,
-    "UniSoft Technology (Shenzhen) Co., Ltd.",
-    左边距,
-    59,
-    8.5,
-    "regular",
-    "0.76 0.86 1",
-  );
   添加文本(页面, "联软安全产品报价单", 左边距, 99, 23, "bold", "1 1 1");
-  添加文本(页面, "UniSoft Security Products Quotation", 左边距, 122, 10, "regular", "0.76 0.86 1");
+  添加文本(页面, "企业级安全产品与渠道服务报价", 左边距, 122, 10, "regular", "0.76 0.86 1");
 
   const 元数据: Array<[string, string]> = [
     ["报价编号", 报价单.报价编号 || "未登记"],
     ["客户名称", 报价单.最终用户 || "未填写"],
+    ["渠道名称", 报价单.合同对方 || "未填写"],
     ["项目名称", 报价单.项目名称 || "—"],
     ["报价日期", 格式日期(报价单.生成时间)],
     ["有效期", 报价单.有效期 ? `${报价单.有效期} 天` : "—"],
     ["端点数量", 报价单.端点数量 ? `${报价单.端点数量} 台` : "—"],
+    ["报价状态", 报价单.报价状态 || "—"],
   ];
   元数据.forEach(([标签, 值], 下标) => {
     const 列 = 下标 % 3;
@@ -204,7 +231,7 @@ function 添加页眉(页面: 页面内容, 报价单: 正式报价单数据): v
     const y = 141 + 行 * 27;
     填充矩形(页面, x, y, 160, 22, "0.12 0.25 0.43");
     添加文本(页面, 标签, x + 8, y + 9, 7, "regular", "0.67 0.78 0.92");
-    添加文本(页面, 截断文本(值, 18), x + 8, y + 19, 8.5, "bold", "1 1 1");
+    添加文本(页面, 适配文本宽度(值, 144, 8.5), x + 8, y + 19, 8.5, "bold", "1 1 1");
   });
 }
 
@@ -218,22 +245,25 @@ function 添加明细分组(
   页面: 页面内容,
   分组: { 标题: string; 数量列名: string; 数据: 正式报价单明细[] },
   起始Y: number,
+  隐藏价格 = false,
+  起始序号 = 0,
 ): number {
-  const 列 = { 序号: 左边距, 名称: 72, 数量: 315, 小计: 410 };
+  const 列 = { 序号: 左边距, 名称: 72, 数量: 256, 单价: 334, 小计: 438 };
   添加文本(页面, 分组.标题, 左边距, 起始Y, 11, "bold", 强调蓝色);
   const 表头Y = 起始Y + 12;
   填充矩形(页面, 左边距, 表头Y, 内容宽度, 24, 浅蓝色);
   添加文本(页面, "序号", 列.序号 + 8, 表头Y + 16, 8.5, "bold", 正文色);
   添加文本(页面, "产品名称", 列.名称 + 8, 表头Y + 16, 8.5, "bold", 正文色);
   添加文本(页面, 分组.数量列名, 列.数量 + 8, 表头Y + 16, 8.5, "bold", 正文色);
+  添加文本(页面, "单价（元）", 列.单价 + 8, 表头Y + 16, 8.5, "bold", 正文色);
   添加文本(页面, "小计（元）", 列.小计 + 8, 表头Y + 16, 8.5, "bold", 正文色);
   let y = 表头Y + 24;
   const 行边界 = [表头Y, y];
   分组.数据.forEach((项, 下标) => {
-    const 名称行 = 拆分文本(项.名称, 25);
+    const 名称行 = 拆分文本(项.名称, 19);
     const 行高 = Math.max(1, 名称行.length) * 30;
     if (下标 % 2 === 1) 填充矩形(页面, 左边距, y, 内容宽度, 行高, "0.98 0.99 1");
-    添加文本(页面, String(下标 + 1), 列.序号 + 10, y + 19, 9, "regular", 正文色);
+    添加文本(页面, String(起始序号 + 下标 + 1), 列.序号 + 10, y + 19, 9, "regular", 正文色);
     名称行.forEach((行文本, 行下标) =>
       添加文本(页面, 行文本, 列.名称 + 8, y + 18 + 行下标 * 14, 8.8, "regular", 正文色),
     );
@@ -246,11 +276,20 @@ function 添加明细分组(
       "regular",
       正文色,
     );
-    添加文本(页面, 格式金额(项.金额), 列.小计 + 8, y + 19, 8.8, "bold", 正文色);
+    添加文本(页面, 隐藏价格 ? "—" : 格式金额(项.单价), 列.单价 + 8, y + 19, 8.8, "regular", 正文色);
+    添加文本(
+      页面,
+      隐藏价格 ? "待区管定价" : 格式金额(项.金额),
+      列.小计 + 8,
+      y + 19,
+      8.8,
+      "bold",
+      正文色,
+    );
     y += 行高;
     行边界.push(y);
   });
-  画表格线(页面, 表头Y, y, [30, 243, 95, 143], 行边界);
+  画表格线(页面, 表头Y, y, [30, 184, 78, 104, 115], 行边界);
   return y;
 }
 
@@ -276,12 +315,28 @@ function 添加合计与签章(页面: 页面内容, 报价单: 正式报价单�
   const 合计X = 页面宽度 - 42 - 合计宽度;
   填充矩形(页面, 合计X, y, 合计宽度, 72, "0.96 0.98 1");
   添加文本(页面, "产品合计", 合计X + 14, y + 20, 9, "regular", 次要色);
-  添加文本(页面, 格式金额(报价单.合计金额), 合计X + 145, y + 20, 9, "regular", 正文色);
+  添加文本(
+    页面,
+    报价单.隐藏价格 ? "待区管定价" : 格式金额(报价单.合计金额),
+    合计X + 145,
+    y + 20,
+    9,
+    "regular",
+    正文色,
+  );
   添加文本(页面, "实施服务费", 合计X + 14, y + 39, 9, "regular", 次要色);
   添加文本(页面, "另行报价", 合计X + 145, y + 39, 9, "regular", 次要色);
   画线(页面, 合计X + 12, y + 47, 合计X + 合计宽度 - 12, y + 47, "0.78 0.84 0.94", 0.7);
   添加文本(页面, "报价总额", 合计X + 14, y + 64, 10.5, "bold", 强调蓝色);
-  添加文本(页面, 格式金额(报价单.合计金额), 合计X + 145, y + 64, 10.5, "bold", 强调蓝色);
+  添加文本(
+    页面,
+    报价单.隐藏价格 ? "待区管定价" : 格式金额(报价单.合计金额),
+    合计X + 145,
+    y + 64,
+    10.5,
+    "bold",
+    强调蓝色,
+  );
   y += 104;
   画线(页面, 左边距, y, 页面宽度 - 42, y, 边框色, 0.7);
   添加文本(页面, "报价方签章：___________________", 左边距, y + 26, 8.5, "regular", 次要色);
@@ -372,7 +427,7 @@ function 添加文本(
     if (是否拉丁) {
       字体名 = 字重 === "bold" ? "/F3" : "/F2";
       内容 = `(${转义PDF文本(一段)}) Tj`;
-      推进 = 估算文本宽度(一段, 字号, true);
+      推进 = 拉丁文本宽度(一段, 字号);
     } else {
       let 十六进制 = "";
       for (const 字符 of Array.from(一段)) {
@@ -406,12 +461,10 @@ function 生成PDF(页面列表: 页面内容[], 标识: string, 字体: 嵌入�
     `<< /Type /Font /Subtype /Type0 /BaseFont /${字体名} /Encoding /Identity-H /DescendantFonts [4 0 R] /ToUnicode ${字符映射编号} 0 R >>`,
   );
   对象.push(
-    `<< /Type /Font /Subtype /CIDFontType0 /BaseFont /${字体名} /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${描述符编号} 0 R /DW 1000 /W [${生成宽度数组(字体)}] >>`,
+    `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${字体名} /CIDToGIDMap /Identity /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor ${描述符编号} 0 R /DW 1000 /W [${生成宽度数组(字体)}] >>`,
   );
-  对象.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
-  对象.push(
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
-  );
+  对象.push("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>");
+  对象.push("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>");
   for (let i = 0; i < 页面列表.length; i += 1) {
     const 内容编号 = 内容对象起始编号 + i;
     对象.push(
@@ -498,7 +551,7 @@ function 生成字体描述符(
     `/Descent ${下沿}`,
     `/CapHeight ${数字((capHeight || ascent) * 缩放)}`,
     "/StemV 0",
-    `/FontFile3 ${字体文件编号} 0 R >>`,
+    `/FontFile2 ${字体文件编号} 0 R >>`,
   ].join(" ");
 }
 
@@ -507,7 +560,7 @@ function 生成字体文件对象(字体: 嵌入中文字体): Buffer {
   const 压缩字节 = zlib.deflateSync(子集字节);
   return Buffer.concat([
     Buffer.from(
-      `<< /Length ${压缩字节.length} /Filter /FlateDecode /Subtype /CIDFontType0C >>\nstream\n`,
+      `<< /Length ${压缩字节.length} /Length1 ${子集字节.length} /Filter /FlateDecode >>\nstream\n`,
       "binary",
     ),
     压缩字节,
@@ -628,8 +681,33 @@ function 截断文本(值: string, 最大字符数: number): string {
   return 字符.length > 最大字符数 ? `${字符.slice(0, 最大字符数 - 1).join("")}…` : 值 || "—";
 }
 
-function 估算文本宽度(文本: string, 字号: number, 是否拉丁: boolean): number {
-  return Array.from(文本).reduce((总数, _字符) => 总数 + 字号 * (是否拉丁 ? 0.56 : 1), 0);
+/** 按可用宽度裁剪文本，保证报价编号等关键信息尽量完整显示。 */
+function 适配文本宽度(值: string, 最大宽度: number, 字号: number): string {
+  const 字符 = Array.from(值 || "");
+  if (!字符.length) return "—";
+  let 已用宽度 = 0;
+  let 结果 = "";
+  for (const 字符项 of 字符) {
+    已用宽度 += /[\x20-\x7e]/.test(字符项) ? 拉丁字符宽度(字符项, 字号) : 字号;
+    if (已用宽度 > 最大宽度 - 字号) return `${结果}…`;
+    结果 += 字符项;
+  }
+  return 结果;
+}
+
+/** Times-Roman 逐字符宽度近似值，保证中西文混排时后续字符不发生重叠。 */
+function 拉丁字符宽度(字符: string, 字号: number): number {
+  const 码点 = 字符.codePointAt(0) ?? 0;
+  if (码点 === 32) return 字号 * 0.25;
+  if (码点 >= 48 && 码点 <= 57) return 字号 * 0.5;
+  if (码点 >= 65 && 码点 <= 90) return 字号 * 0.68;
+  if (码点 >= 97 && 码点 <= 122) return 字号 * 0.52;
+  if (".,:;!|'`".includes(字符)) return 字号 * 0.28;
+  return 字号 * 0.5;
+}
+
+function 拉丁文本宽度(文本: string, 字号: number): number {
+  return Array.from(文本).reduce((总数, 字符) => 总数 + 拉丁字符宽度(字符, 字号), 0);
 }
 
 function 数字(值: number): string {

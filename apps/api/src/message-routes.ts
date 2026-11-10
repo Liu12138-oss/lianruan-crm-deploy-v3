@@ -31,6 +31,7 @@ export function 创建消息路由(参数: 消息路由参数): Router {
       const data = await service.查询通知(用户, {
         category: 读取查询文本(req, "category"),
         status: 读取查询文本(req, "status"),
+        keyword: 读取查询文本(req, "keyword"),
         cursor: 读取查询文本(req, "cursor"),
         limit: 读取通知条数(req),
       });
@@ -140,18 +141,20 @@ function 读取偏好更新(req: Request): 消息偏好更新 {
   }
   const body = req.body as Record<string, unknown>;
   const 允许字段 = new Set([
+    "inAppEnabled",
     "wecomEnabled",
     "smsEnabled",
     "emailEnabled",
     "doNotDisturbStart",
     "doNotDisturbEnd",
+    "categoryPreferences",
   ]);
   for (const key of Object.keys(body)) {
     if (!允许字段.has(key)) {
       throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息偏好包含不支持的字段。", 400);
     }
   }
-  for (const key of ["wecomEnabled", "smsEnabled", "emailEnabled"] as const) {
+  for (const key of ["inAppEnabled", "wecomEnabled", "smsEnabled", "emailEnabled"] as const) {
     if (body[key] !== undefined && typeof body[key] !== "boolean") {
       throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息渠道开关必须为布尔值。", 400);
     }
@@ -161,7 +164,49 @@ function 读取偏好更新(req: Request): 消息偏好更新 {
       throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "免打扰时间必须为文本。", 400);
     }
   }
+  let categoryPreferences:
+    | Record<
+        string,
+        { inAppEnabled: boolean; wecomEnabled: boolean; smsEnabled: boolean; emailEnabled: boolean }
+      >
+    | undefined;
+  if (body.categoryPreferences !== undefined) {
+    if (
+      !body.categoryPreferences ||
+      typeof body.categoryPreferences !== "object" ||
+      Array.isArray(body.categoryPreferences)
+    ) {
+      throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类偏好格式无效。", 400);
+    }
+    const 分类集合 = new Set(["todo", "business", "system", "security"]);
+    const 渠道集合 = ["inAppEnabled", "wecomEnabled", "smsEnabled", "emailEnabled"] as const;
+    categoryPreferences = {};
+    for (const [分类, 偏好] of Object.entries(
+      body.categoryPreferences as Record<string, unknown>,
+    )) {
+      if (!分类集合.has(分类)) {
+        throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类偏好包含未知分类。", 400);
+      }
+      if (!偏好 || typeof 偏好 !== "object" || Array.isArray(偏好)) {
+        throw new 应用错误("V3_MESSAGE_PREFERENCE_INVALID", "消息分类偏好格式无效。", 400);
+      }
+      const 项 = 偏好 as Record<string, unknown>;
+      const 结果 = {} as Record<(typeof 渠道集合)[number], boolean>;
+      for (const 渠道 of 渠道集合) {
+        if (typeof 项[渠道] !== "boolean") {
+          throw new 应用错误(
+            "V3_MESSAGE_PREFERENCE_INVALID",
+            "消息分类渠道开关必须为布尔值。",
+            400,
+          );
+        }
+        结果[渠道] = 项[渠道] as boolean;
+      }
+      categoryPreferences[分类] = 结果;
+    }
+  }
   return {
+    ...(typeof body.inAppEnabled === "boolean" ? { inAppEnabled: body.inAppEnabled } : {}),
     ...(typeof body.wecomEnabled === "boolean" ? { wecomEnabled: body.wecomEnabled } : {}),
     ...(typeof body.smsEnabled === "boolean" ? { smsEnabled: body.smsEnabled } : {}),
     ...(typeof body.emailEnabled === "boolean" ? { emailEnabled: body.emailEnabled } : {}),
@@ -169,5 +214,6 @@ function 读取偏好更新(req: Request): 消息偏好更新 {
       ? { doNotDisturbStart: body.doNotDisturbStart }
       : {}),
     ...(typeof body.doNotDisturbEnd === "string" ? { doNotDisturbEnd: body.doNotDisturbEnd } : {}),
+    ...(categoryPreferences ? { categoryPreferences } : {}),
   };
 }

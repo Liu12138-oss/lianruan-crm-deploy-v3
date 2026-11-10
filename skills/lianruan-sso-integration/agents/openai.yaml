@@ -1,0 +1,4 @@
+interface:
+  display_name: "联软双单点登录对接"
+  short_description: "复用 IAM/EMM 与 UniSDP 双单点登录接入与验收"
+  default_prompt: "使用 $lianruan-sso-integration 把 IAM/EMM 与 UniSDP 单点登录接入当前系统。"

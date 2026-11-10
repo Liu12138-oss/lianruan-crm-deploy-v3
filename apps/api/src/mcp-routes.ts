@@ -6,8 +6,8 @@ import type { NextFunction, Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
 import { Pool } from "pg";
 
-import type { 业务数据服务, 当前业务用户,阶段9模块, 阶段9记录 } from "./business-store.js";
-import { type McpPrincipalAssertion,验证Mcp主体断言 } from "./mcp-auth.js";
+import type { 业务数据服务, 当前业务用户, 阶段9模块, 阶段9记录 } from "./business-store.js";
+import { type McpPrincipalAssertion, 验证Mcp主体断言 } from "./mcp-auth.js";
 
 interface Mcp路由参数 {
   service: 业务数据服务;

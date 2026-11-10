@@ -111,6 +111,34 @@ const 全国模块配置: 模块价格配置[] = [
   },
 ];
 
+const 兜底模块配置: 模块价格配置[] = [
+  {
+    code: "E",
+    name: "矩阵兜底模块E",
+    base: [
+      { min: 1, max: 19, price: 100 },
+      { min: 20, max: 49, price: 90 },
+      { min: 50, max: 500, price: 80 },
+    ],
+    primary: [
+      { min: 1, max: 19, price: 0 },
+      { min: 20, max: 49, price: 0 },
+      { min: 50, max: 500, price: 0 },
+    ],
+    secondary: [
+      { min: 1, max: 19, price: 30 },
+      { min: 20, max: 49, price: 27 },
+      { min: 50, max: 500, price: 24 },
+    ],
+  },
+];
+
+const 兜底预期单价: Record<"primary" | "secondary" | "none", number> = {
+  primary: 16,
+  secondary: 24,
+  none: 80,
+};
+
 describe("报价价格矩阵演练", () => {
   let 超级管理员: request.Agent;
   let 区域编号 = "";
@@ -227,6 +255,10 @@ describe("报价价格矩阵演练", () => {
         await 校验报价金额(quoteId, 等级, 配置, 10);
 
         for (const 点数 of [30, 60]) {
+          const 当前版本 = await pool.query<{ row_version: number }>(
+            "SELECT row_version FROM crm.quotes WHERE id=$1::uuid",
+            [quoteId],
+          );
           await 超级管理员
             .put(`/api/quotes/${quoteId}`)
             .send({
@@ -236,6 +268,7 @@ describe("报价价格矩阵演练", () => {
               total: 1,
               testTag: 测试批次,
               region: 区域名称,
+              rowVersion: 当前版本.rows[0]?.row_version,
             })
             .expect(200);
           await 校验报价金额(quoteId, 等级, 配置, 点数);
@@ -259,6 +292,213 @@ describe("报价价格矩阵演练", () => {
         expect(Number(订单金额.rows[0]?.order_total)).toBe(计算预期金额(配置, 等级, 60));
       }
     }
+  }, 60000);
+
+  it("QTE-25：产品维护读取四档参考价，一级与二级专用价完整且可区分", async () => {
+    const 响应 = await 超级管理员.get("/api/v2/features").expect(200);
+    const 功能编号 = 区域功能编号[0];
+    const 产品 = 响应.body.data.find(
+      (项: { id?: string; uuid?: string }) => 项.id === 功能编号 || 项.uuid === 功能编号,
+    ) as
+      | {
+          priceForPrimary?: Array<{ price: number }>;
+          priceForSecondary?: Array<{ price: number }>;
+          regionPriceOverrides?: Array<{
+            region?: string;
+            priceForPrimary?: Array<{ price: number }>;
+            priceForSecondary?: Array<{ price: number }>;
+          }>;
+        }
+      | undefined;
+    expect(产品).toBeTruthy();
+    expect(产品?.priceForPrimary?.[0]?.price).toBe(区域模块配置[0]!.primary[0]!.price);
+    expect(产品?.priceForSecondary?.[0]?.price).toBe(区域模块配置[0]!.secondary[0]!.price);
+    expect(产品?.priceForPrimary?.[0]?.price).not.toBe(产品?.priceForSecondary?.[0]?.price);
+    const 区域覆盖 = 产品?.regionPriceOverrides?.find((项) => 项.region === 区域名称);
+    expect(区域覆盖?.priceForPrimary?.[0]?.price).toBe(区域模块配置[0]!.primary[0]!.price);
+    expect(区域覆盖?.priceForSecondary?.[0]?.price).toBe(区域模块配置[0]!.secondary[0]!.price);
+  });
+
+  it("QTE-26：区域价格覆盖支持多区域保存，任一区域命中同一套价格且重复区域被拒绝", async () => {
+    if (!超级管理员) throw new Error("缺少超级管理员登录态。");
+    const 第二区域名称 = `${测试批次}-第二区域`;
+    await pool.query(
+      `INSERT INTO org.regions(region_code,region_name,region_level,status_code)
+       VALUES($1,$2,'region','active')`,
+      [`${测试批次}-REGION-B`, 第二区域名称],
+    );
+    try {
+      const 产品行 = await pool.query<{
+        module_id: string;
+        feature_name: string;
+        feature_code: string;
+      }>(
+        `SELECT module_id::text AS module_id, feature_name, feature_code
+         FROM catalog.product_features
+         WHERE id=$1::uuid`,
+        [区域功能编号[0]],
+      );
+      const 产品 = 产品行.rows[0];
+      if (!产品) throw new Error("缺少多区域价格测试功能。");
+
+      const 多区域覆盖 = {
+        region: 区域名称,
+        regions: [区域名称, 第二区域名称],
+        enabled: true,
+        tiers: 区域模块配置[0]!.base,
+        priceRatioPrimary: 20,
+        priceRatioSecondary: 30,
+        priceForPrimary: 区域模块配置[0]!.primary,
+        priceForSecondary: 区域模块配置[0]!.secondary,
+      };
+      const 保存 = await 超级管理员
+        .put(`/api/v2/features/${encodeURIComponent(区域功能编号[0] || "")}`)
+        .send({
+          name: 产品.feature_name,
+          productCode: 产品.feature_code,
+          moduleId: 产品.module_id,
+          unit: "端点",
+          priceType: "fixed",
+          priceFixed: 0,
+          published: true,
+          priceRatioPrimary: 20,
+          priceRatioSecondary: 30,
+          regionPriceOverrides: [多区域覆盖],
+        })
+        .expect(200);
+      const 保存覆盖 = 保存.body.data.regionPriceOverrides?.[0] as
+        { region?: string; regions?: string[] } | undefined;
+      expect(保存覆盖?.region).toBe(区域名称);
+      expect(保存覆盖?.regions).toEqual([区域名称, 第二区域名称]);
+
+      const 商机 = 商机编号.get("区域:secondary");
+      if (!商机) throw new Error("缺少多区域价格测试商机。");
+      const 报价 = await 超级管理员
+        .post("/api/quotes")
+        .send({
+          oppId: 商机,
+          endpoints: 10,
+          products: [区域功能编号[0]],
+          total: 1,
+          testTag: 测试批次,
+          region: 第二区域名称,
+        })
+        .expect(200);
+      const 明细 = await pool.query<{ unit_price: string }>(
+        `SELECT qi.unit_price::text AS unit_price
+           FROM crm.quote_items qi
+          WHERE qi.quote_id=$1::uuid
+          ORDER BY qi.sort_order
+          LIMIT 1`,
+        [String(报价.body.data.id)],
+      );
+      expect(Number(明细.rows[0]?.unit_price)).toBe(区域模块配置[0]!.secondary[0]!.price);
+
+      const 重复 = await 超级管理员
+        .put(`/api/v2/features/${encodeURIComponent(区域功能编号[0] || "")}`)
+        .send({
+          name: 产品.feature_name,
+          productCode: 产品.feature_code,
+          moduleId: 产品.module_id,
+          priceType: "fixed",
+          priceFixed: 0,
+          regionPriceOverrides: [
+            多区域覆盖,
+            {
+              region: 第二区域名称,
+              regions: [第二区域名称],
+              enabled: true,
+              priceFixed: 10,
+            },
+          ],
+        })
+        .expect(400);
+      // V2 兼容路由沿用历史错误结构，错误正文为字符串，重复区域必须明确拒绝。
+      expect(String(重复.body.error || "")).toContain("重复区域");
+    } finally {
+      await pool.query("DELETE FROM org.regions WHERE region_code=$1", [`${测试批次}-REGION-B`]);
+    }
+  });
+
+  it("QTE-27：产品价格变更后，原报价明细、单价和总额保持快照不变，新报价才使用新价格", async () => {
+    const 商机 = 商机编号.get("全国:primary");
+    const 功能编号 = 全国功能编号[0];
+    if (!商机 || !功能编号) throw new Error("缺少报价快照测试商机或产品。");
+
+    const 创建原报价 = await 超级管理员
+      .post("/api/quotes")
+      .send({
+        oppId: 商机,
+        endpoints: 10,
+        products: [功能编号],
+        total: 1,
+        testTag: 测试批次,
+        region: 区域名称,
+      })
+      .expect(200);
+    const 原报价编号 = String(创建原报价.body.data.id);
+    const 原明细 = await pool.query<{
+      item_name: string;
+      unit_price: string;
+      line_amount: string;
+      quote_total: string;
+    }>(
+      `SELECT qi.item_name, qi.unit_price::text AS unit_price, qi.line_amount::text AS line_amount,
+              q.total_amount::text AS quote_total
+         FROM crm.quote_items qi
+         JOIN crm.quotes q ON q.id = qi.quote_id
+        WHERE qi.quote_id = $1::uuid
+        ORDER BY qi.sort_order`,
+      [原报价编号],
+    );
+    expect(原明细.rows).toHaveLength(1);
+    const 原单价 = Number(原明细.rows[0]?.unit_price);
+    const 原总额 = Number(原明细.rows[0]?.quote_total);
+    expect(原总额).toBe(原单价 * 10);
+
+    await pool.query(
+      `UPDATE catalog.product_features
+          SET list_price = 999,
+              extra_json = extra_json || $2::jsonb
+        WHERE id = $1::uuid`,
+      [
+        功能编号,
+        JSON.stringify({
+          priceFixed: 999,
+          priceForPrimary: [{ min: 1, max: 500, price: 999 }],
+        }),
+      ],
+    );
+
+    const 重读原报价 = await 超级管理员.get(`/api/stage9/quotes/${原报价编号}`).expect(200);
+    const 重读原始数据 = 重读原报价.body.data.原始数据 as Record<string, unknown>;
+    const 重读明细 = 重读原始数据.items as Array<Record<string, unknown>>;
+    expect(Number(重读原报价.body.data.金额)).toBe(原总额);
+    expect(重读明细).toHaveLength(1);
+    expect(Number(重读明细[0]?.unitPrice)).toBe(原单价);
+    expect(Number(重读明细[0]?.lineAmount)).toBe(原单价 * 10);
+
+    const 创建新报价 = await 超级管理员
+      .post("/api/quotes")
+      .send({
+        oppId: 商机,
+        endpoints: 10,
+        products: [功能编号],
+        total: 1,
+        testTag: 测试批次,
+        region: 区域名称,
+      })
+      .expect(200);
+    const 新报价编号 = String(创建新报价.body.data.id);
+    const 新明细 = await pool.query<{ unit_price: string; line_amount: string }>(
+      `SELECT qi.unit_price::text AS unit_price, qi.line_amount::text AS line_amount
+         FROM crm.quote_items qi
+        WHERE qi.quote_id = $1::uuid
+        ORDER BY qi.sort_order`,
+      [新报价编号],
+    );
+    expect(Number(新明细.rows[0]?.unit_price)).toBe(999);
+    expect(Number(新明细.rows[0]?.line_amount)).toBe(9990);
   });
 
   async function 插入渠道(名称: string, 等级: "primary" | "secondary" | "none") {
@@ -278,22 +518,77 @@ describe("报价价格矩阵演练", () => {
     );
   }
 
-  async function 创建测试功能(配置: 模块价格配置[], 区域覆盖: boolean): Promise<string[]> {
+  it("阶梯超出最高档与等级专用价全 0 时的兜底金额正确", async () => {
+    const [兜底功能] = await 创建测试功能(兜底模块配置, false, "-FB");
+    if (!兜底功能) throw new Error("兜底模块创建失败。");
+
+    for (const 等级 of ["primary", "secondary", "none"] as const) {
+      const 商机 = 商机编号.get(`全国:${等级}`);
+      if (!商机) throw new Error(`缺少兜底商机：全国:${等级}`);
+      const 创建 = await 超级管理员
+        .post("/api/quotes")
+        .send({
+          oppId: 商机,
+          endpoints: 500,
+          products: [兜底功能],
+          total: 1,
+          testTag: 测试批次,
+          region: 区域名称,
+        })
+        .expect(200);
+      const 报价编号 = String(创建.body.data.id);
+
+      for (const 点数 of [500, 501]) {
+        if (点数 !== 500) {
+          const 当前版本 = await pool.query<{ row_version: number }>(
+            "SELECT row_version FROM crm.quotes WHERE id=$1::uuid",
+            [报价编号],
+          );
+          await 超级管理员
+            .put(`/api/quotes/${报价编号}`)
+            .send({
+              oppId: 商机,
+              endpoints: 点数,
+              products: [兜底功能],
+              total: 1,
+              testTag: 测试批次,
+              region: 区域名称,
+              rowVersion: 当前版本.rows[0]?.row_version,
+            })
+            .expect(200);
+        }
+        const 明细 = await pool.query<{ unit_price: string; line_amount: string }>(
+          `SELECT qi.unit_price::text AS unit_price, qi.line_amount::text AS line_amount
+             FROM crm.quote_items qi
+            WHERE qi.quote_id=$1::uuid
+            ORDER BY qi.sort_order
+            LIMIT 1`,
+          [报价编号],
+        );
+        const 预期单价 = 兜底预期单价[等级];
+        expect(Number(明细.rows[0]?.unit_price)).toBe(预期单价);
+        expect(Number(明细.rows[0]?.line_amount)).toBe(预期单价 * 点数);
+      }
+    }
+  });
+
+  async function 创建测试功能(
+    配置: 模块价格配置[],
+    区域覆盖: boolean,
+    后缀 = "",
+  ): Promise<string[]> {
+    const 模式段 = `${区域覆盖 ? "REG" : "NAT"}${后缀}`;
     const 分类编号 = await 插入单项<string>(
       pool,
       `INSERT INTO catalog.product_categories(category_code,category_name,product_type_code,status_code,extra_json)
        VALUES($1,$1,'software','active',$2::jsonb) RETURNING id::text AS value`,
-      [`${测试批次}-${区域覆盖 ? "REG" : "NAT"}-CAT`, JSON.stringify({ testTag: 测试批次 })],
+      [`${测试批次}-${模式段}-CAT`, JSON.stringify({ testTag: 测试批次 })],
     );
     const 模块编号 = await 插入单项<string>(
       pool,
       `INSERT INTO catalog.product_modules(category_id,module_code,module_name,status_code,extra_json)
        VALUES($1::uuid,$2,$2,'active',$3::jsonb) RETURNING id::text AS value`,
-      [
-        分类编号,
-        `${测试批次}-${区域覆盖 ? "REG" : "NAT"}-MOD`,
-        JSON.stringify({ testTag: 测试批次 }),
-      ],
+      [分类编号, `${测试批次}-${模式段}-MOD`, JSON.stringify({ testTag: 测试批次 })],
     );
 
     const ids: string[] = [];
@@ -320,10 +615,10 @@ describe("报价价格矩阵演练", () => {
            RETURNING id::text AS value`,
           [
             模块编号,
-            `${测试批次}-${区域覆盖 ? "REG" : "NAT"}-${项.code}`,
+            `${测试批次}-${模式段}-${项.code}`,
             项.name,
             JSON.stringify({
-              id: `${测试批次}-${区域覆盖 ? "REG" : "NAT"}-${项.code}`,
+              id: `${测试批次}-${模式段}-${项.code}`,
               name: 项.name,
               unit: "端点",
               listPrice: 0,

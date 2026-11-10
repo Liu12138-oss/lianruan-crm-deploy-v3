@@ -27,14 +27,17 @@ scripts/logs/
 
 # 临时目录与构建产物
 tmp/
+.tmp-test/
 dist/
 build/
 coverage/
 .cache/
 .playwright-cli/
 output/
+outputs/
 apps/web/test-results/
 apps/web/playwright-report/
+现有用例预览.png
 
 # 历史备份与交付压缩包
 backup*/

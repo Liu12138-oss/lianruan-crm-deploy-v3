@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { 单点登录, 登录, 读取单点登录配置 } from "../src/api/auth-client.js";
+import {
+  单点登录,
+  存在业务页面会话,
+  校验页面会话有效,
+  登录,
+  读取单点登录配置,
+} from "../src/api/auth-client.js";
 
 describe("认证接口客户端", () => {
   afterEach(() => {
@@ -307,5 +313,136 @@ describe("认证接口客户端", () => {
     await expect(登录({ username: "delivery_admin", password: "test-password" })).rejects.toThrow(
       "登录响应缺少业务页面会话",
     );
+  });
+
+  it("仅在本机存在页面会话令牌时判定为可恢复会话", () => {
+    expect(存在业务页面会话()).toBe(false);
+    localStorage.setItem("partner_auth_token", "v2.partner.token");
+    expect(存在业务页面会话()).toBe(true);
+  });
+
+  it("后退缓存恢复时服务端会话失效会清理本地业务页面会话", async () => {
+    localStorage.setItem("admin_auth_token", "expired-admin-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ success: false }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    await expect(校验页面会话有效()).resolves.toBe(false);
+    expect(localStorage.getItem("admin_auth_token")).toBeNull();
+  });
+
+  it("新标签页只有 Cookie 时通过服务端会话补写页面会话", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              data: {
+                user: {
+                  username: "partner_staff",
+                  displayName: "渠道员工",
+                  roleName: "渠道用户",
+                  defaultPath: "/partner/dashboard",
+                  allowedPaths: ["/partner", "/mobile"],
+                },
+                pageSession: {
+                  token: "v2.partner.cookie-recovered",
+                  user: {
+                    id: "staff-001",
+                    userId: "staff-001",
+                    username: "partner_staff",
+                    name: "渠道员工",
+                    displayName: "渠道员工",
+                    role: "staff",
+                    roleName: "渠道用户",
+                    status: "active",
+                    region: "华南",
+                    bigRegion: "南区",
+                    partnerId: "partner-001",
+                    partnerName: "测试渠道商",
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    expect(存在业务页面会话()).toBe(false);
+    await expect(校验页面会话有效()).resolves.toBe(true);
+    expect(localStorage.getItem("partner_auth_token")).toBe("v2.partner.cookie-recovered");
+    expect(存在业务页面会话()).toBe(true);
+  });
+
+  it("同角色恢复会话不会先删除本页令牌，避免触发其他标签页退出", async () => {
+    localStorage.setItem("partner_auth_token", "v2.partner.cookie-recovered");
+    const 删除键: string[] = [];
+    const 原始删除 = Storage.prototype.removeItem;
+    const 监听 = (事件: StorageEvent) => {
+      if (事件.key) 删除键.push(事件.key);
+    };
+    window.addEventListener("storage", 监听);
+    Storage.prototype.removeItem = function (key: string) {
+      删除键.push(key);
+      return 原始删除.call(this, key);
+    };
+
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                success: true,
+                data: {
+                  user: {
+                    username: "partner_staff",
+                    displayName: "渠道员工",
+                    roleName: "渠道用户",
+                    defaultPath: "/partner/dashboard",
+                    allowedPaths: ["/partner", "/mobile"],
+                  },
+                  pageSession: {
+                    token: "v2.partner.cookie-recovered",
+                    user: {
+                      id: "staff-001",
+                      userId: "staff-001",
+                      username: "partner_staff",
+                      name: "渠道员工",
+                      displayName: "渠道员工",
+                      role: "staff",
+                      roleName: "渠道用户",
+                      status: "active",
+                      region: "华南",
+                      bigRegion: "南区",
+                      partnerId: "partner-001",
+                      partnerName: "测试渠道商",
+                    },
+                  },
+                },
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            ),
+        ),
+      );
+
+      await expect(校验页面会话有效()).resolves.toBe(true);
+      expect(删除键).not.toContain("partner_auth_token");
+      expect(localStorage.getItem("partner_auth_token")).toBe("v2.partner.cookie-recovered");
+    } finally {
+      window.removeEventListener("storage", 监听);
+      Storage.prototype.removeItem = 原始删除;
+    }
   });
 });

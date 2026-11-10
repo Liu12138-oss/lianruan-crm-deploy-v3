@@ -240,6 +240,214 @@ export function 写入正式页面可信Cookie会话(
   return true;
 }
 
+const 账号登录失败窗口 = new Map<string, { count: number; windowStartedAt: number }>();
+const 账号登录失败阈值 = 5;
+const 账号登录失败窗口毫秒 = 10 * 60 * 1000;
+
+/** 仅用于测试隔离：清空当前进程内的登录失败计数，不影响数据库共享计数。 */
+export function 清理账号登录失败限流用于测试(): void {
+  账号登录失败窗口.clear();
+}
+
+/**
+ * 按“来源 IP + 用户名”累计失败。
+ * 配置数据库时使用 PostgreSQL 原子计数，保证多个 API 实例共享同一阈值；
+ * 本地无数据库测试或数据库短暂不可用时降级为进程内计数，不阻断登录主流程。
+ */
+async function 记录账号登录失败(配置: 认证配置, 键: string): Promise<boolean> {
+  if (配置.pool) {
+    try {
+      const 结果 = await 配置.pool.query<{ attempt_count: number }>(
+        `
+        WITH 清理过期记录 AS (
+          DELETE FROM ops.auth_login_attempts
+           WHERE updated_at < now() - interval '1 day'
+        )
+        INSERT INTO ops.auth_login_attempts (attempt_key, window_started_at, attempt_count, updated_at)
+        VALUES ($1, now(), 1, now())
+        ON CONFLICT (attempt_key) DO UPDATE
+        SET window_started_at = CASE
+              WHEN ops.auth_login_attempts.window_started_at <= now() - interval '10 minutes'
+                THEN now()
+              ELSE ops.auth_login_attempts.window_started_at
+            END,
+            attempt_count = CASE
+              WHEN ops.auth_login_attempts.window_started_at <= now() - interval '10 minutes'
+                THEN 1
+              ELSE ops.auth_login_attempts.attempt_count + 1
+            END,
+            updated_at = now()
+        RETURNING attempt_count
+        `,
+        [键],
+      );
+      return Number(结果.rows[0]?.attempt_count || 0) > 账号登录失败阈值;
+    } catch (错误) {
+      记录认证事件(配置, "warn", "账号登录失败计数数据库不可用，降级为单实例计数", {
+        event: "auth.password.rate_limit_store_failed",
+        errorMessage: 错误 instanceof Error ? 错误.message : "登录失败计数失败",
+        resultCode: "fallback",
+      });
+    }
+  }
+
+  const 当前时间 = Date.now();
+  const 记录 = 账号登录失败窗口.get(键);
+  const 下一次 =
+    记录 && 当前时间 - 记录.windowStartedAt <= 账号登录失败窗口毫秒
+      ? { count: 记录.count + 1, windowStartedAt: 记录.windowStartedAt }
+      : { count: 1, windowStartedAt: 当前时间 };
+  账号登录失败窗口.set(键, 下一次);
+  if (账号登录失败窗口.size > 10_000) {
+    for (const [旧键, 旧记录] of 账号登录失败窗口) {
+      if (当前时间 - 旧记录.windowStartedAt > 账号登录失败窗口毫秒) 账号登录失败窗口.delete(旧键);
+    }
+  }
+  return 下一次.count > 账号登录失败阈值;
+}
+
+/**
+ * 登录前检查窗口内是否已超限。
+ * 达到阈值后必须连正确密码也拒绝，否则攻击者仍可在第 6 次直接登录，
+ * 页面表现就是“连续输错但账号没有锁定”。
+ */
+async function 账号登录失败已超限(配置: 认证配置, 键: string): Promise<boolean> {
+  if (配置.pool) {
+    try {
+      const 结果 = await 配置.pool.query<{ attempt_count: number }>(
+        `
+        SELECT attempt_count
+          FROM ops.auth_login_attempts
+         WHERE attempt_key = $1
+           AND window_started_at > now() - interval '10 minutes'
+         LIMIT 1
+        `,
+        [键],
+      );
+      return Number(结果.rows[0]?.attempt_count || 0) >= 账号登录失败阈值;
+    } catch {
+      // 数据库短暂不可用时降级到进程内判断，避免登录入口整体不可用。
+    }
+  }
+  const 记录 = 账号登录失败窗口.get(键);
+  return Boolean(
+    记录 &&
+    记录.count >= 账号登录失败阈值 &&
+    Date.now() - 记录.windowStartedAt <= 账号登录失败窗口毫秒,
+  );
+}
+
+async function 清除账号登录失败(配置: 认证配置, 键: string): Promise<void> {
+  账号登录失败窗口.delete(键);
+  if (!配置.pool) return;
+  try {
+    await 配置.pool.query("DELETE FROM ops.auth_login_attempts WHERE attempt_key=$1", [键]);
+  } catch (错误) {
+    记录认证事件(配置, "warn", "清除账号登录失败计数失败", {
+      event: "auth.password.rate_limit_clear_failed",
+      errorMessage: 错误 instanceof Error ? 错误.message : "清除登录失败计数失败",
+      resultCode: "failed",
+    });
+  }
+}
+
+async function 写入登录限流审计(
+  配置: 认证配置,
+  req: Request,
+  用户名: string,
+  失败键: string,
+): Promise<void> {
+  if (!配置.pool) return;
+  const 安全用户名 = 用户名.trim().slice(0, 200) || "未知账号";
+  await 配置.pool.query(
+    `
+    INSERT INTO audit.audit_logs (
+      created_at, request_id, actor_user_id, actor_username, actor_name, actor_role,
+      module_code, action_code, target_type, target_id, target_name,
+      result_code, message, before_json, after_json, extra_json
+    )
+    VALUES (
+      now(), $1, NULL, $2, '未认证用户', 'anonymous',
+      'auth', 'auth.login.rate_limited', 'login_attempt', $3, $2,
+      'failed', '账号登录失败次数超过阈值，已触发限流', '{}'::jsonb, '{}'::jsonb, $4::jsonb
+    )
+    `,
+    [
+      req.requestId,
+      安全用户名,
+      失败键,
+      JSON.stringify({
+        username: 安全用户名,
+        ip: 读取客户端IP(req),
+        threshold: 账号登录失败阈值,
+        windowMinutes: 账号登录失败窗口毫秒 / 60_000,
+        source: "password_login",
+      }),
+    ],
+  );
+}
+
+interface 认证审计参数 {
+  用户名: string;
+  姓名?: string;
+  角色?: string;
+  动作: string;
+  结果: "success" | "failed";
+  说明: string;
+  用户编号?: string;
+}
+
+/** 登录、失败和退出统一写入操作审计；审计异常不能阻断认证主流程。 */
+async function 写入认证审计(配置: 认证配置, req: Request, 参数: 认证审计参数): Promise<void> {
+  if (!配置.pool) return;
+  const 用户名 = 参数.用户名.trim().slice(0, 200) || "未知账号";
+  const 客户端地址 = 读取客户端IP(req);
+  await 配置.pool.query(
+    `
+    INSERT INTO audit.audit_logs (
+      created_at, request_id, actor_user_id, actor_username, actor_name, actor_role,
+      module_code, action_code, target_type, target_id, target_name,
+      result_code, message, ip, user_agent, before_json, after_json, extra_json
+    )
+    VALUES (
+      now(), $1, $2::uuid, $3, $4, $5,
+      'auth', $6, 'account', $3, $3,
+      $7, $8, NULLIF($9, '')::inet, $10, '{}'::jsonb, '{}'::jsonb, $11::jsonb
+    )
+    `,
+    [
+      req.requestId,
+      是UUID(参数.用户编号) ? 参数.用户编号 : null,
+      用户名,
+      (参数.姓名 || (参数.结果 === "success" ? 用户名 : "未认证用户")).slice(0, 200),
+      (参数.角色 || (参数.结果 === "success" ? "认证用户" : "anonymous")).slice(0, 100),
+      参数.动作,
+      参数.结果,
+      参数.说明.slice(0, 500),
+      可审计客户端地址(客户端地址),
+      req.get("user-agent") || "",
+      JSON.stringify({
+        username: 用户名,
+        ip: 客户端地址,
+        userAgent: req.get("user-agent") || "",
+        source: "auth",
+      }),
+    ],
+  );
+}
+
+function 是UUID(value: string | undefined): value is string {
+  return Boolean(
+    value &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),
+  );
+}
+
+function 可审计客户端地址(value: string): string {
+  // PostgreSQL inet 不接受部分代理透传的占位值；格式不明时保留在 extra_json，列置空。
+  return /^[0-9a-fA-F:.]+$/.test(value) ? value : "";
+}
+
 function 注册账号密码路由(router: Router, 配置: 认证配置, build: 构建信息): void {
   router.post("/login", async (req, res, next) => {
     const 诊断字段 = 读取账号密码登录诊断(req, 配置);
@@ -251,10 +459,46 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
     try {
       if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
       const { username, password } = 读取登录请求(req);
+      const 失败键 = `${req.ip || req.socket.remoteAddress || "unknown"}|${username.trim().toLowerCase()}`;
+      if (await 账号登录失败已超限(配置, 失败键)) {
+        记录认证事件(配置, "warn", "账号登录失败次数超过阈值，拒绝继续尝试", {
+          event: "auth.password.rate_limited",
+          ...读取认证请求字段(req),
+          username: username.trim().slice(0, 200),
+          threshold: 账号登录失败阈值,
+          windowMinutes: 账号登录失败窗口毫秒 / 60_000,
+          resultCode: "rate_limited",
+        });
+        await 写入登录限流审计(配置, req, username, 失败键).catch(() => undefined);
+        throw new 应用错误("V3_AUTH_RATE_LIMITED", "登录失败次数过多，请 10 分钟后再试。", 429);
+      }
       const 用户 = await 查找并校验用户(username, password, 配置);
       if (!用户) {
+        const 超出限制 = await 记录账号登录失败(配置, 失败键);
+        if (超出限制) {
+          记录认证事件(配置, "warn", "账号登录失败次数超过阈值", {
+            event: "auth.password.rate_limited",
+            ...读取认证请求字段(req),
+            username: username.trim().slice(0, 200),
+            threshold: 账号登录失败阈值,
+            windowMinutes: 账号登录失败窗口毫秒 / 60_000,
+            resultCode: "rate_limited",
+          });
+          await 写入登录限流审计(配置, req, username, 失败键).catch(() => undefined);
+        }
+        const 停用提示 = await 查询停用账号登录提示(username, password, 配置);
+        if (停用提示) {
+          if (超出限制) {
+            throw new 应用错误("V3_AUTH_RATE_LIMITED", "登录失败次数过多，请 10 分钟后再试。", 429);
+          }
+          throw new 应用错误("V3_AUTH_ACCOUNT_DISABLED", 停用提示, 401);
+        }
+        if (超出限制) {
+          throw new 应用错误("V3_AUTH_RATE_LIMITED", "登录失败次数过多，请 10 分钟后再试。", 429);
+        }
         throw new 应用错误("V3_AUTH_INVALID_CREDENTIALS", "用户名或密码不正确。", 401);
       }
+      await 清除账号登录失败(配置, 失败键);
 
       const token = 签发会话令牌(
         用户.username,
@@ -265,6 +509,15 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
       const 页面会话 = 创建业务页面会话(用户);
       const 移动端会话 = 创建移动端会话(用户, 配置);
       写入会话Cookie(res, 配置, token);
+      await 写入认证审计(配置, req, {
+        用户名: 用户.username,
+        姓名: 用户.displayName,
+        角色: 用户.roleName,
+        用户编号: 用户.pageUser.id,
+        动作: "auth.login.succeeded",
+        结果: "success",
+        说明: "账号密码登录成功。",
+      }).catch(() => undefined);
       记录认证事件(配置, "info", "账号密码登录成功", {
         event: "auth.password.succeeded",
         ...读取认证请求字段(req),
@@ -293,6 +546,13 @@ function 注册账号密码路由(router: Router, 配置: 认证配置, build: �
         }),
       );
     } catch (error) {
+      const 应用级错误 = error instanceof 应用错误 ? error : null;
+      await 写入认证审计(配置, req, {
+        用户名: 诊断字段.username ? String(诊断字段.username) : "",
+        动作: "auth.login.failed",
+        结果: "failed",
+        说明: 应用级错误?.message || "账号密码登录失败。",
+      }).catch(() => undefined);
       记录认证失败(配置, "password", "账号密码登录失败", req, error, 诊断字段);
       next(error);
     }
@@ -375,8 +635,121 @@ function 注册会话路由(router: Router, 配置: 认证配置, build: 构建�
     }
   });
 
-  router.post("/logout", (req, res) => {
+  router.put("/password", async (req, res, next) => {
+    try {
+      if (!配置.enabled) throw new 应用错误("V3_AUTH_DISABLED", "登录入口未启用。", 503);
+      if (!配置.pool) {
+        throw new 应用错误("V3_PASSWORD_CHANGE_UNAVAILABLE", "当前环境暂不支持在线修改密码。", 503);
+      }
+      const 当前用户 = await 读取当前用户(req, 配置);
+      const body = 转为请求对象(req.body);
+      const 当前密码 = 读取请求文本(body, ["oldPassword", "currentPassword"]);
+      const 新密码 = 读取请求文本(body, ["newPassword", "password"]);
+      if (!当前密码 || !新密码) {
+        throw new 应用错误("V3_PASSWORD_CHANGE_REQUIRED", "请输入当前密码和新密码。", 400);
+      }
+      if (新密码.length < 6) {
+        throw new 应用错误("V3_PASSWORD_TOO_SHORT", "新密码长度不能少于6位。", 400);
+      }
+      if (新密码.length > 128) {
+        throw new 应用错误("V3_PASSWORD_TOO_LONG", "新密码长度不能超过128位。", 400);
+      }
+      if (当前密码 === 新密码) {
+        throw new 应用错误("V3_PASSWORD_UNCHANGED", "新密码不能与当前密码相同。", 400);
+      }
+      if (!(await 校验密码(当前密码, 当前用户.passwordHash))) {
+        throw new 应用错误("V3_PASSWORD_CURRENT_INVALID", "当前密码不正确。", 400);
+      }
+
+      const client = await 配置.pool.connect();
+      try {
+        await client.query("BEGIN");
+        const 更新结果 = await client.query<{ user_id: string }>(
+          `
+          INSERT INTO iam.password_credentials (
+            user_id, password_hash, algorithm, must_change_password, changed_at
+          )
+          SELECT id, $2, 'scrypt', false, now()
+          FROM iam.users
+          WHERE username = $1
+            AND status_code = 'active'
+          ON CONFLICT (user_id) DO UPDATE
+          SET password_hash = EXCLUDED.password_hash,
+              algorithm = EXCLUDED.algorithm,
+              must_change_password = false,
+              changed_at = now()
+          RETURNING user_id::text AS user_id
+          `,
+          [当前用户.username, 创建密码散列(新密码)],
+        );
+        if (更新结果.rowCount !== 1) {
+          throw new 应用错误("V3_PASSWORD_CHANGE_UNAVAILABLE", "当前账号不能修改密码。", 409);
+        }
+        await client.query(
+          `
+          UPDATE iam.users
+          SET row_version = row_version + 1, updated_at = now()
+          WHERE username = $1
+          `,
+          [当前用户.username],
+        );
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+
+      await 写入认证审计(配置, req, {
+        用户名: 当前用户.username,
+        姓名: 当前用户.displayName,
+        角色: 当前用户.roleName,
+        用户编号: 当前用户.pageUser.id,
+        动作: "auth.password.changed",
+        结果: "success",
+        说明: "用户在线修改密码，原会话已失效。",
+      }).catch(() => undefined);
+      清理会话Cookie(res, 配置);
+      res.json(
+        创建成功响应({
+          requestId: req.requestId,
+          build,
+          data: { changed: true, reLoginRequired: true },
+        }),
+      );
+    } catch (error) {
+      const 应用级错误 = error instanceof 应用错误 ? error : null;
+      const 当前用户 = await 读取当前用户(req, 配置).catch(() => null);
+      if (当前用户) {
+        await 写入认证审计(配置, req, {
+          用户名: 当前用户.username,
+          姓名: 当前用户.displayName,
+          角色: 当前用户.roleName,
+          用户编号: 当前用户.pageUser.id,
+          动作: "auth.password.change_failed",
+          结果: "failed",
+          说明: 应用级错误?.message || "在线修改密码失败。",
+        }).catch(() => undefined);
+      }
+      next(error);
+    }
+  });
+
+  router.post("/logout", async (req, res) => {
     const 会话诊断 = 读取会话诊断(req, 配置);
+    const 当前用户 = await 读取当前用户(req, 配置).catch(() => null);
+    if (当前用户) {
+      await 写入认证审计(配置, req, {
+        用户名: 当前用户.username,
+        姓名: 当前用户.displayName,
+        角色: 当前用户.roleName,
+        用户编号: 当前用户.pageUser.id,
+        动作: "auth.logout",
+        结果: "success",
+        说明: "用户主动退出登录。",
+      }).catch(() => undefined);
+    }
     清理会话Cookie(res, 配置);
     记录认证事件(配置, "info", "用户退出登录完成", {
       event: "auth.logout.completed",
@@ -513,6 +886,15 @@ async function 处理Iam单点登录(
     const 页面会话 = 创建业务页面会话(用户);
     const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
+    await 写入认证审计(配置, req, {
+      用户名: 用户.username,
+      姓名: 用户.displayName,
+      角色: 用户.roleName,
+      用户编号: 用户.pageUser.id,
+      动作: "auth.sso.iam.succeeded",
+      结果: "success",
+      说明: "IAM 单点登录成功。",
+    }).catch(() => undefined);
     记录认证事件(配置, "info", "IAM单点登录成功", {
       event: "auth.iam_sso.succeeded",
       ...读取认证请求字段(req),
@@ -548,6 +930,12 @@ async function 处理Iam单点登录(
       }),
     );
   } catch (error) {
+    await 写入认证审计(配置, req, {
+      用户名: String(诊断字段.username || ""),
+      动作: "auth.sso.iam.failed",
+      结果: "failed",
+      说明: error instanceof Error ? error.message : "IAM 单点登录失败。",
+    }).catch(() => undefined);
     记录认证失败(配置, "iam_sso", "IAM单点登录失败", req, error, {
       ...诊断字段,
       failedStep: 失败阶段,
@@ -626,6 +1014,15 @@ async function 处理UniSdp单点登录(
     const 页面会话 = 创建业务页面会话(用户);
     const 移动端会话 = 创建移动端会话(用户, 配置);
     写入会话Cookie(res, 配置, sessionToken);
+    await 写入认证审计(配置, req, {
+      用户名: 用户.username,
+      姓名: 用户.displayName,
+      角色: 用户.roleName,
+      用户编号: 用户.pageUser.id,
+      动作: "auth.sso.unisdp.succeeded",
+      结果: "success",
+      说明: "UniSDP 单点登录成功。",
+    }).catch(() => undefined);
     记录认证事件(配置, "info", "UniSDP单点登录成功", {
       event: "auth.unisdp_sso.succeeded",
       ...读取认证请求字段(req),
@@ -663,6 +1060,12 @@ async function 处理UniSdp单点登录(
       }),
     );
   } catch (error) {
+    await 写入认证审计(配置, req, {
+      用户名: String(诊断字段.username || ""),
+      动作: "auth.sso.unisdp.failed",
+      结果: "failed",
+      说明: error instanceof Error ? error.message : "UniSDP 单点登录失败。",
+    }).catch(() => undefined);
     记录认证失败(配置, "unisdp_sso", "UniSDP单点登录失败", req, error, {
       ...诊断字段,
       failedStep: 失败阶段,
@@ -739,6 +1142,15 @@ async function 处理UniSdp门户单点登录(
     // 门户落点严格按形态:手机号→partner 入口,username→admin 入口。
     const 目标路径 = 本地匹配.匹配方式 === "partner_phone" ? "/partner.html" : "/admin.html";
     写入会话Cookie(res, 配置, sessionToken);
+    await 写入认证审计(配置, req, {
+      用户名: 用户.username,
+      姓名: 用户.displayName,
+      角色: 用户.roleName,
+      用户编号: 用户.pageUser.id,
+      动作: "auth.sso.unisdp_portal.succeeded",
+      结果: "success",
+      说明: "UniSDP 门户单点登录成功。",
+    }).catch(() => undefined);
     记录认证事件(配置, "info", "UniSDP门户单点登录成功", {
       event: "auth.unisdp_portal_sso.succeeded",
       ...读取认证请求字段(req),
@@ -760,6 +1172,12 @@ async function 处理UniSdp门户单点登录(
     });
     发送门户登录完成页(res, 页面会话, 目标路径);
   } catch (error) {
+    await 写入认证审计(配置, req, {
+      用户名: String(诊断字段.username || ""),
+      动作: "auth.sso.unisdp_portal.failed",
+      结果: "failed",
+      说明: error instanceof Error ? error.message : "UniSDP 门户单点登录失败。",
+    }).catch(() => undefined);
     if (error instanceof 应用错误) {
       记录认证失败(配置, "unisdp_portal_sso", "UniSDP门户单点登录失败", req, error, {
         ...诊断字段,
@@ -1398,6 +1816,51 @@ async function 查找并校验用户(
   return null;
 }
 
+/**
+ * 仅在用户名和密码都正确时返回停用提示，避免把“账号是否存在”暴露给错误密码请求。
+ * 停用账号仍按登录失败处理，不签发任何会话。
+ */
+async function 查询停用账号登录提示(
+  username: string,
+  password: string,
+  配置: 认证配置,
+): Promise<string | null> {
+  if (!配置.pool) return null;
+  try {
+    const 结果 = await 配置.pool.query<{
+      password_hash: string | null;
+      status_code: string | null;
+      extra_json: Record<string, unknown> | null;
+    }>(
+      `
+      SELECT pc.password_hash, u.status_code, u.extra_json
+      FROM iam.users u
+      LEFT JOIN iam.password_credentials pc ON pc.user_id = u.id
+      WHERE lower(u.username::text) = lower($1)
+      LIMIT 1
+      `,
+      [username],
+    );
+    const 账号 = 结果.rows[0];
+    if (!账号?.password_hash || !(await 校验密码(password, 账号.password_hash))) return null;
+    if (账号.status_code && 账号.status_code !== "active") {
+      if (账号.extra_json?.status === "rejected") {
+        const 原因 = String(账号.extra_json.reviewRemark || "")
+          .trim()
+          .slice(0, 200);
+        return 原因 ? `账号审批未通过：${原因}` : "账号审批未通过，请联系渠道管理员。";
+      }
+      if (账号.status_code === "pending" || 账号.extra_json?.status === "pending") {
+        return "账号待审批，请联系管理员。";
+      }
+      return "账号已停用，请联系管理员。";
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function 查询数据库用户(username: string, 配置: 认证配置): Promise<交付用户 | null> {
   if (!配置.pool) return null;
   try {
@@ -1815,9 +2278,8 @@ function 角色默认路径(roleCode: string): string {
 }
 
 function 角色允许路径(roleCode: string): string[] {
-  if (roleCode === "partner_admin" || roleCode === "staff")
-    return ["/unified", "/partner", "/mobile"];
-  return ["/unified", "/admin", "/partner", "/mobile"];
+  if (roleCode === "partner_admin" || roleCode === "staff") return ["/partner", "/mobile"];
+  return ["/admin", "/partner", "/mobile"];
 }
 
 function 解析会话令牌(token: string, secret: string): 会话载荷 {

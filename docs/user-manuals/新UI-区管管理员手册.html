@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="联软渠道管理平台新 UI 区管管理员操作手册，覆盖渠道准入、客户报备、商机、报价、订单审批、回退、履约与 OA 协同主业务链。">
+  <title>新 UI 区管管理员手册｜联软渠道管理平台</title>
+  <style>
+    :root {
+      --ink: #172b4d;
+      --muted: #55677d;
+      --brand: #17558f;
+      --brand-deep: #0e3c6b;
+      --brand-soft: #eaf2fb;
+      --gold: #a76b12;
+      --gold-soft: #fff7e6;
+      --green: #0b7a5a;
+      --green-soft: #ecf8f3;
+      --red: #a63838;
+      --red-soft: #fff1f1;
+      --amber: #94630b;
+      --amber-soft: #fff8e7;
+      --line: #d8e3ee;
+      --line-strong: #b9cce0;
+      --paper: #ffffff;
+      --page: #edf3f8;
+      --shadow: 0 8px 26px rgba(23, 43, 77, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, #eaf1f8 0, #edf3f8 240px, #f4f7fa 100%);
+      font-family: "Times New Roman", "KaiTi_GB2312", "KaiTi", "楷体", "STKaiti", "Kaiti SC", serif;
+      font-size: 15px;
+      line-height: 1.7;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: var(--brand); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font: inherit; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 24px;
+      color: #fff;
+      background: linear-gradient(90deg, #0d335b, #175b96 58%, #1f6aa8);
+      box-shadow: 0 3px 14px rgba(13, 51, 91, .25);
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,.48);
+      border-radius: 9px;
+      background: rgba(255,255,255,.12);
+      font-size: 18px;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+    .brand-title { display: grid; line-height: 1.25; }
+    .brand-title strong { font-size: 16px; font-weight: 700; letter-spacing: .04em; }
+    .brand-title small { color: rgba(255,255,255,.76); font-size: 13px; }
+    .topbar-tools { display: flex; align-items: center; gap: 10px; }
+    .role-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 2px 11px;
+      border: 1px solid rgba(255,255,255,.34);
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .print-button {
+      min-height: 32px;
+      padding: 4px 13px;
+      border: 1px solid rgba(255,255,255,.46);
+      border-radius: 8px;
+      color: #fff;
+      background: rgba(255,255,255,.13);
+      cursor: pointer;
+    }
+    .print-button:hover { background: rgba(255,255,255,.24); }
+
+    .shell {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 18px 18px 34px;
+      display: grid;
+      grid-template-columns: 258px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .toc {
+      position: sticky;
+      top: 76px;
+      max-height: calc(100vh - 94px);
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.96);
+      box-shadow: var(--shadow);
+    }
+    .toc-title {
+      margin: 0 0 9px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .toc-group { margin: 11px 0 4px; color: var(--gold); font-size: 14px; font-weight: 700; }
+    .toc a {
+      display: block;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: #334a64;
+      line-height: 1.42;
+    }
+    .toc a:hover { color: var(--brand); background: var(--brand-soft); text-decoration: none; }
+
+    main { min-width: 0; }
+    .cover {
+      position: relative;
+      overflow: hidden;
+      padding: 30px 32px 26px;
+      border: 1px solid #cfe0f0;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 94% 8%, rgba(255,255,255,.72), transparent 31%),
+        linear-gradient(132deg, #f9fcff 0%, #e9f3fc 62%, #dcebf9 100%);
+      box-shadow: var(--shadow);
+    }
+    .cover::after {
+      content: "";
+      position: absolute;
+      right: -54px;
+      bottom: -82px;
+      width: 270px;
+      height: 270px;
+      border: 1px solid rgba(23, 85, 143, .16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 26px rgba(23, 85, 143, .05), 0 0 0 52px rgba(23, 85, 143, .035);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .eyebrow::before { content: ""; width: 22px; height: 3px; background: var(--gold); border-radius: 2px; }
+    h1 {
+      position: relative;
+      z-index: 1;
+      margin: 11px 0 8px;
+      color: var(--brand-deep);
+      font-size: 34px;
+      line-height: 1.22;
+      letter-spacing: .02em;
+    }
+    .cover-subtitle {
+      position: relative;
+      z-index: 1;
+      max-width: 780px;
+      margin: 0;
+      color: #38536f;
+      font-size: 15px;
+    }
+    .cover-meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .cover-meta span {
+      padding: 4px 11px;
+      border: 1px solid #bfd4e9;
+      border-radius: 999px;
+      background: rgba(255,255,255,.66);
+      color: #315271;
+      font-size: 14px;
+    }
+
+    .quick-note {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .quick-note article {
+      padding: 12px 14px;
+      border: 1px solid #d5e4f1;
+      border-radius: 10px;
+      background: rgba(255,255,255,.68);
+    }
+    .quick-note strong { display: block; color: var(--brand); font-size: 15px; }
+    .quick-note p { margin: 3px 0 0; color: var(--muted); }
+
+    .card {
+      margin-top: 18px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      box-shadow: 0 5px 18px rgba(23, 43, 77, .055);
+    }
+    .card.compact { padding-top: 18px; padding-bottom: 18px; }
+    h2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 14px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--brand-soft);
+      color: var(--brand-deep);
+      font-size: 23px;
+      line-height: 1.35;
+    }
+    h2 .section-no {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      color: #fff;
+      background: var(--brand);
+      font-size: 16px;
+      flex: 0 0 auto;
+    }
+    h3 { margin: 22px 0 9px; color: #1e456d; font-size: 18px; line-height: 1.4; }
+    h3:first-of-type { margin-top: 12px; }
+    h4 { margin: 16px 0 7px; color: #2d4d6e; font-size: 16px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 8px 0 8px 1.55em; padding: 0; }
+    li { margin: 4px 0; }
+    strong { color: #173e65; }
+    .muted { color: var(--muted); }
+
+    .lead {
+      padding: 12px 14px;
+      border-left: 4px solid var(--brand);
+      border-radius: 0 9px 9px 0;
+      background: var(--brand-soft);
+      color: #294c6c;
+    }
+    .callout {
+      margin: 12px 0;
+      padding: 11px 14px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+    }
+    .callout.info { border-color: #bfd7ed; background: #f3f8fd; }
+    .callout.success { border-color: #bfe5d6; background: var(--green-soft); }
+    .callout.warning { border-color: #ecd39c; background: var(--amber-soft); }
+    .callout.danger { border-color: #edc4c4; background: var(--red-soft); }
+    .callout-title { display: block; margin-bottom: 3px; font-weight: 700; }
+    .callout.info .callout-title { color: var(--brand); }
+    .callout.success .callout-title { color: var(--green); }
+    .callout.warning .callout-title { color: var(--amber); }
+    .callout.danger .callout-title { color: var(--red); }
+    .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+
+    .chain {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid #cfdeeb;
+      border-radius: 11px;
+      background: linear-gradient(180deg, #f8fbfe, #f1f7fc);
+    }
+    .chain-node {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #c9dcee;
+      border-radius: 9px;
+      background: #fff;
+    }
+    .chain-node .num {
+      display: inline-grid;
+      place-items: center;
+      width: 25px;
+      height: 25px;
+      margin-bottom: 6px;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .chain-node strong { display: block; line-height: 1.35; }
+    .chain-node small { display: block; margin-top: 2px; color: var(--muted); line-height: 1.4; }
+    .chain-arrow { display: none; }
+
+    table {
+      width: 100%;
+      margin: 11px 0;
+      border-collapse: collapse;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+    }
+    th, td {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: #edf5fc;
+      color: #1c4a76;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) td { background: #fbfdff; }
+    td code, p code, li code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #f0f4f8;
+      color: #754a11;
+      font-family: "Times New Roman", serif;
+      font-size: 14px;
+    }
+
+    .steps { display: grid; gap: 9px; margin: 10px 0; }
+    .step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 11px; align-items: start; }
+    .step-no {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .step-body { padding: 1px 0 10px; border-bottom: 1px dashed #dbe5ef; }
+    .step:last-child .step-body { border-bottom: 0; padding-bottom: 0; }
+    .step-body strong { display: block; }
+    .step-body p { margin: 4px 0 0; }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .field {
+      padding: 9px 11px;
+      border: 1px solid #d8e5f1;
+      border-radius: 8px;
+      background: #fbfdff;
+    }
+    .field span { display: block; color: var(--muted); }
+    .field strong { display: block; margin-top: 2px; }
+
+    .tag {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: nowrap;
+    }
+    .tag.blue { color: var(--brand); background: var(--brand-soft); }
+    .tag.green { color: var(--green); background: var(--green-soft); }
+    .tag.amber { color: var(--amber); background: var(--amber-soft); }
+    .tag.red { color: var(--red); background: var(--red-soft); }
+    .tag.gray { color: #607184; background: #eef2f6; }
+
+    .checklist { display: grid; gap: 7px; margin: 10px 0; }
+    .check-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+      padding: 7px 10px;
+      border: 1px solid #e1e9f1;
+      border-radius: 7px;
+      background: #fcfdff;
+    }
+    .check-box {
+      width: 14px;
+      height: 14px;
+      margin-top: 4px;
+      border: 2px solid #7c9bb8;
+      border-radius: 3px;
+    }
+    .split-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .split-2 > .callout { margin-top: 0; }
+    .footer {
+      margin-top: 18px;
+      padding: 16px 10px 4px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .toc { position: static; max-height: none; }
+      .quick-note, .split-2 { grid-template-columns: 1fr; }
+      .chain { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .topbar { padding: 0 12px; }
+      .brand-title small { display: none; }
+      .role-chip { display: none; }
+      .shell { padding: 12px; }
+      .cover { padding: 24px 18px; }
+      h1 { font-size: 28px; }
+      .card { padding: 18px 15px; }
+      .field-grid { grid-template-columns: 1fr; }
+      table { table-layout: fixed; }
+      th, td { white-space: normal; word-break: break-word; }
+      .chain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media print {
+      @page { size: A4; margin: 15mm 13mm; }
+      body { background: #fff; font-size: 10.5pt; line-height: 1.55; }
+      .topbar, .toc, .print-button { display: none !important; }
+      .shell { display: block; max-width: none; padding: 0; }
+      .cover { box-shadow: none; border: 1px solid #bbb; background: #fff; }
+      .cover::after { display: none; }
+      h1 { color: #000; font-size: 25pt; }
+      .cover-subtitle, .eyebrow, .cover-meta span, .quick-note p { color: #333; }
+      .quick-note article, .card, table, .callout, .chain, .field, .check-item { box-shadow: none; }
+      .card { break-inside: auto; page-break-inside: auto; margin-top: 10px; }
+      h2 { break-after: avoid; page-break-after: avoid; color: #000; }
+      h3, h4 { break-after: avoid; page-break-after: avoid; }
+      .chain { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      a { color: #000; text-decoration: none; }
+      .tag { border: 1px solid #bbb; background: #fff !important; color: #000 !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">L</div>
+      <div class="brand-title">
+        <strong>联软渠道管理平台</strong>
+        <small>新 UI 业务操作手册</small>
+      </div>
+    </div>
+    <div class="topbar-tools">
+      <span class="role-chip">区管管理员</span>
+      <button class="print-button" type="button" onclick="window.print()">打印 / 导出 PDF</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="toc" aria-label="区管管理员手册目录">
+      <p class="toc-title">目录</p>
+      <div class="toc-group">开始使用</div>
+      <a href="#overview">01 先看全局</a>
+      <a href="#role">02 角色与权限边界</a>
+      <a href="#chain">03 主业务链总览</a>
+      <div class="toc-group">渠道与客户</div>
+      <a href="#partner-entry">04 渠道商准入</a>
+      <a href="#partner-maintain">05 档案、层级与成员</a>
+      <a href="#customer-review">06 客户报备审核</a>
+      <div class="toc-group">商机与报价</div>
+      <a href="#opportunity">07 商机监督</a>
+      <a href="#quote">08 报价治理</a>
+      <div class="toc-group">订单与协同</div>
+      <a href="#order">09 订单审批</a>
+      <a href="#return">10 退回、重提与取消</a>
+      <a href="#oa">11 OA 与企微协同</a>
+      <div class="toc-group">管理与异常</div>
+      <a href="#review-audit">12 审核、消息与审计</a>
+      <a href="#exceptions">13 常见异常处理</a>
+      <a href="#checklist">14 区管检查清单</a>
+    </nav>
+
+    <main>
+      <section class="cover">
+        <span class="eyebrow">V3 新 UI · 区域管理员版</span>
+        <h1>区管管理员手册</h1>
+        <p class="cover-subtitle">
+          面向区域管理员，讲清从渠道商准入、客户报备审核、商机推进、报价治理、订单三级审批，到订单回退、履约协同和操作审计的完整主业务链。
+        </p>
+        <div class="cover-meta">
+          <span>适用角色：区管 / 区域管理员</span>
+          <span>文档版本：2026-11-09</span>
+          <span>阅读重点：主链、审批节点、异常兜底</span>
+        </div>
+        <div class="quick-note">
+          <article>
+            <strong>区管看本区域</strong>
+            <p>只处理账号数据范围内的渠道商、客户、商机、报价与订单，不跨区域操作。</p>
+          </article>
+          <article>
+            <strong>标准报价要补价</strong>
+            <p>标准产品报价全链路不展示价格，转单后必须由区管补充最终订单价格。</p>
+          </article>
+          <article>
+            <strong>审批动作留痕</strong>
+            <p>通过、驳回、调价、退回、重提和取消均写审批历史与操作审计。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="card" id="overview">
+        <h2><span class="section-no">01</span>先看全局</h2>
+        <p class="lead">
+          区管的核心职责不是替代渠道做销售，而是守住三件事：<strong>渠道准入可信、客户归属不冲突、订单价格与审批链完整</strong>。所有业务动作都应顺着订单状态和历史记录推进，不通过线下消息跳过系统节点。
+        </p>
+        <div class="field-grid">
+          <div class="field"><span>每日首先查看</span><strong>审核中心 → 待审批；订单中心 → 待我处理</strong></div>
+          <div class="field"><span>重点跟踪对象</span><strong>本区域一级渠道、其直属二级渠道及关联业务</strong></div>
+          <div class="field"><span>价格判断依据</span><strong>报价快照、区域覆盖价、渠道层级价、出货金额</strong></div>
+          <div class="field"><span>风险留痕依据</span><strong>审批历史、状态历史、操作审计与附件</strong></div>
+        </div>
+        <table>
+          <thead>
+            <tr><th>工作频率</th><th>建议动作</th><th>目标</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>每日</td><td>清理客户报备、渠道账号、订单待办；检查被驳回或退回的业务。</td><td>避免订单卡在区管节点。</td></tr>
+            <tr><td>每周</td><td>检查停滞商机、异常低价、负利润订单、报价长期未转单。</td><td>发现业务质量和价格风险。</td></tr>
+            <tr><td>每月</td><td>核对渠道档案、分销层级、成员状态和订单履约结果。</td><td>保证渠道数据可继续使用。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card" id="role">
+        <h2><span class="section-no">02</span>角色与权限边界</h2>
+        <table>
+          <thead>
+            <tr><th>角色</th><th>可见范围</th><th>在主链中的职责</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>超级管理员</strong></td><td>全平台</td><td>维护管理配置、产品与价格规则；执行订单最终确认；处理跨区域异常。</td></tr>
+            <tr><td><strong>区管管理员</strong></td><td>本区域</td><td>渠道准入、客户报备审核、商机/报价监督、区管确认、补价、调价、驳回与退回。</td></tr>
+            <tr><td><strong>渠道企业管理员</strong></td><td>本渠道及授权下级</td><td>维护本企业成员账号、渠道关系和日常经营资料，组织员工开展业务。</td></tr>
+            <tr><td><strong>渠道销售成员</strong></td><td>本渠道授权业务</td><td>报备客户、建商机、写跟进、做报价、转订单、查看本渠道订单状态。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warning">
+          <span class="callout-title">区管看不到什么</span>
+          <p>“业务全景”和“管理配置”是超级管理员能力，不应作为区管日常入口。区管只使用工作台、客户管理、商机作战、订单中心、审核中心、产品目录、消息中心和渠道管理等业务页面。</p>
+        </div>
+        <h3>数据范围的判断方法</h3>
+        <ul>
+          <li>列表只应出现本区域数据；如果看到跨区域数据，应先停止操作并反馈，不要继续审批。</li>
+          <li>区域筛选、搜索词和标签只改变当前列表，不改变账号本身的权限范围。</li>
+          <li>一级渠道可查看其直属二级渠道的基础关系和由其产生的待确认订单；不得据此查看对方的内部经营档案。</li>
+          <li>渠道利润、内部成本、收益表等内部口径只对内部管理员展示，不应在渠道端传播。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="chain">
+        <h2><span class="section-no">03</span>主业务链总览</h2>
+        <p>新 UI 的主链可以压缩成八个阶段。区管不是每个动作的执行人，但要对关键门禁负责。</p>
+        <div class="chain" aria-label="主业务链流程图">
+          <div class="chain-node"><span class="num">1</span><strong>渠道准入</strong><small>区管建档、资质与层级</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">2</span><strong>账号开通</strong><small>企业管理员提成员，两级审批</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">3</span><strong>客户报备</strong><small>渠道提交，区管审核归属</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">4</span><strong>商机推进</strong><small>七阶段、跟进与报价前置</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">5</span><strong>报价定价</strong><small>标准免价 / 渠道分销自动取价</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">6</span><strong>报价转单</strong><small>收货、出货、合同附件</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">7</span><strong>三级审批</strong><small>一级 → 区管 → 超管</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">8</span><strong>履约协同</strong><small>发货、完成、OA/企微</small></div>
+        </div>
+        <h3>五个关键门禁</h3>
+        <div class="split-2">
+          <div class="callout info">
+            <span class="callout-title">门禁一：客户报备未通过</span>
+            <p>不能创建商机，不能进入报价与订单。驳回必须写清原因，渠道修正后可重新提交。</p>
+          </div>
+          <div class="callout info">
+            <span class="callout-title">门禁二：维保业务要有产品订单</span>
+            <p>维保商机必须关联同一客户、状态为已确认或已完成的产品订单，可关联多个。</p>
+          </div>
+          <div class="callout info">
+            <span class="callout-title">门禁三：标准报价要补价</span>
+            <p>标准产品报价不展示价格，订单进入区管节点必须补充大于 0 的最终订单价，否则不能提交超管。</p>
+          </div>
+          <div class="callout info">
+            <span class="callout-title">门禁四：一级渠道转单资料</span>
+            <p>一级渠道转订单必须填写出货金额并上传至少 1 个合同附件；二级渠道按选填处理。</p>
+          </div>
+        </div>
+        <div class="callout warning">
+          <span class="callout-title">门禁五：系统状态优先于口头结论</span>
+          <p>OA 是否受理、企微群是否建立，不等于 CRM 订单已经完成审批。最终状态必须看订单中心和审批历史。</p>
+        </div>
+      </section>
+
+      <section class="card" id="partner-entry">
+        <h2><span class="section-no">04</span>渠道商准入</h2>
+        <p>入口：顶部一级菜单<strong>“渠道管理”</strong> → 新建渠道商或打开待审核渠道。</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-no">1</div>
+            <div class="step-body">
+              <strong>核对主体与区域</strong>
+              <p>填写渠道商名称、所属区域、所在城市。区管新建的渠道商自动归属本区域，并按流程进入待审批；超级管理员直接创建时可直接生效。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-no">2</div>
+            <div class="step-body">
+              <strong>确定合作级别与分销层级</strong>
+              <p>合作级别可选核心渠道、钻石、金牌、银牌、铜牌、行业总代等；分销层级只设置一级或二级。二级渠道商必须至少绑定一个<strong>同区域一级渠道商</strong>。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-no">3</div>
+            <div class="step-body">
+              <strong>补齐联系人与合作资料</strong>
+              <p>渠道负责人和联系电话必填；协议编号、邮箱、开票能力、注册/办公地址、合作背景和经营能力按实际情况维护。</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-no">4</div>
+            <div class="step-body">
+              <strong>提交并跟踪审核状态</strong>
+              <p>区管创建的渠道商显示待审批。审核通过后才能作为正式渠道开展账号与业务操作；被驳回时先看原因再修改。</p>
+            </div>
+          </div>
+        </div>
+        <h3>建档检查要点</h3>
+        <table>
+          <thead><tr><th>检查项</th><th>通过标准</th><th>常见问题</th></tr></thead>
+          <tbody>
+            <tr><td>名称</td><td>与企业主体一致，避免使用简称或项目名。</td><td>名称重复、同一公司多个档案。</td></tr>
+            <tr><td>区域与城市</td><td>区域决定区管数据范围和价格区域，必须准确。</td><td>选错区域导致后续取价、审批人错误。</td></tr>
+            <tr><td>分销层级</td><td>一级或二级明确；二级必须绑定正确的一级上级。</td><td>上级不可选时，检查上级是否同级区域、是否仍为一级。</td></tr>
+            <tr><td>协议编号</td><td>区管正式确认订单前应维护完整，便于合同追溯。</td><td>为空时先补档案，不要带病进入订单审批。</td></tr>
+            <tr><td>合作背景</td><td>写清合作历史、重点客户、覆盖行业和服务能力。</td><td>只写“合作良好”等无判断价值的内容。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout danger">
+          <span class="callout-title">保存失败不要反复盲点</span>
+          <p>先看页面上的红色错误提示。常见原因包括必填字段缺失、电话格式不正确、二级渠道未绑定同区域一级渠道、名称重复或当前账号无权操作该区域。</p>
+        </div>
+      </section>
+
+      <section class="card" id="partner-maintain">
+        <h2><span class="section-no">05</span>档案、层级与成员</h2>
+        <h3>核心档案与经营信息</h3>
+        <p>在渠道商列表打开<strong>核心档案</strong>，维护主体、经营地址、合作背景、协议编号、开票能力、服务区域、代理品牌、典型客户、资质证书及合作进程。</p>
+        <ul>
+          <li>档案更新应保留历史和审批痕迹，不以口头说明替代系统记录。</li>
+          <li>“技术服务商类型”只应选择签约技术服务商、提名技术服务商或非技术服务商，避免填写自由文本造成统计失真。</li>
+          <li>一级/二级分销层级异常时，优先修正渠道关系，不要通过新建重复渠道绕过。</li>
+          <li>合作进程与持续运营资料用于经营判断，不作为订单审批的替代凭证。</li>
+        </ul>
+
+        <h3>成员账号审批</h3>
+        <p>入口：渠道管理 → 对应渠道 → 成员维护。渠道企业管理员提交成员后，订单外的账号审批进入<strong>审核中心</strong>。</p>
+        <table>
+          <thead><tr><th>状态</th><th>含义</th><th>区管动作</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag amber">待区管初审</span></td><td>企业管理员已提交，等待区管核验。</td><td>核对姓名、账号、角色、电话、岗位和所属渠道；通过后流转超管终审。</td></tr>
+            <tr><td><span class="tag blue">待超管终审</span></td><td>区管已通过，等待超级管理员终审。</td><td>不再重复审批；如需撤回或修正，联系超级管理员处理。</td></tr>
+            <tr><td><span class="tag green">正常</span></td><td>两级审批完成，可登录使用。</td><td>用于日常业务；发现异常时停用账号并留原因。</td></tr>
+            <tr><td><span class="tag red">已驳回</span></td><td>区管或超管未通过。</td><td>检查驳回原因，通知企业管理员修正后重新提交。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout info">
+          <span class="callout-title">账号职责的区别</span>
+          <p>企业管理员负责本渠道账号与业务组织；销售成员负责客户、商机、报价和订单。渠道端不能自行创建企业管理员账号，企业管理员账号由内部管理端维护。</p>
+        </div>
+      </section>
+
+      <section class="card" id="customer-review">
+        <h2><span class="section-no">06</span>客户报备审核</h2>
+        <p>入口：<strong>审核中心 → 客户报备</strong>查看待办，或<strong>客户管理 → 待审核</strong>筛选。审批动作在客户详情或业务详情页完成。</p>
+        <h3>客户报备的业务含义</h3>
+        <p>报备不是普通“新增客户”。它同时完成客户档案、归属渠道、所属区域和跟进人员的确认；审核通过后才进入保护期，渠道才能据此创建商机。</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-no">1</div>
+            <div class="step-body"><strong>看主体</strong><p>客户名称是否为工商全称；统一社会信用代码是否为 18 位数字或大写字母；行业、规模、来源是否合理。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-no">2</div>
+            <div class="step-body"><strong>看查重</strong><p>客户名称或统一社会信用代码与既有客户一致时，系统按冲突处理，不允许重复报备，并记录冲突审计。发现重复时应停止通过，定位原客户与原渠道。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-no">3</div>
+            <div class="step-body"><strong>看联系人和需求</strong><p>主要联系人和电话必填，邮箱可空但格式必须正确；项目需求应能说明采购场景、范围和下一步，不写空话。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-no">4</div>
+            <div class="step-body"><strong>看归属和保护期</strong><p>归属渠道、区域和跟进人员由账号自动带入。若“同时报备商机”，补充项目名称、预计端点范围、保护期和备注。</p></div>
+          </div>
+          <div class="step">
+            <div class="step-no">5</div>
+            <div class="step-body"><strong>做决定</strong><p>通过后保护期生效；驳回必须填写原因。被驳回记录会保留标识和原因，渠道看不到通过状态，也不能以此创建商机。</p></div>
+          </div>
+        </div>
+        <h3>审核通过前检查</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>客户主体真实，名称与信用代码匹配。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>没有同名或同信用代码的重复客户。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>联系人、电话、行业、企业规模和客户来源完整。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>归属渠道与区域符合当前账号数据范围。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>如同时报备商机，项目名称和端点范围已填写，保护期合理。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>营业执照、项目材料等附件可打开且与客户匹配。</span></div>
+        </div>
+        <div class="callout warning">
+          <span class="callout-title">驳回不是删除</span>
+          <p>驳回后记录仍保留。渠道修正后可重新提交，审批历史保留原意见；区管在历史审批意见中核对本轮修改是否真正回应了问题。</p>
+        </div>
+      </section>
+
+      <section class="card" id="opportunity">
+        <h2><span class="section-no">07</span>商机监督</h2>
+        <p>入口：<strong>商机作战</strong>。列表支持区域筛选、搜索、重点商机和停滞风险。点开商机后使用“跟进、报价、订单、档案与审计”四个页签。</p>
+        <h3>七阶段口径</h3>
+        <table>
+          <thead><tr><th>阶段</th><th>进度</th><th>区管关注点</th></tr></thead>
+          <tbody>
+            <tr><td>客户建联</td><td>10%</td><td>关键联系人、客户需求和真实项目线索是否成立。</td></tr>
+            <tr><td>需求挖掘</td><td>20%–30%</td><td>痛点、预算、决策链和时间计划是否明确。</td></tr>
+            <tr><td>客户方案</td><td>40%</td><td>方案范围与报价口径是否一致。</td></tr>
+            <tr><td>POC 试用</td><td>50%</td><td>验收标准、测试范围和反馈是否记录。</td></tr>
+            <tr><td>立项推进</td><td>60%–70%</td><td>采购流程、合同主体和预算审批是否推进。</td></tr>
+            <tr><td>招投标</td><td>80%–90%</td><td>投标材料、报价版本和时间节点是否一致。</td></tr>
+            <tr><td>成单</td><td>100%</td><td>是否进入报价转订单和履约，不要只改阶段不落业务。</td></tr>
+          </tbody>
+        </table>
+        <p>输单和项目取消属于终止结果，不应被误显示为普通阶段。</p>
+
+        <h3>业务类型规则</h3>
+        <div class="split-2">
+          <div class="callout success">
+            <span class="callout-title">产品商机</span>
+            <p>以新产品、硬件或产品实施服务为目标，可创建产品报价和产品订单。</p>
+          </div>
+          <div class="callout success">
+            <span class="callout-title">维保商机</span>
+            <p>以续保或维保服务为目标，必须关联至少一个同客户、已确认或已完成的产品订单，可关联多个。</p>
+          </div>
+        </div>
+        <div class="callout danger">
+          <span class="callout-title">禁止混单</span>
+          <p>产品订单和维保订单分开下；维保报价只能包含维保服务，不能混入软件、硬件或普通实施服务。</p>
+        </div>
+
+        <h3>跟进记录</h3>
+        <p>商机页可直接记录跟进，不要求先打开客户跟进记录。至少填写本次沟通内容；同步推进阶段时只能推进到下一阶段或选择输单、项目取消，并必须填写变更原因。</p>
+        <ul>
+          <li>跟进方式：电话沟通、现场拜访、线上会议、微信沟通、客户反馈。</li>
+          <li>沟通内容最多 2000 字；附件支持 PDF、Word、Excel、图片、ZIP，单个不超过 10MB，单次最多 5 个。</li>
+          <li>页签中的跟进历史应同时展示阶段和具体内容；只有时间没有内容，不能作为有效推进依据。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="quote">
+        <h2><span class="section-no">08</span>报价治理</h2>
+        <p>报价从商机进入，也可从报价中心查看。新 UI 的报价<strong>不再设置报价审批环节</strong>；区管的控制点前移到价格规则和订单补价，而不是等待“报价通过”。</p>
+        <h3>两类报价</h3>
+        <table>
+          <thead><tr><th>类型</th><th>价格展示</th><th>转单后的处理</th></tr></thead>
+          <tbody>
+            <tr><td><strong>标准产品报价</strong></td><td>全程不展示价格，模块、数量和结构照常保存。</td><td>渠道可提交订单；区管在区管节点补充最终订单价格，未补价不能提交超管。</td></tr>
+            <tr><td><strong>渠道分销产品报价</strong></td><td>按标准价、区域覆盖价、渠道等级价和阶梯价由服务端取价。</td><td>按报价快照和出货金额进入订单审批，区管可审价或调价。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warning">
+          <span class="callout-title">报价类型创建后不可切换</span>
+          <p>如果报价体系选错，应重新创建报价，不要尝试在编辑页来回切换；切换会破坏价格口径和订单追溯。</p>
+        </div>
+
+        <h3>三种报价方式</h3>
+        <div class="field-grid">
+          <div class="field"><span>套餐报价</span><strong>入单模块来自所选套餐，套餐内模块固定，数量可按规则调整。</strong></div>
+          <div class="field"><span>补充功能</span><strong>套餐内模块加上套餐之外的补充功能，补充项单独勾选。</strong></div>
+          <div class="field"><span>自定义报价</span><strong>完全按所选模块和功能组装，不依赖套餐。</strong></div>
+          <div class="field"><span>报价有效期</span><strong>可选 15、30、60、90 天，需与客户商务周期匹配。</strong></div>
+        </div>
+        <p>选择顺序应与老 UI 一致地理解为“报价方式 → 模块 → 具体功能”。建议操作时先在报价方式面板完成选择，再在下方检查软件模块、硬件与服务和试算汇总；不要在尚未选择模块时直接依赖默认内容。</p>
+
+        <h3>区管审价关注点</h3>
+        <ul>
+          <li>关联商机、客户、区域、渠道层级是否一致。</li>
+          <li>端点数量与模块数量是否符合项目范围，硬件数量是否合理。</li>
+          <li>渠道分销报价是否命中正确的区域覆盖价和渠道等级价。</li>
+          <li>报价明细与商机需求是否匹配；维保报价是否只含维保服务。</li>
+          <li>报价快照、打印 PDF 与订单明细是否一致。</li>
+        </ul>
+        <p>只有草稿或已驳回报价可以修改；已转订单报价不能重复转单。报价单支持“打印 / 下载 PDF”，正式发送客户前应核对客户名称、报价明细、有效期和金额。</p>
+      </section>
+
+      <section class="card" id="order">
+        <h2><span class="section-no">09</span>订单审批</h2>
+        <p>入口：<strong>订单中心 → 待我处理</strong> → 打开订单。区管只会收到到达区管节点的订单；不要在“待一级确认”阶段代替渠道执行一级确认。</p>
+        <h3>订单状态与动作</h3>
+        <table>
+          <thead><tr><th>状态</th><th>当前责任人</th><th>可用动作</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag amber">待一级确认</span></td><td>一级渠道商</td><td>一级渠道执行“一级确认”或“一级驳回”；区管只读等待。</td></tr>
+            <tr><td><span class="tag amber">一级已确认 / 待区管确认</span></td><td>区管</td><td>区管确认、区管调价、区管补价（标准报价）、区管驳回。</td></tr>
+            <tr><td><span class="tag amber">待超管确认</span></td><td>超级管理员</td><td>超管确认或超管退回；区管不再重复确认。</td></tr>
+            <tr><td><span class="tag red">已退回一级 / 二级 / 区管</span></td><td>被退回方</td><td>查看退回原因；符合条件时修订后重新提交。</td></tr>
+            <tr><td><span class="tag green">已确认 / 处理中</span></td><td>履约角色</td><td>确认发货；按实际履约情况推进。</td></tr>
+            <tr><td><span class="tag green">已发货</span></td><td>履约角色</td><td>客户签收或实施完成后完成订单。</td></tr>
+            <tr><td><span class="tag gray">已取消</span></td><td>—</td><td>终态，不再进入审批链；保留原因和历史。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>区管确认</h3>
+        <div class="steps">
+          <div class="step"><div class="step-no">1</div><div class="step-body"><strong>核对订单摘要</strong><p>订单总额、来源报价、渠道层级、渠道名称、审批轮次和当前状态是否匹配。</p></div></div>
+          <div class="step"><div class="step-no">2</div><div class="step-body"><strong>核对商品与模块</strong><p>逐项检查产品/模块、数量、订单单价和小计；订单明细来自报价快照，区管调价不覆盖原报价快照。</p></div></div>
+          <div class="step"><div class="step-no">3</div><div class="step-body"><strong>核对价格对比</strong><p>查看原价、渠道订单价、出货金额、渠道订单折扣、出货折扣、渠道利润及出货/订单比例。负利润要以风险样式处理并写明原因。</p></div></div>
+          <div class="step"><div class="step-no">4</div><div class="step-body"><strong>核对附件与履约信息</strong><p>检查收货人、联系电话、详细地址、合同附件；一级渠道的出货金额和附件应满足转单要求。</p></div></div>
+          <div class="step"><div class="step-no">5</div><div class="step-body"><strong>执行动作</strong><p>正常订单点“区管确认”；需要改价时点“区管调价”；标准报价未定价时点“区管补价”。所有驳回、调价、退回均必须填写业务原因。</p></div></div>
+        </div>
+
+        <h3>标准产品报价的区管补价</h3>
+        <div class="callout danger">
+          <span class="callout-title">未补价不能继续提交</span>
+          <p>标准产品报价转成的订单会显示“待区管定价”。区管必须补充大于 0 的最终订单价格，才可进入超管确认；补价记录进入审批历史与审计。</p>
+        </div>
+
+        <h3>价格与收益核对</h3>
+        <p>订单处理页的价格对比区用于统一核对价格口径；收益表用于内部收益核算，仅对内部管理员且非标准报价场景展示。不要把渠道端可见的出货价格与内部收益混为一谈。</p>
+        <table>
+          <thead><tr><th>指标</th><th>含义</th><th>区管关注</th></tr></thead>
+          <tbody>
+            <tr><td>原价</td><td>标准价格口径。</td><td>作为折扣和利润判断的基准。</td></tr>
+            <tr><td>渠道订单价</td><td>渠道下单时的订单金额。</td><td>与报价快照、明细合计是否一致。</td></tr>
+            <tr><td>出货金额</td><td>渠道向最终客户出货的成交金额。</td><td>一级渠道转单必填；与合同附件是否匹配。</td></tr>
+            <tr><td>渠道利润</td><td>出货金额减去渠道订单价格。</td><td>负利润必须说明并复核原因。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card" id="return">
+        <h2><span class="section-no">10</span>退回、重提与取消</h2>
+        <h3>退回目标</h3>
+        <p>区管驳回或超管退回时，必须明确退回目标：退回区域管理员、退回一级渠道商或退回二级渠道商。不要只写“退回修改”，否则执行人无法判断应改什么。</p>
+        <table>
+          <thead><tr><th>退回状态</th><th>处理人</th><th>下一步</th></tr></thead>
+          <tbody>
+            <tr><td>已退回区管修改</td><td>区管</td><td>核对超管意见，修订后重新提交。</td></tr>
+            <tr><td>已退回一级修改</td><td>一级渠道商</td><td>核对区管/超管意见，修订后重新提交。</td></tr>
+            <tr><td>已退回二级修改</td><td>二级渠道商</td><td>核对退回原因，修订后重新提交。</td></tr>
+          </tbody>
+        </table>
+        <h3>重新提交规则</h3>
+        <ul>
+          <li>至少保留一项明细；模块数量必须为大于 0 的整数。</li>
+          <li>单价由系统按区域覆盖价、渠道等级价和阶梯价重新取价，不允许手工改单价。</li>
+          <li>重新提交必须填写原因，结果写回订单审批历史和操作审计。</li>
+          <li>已进入处理中、已发货、已完成或已取消的订单不能申请回退修改。</li>
+        </ul>
+        <div class="callout warning">
+          <span class="callout-title">退回不等于取消</span>
+          <p>退回是给业务一次修订机会；取消是终止订单。取消后待办和通知关闭，不能在原订单上继续审批。确需重新下单时，以新订单和对应报价为准。</p>
+        </div>
+        <h3>取消订单</h3>
+        <p>在允许取消的审批状态中，由有权限的角色执行“取消订单”。必须填写取消原因，系统会保留取消人、时间和历史记录。取消前应先确认是否已有合同附件、发货动作或 OA 协同，避免外部流程与 CRM 状态脱节。</p>
+      </section>
+
+      <section class="card" id="oa">
+        <h2><span class="section-no">11</span>OA 与企微协同</h2>
+        <p>订单审批通过后，系统可在配置允许时自动生成正式报价 PDF、发起泛微 OA 预审、创建企业微信订单预审群并发送通知。是否执行取决于预审开关、OA 模板、区域映射、泛微身份和企微身份是否配置完整。</p>
+        <table>
+          <thead><tr><th>业务状态</th><th>可能的自动化结果</th><th>区管应做什么</th></tr></thead>
+          <tbody>
+            <tr><td>普通订单区管确认后</td><td>进入 OA 预审条件判断，条件满足时创建 OA 流程和企微群。</td><td>核对订单摘要，等待自动结果；不要因群已建就认为 CRM 已终审。</td></tr>
+            <tr><td>调价订单超管确认后</td><td>按配置触发后续 OA/企微协同。</td><td>确认调价原因和历史已留痕。</td></tr>
+            <tr><td>自动化未执行</td><td>订单仍可停留在 CRM 当前状态。</td><td>联系超级管理员检查开关、模板、区域映射和外部凭据，不手工改数据库。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout danger">
+          <span class="callout-title">不要混淆两个“通过”</span>
+          <p>当前系统中，OA 协同记录可以标记为已受理，但 OA 审批结论不会自动推进 CRM 订单状态。CRM 订单的最终确认仍以超级管理员在订单中心的操作为准。</p>
+        </div>
+        <h3>自动化异常排查顺序</h3>
+        <ol>
+          <li>先看订单是否已到正确触发状态，审批历史是否有对应动作。</li>
+          <li>检查订单的正式报价 PDF、合同附件和区域信息是否完整。</li>
+          <li>由超级管理员检查预审任务开关、OA 模板、区域映射、泛微身份和企微 UserId 映射。</li>
+          <li>在 OA、企微侧核对是否已建流程或群；不要重复点击导致重复流程。</li>
+        </ol>
+      </section>
+
+      <section class="card" id="review-audit">
+        <h2><span class="section-no">12</span>审核、消息与审计</h2>
+        <h3>审核中心</h3>
+        <p>审核中心分为“待审批”和“已审批”。待审批覆盖客户报备、订单、渠道商和成员账号；已审批用于回看历史结论、审批人、时间和审批意见。</p>
+        <ul>
+          <li>客户报备和订单的最终动作在业务页面完成，审核中心用于集中发现待办和查看历史。</li>
+          <li>账号审批需核对具体账号信息，而不是只看姓名；企业管理员创建的员工账号先区管初审，再超管终审。</li>
+          <li>驳回后必须在业务记录中能查到原因，渠道侧也应看到已驳回标识和原因。</li>
+        </ul>
+        <h3>消息中心</h3>
+        <p>消息中心用于查看站内通知、提醒规则和投递状态。业务提醒不能替代系统状态：收到“待审批”提醒后仍要进入对应业务页面核对详情；没有收到提醒也要按待办清单主动检查。</p>
+        <h3>操作审计</h3>
+        <p>管理配置中的操作审计用于追踪客户、线索、商机、渠道、订单和后台管理动作。排查问题时优先按对象和时间范围定位，再核对操作人、动作、结果与关联单据。</p>
+        <div class="callout info">
+          <span class="callout-title">建议的审计排查顺序</span>
+          <p>先定位对象编号 → 再看最新状态与审批历史 → 最后用操作审计补齐登录、接口调用和后端动作。不要只截取列表结论，忽略前后因果关系。</p>
+        </div>
+      </section>
+
+      <section class="card" id="exceptions">
+        <h2><span class="section-no">13</span>常见异常处理</h2>
+        <table>
+          <thead><tr><th>现象</th><th>优先检查</th><th>处理建议</th></tr></thead>
+          <tbody>
+            <tr><td>渠道列表没有目标渠道</td><td>区域筛选、账号数据范围、渠道审批状态。</td><td>先确认是否本区域、是否待审批或被驳回；不要重复新建。</td></tr>
+            <tr><td>新建二级渠道选不到一级上级</td><td>上级是否为一级、是否同区域、是否已生效。</td><td>先修正上级或区域；保存失败时查看明确错误提示。</td></tr>
+            <tr><td>成员账号一直不能登录</td><td>状态是否为待区管初审、待超管终审或已驳回。</td><td>按审核链处理；驳回后让企业管理员修正并重提。</td></tr>
+            <tr><td>客户报备无法通过</td><td>名称/信用代码重复、字段格式、查重结果。</td><td>保留原记录，驳回并写清冲突对象或修改要求。</td></tr>
+            <tr><td>渠道无法创建商机</td><td>客户报备是否已通过、是否已过保护期。</td><td>先完成报备审核或处理保护期，不要绕过系统限制。</td></tr>
+            <tr><td>报价转单按钮不可用</td><td>报价状态、是否已转订单、报价是否过期或取消。</td><td>只有草稿、已提交、已通过、已驳回等允许状态可转；同一报价只能转一次。</td></tr>
+            <tr><td>标准报价订单金额为空</td><td>是否等待区管补价。</td><td>在区管节点执行“区管补价”，填写大于 0 的金额后再提交超管。</td></tr>
+            <tr><td>一级渠道转单失败</td><td>出货金额、合同附件、收货信息。</td><td>补填出货金额并上传至少 1 个合规附件；地址和电话必须有效。</td></tr>
+            <tr><td>订单在待一级确认停留</td><td>是否由一级渠道账号处理。</td><td>区管不能越权代确认；联系对应一级渠道或升级异常。</td></tr>
+            <tr><td>OA 没有流程或企微没有群</td><td>预审任务是否开启、模板/映射/凭据是否完整。</td><td>由超级管理员排查配置；不要把群消息当作订单已审批。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout danger">
+          <span class="callout-title">遇到价格、权限或状态异常时</span>
+          <p>先停止重复提交，记录订单号/报价号、客户、渠道、发生时间、当前状态和页面提示，再交由超级管理员或技术负责人按审计与任务日志排查。不要自行修改数据库或绕过审批接口。</p>
+        </div>
+      </section>
+
+      <section class="card" id="checklist">
+        <h2><span class="section-no">14</span>区管检查清单</h2>
+        <h3>每日</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>审核中心没有超过一个工作日未处理的客户报备、账号和订单待办。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>退回记录都有明确退回目标、原因和下一步责任方。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>标准产品报价订单已完成区管补价，金额大于 0。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>一级渠道转单的出货金额与合同附件齐全。</span></div>
+        </div>
+        <h3>每周</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>检查停滞风险商机，推动补跟进、补报价或调整阶段。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>抽查渠道分销报价是否命中正确区域覆盖价和渠道层级价。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>核对负利润、大幅调价和重复退回订单的原因是否完整。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>查看操作审计中的异常登录、批量操作和关键审批动作。</span></div>
+        </div>
+        <h3>每月</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>核对渠道档案、协议编号、分销层级、成员状态是否仍然有效。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>复盘客户报备驳回率、订单退回率、报价转单率和履约完成情况。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>将共性异常整理给超级管理员，推动规则、配置或页面修复。</span></div>
+        </div>
+        <div class="callout success">
+          <span class="callout-title">一条判断原则</span>
+          <p>只要客户、商机、报价、订单之间的编号和状态能互相追溯，审批意见能解释每一次变更，区管就守住了主业务链。反之，即使单据“看起来通过”，也不能视为业务完成。</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        联软渠道管理平台 · 新 UI 区管管理员手册 · 2026-11-09<br>
+        本手册以当前新 UI 业务口径编写；页面按钮和可见范围以账号实际权限与系统配置为准。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

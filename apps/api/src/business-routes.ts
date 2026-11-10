@@ -1,10 +1,14 @@
 import crypto from "node:crypto";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 import type { 日志器, 日志字段, 构建信息 } from "@lianruan/shared";
 import { 创建成功响应, 应用错误 } from "@lianruan/shared";
-import type { Request, Response, Router } from "express";
+import type { Request, RequestHandler, Response, Router } from "express";
 import { Router as createRouter } from "express";
+import multer from "multer";
 
+import { 审计导出文件名, type 审计导出行, 生成审计导出CSV } from "./audit-export.js";
 import { 读取移动端会话身份, 读取请求会话用户名, 读取请求会话角色 } from "./auth-routes.js";
 import {
   type 业务数据服务,
@@ -13,6 +17,9 @@ import {
   type 移动端幂等参数,
   type 阶段9模块,
 } from "./business-store.js";
+import { 移除产品价格字段 } from "./product-price-visibility.js";
+import { 构建报价试算公开视图, 解析报价类型 } from "./quote-visibility.js";
+import { 移除敏感字段 } from "./sensitive-fields.js";
 
 interface 业务路由参数 {
   build: 构建信息;
@@ -65,6 +72,57 @@ const 开放资源模块映射: Record<string, 阶段9模块> = {
   "dashboard-stats": "registrations",
 };
 
+const 报备附件大小上限 = 10 * 1024 * 1024;
+const 报备附件允许扩展名 = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".zip",
+]);
+const 报备附件上传 = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 报备附件大小上限, files: 1 },
+});
+
+const 商机跟进附件大小上限 = 10 * 1024 * 1024;
+const 商机跟进附件允许扩展名 = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".zip",
+]);
+const 商机跟进附件上传 = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 商机跟进附件大小上限, files: 1 },
+});
+
+const 订单合同附件大小上限 = 20 * 1024 * 1024;
+const 订单合同附件数量上限 = 10;
+const 订单合同附件允许扩展名 = new Set([
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".png",
+  ".jpg",
+  ".jpeg",
+]);
+const 订单合同附件上传 = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 订单合同附件大小上限, files: 订单合同附件数量上限 },
+});
+
 export function 创建业务路由(参数: 业务路由参数): Router {
   const router = createRouter();
   const service =
@@ -72,6 +130,29 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     (参数.databaseUrl ? 创建业务数据服务({ databaseUrl: 参数.databaseUrl }) : 创建业务数据服务({}));
   const 读取用户 = (req: Request) => 读取当前业务用户(req, 参数);
   const 读取移动用户 = (req: Request) => 读取当前移动端业务用户(req, 参数);
+  const 报备附件目录 = path.resolve(
+    参数.env?.V3_UPLOAD_DIR ||
+      process.env.V3_UPLOAD_DIR ||
+      (process.env.NODE_ENV === "production"
+        ? "/app/uploads/registration-attachments"
+        : path.join(process.cwd(), "uploads", "registration-attachments")),
+  );
+  const 订单合同附件目录 = path.resolve(
+    参数.env?.V3_UPLOAD_DIR ||
+      process.env.V3_UPLOAD_DIR ||
+      (process.env.NODE_ENV === "production"
+        ? "/app/uploads"
+        : path.join(process.cwd(), "uploads")),
+    "order-contract-attachments",
+  );
+  const 商机跟进附件目录 = path.resolve(
+    参数.env?.V3_UPLOAD_DIR ||
+      process.env.V3_UPLOAD_DIR ||
+      (process.env.NODE_ENV === "production"
+        ? "/app/uploads"
+        : path.join(process.cwd(), "uploads")),
+    "opportunity-followup-attachments",
+  );
 
   router.use((req, _res, next) => {
     if (!是受保护业务路由(req) || 是公开业务路由(req) || 使用独立认证的业务路由(req)) {
@@ -85,9 +166,27 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     next();
   });
 
+  // 管理配置类接口只允许超级管理员访问，避免前端隐藏入口但服务端仍可直连读取。
+  router.use(async (req, _res, next) => {
+    if (!是超级管理员专属业务接口(req)) {
+      next();
+      return;
+    }
+    try {
+      const 用户 = 读取用户(req);
+      const 上下文 = await service.读取当前用户上下文(用户);
+      if ((上下文?.roleCode || 用户?.roleCode) !== "superadmin") {
+        throw new 应用错误("V3_PERMISSION_DENIED", "只有超级管理员可以访问管理配置。", 403);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get("/dashboard/stats", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.读取概览()));
+      res.json(成功(req, 参数.build, await service.读取概览(读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -95,7 +194,46 @@ export function 创建业务路由(参数: 业务路由参数): Router {
 
   router.get("/stage9/overview", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.读取概览()));
+      res.json(成功(req, 参数.build, await service.读取概览(读取用户(req))));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get(["/stage9/audit/export", "/audit-logs/export"], async (req, res, next) => {
+    try {
+      const 用户 = 读取用户(req);
+      const 结果 = await service.查询列表(
+        "audit",
+        { ...读取查询(req), page: 1, pageSize: 100000 },
+        用户,
+      );
+      const 导出数据: 审计导出行[] = 结果.数据.map((记录) => {
+        const 原始 = (记录.原始数据 || {}) as Record<string, unknown>;
+        return {
+          时间: 记录.创建时间,
+          操作人账号: 文本值(原始.actorUsername, 记录.负责人),
+          操作人姓名: 文本值(原始.actorName, 记录.负责人),
+          角色: 文本值(原始.actorRole),
+          审计分类: 文本值(原始.moduleCode, 记录.标题),
+          模块编码: 文本值(原始.moduleCode),
+          动作编码: 文本值(原始.actionCode),
+          对象类型: 文本值(原始.targetType),
+          对象编号: 文本值(原始.targetId),
+          对象名称: 文本值(原始.targetName),
+          结果: 文本值(原始.result, 记录.状态),
+          说明: 文本值(原始.message, 记录.标题),
+          IP: 文本值(原始.ip),
+          请求编号: 文本值(原始.requestId),
+        };
+      });
+      const buffer = 生成审计导出CSV(导出数据);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(审计导出文件名())}`,
+      );
+      res.send(buffer);
     } catch (error) {
       next(error);
     }
@@ -104,7 +242,17 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/stage9/:module", async (req, res, next) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, 参数.build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
+      const 用户 = 读取用户(req);
+      const 查询 = 读取查询(req);
+      const 数据 = await service.查询列表(模块, 查询, 用户);
+      await 记录审计检索留痕(service, req, 模块, 查询, 数据, 用户);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          模块 === "products" ? await 按角色清理产品价格(service, 用户, 数据) : 数据,
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -113,8 +261,14 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/stage9/:module/:id", async (req, res, next) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
+      const 用户 = 读取用户(req);
+      const 数据 = await service.查询详情(模块, 读取路由参数(req, "id"), 用户);
       res.json(
-        成功(req, 参数.build, await service.查询详情(模块, 读取路由参数(req, "id"), 读取用户(req))),
+        成功(
+          req,
+          参数.build,
+          模块 === "products" ? await 按角色清理产品价格(service, 用户, 数据) : 数据,
+        ),
       );
     } catch (error) {
       next(error);
@@ -135,20 +289,121 @@ export function 创建业务路由(参数: 业务路由参数): Router {
     }
   });
 
-  router.put("/notifications/read", (_req, res) => {
-    res.json(
-      成功(_req, 参数.build, {
-        updated: true,
-        message: "通知已标记为已读。",
-      }),
-    );
+  router.put("/notifications/read", async (req, res, next) => {
+    try {
+      const 用户 = 读取用户(req);
+      if (!用户) {
+        next(new 应用错误("V3_AUTH_REQUIRED", "请先登录后再访问业务接口。", 401));
+        return;
+      }
+      // 历史实现直接返回成功但不落库，属于静默假成功；这里改为真实更新当前数据源。
+      const 正文 = (req.body || {}) as Record<string, unknown>;
+      // notificationId 为 V2 兼容页面（admin-app.js）沿用的字段名，只取通知主键；
+      // 请求体里的 userId 一律忽略，接收人只能取自登录会话，避免越权改他人通知。
+      const 通知编号 = String(正文.id || 正文.通知编号 || 正文.notificationId || "").trim();
+      const 结果 = await service.标记通知已读(用户, 通知编号 || undefined);
+      res.json(
+        成功(req, 参数.build, {
+          updated: 结果.更新数 > 0,
+          更新数: 结果.更新数,
+          message: 结果.更新数 > 0 ? "通知已标记为已读。" : "没有需要标记的未读通知。",
+        }),
+      );
+    } catch (error) {
+      next(error);
+    }
   });
 
+  router.post(
+    "/registrations/attachments",
+    解析报备附件上传(报备附件上传.single("file")),
+    async (req, res, next) => {
+      try {
+        const 文件 = req.file;
+        if (!文件) {
+          throw new 应用错误(
+            "V3_REGISTRATION_ATTACHMENT_REQUIRED",
+            "请选择需要上传的资料附件。",
+            400,
+          );
+        }
+        const 原文件名 = 标准化上传文件名(文件.originalname);
+        const 扩展名 = path.extname(原文件名).toLowerCase();
+        const 文件名片段 = 原文件名.toLowerCase().split(".");
+        const 含危险中间扩展名 = 文件名片段
+          .slice(0, -1)
+          .some((片段) =>
+            ["exe", "bat", "cmd", "com", "js", "vbs", "ps1", "sh", "msi", "scr"].includes(片段),
+          );
+        if (!报备附件允许扩展名.has(扩展名) || 含危险中间扩展名) {
+          throw new 应用错误(
+            "V3_REGISTRATION_ATTACHMENT_TYPE_INVALID",
+            "资料附件仅支持 PDF、Word、Excel、图片或 ZIP 文件。",
+            400,
+          );
+        }
+        if (!文件内容符合扩展名(文件.buffer, 扩展名)) {
+          throw new 应用错误(
+            "V3_REGISTRATION_ATTACHMENT_CONTENT_INVALID",
+            "文件内容与扩展名不一致，请上传真实的 PDF、Word、Excel、图片或 ZIP 文件。",
+            400,
+          );
+        }
+        await mkdir(报备附件目录, { recursive: true });
+        const id = crypto.randomUUID();
+        const 存储名 = `${id}${扩展名}`;
+        await writeFile(path.join(报备附件目录, 存储名), 文件.buffer, { flag: "wx" });
+        res.json(
+          成功(req, 参数.build, {
+            id,
+            文件名: 原文件名,
+            大小: 文件.size,
+            MIME类型: 文件.mimetype,
+            存储名,
+            下载地址: `/api/registrations/attachments/${encodeURIComponent(存储名)}`,
+            上传时间: new Date().toISOString(),
+          }),
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  router.get("/registrations/attachments/:storageName", async (req, res, next) => {
+    try {
+      const 存储名 = 读取路由参数(req, "storageName");
+      if (!/^[0-9a-f-]{36}\.(pdf|docx?|xlsx?|png|jpe?g|zip)$/i.test(存储名)) {
+        throw new 应用错误("V3_REGISTRATION_ATTACHMENT_NOT_FOUND", "资料附件不存在。", 404);
+      }
+      const 完整路径 = path.join(报备附件目录, 存储名);
+      const 内容 = await readFile(完整路径);
+      const 下载名 = 标准化下载文件名(读取查询文本(req, "name") || "", 存储名);
+      res.setHeader("content-type", "application/octet-stream");
+      res.setHeader(
+        "content-disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(下载名)}`,
+      );
+      res.send(内容);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+        next(new 应用错误("V3_REGISTRATION_ATTACHMENT_NOT_FOUND", "资料附件不存在。", 404));
+        return;
+      }
+      next(error);
+    }
+  });
   router.get("/registrations", 列表处理器(service, 参数.build, "registrations", 读取用户));
   router.get("/registrations/:id", 详情处理器(service, 参数.build, "registrations", 读取用户));
   router.post("/registrations", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报备(req.body, 读取用户(req))));
+      const 用户 = 读取用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行桌面端写入(req, service, 用户, () => service.创建报备(req.body, 用户)),
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -159,7 +414,8 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          // 正式审核只负责状态流转；客户资料编辑与驳回后重提走 PUT /registrations/:id。
+          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -172,7 +428,8 @@ export function 创建业务路由(参数: 业务路由参数): Router {
         成功(
           req,
           参数.build,
-          await service.更新报备状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+          // 资料更新：维护客户档案等字段，未显式传状态时保持当前状态不变。
+          await service.更新报备(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -181,10 +438,102 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
 
   router.get("/opportunities", 列表处理器(service, 参数.build, "opportunities", 读取用户));
+  router.post(
+    "/opportunities/followup-attachments",
+    解析商机跟进附件上传(商机跟进附件上传.single("file")),
+    async (req, res, next) => {
+      try {
+        const 文件 = req.file;
+        if (!文件) {
+          throw new 应用错误(
+            "V3_OPPORTUNITY_ATTACHMENT_REQUIRED",
+            "请选择需要上传的跟进附件。",
+            400,
+          );
+        }
+        const 原文件名 = 标准化上传文件名(文件.originalname);
+        const 扩展名 = path.extname(原文件名).toLowerCase();
+        const 文件名片段 = 原文件名.toLowerCase().split(".");
+        const 含危险中间扩展名 = 文件名片段
+          .slice(0, -1)
+          .some((片段) =>
+            ["exe", "bat", "cmd", "com", "js", "vbs", "ps1", "sh", "msi", "scr"].includes(片段),
+          );
+        if (!商机跟进附件允许扩展名.has(扩展名) || 含危险中间扩展名) {
+          throw new 应用错误(
+            "V3_OPPORTUNITY_ATTACHMENT_TYPE_INVALID",
+            "跟进附件仅支持 PDF、Word、Excel、图片或 ZIP 文件。",
+            400,
+          );
+        }
+        if (!文件内容符合扩展名(文件.buffer, 扩展名)) {
+          throw new 应用错误(
+            "V3_OPPORTUNITY_ATTACHMENT_CONTENT_INVALID",
+            "文件内容与扩展名不一致，请上传真实的附件文件。",
+            400,
+          );
+        }
+        await mkdir(商机跟进附件目录, { recursive: true });
+        const id = crypto.randomUUID();
+        const 存储名 = `${id}${扩展名}`;
+        await writeFile(path.join(商机跟进附件目录, 存储名), 文件.buffer, { flag: "wx" });
+        res.json(
+          成功(req, 参数.build, {
+            id,
+            文件名: 原文件名,
+            大小: 文件.size,
+            MIME类型: 文件.mimetype || "application/octet-stream",
+            存储名,
+            下载地址: `/api/opportunities/followup-attachments/${encodeURIComponent(存储名)}/download`,
+            上传时间: new Date().toISOString(),
+          }),
+        );
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+  router.get(
+    "/opportunities/followup-attachments/:storageName/download",
+    async (req, res, next) => {
+      try {
+        const 存储名 = 读取路由参数(req, "storageName");
+        if (!/^[0-9a-f-]{36}\.(pdf|docx?|xlsx?|png|jpe?g|zip)$/i.test(存储名)) {
+          throw new 应用错误("V3_OPPORTUNITY_ATTACHMENT_NOT_FOUND", "跟进附件不存在。", 404);
+        }
+        const 内容 = await readFile(path.join(商机跟进附件目录, 存储名));
+        const 查询名 = String(req.query.filename || "").trim();
+        const 下载名 = 查询名 ? 标准化上传文件名(查询名) : `跟进附件${path.extname(存储名)}`;
+        res
+          .status(200)
+          .setHeader("Content-Type", "application/octet-stream")
+          .setHeader("Content-Length", String(内容.length))
+          .setHeader("X-Content-Type-Options", "nosniff")
+          .setHeader(
+            "Content-Disposition",
+            `attachment; filename*=UTF-8''${encodeURIComponent(下载名)}`,
+          )
+          .send(内容);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+          next(new 应用错误("V3_OPPORTUNITY_ATTACHMENT_NOT_FOUND", "跟进附件不存在。", 404));
+          return;
+        }
+        next(error);
+      }
+    },
+  );
   router.get("/opportunities/:id", 详情处理器(service, 参数.build, "opportunities", 读取用户));
   router.post("/opportunities", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建商机(req.body, 读取用户(req))));
+      const 用户 = 读取用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行桌面端写入(req, service, 用户, () => service.创建商机(req.body, 用户)),
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -223,21 +572,34 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   });
   router.post("/quotes/workload-preview", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.试算报价(req.body)));
+      const 报价类型 = 解析报价类型(req.body?.quoteTypeCode ?? req.body?.报价类型);
+      res.json(
+        成功(req, 参数.build, 构建报价试算公开视图(await service.试算报价(req.body), 报价类型)),
+      );
     } catch (error) {
       next(error);
     }
   });
   router.post("/ipg/quote-preview", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.试算报价(req.body)));
+      const 报价类型 = 解析报价类型(req.body?.quoteTypeCode ?? req.body?.报价类型);
+      res.json(
+        成功(req, 参数.build, 构建报价试算公开视图(await service.试算报价(req.body), 报价类型)),
+      );
     } catch (error) {
       next(error);
     }
   });
   router.post("/quotes", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建报价(req.body, 读取用户(req))));
+      const 用户 = 读取用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行桌面端写入(req, service, 用户, () => service.创建报价(req.body, 用户)),
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -284,9 +646,108 @@ export function 创建业务路由(参数: 业务路由参数): Router {
 
   router.get("/orders", 列表处理器(service, 参数.build, "orders", 读取用户));
   router.get("/orders/:id", 详情处理器(service, 参数.build, "orders", 读取用户));
+  router.get("/orders/:id/contract-attachments", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.查询订单合同附件(读取路由参数(req, "id"), 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.get("/orders/:id/contract-attachments/:attachmentId/download", async (req, res, next) => {
+    try {
+      const 附件 = await service.读取订单合同附件(
+        读取路由参数(req, "id"),
+        读取路由参数(req, "attachmentId"),
+        读取用户(req),
+      );
+      res
+        .status(200)
+        .setHeader("Content-Type", "application/octet-stream")
+        .setHeader("Content-Length", String(附件.内容.length))
+        .setHeader("X-Content-Type-Options", "nosniff")
+        .setHeader(
+          "Content-Disposition",
+          `attachment; filename*=UTF-8''${encodeURIComponent(附件.文件名)}`,
+        )
+        .send(附件.内容);
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.post(
+    "/orders/from-quote",
+    解析订单合同附件上传(订单合同附件上传.array("contractFiles", 订单合同附件数量上限)),
+    async (req, res, next) => {
+      const 已写入文件: string[] = [];
+      try {
+        const 文件列表 = Array.isArray(req.files) ? req.files : [];
+        const 合同附件: Array<Record<string, unknown>> = [];
+        if (文件列表.length) await mkdir(订单合同附件目录, { recursive: true });
+        for (const 文件 of 文件列表) {
+          const 原文件名 = 标准化上传文件名(文件.originalname);
+          const 扩展名 = path.extname(原文件名).toLowerCase();
+          const 文件名片段 = 原文件名.toLowerCase().split(".");
+          const 含危险中间扩展名 = 文件名片段
+            .slice(0, -1)
+            .some((片段) =>
+              ["exe", "bat", "cmd", "com", "js", "vbs", "ps1", "sh", "msi", "scr"].includes(片段),
+            );
+          if (!订单合同附件允许扩展名.has(扩展名) || 含危险中间扩展名) {
+            throw new 应用错误(
+              "V3_ORDER_ATTACHMENT_TYPE_INVALID",
+              "合同附件仅支持 JPG、PNG、PDF、Word 和 Excel 文件。",
+              400,
+            );
+          }
+          if (!文件内容符合扩展名(文件.buffer, 扩展名)) {
+            throw new 应用错误(
+              "V3_ORDER_ATTACHMENT_CONTENT_INVALID",
+              "文件内容与扩展名不一致，请上传真实的合同文件。",
+              400,
+            );
+          }
+          const 存储名 = `${crypto.randomUUID()}${扩展名}`;
+          const 完整路径 = path.join(订单合同附件目录, 存储名);
+          await writeFile(完整路径, 文件.buffer, { flag: "wx" });
+          已写入文件.push(完整路径);
+          合同附件.push({
+            文件名: 原文件名,
+            MIME类型: 文件.mimetype || "application/octet-stream",
+            大小: 文件.size,
+            存储名,
+            sha256: crypto.createHash("sha256").update(文件.buffer).digest("hex"),
+          });
+        }
+        const 用户 = 读取用户(req);
+        const 输入 = {
+          ...(读取请求体对象(req) || {}),
+          合同附件,
+          严格履约: true,
+        };
+        const 订单 = await 执行桌面端写入(req, service, 用户, () => service.创建订单(输入, 用户));
+        res.json(成功(req, 参数.build, 订单));
+      } catch (error) {
+        await Promise.all(已写入文件.map((路径) => unlink(路径).catch(() => undefined)));
+        next(error);
+      }
+    },
+  );
   router.post("/orders", async (req, res, next) => {
     try {
-      res.json(成功(req, 参数.build, await service.创建订单(req.body, 读取用户(req))));
+      const 用户 = 读取用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行桌面端写入(req, service, 用户, () => service.创建订单(req.body, 用户)),
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -324,6 +785,19 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           req,
           参数.build,
           await service.更新订单状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.put("/orders/:id/warranty", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.更新订单质保(读取路由参数(req, "id"), req.body, 读取用户(req)),
         ),
       );
     } catch (error) {
@@ -368,7 +842,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           参数.build,
           await service.更新订单状态(
             读取路由参数(req, "id"),
-            { ...req.body, status: "confirmed" },
+            { ...req.body, status: "confirmed", action: "primary_confirm" },
             读取用户(req),
           ),
         ),
@@ -385,7 +859,12 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           参数.build,
           await service.更新订单状态(
             读取路由参数(req, "id"),
-            { ...req.body, status: "returned_to_secondary", returnTarget: "secondary" },
+            {
+              ...req.body,
+              status: "returned_to_secondary",
+              returnTarget: "secondary",
+              action: "primary_return",
+            },
             读取用户(req),
           ),
         ),
@@ -415,6 +894,13 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.get("/features", 产品列表处理器(service, 参数.build, "feature", 读取用户));
   router.get("/hardware", 产品列表处理器(service, 参数.build, "hardware", 读取用户));
   router.get("/packages", 产品列表处理器(service, 参数.build, "package", 读取用户));
+  router.get("/audit-logs/customer-duplicate-weekly", async (req, res, next) => {
+    try {
+      res.json(成功(req, 参数.build, await service.查询客户查重周报(读取用户(req))));
+    } catch (error) {
+      next(error);
+    }
+  });
   router.get("/audit-logs", 列表处理器(service, 参数.build, "audit", 读取用户));
   router.get("/workload/classifications", 列表处理器(service, 参数.build, "workload", 读取用户));
   router.get("/workload/mappings", async (req, res, next) => {
@@ -422,6 +908,26 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       res.json(
         成功(req, 参数.build, await service.查询工作量映射(读取查询文本(req, "keyword") || "")),
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.post("/workload/mappings", async (req, res, next) => {
+    try {
+      const 请求体 = (req.body || {}) as Record<string, unknown>;
+      const 产品编号 = String(
+        请求体.productId ?? 请求体.featureId ?? 请求体.productRefId ?? "",
+      ).trim();
+      if (!产品编号) {
+        throw new 应用错误(
+          "V3_WORKLOAD_PRODUCT_REQUIRED",
+          "新增工作量映射必须指定产品或硬件编号。",
+          400,
+        );
+      }
+      res
+        .status(201)
+        .json(成功(req, 参数.build, await service.保存工作量映射(产品编号, 请求体, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -439,9 +945,35 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
+  router.delete("/workload/mappings/:id", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.保存工作量映射(
+            读取路由参数(req, "id"),
+            { active: false, deliveryTags: [], deleteMode: true },
+            读取用户(req),
+          ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
   router.get("/workload/delivery-rules", async (req, res, next) => {
     try {
       res.json(成功(req, 参数.build, await service.查询交付工作量规则()));
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.post("/workload/delivery-rules", async (req, res, next) => {
+    try {
+      res
+        .status(201)
+        .json(成功(req, 参数.build, await service.保存交付工作量规则("", req.body, 读取用户(req))));
     } catch (error) {
       next(error);
     }
@@ -453,6 +985,23 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           req,
           参数.build,
           await service.保存交付工作量规则(读取路由参数(req, "id"), req.body, 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.delete("/workload/delivery-rules/:id", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.保存交付工作量规则(
+            读取路由参数(req, "id"),
+            { active: false, deleteMode: true },
+            读取用户(req),
+          ),
         ),
       );
     } catch (error) {
@@ -535,6 +1084,28 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       next(error);
     }
   });
+  router.use("/approvals", (req, _res, next) => {
+    const 用户 = 读取用户(req);
+    if (用户?.roleCode === "partner_admin" || 用户?.roleCode === "staff") {
+      next(new 应用错误("V3_APPROVAL_CENTER_FORBIDDEN", "渠道账号不能访问审核中心。", 403));
+      return;
+    }
+    next();
+  });
+  router.put("/approvals/:id/status", async (req, res, next) => {
+    try {
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await service.更新待审批状态(读取路由参数(req, "id"), req.body, 读取用户(req)),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.get("/approvals/:id", 详情处理器(service, 参数.build, "approvals", 读取用户));
   router.get("/approvals", 列表处理器(service, 参数.build, "approvals", 读取用户));
   router.get("/import-export/tasks", 列表处理器(service, 参数.build, "importExport", 读取用户));
 
@@ -565,6 +1136,19 @@ export function 创建业务路由(参数: 业务路由参数): Router {
   router.post("/mobile/opportunities/:id/follow-ups", async (req, res, next) => {
     try {
       const 用户 = 读取移动用户(req);
+      const 跟进内容 = String(
+        req.body?.followup ?? req.body?.content ?? req.body?.["跟进内容"] ?? "",
+      ).trim();
+      if (!跟进内容) {
+        throw new 应用错误("V3_OPPORTUNITY_FOLLOWUP_CONTENT_REQUIRED", "请填写本次沟通内容。", 400);
+      }
+      if (跟进内容.length > 2000) {
+        throw new 应用错误(
+          "V3_OPPORTUNITY_FOLLOWUP_CONTENT_TOO_LONG",
+          "本次沟通内容不能超过 2000 个字符。",
+          400,
+        );
+      }
       res.json(
         成功(
           req,
@@ -572,6 +1156,32 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           await 执行移动端写入(req, service, 用户, async () =>
             service.更新商机(读取路由参数(req, "id"), req.body, 用户),
           ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.post("/mobile/quotes/workload-preview", async (req, res, next) => {
+    try {
+      // 移动端试算与桌面端共用同一取价口径，标准报价必须在出口统一脱敏。
+      读取移动用户(req);
+      const 报价类型 = 解析报价类型(req.body?.quoteTypeCode ?? req.body?.报价类型);
+      res.json(
+        成功(req, 参数.build, 构建报价试算公开视图(await service.试算报价(req.body), 报价类型)),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.post("/mobile/quotes", async (req, res, next) => {
+    try {
+      const 用户 = 读取移动用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行移动端写入(req, service, 用户, async () => service.创建报价(req.body, 用户)),
         ),
       );
     } catch (error) {
@@ -587,6 +1197,22 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           参数.build,
           await 执行移动端写入(req, service, 用户, async () =>
             service.创建订单({ ...req.body, quoteId: 读取路由参数(req, "id") }, 用户),
+          ),
+        ),
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+  router.put("/mobile/orders/:id/status", async (req, res, next) => {
+    try {
+      const 用户 = 读取移动用户(req);
+      res.json(
+        成功(
+          req,
+          参数.build,
+          await 执行移动端写入(req, service, 用户, async () =>
+            service.更新订单状态(读取路由参数(req, "id"), req.body, 用户),
           ),
         ),
       );
@@ -727,7 +1353,9 @@ export function 创建业务路由(参数: 业务路由参数): Router {
       clientId = 身份.clientId;
       校验开放接口资源权限(身份.allowedResources, resource);
       const 模块 = 读取开放资源模块(resource);
-      const 数据 = await service.查询列表(模块, 读取查询(req), 读取开放接口业务用户(req, 身份));
+      const 用户 = 读取开放接口业务用户(req, 身份);
+      const 数据 = await service.查询列表(模块, 读取查询(req), 用户);
+      const 响应数据 = 模块 === "products" ? await 按角色清理产品价格(service, 用户, 数据) : 数据;
       await service.记录开放接口调用({
         clientId,
         requestId: req.requestId,
@@ -747,7 +1375,7 @@ export function 创建业务路由(参数: 业务路由参数): Router {
           allowedResourceCount: 身份.allowedResources.length,
         },
       });
-      res.json(成功(req, 参数.build, 数据));
+      res.json(成功(req, 参数.build, 响应数据));
     } catch (error) {
       await service.记录开放接口调用({
         clientId,
@@ -788,11 +1416,56 @@ function 列表处理器(
     next: (error: unknown) => void,
   ) => {
     try {
-      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
+      const 数据 = await service.查询列表(模块, 读取查询(req), 读取用户(req));
+      await 记录审计检索留痕(service, req, 模块, 读取查询(req), 数据, 读取用户(req));
+      res.json(
+        成功(
+          req,
+          build,
+          模块 === "products" ? await 按角色清理产品价格(service, 读取用户(req), 数据) : 数据,
+        ),
+      );
     } catch (error) {
       next(error);
     }
   };
+}
+
+const 审计检索留痕窗口毫秒 = 30_000;
+const 最近审计检索留痕 = new Map<string, number>();
+
+/** 只记录用户主动提交的检索条件，分类计数、翻页和页面初始化不写“检索审计”。 */
+async function 记录审计检索留痕(
+  service: 业务数据服务,
+  req: Request,
+  模块: 阶段9模块,
+  查询: ReturnType<typeof 读取查询>,
+  数据: { 分页?: { 总数?: number }; 数据?: unknown[] },
+  用户: 当前业务用户 | null,
+): Promise<void> {
+  if (模块 !== "audit" || req.headers["x-audit-search"] !== "1") return;
+  if (!查询.keyword && !查询.module && !查询.from && !查询.to) return;
+  if (!service.记录审计检索) return;
+  const 键 = JSON.stringify({
+    username: 用户?.username || "anonymous",
+    keyword: 查询.keyword || "",
+    module: 查询.module || "",
+    from: 查询.from || "",
+    to: 查询.to || "",
+  });
+  const 当前 = Date.now();
+  for (const [缓存键, 时间] of 最近审计检索留痕) {
+    if (当前 - 时间 > 审计检索留痕窗口毫秒) 最近审计检索留痕.delete(缓存键);
+  }
+  const 上次 = 最近审计检索留痕.get(键) || 0;
+  if (当前 - 上次 < 审计检索留痕窗口毫秒) return;
+  最近审计检索留痕.set(键, 当前);
+  try {
+    await service.记录审计检索(用户, 查询, Number(数据.分页?.总数 || 数据.数据?.length || 0));
+  } catch {
+    // 审计旁路失败不能阻断检索本身；数据库恢复后下一次检索会继续留痕。
+    最近审计检索留痕.delete(键);
+  }
 }
 
 function 产品列表处理器(
@@ -807,13 +1480,12 @@ function 产品列表处理器(
     next: (error: unknown) => void,
   ) => {
     try {
-      res.json(
-        成功(
-          req,
-          build,
-          await service.查询列表("products", { ...读取查询(req), productType }, 读取用户(req)),
-        ),
+      const 数据 = await service.查询列表(
+        "products",
+        { ...读取查询(req), productType },
+        读取用户(req),
       );
+      res.json(成功(req, build, await 按角色清理产品价格(service, 读取用户(req), 数据)));
     } catch (error) {
       next(error);
     }
@@ -849,7 +1521,15 @@ function 移动列表处理器(service: 业务数据服务, build: 构建信息,
   ) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
-      res.json(成功(req, build, await service.查询列表(模块, 读取查询(req), 读取用户(req))));
+      const 用户 = 读取用户(req);
+      const 数据 = await service.查询列表(模块, 读取查询(req), 用户);
+      res.json(
+        成功(
+          req,
+          build,
+          模块 === "products" ? await 按角色清理产品价格(service, 用户, 数据) : 数据,
+        ),
+      );
     } catch (error) {
       next(error);
     }
@@ -864,8 +1544,14 @@ function 移动详情处理器(service: 业务数据服务, build: 构建信息,
   ) => {
     try {
       const 模块 = 读取模块(读取路由参数(req, "module"));
+      const 用户 = 读取用户(req);
+      const 数据 = await service.查询详情(模块, 读取路由参数(req, "id"), 用户);
       res.json(
-        成功(req, build, await service.查询详情(模块, 读取路由参数(req, "id"), 读取用户(req))),
+        成功(
+          req,
+          build,
+          模块 === "products" ? await 按角色清理产品价格(service, 用户, 数据) : 数据,
+        ),
       );
     } catch (error) {
       next(error);
@@ -874,7 +1560,7 @@ function 移动详情处理器(service: 业务数据服务, build: 构建信息,
 }
 
 function 成功<T>(req: Request, build: 构建信息, data: T) {
-  return 创建成功响应({ data, requestId: req.requestId, build });
+  return 创建成功响应({ data: 移除敏感字段(data), requestId: req.requestId, build });
 }
 
 function 记录开放接口认证事件(
@@ -1000,6 +1686,15 @@ function 校验开放接口资源权限(allowedResources: string[], resource: st
   throw new 应用错误("V3_OPEN_API_RESOURCE_FORBIDDEN", "OpenAPI资源未授权。", 403);
 }
 
+function 文本值(...值列表: unknown[]): string {
+  for (const 值 of 值列表) {
+    if (值 === null || 值 === undefined) continue;
+    const 文本 = String(值).trim();
+    if (文本) return 文本;
+  }
+  return "";
+}
+
 function 读取路由参数(req: Request, key: string): string {
   const value = req.params[key];
   if (typeof value === "string") return value;
@@ -1010,12 +1705,16 @@ function 读取路由参数(req: Request, key: string): string {
 function 读取查询(req: Request) {
   return {
     keyword: 读取查询文本(req, "keyword") || 读取查询文本(req, "q"),
+    module: 读取查询文本(req, "module"),
     status: 读取查询文本(req, "status"),
+    type: 读取查询文本(req, "type"),
     level: 读取查询文本(req, "level"),
     region: 读取查询文本(req, "region"),
     userId: 读取查询文本(req, "userId"),
     partnerId: 读取查询文本(req, "partnerId") || 读取查询文本(req, "assignedPartnerId"),
     operatorId: 读取查询文本(req, "operatorId"),
+    from: 读取查询文本(req, "from"),
+    to: 读取查询文本(req, "to"),
     productType: 读取产品类型(req),
     page: 读取正整数(req, "page", 1),
     pageSize: Math.min(读取正整数(req, "pageSize", 20), 100),
@@ -1153,9 +1852,7 @@ function 是公开业务路由(req: Request): boolean {
 
 function 使用独立认证的业务路由(req: Request): boolean {
   return (
-    req.path.startsWith("/open/v1/") ||
-    req.path === "/open/v1" ||
-    req.path.startsWith("/mobile/")
+    req.path.startsWith("/open/v1/") || req.path === "/open/v1" || req.path.startsWith("/mobile/")
   );
 }
 
@@ -1181,17 +1878,40 @@ function 是受保护业务路由(req: Request): boolean {
   ].some((prefix) => path === prefix || path.startsWith(prefix + "/"));
 }
 
+function 是超级管理员专属业务接口(req: Request): boolean {
+  const path = req.path;
+  return [
+    "/audit-logs",
+    "/stage9/audit",
+    "/stage9/audit-logs",
+    "/open-api",
+    "/openapi-integration",
+    "/stage9/open-api",
+    "/stage9/openapi",
+    "/workload",
+    "/stage9/workload",
+    "/users",
+    "/stage9/users",
+    "/import-export",
+    "/stage9/import-export",
+    "/stage9/importExport",
+  ].some((prefix) => path === prefix || path.startsWith(prefix + "/"));
+}
+
 function 读取当前业务用户(req: Request, 参数: 业务路由参数): 当前业务用户 | null {
-  const 会话用户名 = 读取请求会话用户名(req, {
+  const 会话参数 = {
     sessionSecret: 参数.sessionSecret || "",
     ...(参数.env ? { env: 参数.env } : {}),
-  });
+  };
+  const 会话用户名 = 读取请求会话用户名(req, 会话参数);
   if (会话用户名) {
+    const 会话角色 = 读取请求会话角色(req, 会话参数);
     return {
       requestId: req.requestId,
       username: 会话用户名,
       displayName: 会话用户名,
-      roleName: "V3登录用户",
+      ...(会话角色 ? { roleCode: 会话角色 } : {}),
+      roleName: 角色显示名称(会话角色),
     };
   }
   if (参数.env?.V3_BUSINESS_LEGACY_IDENTITY_ENABLED === "true") {
@@ -1287,6 +2007,42 @@ function 转移动端角色代码(role: string): 当前业务用户["roleCode"] 
   return undefined;
 }
 
+async function 执行桌面端写入<T>(
+  req: Request,
+  service: 业务数据服务,
+  用户: 当前业务用户 | null,
+  操作: () => Promise<T>,
+): Promise<T> {
+  const 幂等键 = 读取业务幂等键(req);
+  if (!幂等键) return 操作();
+  return service.执行移动端幂等(
+    {
+      作用域: `business:${用户?.username || "anonymous"}:${req.method}:${req.path}`,
+      幂等键,
+      请求哈希: 创建业务请求哈希(req),
+    },
+    操作,
+  );
+}
+
+function 读取业务幂等键(req: Request): string {
+  const value = req.headers["idempotency-key"];
+  if (typeof value !== "string") return "";
+  const key = value.trim();
+  if (!key) return "";
+  if (key.length > 200) {
+    throw new 应用错误("V3_IDEMPOTENCY_KEY_INVALID", "幂等键长度不能超过200个字符。", 400);
+  }
+  return key;
+}
+
+function 创建业务请求哈希(req: Request): string {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ method: req.method, path: req.path, body: req.body || null }), "utf8")
+    .digest("hex");
+}
+
 async function 执行移动端写入<T>(
   req: Request,
   service: 业务数据服务,
@@ -1336,4 +2092,191 @@ function 读取请求体文本(req: Request, key: string): string {
   const body = req.body as Record<string, unknown> | undefined;
   const value = body?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+/** 审计与操作记录面向业务用户展示，角色代码不能原样落成“V3登录用户”。 */
+function 角色显示名称(roleCode: string): string {
+  return (
+    {
+      superadmin: "超级管理员",
+      admin: "管理员",
+      region_manager: "区域管理员",
+      region_admin: "区域管理员",
+      partner_admin: "渠道管理员",
+      staff: "内部员工",
+      auditor: "审计员",
+    }[roleCode] || "内部用户"
+  );
+}
+
+/**
+ * 产品、模块、描述可供渠道用户浏览，价格与渠道等级比例只对内部管理员返回。
+ * 未登录、会话失效或无法解析角色时默认隐藏，避免公开接口意外泄露价格。
+ */
+async function 按角色清理产品价格<T>(
+  service: 业务数据服务,
+  用户: 当前业务用户 | null,
+  数据: T,
+): Promise<T> {
+  if (!用户) return 移除产品价格字段(数据);
+  try {
+    const 上下文 = await service.读取当前用户上下文(用户);
+    const 角色 = 上下文?.roleCode || 用户.roleCode || "";
+    const 是内部管理员 = ["superadmin", "admin", "region_manager"].includes(角色);
+    return 是内部管理员 ? 数据 : 移除产品价格字段(数据);
+  } catch {
+    return 移除产品价格字段(数据);
+  }
+}
+
+/** 将 multer 的上传异常转换成业务可读的中文提示，避免页面出现底层错误。 */
+function 解析报备附件上传(上传: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    上传(req, res, (error: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+      if (error instanceof multer.MulterError) {
+        if (error.code === "LIMIT_FILE_SIZE") {
+          next(
+            new 应用错误(
+              "V3_REGISTRATION_ATTACHMENT_TOO_LARGE",
+              "单个资料附件不能超过 10MB，请压缩或拆分后再上传。",
+              400,
+            ),
+          );
+          return;
+        }
+        next(
+          new 应用错误(
+            "V3_REGISTRATION_ATTACHMENT_UPLOAD_FAILED",
+            "资料附件上传失败，请重新选择文件。",
+            400,
+          ),
+        );
+        return;
+      }
+      next(error);
+    });
+  };
+}
+
+/** 商机跟进附件与报备附件同为 10MB 上限，但错误码独立，便于前端准确提示。 */
+function 解析商机跟进附件上传(上传: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    上传(req, res, (error: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+      if (error instanceof multer.MulterError) {
+        if (error.code === "LIMIT_FILE_SIZE") {
+          next(
+            new 应用错误(
+              "V3_OPPORTUNITY_ATTACHMENT_TOO_LARGE",
+              "单个跟进附件不能超过 10MB，请压缩后重新上传。",
+              400,
+            ),
+          );
+          return;
+        }
+        next(
+          new 应用错误(
+            "V3_OPPORTUNITY_ATTACHMENT_UPLOAD_FAILED",
+            "跟进附件上传失败，请重新选择文件。",
+            400,
+          ),
+        );
+        return;
+      }
+      next(error);
+    });
+  };
+}
+
+/** 订单合同附件错误必须使用用户可读中文，且不能暴露 multer 或文件系统细节。 */
+function 解析订单合同附件上传(上传: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    上传(req, res, (error: unknown) => {
+      if (!error) {
+        next();
+        return;
+      }
+      if (error instanceof multer.MulterError) {
+        if (error.code === "LIMIT_FILE_SIZE") {
+          next(
+            new 应用错误(
+              "V3_ORDER_ATTACHMENT_TOO_LARGE",
+              "单个合同附件不能超过 20MB，请压缩或拆分后重新上传。",
+              400,
+            ),
+          );
+          return;
+        }
+        if (error.code === "LIMIT_FILE_COUNT") {
+          next(
+            new 应用错误("V3_ORDER_ATTACHMENT_TOO_MANY", "每张订单最多上传 10 个合同附件。", 400),
+          );
+          return;
+        }
+        next(
+          new 应用错误(
+            "V3_ORDER_ATTACHMENT_UPLOAD_FAILED",
+            "合同附件上传失败，请重新选择文件。",
+            400,
+          ),
+        );
+        return;
+      }
+      next(error);
+    });
+  };
+}
+
+/**
+ * 部分浏览器或反向代理会把 UTF-8 文件名按 latin1 传给 multer。
+ * 只在转换后不包含替换字符且能形成有效 UTF-8 文本时采用转换结果。
+ */
+function 标准化上传文件名(文件名: string): string {
+  const 原值 = path.basename(String(文件名 || "").trim());
+  if (!原值) return "未命名附件";
+  const 转码值 = Buffer.from(原值, "latin1").toString("utf8");
+  const 可用值 =
+    转码值 && !转码值.includes("\uFFFD") && /[\u4e00-\u9fff]/.test(转码值) ? 转码值 : 原值;
+  return (
+    Array.from(可用值)
+      .filter((字符) => {
+        const 编码 = 字符.charCodeAt(0);
+        return 编码 >= 32 && 编码 !== 127;
+      })
+      .join("")
+      .slice(0, 180) || "未命名附件"
+  );
+}
+
+function 标准化下载文件名(文件名: string, 存储名: string): string {
+  const 原值 = 标准化上传文件名(文件名);
+  if (原值 && 原值 !== "未命名附件") return 原值;
+  return `资料附件${path.extname(存储名)}`;
+}
+
+/** 根据文件头识别真实类型，避免仅凭扩展名接受 PE 等可执行内容。 */
+function 文件内容符合扩展名(内容: Buffer, 扩展名: string): boolean {
+  const 头部 = 内容.subarray(0, 8);
+  const 是Zip = 头部[0] === 0x50 && 头部[1] === 0x4b;
+  const 是Pdf = 内容.subarray(0, 5).toString("ascii") === "%PDF-";
+  const 是Ole =
+    头部.length >= 8 &&
+    [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1].every((字节, 序号) => 头部[序号] === 字节);
+  const 是Png =
+    头部.length >= 8 &&
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((字节, 序号) => 头部[序号] === 字节);
+  const 是Jpeg = 头部[0] === 0xff && 头部[1] === 0xd8 && 头部[2] === 0xff;
+  if (扩展名 === ".pdf") return 是Pdf;
+  if (扩展名 === ".doc" || 扩展名 === ".xls") return 是Ole;
+  if ([".docx", ".xlsx", ".zip"].includes(扩展名)) return 是Zip;
+  if (扩展名 === ".png") return 是Png;
+  if ([".jpg", ".jpeg"].includes(扩展名)) return 是Jpeg;
+  return false;
 }

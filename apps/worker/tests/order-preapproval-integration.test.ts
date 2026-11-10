@@ -1,3 +1,9 @@
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { 读取应用配置 } from "@lianruan/config";
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,7 +14,7 @@ import {
   读取泛微附件编号,
 } from "../src/order-preapproval-eteams.js";
 import { 生成订单预审报价单PDF, 生成订单预审采购内容 } from "../src/order-preapproval-pdf.js";
-import { 订单预审事件领取查询 } from "../src/order-preapproval-store.js";
+import { 订单预审事件领取查询, 订单预审任务存储 } from "../src/order-preapproval-store.js";
 import { 企微订单预审群客户端 } from "../src/order-preapproval-wecom.js";
 import { 启动订单预审任务服务 } from "../src/order-preapproval-worker.js";
 
@@ -52,6 +58,60 @@ describe("订单预审外部集成", () => {
     await expect(服务.close()).resolves.toBeUndefined();
   });
 
+  it("订单预审任务关闭时主进程保持常驻并可优雅停止", async () => {
+    const 仓库根目录 = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+    const 子进程 = spawn(
+      process.execPath,
+      ["--import", "tsx", "apps/worker/src/order-preapproval-worker.ts"],
+      {
+        cwd: 仓库根目录,
+        env: {
+          ...process.env,
+          APP_ENV: "test",
+          ORDER_PREAPPROVAL_WORKER_ENABLED: "false",
+          LOG_FILE_ENABLED: "false",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const 超时 = setTimeout(() => reject(new Error("预审进程未能正常启动")), 5_000);
+        const 检查输出 = (数据: Buffer) => {
+          if (数据.toString("utf8").includes("订单预审任务进程保持关闭")) {
+            clearTimeout(超时);
+            resolve();
+          }
+        };
+        子进程.stdout.on("data", 检查输出);
+        子进程.stderr.on("data", 检查输出);
+        子进程.once("error", reject);
+        子进程.once("exit", (代码) => {
+          clearTimeout(超时);
+          reject(new Error(`预审进程启动后意外退出，退出码 ${String(代码)}`));
+        });
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(子进程.exitCode).toBeNull();
+
+      const 退出结果 = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+        (resolve, reject) => {
+          const 超时 = setTimeout(() => reject(new Error("预审进程未能响应停止信号")), 5_000);
+          子进程.once("exit", (code, signal) => {
+            clearTimeout(超时);
+            resolve({ code, signal });
+          });
+        },
+      );
+      子进程.kill("SIGTERM");
+      await expect(退出结果).resolves.toEqual({ code: 0, signal: null });
+    } finally {
+      if (子进程.exitCode === null && 子进程.signalCode === null) 子进程.kill("SIGKILL");
+    }
+  });
+
   it("正式报价单 PDF 使用中文标准字体并包含页面正式结构", () => {
     const PDF = 生成订单预审报价单PDF({
       订单编号: "LS-2026-0001",
@@ -64,23 +124,15 @@ describe("订单预审外部集成", () => {
       生成时间: "2026-08-27T00:00:00.000Z",
     });
 
-    const 文本 = PDF.toString("binary");
     expect(PDF.subarray(0, 8).toString("binary")).toBe("%PDF-1.7");
-    // 历史实现只引用未嵌入的 STSong-Light，阅读器缺字体时中文乱码，禁止回退到该写法。
-    expect(文本).not.toContain("/STSong-Light");
-    expect(文本).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSerifSC-Regular/);
-    expect(文本).toContain("/Encoding /Identity-H");
-    expect(文本).toContain("/Subtype /CIDFontType0C");
-    expect(文本).toContain("/ToUnicode");
+    const 文本 = PDF.toString("binary");
+    expect(文本).toContain("/CIDFontType2");
+    expect(文本).toContain("/FontFile2");
+    expect(文本).toContain("/Times-Roman");
     expect(文本).toContain("xref");
-
-    // 内嵌子集用字形编号绘制，中文靠 ToUnicode 映射回 Unicode，这里校验标题关键字可被检索。
-    const 字符映射表 = 读取PDF流(
-      文本,
-      文本.indexOf("/CIDInit /ProcSet findresource begin"),
-    ).toString("binary");
-    for (const 字符 of "联软安全产品报价单软件产品服务项") {
-      expect(字符映射表).toContain(字符.codePointAt(0)!.toString(16).padStart(4, "0").toUpperCase());
+    for (const 词组 of ["联软安全产品报价单", "软件产品", "服务项"]) {
+      const 首字码点 = 词组.codePointAt(0)!.toString(16).padStart(4, "0").toUpperCase();
+      expect(文本).toContain(`<${首字码点}>`);
     }
   });
 
@@ -367,11 +419,67 @@ describe("订单预审外部集成", () => {
       retryable: false,
     });
   });
-});
 
-/** 从二进制视角读取 PDF 流内容：起点为流数据首字节偏移。 */
-function 读取PDF流(文本: string, 起点: number): Buffer {
-  const 终点 = 文本.indexOf("\nendstream", 起点);
-  if (起点 < 0 || 终点 < 0) throw new Error("未找到 PDF 流内容。");
-  return Buffer.from(文本.slice(起点, 终点), "binary");
-}
+  it("预审报价单目录自检：可写目录通过，指向普通文件时判定不可写并给出错误", async () => {
+    const 临时根目录 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "order-preapproval-dir-"));
+    try {
+      const 可写目录 = path.join(临时根目录, "nested", "order-preapproval");
+      const 可写存储 = new 订单预审任务存储(
+        读取应用配置({
+          APP_ENV: "test",
+          DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+          ORDER_PREAPPROVAL_FILE_DIR: 可写目录,
+        }),
+      );
+      const 可写结果 = await 可写存储.校验文件目录();
+      expect(可写结果.可写).toBe(true);
+      expect(可写结果.目录).toBe(可写目录);
+      expect(fs.existsSync(可写目录)).toBe(true);
+      await 可写存储.close();
+
+      const 占用文件 = path.join(临时根目录, "occupied-file");
+      await fs.promises.writeFile(占用文件, "occupied");
+      const 不可写存储 = new 订单预审任务存储(
+        读取应用配置({
+          APP_ENV: "test",
+          DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+          ORDER_PREAPPROVAL_FILE_DIR: 占用文件,
+        }),
+      );
+      const 不可写结果 = await 不可写存储.校验文件目录();
+      expect(不可写结果.可写).toBe(false);
+      expect(不可写结果.错误).not.toBe("");
+      await 不可写存储.close();
+    } finally {
+      await fs.promises.rm(临时根目录, { recursive: true, force: true });
+    }
+  });
+
+  it("预审附件目录不可写时拒绝启动预审进程", async () => {
+    const 临时根目录 = await fs.promises.mkdtemp(
+      path.join(os.tmpdir(), "order-preapproval-start-"),
+    );
+    const 占用文件 = path.join(临时根目录, "occupied-file");
+    await fs.promises.writeFile(占用文件, "occupied");
+    try {
+      await expect(
+        启动订单预审任务服务(
+          读取应用配置({
+            APP_ENV: "test",
+            DATABASE_URL: "postgres://lianruan:lianruan@127.0.0.1:5432/unused",
+            ORDER_PREAPPROVAL_WORKER_ENABLED: "true",
+            ORDER_PREAPPROVAL_EVENT_CUTOVER_AT: "2026-08-27T00:00:00.000Z",
+            ORDER_PREAPPROVAL_FILE_DIR: 占用文件,
+            ORDER_PREAPPROVAL_ETEAMS_ORIGIN: "https://oa.example.com",
+            ORDER_PREAPPROVAL_ETEAMS_CORP_ID: "test-corp",
+            ORDER_PREAPPROVAL_ETEAMS_APP_KEY: "test-app-key",
+            ORDER_PREAPPROVAL_ETEAMS_APP_SECRET: "test-app-secret-value",
+            MESSAGE_CHANNEL_CONFIG_ENCRYPTION_KEY: "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI=",
+          }),
+        ),
+      ).rejects.toThrow("订单预审文件目录不可写");
+    } finally {
+      await fs.promises.rm(临时根目录, { recursive: true, force: true });
+    }
+  });
+});

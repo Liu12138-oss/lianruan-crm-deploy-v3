@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ElMessage } from "element-plus";
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
@@ -23,13 +23,22 @@ import {
   导出成员,
   导出部门,
   type 岗位,
+  延期证书 as 延期证书API,
   type 成员业务角色,
   type 成员证书,
   指派成员业务角色,
   type 接口对象,
   撤销证书 as 撤销证书API,
+  type 数据范围绑定,
+  更新任职 as 更新任职API,
   更新泛微OA身份候选,
   更新用户,
+  更新用户状态,
+  更新组织,
+  更新组织状态,
+  更新证书模板,
+  type 权限字典资源,
+  type 权限角色,
   查询业务角色,
   查询任职,
   查询企微同步差异,
@@ -39,7 +48,11 @@ import {
   查询岗位,
   查询成员业务角色,
   查询成员证书,
+  查询权限字典,
+  查询权限角色,
+  查询用户权限角色,
   查询离职交接,
+  查询角色数据范围,
   查询证书模板,
   查询负责人关系,
   type 泛微OA身份候选,
@@ -49,6 +62,7 @@ import {
   确认泛微OA身份候选,
   type 离职交接单,
   type 组织单元,
+  type 组织导入预览,
   组织接口错误,
   type 组织状态,
   结束任职 as 结束任职API,
@@ -65,8 +79,14 @@ import {
   重置用户密码,
   颁发证书 as 颁发证书API,
   预览企业微信身份导入,
+  预览成员导入,
+  预览部门导入,
   驳回泛微OA身份候选,
 } from "../../../api/organization-client.js";
+import type { 指标项 } from "../../../components/war/types.js";
+import WarKpis from "../../../components/war/WarKpis.vue";
+import { 证书到期风险 } from "../../../features/certificate/certificate-state.js";
+import { 联系电话错误 } from "../../../shared/format/phone.js";
 
 type 页面栏目 =
   | "units"
@@ -88,9 +108,32 @@ interface 导航项 {
 interface 树节点数据 extends 接口对象 {
   id: string;
   label: string;
+  type?: string;
   status: string;
+  unitCode?: string;
+  unitType?: string;
+  parentUnitId?: string | null;
+  sortOrder?: number;
+  rowVersion?: number;
   members: 接口对象[];
   children?: 树节点数据[];
+}
+
+interface 统一用户搜索项 {
+  userId: string;
+  username: string;
+  displayName: string;
+  orgUnitId: string;
+  部门路径: string;
+}
+
+interface 统一搜索项 {
+  value: string;
+  描述: string;
+  类型: "部门" | "用户";
+  部门Id: string;
+  用户名?: string;
+  用户Id?: string;
 }
 
 interface 成员概要 extends 接口对象 {
@@ -104,6 +147,7 @@ interface 成员概要 extends 接口对象 {
   expiredAt: string | null;
   直属负责人: string;
   证书: 成员证书[];
+  所属部门: string;
 }
 
 interface 渠道成员概要 extends 接口对象 {
@@ -138,7 +182,15 @@ const 同步错误提示 = ref("");
 const 组织功能状态 = ref<组织状态 | null>(null);
 const 组织树 = ref<组织单元[]>([]);
 const 渠道组织树 = ref<Array<接口对象 & { children?: 接口对象[]; members?: 接口对象[] }>>([]);
-const 区域列表 = ref<Array<{ id: string; regionName: string }>>([]);
+const 区域列表 = ref<
+  Array<{
+    id: string;
+    regionCode?: string;
+    regionName: string;
+    parentRegionId?: string | null;
+    regionLevel?: string;
+  }>
+>([]);
 const 岗位列表 = ref<岗位[]>([]);
 const 任职列表 = ref<任职[]>([]);
 const 业务角色列表 = ref<业务角色[]>([]);
@@ -156,12 +208,16 @@ const 同步批次列表 = ref<同步批次[]>([]);
 const 同步差异列表 = ref<同步差异[]>([]);
 const 部门文件输入 = ref<HTMLInputElement | null>(null);
 const 成员文件输入 = ref<HTMLInputElement | null>(null);
+const 部门导入预览 = ref<组织导入预览 | null>(null);
+const 成员导入预览 = ref<组织导入预览 | null>(null);
 const 部门树引用 = ref<{
   filter: (值: string) => void;
   setCurrentKey: (键: string) => void;
 } | null>(null);
 const 部门搜索词 = ref("");
 const 成员搜索词 = ref("");
+const 统一搜索词 = ref("");
+const 成员高亮用户Id = ref("");
 const 选中部门Id = ref<string | null>(null);
 const 渠道树引用 = ref<{ filter: (值: string) => void } | null>(null);
 const 渠道搜索词 = ref("");
@@ -169,11 +225,26 @@ const 渠道成员搜索词 = ref("");
 const 选中渠道Id = ref<string | null>(null);
 const 新建弹窗打开 = ref(false);
 const 当前新建类型 = ref<新建类型>("unit");
+const 部门编辑弹窗打开 = ref(false);
+const 部门编辑表单 = reactive({
+  id: "",
+  unitName: "",
+  parentUnitId: "",
+  sortOrder: 0,
+  rowVersion: 0,
+  status: "",
+});
+const 证书模板编辑弹窗打开 = ref(false);
+const 证书模板编辑表单 = reactive({
+  id: "",
+  templateName: "",
+  category: "",
+  issuerName: "",
+  validityMonths: undefined as number | undefined,
+  rowVersion: 0,
+});
 
 const 账号列表 = ref<账号台账行[]>([]);
-const 账号检索词 = ref("");
-const 账号检索结果 = ref<账号台账行[]>([]);
-const 账号检索中 = ref(false);
 const 新建用户弹窗打开 = ref(false);
 const 编辑抽屉打开 = ref(false);
 const 编辑用户 = ref<编辑账号状态 | null>(null);
@@ -193,6 +264,7 @@ const 外部身份筛选 = reactive({
 const 编辑用户任职 = ref<任职[]>([]);
 const 编辑用户业务角色 = ref<成员业务角色[]>([]);
 const 编辑用户证书 = ref<成员证书[]>([]);
+const 编辑用户权限角色 = ref<权限角色[]>([]);
 const 泛微OA身份 = ref<泛微OA身份详情 | null>(null);
 const 基本信息表单 = reactive({ name: "", phone: "", email: "", status: "active" });
 const 泛微候选表单 = reactive<{
@@ -221,47 +293,89 @@ const 新建用户表单 = reactive({
   certificateExpiresOn: "",
 });
 
-const 大区列表 = [
-  { label: "大东区", regions: ["安徽区", "江苏区", "上海区（非金）", "浙赣区"] },
-  { label: "大南区", regions: ["深圳区", "广州区", "湖南区", "湖北区"] },
-  { label: "西区", regions: ["西区"] },
-  { label: "大北区", regions: ["北区（政府企业）", "河南区", "东北区", "山东区", "晋冀区"] },
-];
+const 调整任职弹窗打开 = ref(false);
+const 调整任职表单 = reactive({
+  id: "",
+  userId: "",
+  displayName: "",
+  orgUnitId: "",
+  positionId: "",
+  rowVersion: 0,
+});
+const 延期证书弹窗打开 = ref(false);
+const 延期证书表单 = reactive({
+  id: "",
+  templateName: "",
+  expiresOn: "",
+  rowVersion: 0,
+});
+const 权限角色列表 = ref<权限角色[]>([]);
+const 权限字典资源列表 = ref<权限字典资源[]>([]);
+const 权限加载中 = ref(false);
+const 权限错误 = ref("");
+const 选中权限角色Id = ref("");
+const 选中角色数据范围 = ref<数据范围绑定[]>([]);
 
-const 导航项列表: 导航项[] = [
-  { 栏目: "units", 名称: "组织与岗位", 路径: "/workspace/admin/platform-admin/organization/units" },
-  { 栏目: "staff", 名称: "人员与任职", 路径: "/workspace/admin/platform-admin/organization/staff" },
-  {
-    栏目: "business-roles",
-    名称: "业务角色",
-    路径: "/workspace/admin/platform-admin/organization/business-roles",
-  },
-  {
-    栏目: "certifications",
-    名称: "证书管理",
-    路径: "/workspace/admin/platform-admin/organization/certifications",
-  },
-  {
-    栏目: "access",
-    名称: "权限与范围",
-    路径: "/workspace/admin/platform-admin/organization/data-scopes",
-  },
-  {
-    栏目: "offboarding",
-    名称: "离职交接",
-    路径: "/workspace/admin/platform-admin/organization/offboarding",
-  },
-  {
-    栏目: "directory-sync",
-    名称: "企微同步",
-    路径: "/workspace/admin/platform-admin/organization/directory-sync",
-  },
-  {
-    栏目: "external-identities",
-    名称: "外部身份映射",
-    路径: "/workspace/admin/platform-admin/organization/external-identities",
-  },
-];
+/** 区域必须来自组织主数据；大区与负责区域均按 parentRegionId 实时归组。 */
+const 大区列表 = computed(() =>
+  区域列表.value
+    .filter((区域) => 区域.regionLevel === "big_region")
+    .map((大区) => ({
+      id: 大区.id,
+      label: 大区.regionName,
+      regions: 区域列表.value
+        .filter((区域) => 区域.regionLevel === "region" && 区域.parentRegionId === 大区.id)
+        .map((区域) => ({ id: 区域.id, label: 区域.regionName })),
+    })),
+);
+const 当前大区区域 = computed(
+  () => 大区列表.value.find((大区) => 大区.label === 新建用户表单.bigRegion)?.regions || [],
+);
+const 新建用户需要区域 = computed(() => ["admin", "region_manager"].includes(新建用户表单.role));
+/**
+ * 区域管理角色只能任职到已绑定正式区域的部门。
+ * 大区节点本身没有 regionId，必须选择其下具体区域，否则后端会拒绝且会留下半成品账号。
+ */
+const 新建用户可选部门 = computed(() =>
+  新建用户需要区域.value
+    ? 平铺组织列表.value.filter((组织) => Boolean(组织.regionId))
+    : 平铺组织列表.value,
+);
+const 选中权限角色 = computed(
+  () => 权限角色列表.value.find((角色) => 角色.id === 选中权限角色Id.value) || null,
+);
+const 权限名称映射 = computed(() => {
+  const 映射 = new Map<string, string>();
+  for (const 资源 of 权限字典资源列表.value) {
+    for (const 权限 of 资源.permissions) 映射.set(权限.permissionCode, 权限.permissionName);
+  }
+  return 映射;
+});
+
+/**
+ * 工作区基础路径：独立全屏工作区走 /workspace/...，管理端内嵌走 /admin/organization，
+ * 页内栏目切换必须留在当前形态下，避免从顶部「配置」二级菜单进入后被弹出外壳。
+ */
+const 当前路径 = computed(() => 路由.path || "");
+const 内嵌管理端 = computed(() => 当前路径.value.startsWith("/admin/organization"));
+const 工作区前缀 = computed(() =>
+  内嵌管理端.value ? "/admin/organization" : "/workspace/admin/platform-admin/organization",
+);
+
+const 导航项列表 = computed<导航项[]>(() =>
+  (
+    [
+      { 栏目: "units", 名称: "组织与岗位", 片段: "units" },
+      { 栏目: "staff", 名称: "人员与任职", 片段: "staff" },
+      { 栏目: "business-roles", 名称: "业务角色", 片段: "business-roles" },
+      { 栏目: "certifications", 名称: "证书管理", 片段: "certifications" },
+      { 栏目: "access", 名称: "权限与范围", 片段: "data-scopes" },
+      { 栏目: "offboarding", 名称: "离职交接", 片段: "offboarding" },
+      { 栏目: "directory-sync", 名称: "企微同步", 片段: "directory-sync" },
+      { 栏目: "external-identities", 名称: "外部身份映射", 片段: "external-identities" },
+    ] as Array<{ 栏目: 页面栏目; 名称: string; 片段: string }>
+  ).map((项) => ({ 栏目: 项.栏目, 名称: 项.名称, 路径: `${工作区前缀.value}/${项.片段}` })),
+);
 
 const 新建表单 = reactive({
   unitCode: "",
@@ -287,10 +401,10 @@ const 新建表单 = reactive({
 const 当前栏目 = computed<页面栏目>(() => (路由.meta.组织栏目 as 页面栏目 | undefined) || "units");
 const 当前导航 = computed(
   () =>
-    导航项列表.find((item) => item.栏目 === 当前栏目.value) ?? {
+    导航项列表.value.find((item) => item.栏目 === 当前栏目.value) ?? {
       栏目: "units" as const,
       名称: "组织与岗位",
-      路径: "/workspace/admin/platform-admin/organization/units",
+      路径: `${工作区前缀.value}/units`,
     },
 );
 const 已启用 = computed(() => 组织功能状态.value?.enabled === true);
@@ -300,8 +414,78 @@ const _平铺渠道组织列表 = computed(() => 展开渠道树(渠道组织树
 const 树节点属性 = { label: "label", children: "children" };
 const 树数据 = computed<树节点数据[]>(() => 组织树.value.map(构建树节点));
 const 平铺树数据 = computed(() => 展开树数据(树数据.value));
+const 部门路径映射 = computed(() => 构建部门路径映射(树数据.value));
+const 统一用户列表 = computed<统一用户搜索项[]>(() => {
+  const 结果 = new Map<string, 统一用户搜索项>();
+  for (const 节点 of 平铺树数据.value) {
+    for (const 成员 of 节点.members || []) {
+      const 用户Id = String(成员.userId || "");
+      const 用户名 = String(成员.username || "");
+      if (!用户Id || !用户名 || 结果.has(`${用户Id}:${节点.id}`)) continue;
+      结果.set(`${用户Id}:${节点.id}`, {
+        userId: 用户Id,
+        username: 用户名,
+        displayName: String(成员.displayName || 用户名),
+        orgUnitId: 节点.id,
+        部门路径: 部门路径映射.value.get(节点.id) || 节点.label,
+      });
+    }
+  }
+  return Array.from(结果.values()).sort((左, 右) =>
+    左.displayName.localeCompare(右.displayName, "zh-CN"),
+  );
+});
 const 渠道树数据 = computed<树节点数据[]>(() => 渠道组织树.value.map(构建渠道树节点));
 const _平铺渠道树数据 = computed(() => 展开树数据(渠道树数据.value));
+/** 组织工作区顶部指标：全部取当前已加载的真实组织数据。 */
+function 统计单元(节点列表: 组织单元[]): number {
+  return 节点列表.reduce((合计, 节点) => {
+    const 子节点 = (节点 as { children?: 组织单元[] }).children;
+    return 合计 + 1 + (Array.isArray(子节点) ? 统计单元(子节点) : 0);
+  }, 0);
+}
+
+const 外部身份映射汇总 = computed(() => {
+  const 汇总 = 外部身份映射数据.value?.summary;
+  return {
+    mappingTotal: 汇总?.mappingTotal ?? 0,
+    mappingActive: 汇总?.mappingActive ?? 0,
+    mappingEteamsActive: 汇总?.mappingEteamsActive ?? 0,
+    mappingWecomActive: 汇总?.mappingWecomActive ?? 0,
+  };
+});
+
+/** 与接口同口径：外部身份映射只统计当前有效归属联软内部组织的人员（见 external-identities-internal-scope 方案）。 */
+const 外部身份映射脚注 = computed(() => {
+  const 汇总 = 外部身份映射汇总.value;
+  if (!汇总.mappingActive) return "泛微 / 企微身份映射（仅内部组织人员）";
+  const 有效说明 = `有效映射（泛微 ${汇总.mappingEteamsActive} / 企微 ${汇总.mappingWecomActive}，仅内部组织人员）`;
+  return 汇总.mappingTotal > 汇总.mappingActive
+    ? `${有效说明}；含停用共 ${汇总.mappingTotal} 条`
+    : 有效说明;
+});
+
+const 组织指标 = computed<指标项[]>(() => [
+  {
+    label: "组织单元",
+    value: String(统计单元(组织树.value)),
+    unit: "个",
+    note: "含总部、大区与区域",
+  },
+  { label: "岗位", value: String(岗位列表.value.length), unit: "个", note: "岗位主数据" },
+  { label: "任职记录", value: String(任职列表.value.length), unit: "条", note: "在岗与历史任职" },
+  { label: "业务角色", value: String(业务角色列表.value.length), unit: "个", note: "业务角色定义" },
+  { label: "成员证书", value: String(成员证书列表.value.length), unit: "条", note: "持证记录" },
+  {
+    label: "外部身份映射",
+    // 口径为「生效中的映射记录数」：不能取 summary.total（那是目录内账号数），
+    // 也不能只统计当前分页（默认 20 条）造成少报。
+    value: String(外部身份映射汇总.value.mappingActive),
+    unit: "条",
+    note: 外部身份映射脚注.value,
+  },
+]);
+
 const 证书按用户 = computed(() => {
   const 分组 = new Map<string, 成员证书[]>();
   for (const 证 of 成员证书列表.value) {
@@ -310,15 +494,18 @@ const 证书按用户 = computed(() => {
   }
   return 分组;
 });
-const 当前部门名称 = computed(() => {
-  const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
-  return 节点 ? 节点.label : "组织架构";
-});
+const 当前部门节点 = computed(() => 查找树节点(树数据.value, 选中部门Id.value));
+const 当前部门名称 = computed(() => 当前部门节点.value?.label || "组织架构");
+const 当前部门含下级 = computed(() => Boolean(当前部门节点.value?.children?.length));
+/** 成员口径与组织树计数一致：当前部门直属成员 + 全部子部门成员。 */
 const 当前部门成员 = computed(() => {
-  if (!选中部门Id.value) return [];
-  const 节点 = 查找树节点(树数据.value, 选中部门Id.value);
-  if (!节点) return [];
-  return (节点.members || []).map(组装成员概要);
+  const 节点 = 当前部门节点.value;
+  if (!选中部门Id.value || !节点) return [];
+  const 收集成员 = (当前节点: 树节点数据): 成员概要[] => [
+    ...(当前节点.members || []).map((成员) => 组装成员概要(成员, 当前节点.label)),
+    ...(当前节点.children || []).flatMap(收集成员),
+  ];
+  return 收集成员(节点);
 });
 const 过滤后成员 = computed(() => {
   const 词 = 成员搜索词.value.trim().toLowerCase();
@@ -336,6 +523,10 @@ const 过滤后成员 = computed(() => {
 const 当前渠道名称 = computed(() => {
   const 节点 = 查找树节点(渠道树数据.value, 选中渠道Id.value);
   return 节点 ? 节点.label : "渠道组织";
+});
+const 当前渠道维护编号 = computed(() => {
+  const 节点 = 查找树节点(渠道树数据.value, 选中渠道Id.value);
+  return String(节点?.partnerCode || 当前渠道成员.value[0]?.partnerId || 选中渠道Id.value || "");
 });
 const 当前渠道成员 = computed<渠道成员概要[]>(() => {
   if (!选中渠道Id.value) return [];
@@ -389,18 +580,10 @@ const 业务角色持有人数量 = computed(() => {
   return 结果;
 });
 const 近期到期数 = computed(
-  () =>
-    成员证书列表.value.filter((item) => {
-      if (!item.expiresOn || item.statusCode !== "active") return false;
-      const 剩余毫秒 = new Date(item.expiresOn).getTime() - Date.now();
-      return 剩余毫秒 >= 0 && 剩余毫秒 <= 7 * 24 * 60 * 60 * 1000;
-    }).length,
+  () => 成员证书列表.value.filter((item) => 证书到期风险(item) === "30 天内到期").length,
 );
 const 已过期数 = computed(
-  () =>
-    成员证书列表.value.filter(
-      (item) => item.expiresOn && new Date(item.expiresOn).getTime() < Date.now(),
-    ).length,
+  () => 成员证书列表.value.filter((item) => 证书到期风险(item) === "已过期").length,
 );
 
 function 展开组织树(节点: 组织单元[], 层级 = 0): Array<组织单元 & { 层级: number }> {
@@ -417,13 +600,102 @@ function 展开树数据(节点们: 树节点数据[], 层级 = 0): Array<树节
   ]);
 }
 
+function 构建部门路径映射(
+  节点们: 树节点数据[],
+  前缀: string[] = [],
+  结果 = new Map<string, string>(),
+): Map<string, string> {
+  for (const 节点 of 节点们) {
+    const 路径 = [...前缀, 节点.label];
+    结果.set(节点.id, 路径.join(" / "));
+    构建部门路径映射(节点.children || [], 路径, 结果);
+  }
+  return 结果;
+}
+
+function 搜索部门与成员(查询: string, 回调: (结果: 统一搜索项[]) => void) {
+  const 关键词 = 查询.trim().toLowerCase();
+  const 部门结果 = 平铺树数据.value
+    .filter((节点) => !关键词 || 节点.label.toLowerCase().includes(关键词))
+    .slice(0, 20)
+    .map((节点) => ({
+      value: `部门：${节点.label}`,
+      描述: 部门路径映射.value.get(节点.id) || 节点.label,
+      类型: "部门" as const,
+      部门Id: 节点.id,
+    }));
+  const 用户结果 = 统一用户列表.value
+    .filter(
+      (用户) =>
+        !关键词 ||
+        用户.displayName.toLowerCase().includes(关键词) ||
+        用户.username.toLowerCase().includes(关键词),
+    )
+    .slice(0, 30)
+    .map((用户) => ({
+      value: `成员：${用户.displayName}（${用户.username}）`,
+      描述: 用户.部门路径,
+      类型: "用户" as const,
+      部门Id: 用户.orgUnitId,
+      用户名: 用户.username,
+      用户Id: 用户.userId,
+    }));
+  回调([...部门结果, ...用户结果]);
+}
+
+async function 选择统一搜索结果(项: 统一搜索项) {
+  // 搜索上下文保留在左侧输入框，不能把关键词搬到右侧成员搜索框，
+  // 否则用户会以为搜索结果被移动了。
+  统一搜索词.value = 项.value;
+  定位部门(项.部门Id);
+  if (项.类型 !== "用户" || !项.用户名 || !项.用户Id) {
+    成员搜索词.value = "";
+    成员高亮用户Id.value = "";
+    return;
+  }
+  成员搜索词.value = "";
+  成员高亮用户Id.value = 项.用户Id;
+  await nextTick();
+  await nextTick();
+  document
+    .querySelector<HTMLElement>(`[data-user-id="${CSS.escape(项.用户Id)}"]`)
+    ?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function 是渠道商节点(单元: 接口对象): boolean {
+  return Boolean(单元.partnerName || 单元.partnerCode);
+}
+
+function 聚合渠道成员(单元: 接口对象, 所属渠道商Id = "", 所属渠道商名称 = ""): 接口对象[] {
+  if (String(单元.statusCode || "") === "archived") return [];
+  const 是渠道商 = 是渠道商节点(单元);
+  const 渠道商Id = 是渠道商 ? String(单元.id || "") : 所属渠道商Id;
+  const 渠道商名称 = 是渠道商 ? String(单元.partnerName || 单元.partnerCode || "") : 所属渠道商名称;
+  const 直属: 接口对象[] = ((单元.members || []) as 接口对象[]).map((成员) => ({
+    ...成员,
+    partnerId: String(成员.partnerId || 渠道商Id),
+    partnerName: String(成员.partnerName || 渠道商名称),
+  }));
+  for (const 子节点 of (单元.children || []) as 接口对象[]) {
+    直属.push(...聚合渠道成员(子节点, 渠道商Id, 渠道商名称));
+  }
+  return 直属;
+}
+
 function 构建渠道树节点(单元: 接口对象): 树节点数据 {
+  const 是渠道商 = 是渠道商节点(单元);
   return {
     id: String(单元.id),
-    label: String(单元.partnerName || 单元.partnerCode || "渠道商"),
+    partnerCode: String(单元.partnerCode || ""),
+    label: 是渠道商
+      ? String(单元.partnerName || 单元.partnerCode || "渠道商")
+      : String(单元.name || "区域"),
+    type: 是渠道商 ? "partner" : String(单元.type || "region"),
     status: String(单元.statusCode || ""),
-    members: (单元.members || []) as 接口对象[],
-    children: ((单元.children || []) as 接口对象[]).map(构建渠道树节点),
+    members: 聚合渠道成员(单元),
+    children: ((单元.children || []) as 接口对象[])
+      .filter((子节点) => String(子节点.statusCode || "") !== "archived")
+      .map(构建渠道树节点),
   };
 }
 
@@ -435,9 +707,7 @@ function 定位部门(id: string) {
 }
 
 function 渠道节点成员数(节点: 树节点数据): number {
-  const 直属 = (节点.members || []).length;
-  const 子孙 = (节点.children || []).reduce((合计, 子节点) => 合计 + 渠道节点成员数(子节点), 0);
-  return 直属 + 子孙;
+  return (节点.members || []).length;
 }
 
 function 过滤渠道节点(值: string, 数据: 树节点数据) {
@@ -464,6 +734,11 @@ function 构建树节点(单元: 组织单元): 树节点数据 {
     id: 单元.id,
     label: 单元.unitName,
     status: 单元.statusCode,
+    unitCode: 单元.unitCode,
+    unitType: 单元.unitType,
+    parentUnitId: 单元.parentUnitId,
+    sortOrder: 单元.sortOrder,
+    rowVersion: 单元.rowVersion,
     members: (单元 as 组织单元 & { members?: 接口对象[] }).members || [],
     children: (单元.children || []).map(构建树节点),
   };
@@ -487,9 +762,10 @@ function 节点成员数(节点: 树节点数据): number {
 
 function 选择部门(节点: 树节点数据) {
   选中部门Id.value = 节点.id;
+  成员高亮用户Id.value = "";
 }
 
-function 组装成员概要(成员: 接口对象): 成员概要 {
+function 组装成员概要(成员: 接口对象, 所属部门: string): 成员概要 {
   const 任职 = 任职列表.value.find((项) => 项.id === 成员.assignmentId);
   return {
     ...成员,
@@ -503,6 +779,7 @@ function 组装成员概要(成员: 接口对象): 成员概要 {
     expiredAt: 任职?.expiredAt || null,
     直属负责人: 直属负责人映射.value.get(String(成员.assignmentId)) || "",
     证书: 证书按用户.value.get(String(成员.userId || "")) || [],
+    所属部门,
   };
 }
 
@@ -511,12 +788,11 @@ function 过滤部门节点(值: string, 数据: 树节点数据) {
 }
 
 function 证书状态类型(证: 成员证书): "info" | "success" | "danger" | "warning" {
-  if (证.statusCode !== "active") return "info";
-  if (!证.expiresOn) return "success";
-  const 剩余毫秒 = new Date(证.expiresOn).getTime() - Date.now();
-  if (剩余毫秒 < 0) return "danger";
-  if (剩余毫秒 <= 7 * 24 * 60 * 60 * 1000) return "warning";
-  return "success";
+  const 风险 = 证书到期风险(证);
+  if (风险 === "已过期") return "danger";
+  if (风险 === "30 天内到期") return "warning";
+  if (风险 === "有效") return "success";
+  return "info";
 }
 
 function 证书详情(证: 成员证书) {
@@ -564,6 +840,7 @@ async function 加载页面() {
         查询区域列表(),
       ]);
     组织树.value = 组织.items;
+    void 加载账号列表();
     try {
       渠道组织树.value = (await 读取渠道组织树()).items;
     } catch {
@@ -579,7 +856,8 @@ async function 加载页面() {
     离职交接列表.value = 离职.items;
     区域列表.value = 区域.items;
     加载账号列表();
-    if (当前栏目.value === "external-identities") await 加载外部身份映射();
+    await 加载外部身份映射();
+    if (当前栏目.value === "access") await 加载权限范围();
 
     if (状态.directorySyncEnabled) {
       try {
@@ -625,6 +903,92 @@ async function 加载外部身份映射(): Promise<void> {
     外部身份映射加载中.value = false;
   }
 }
+
+async function 加载权限范围(强制刷新 = false): Promise<void> {
+  if (权限加载中.value || (!强制刷新 && 权限角色列表.value.length)) return;
+  权限加载中.value = true;
+  权限错误.value = "";
+  try {
+    const [角色结果, 权限结果] = await Promise.all([查询权限角色(), 查询权限字典()]);
+    权限角色列表.value = 角色结果.items || [];
+    权限字典资源列表.value = 权限结果.resources || [];
+    if (!选中权限角色Id.value && 权限角色列表.value[0]) {
+      选中权限角色Id.value = 权限角色列表.value[0].id;
+    }
+    if (选中权限角色Id.value) await 选择权限角色(选中权限角色Id.value);
+  } catch (error) {
+    权限错误.value = 读取错误信息(error, "权限角色与数据范围读取失败，请稍后重试。");
+  } finally {
+    权限加载中.value = false;
+  }
+}
+
+async function 选择权限角色(roleId: string): Promise<void> {
+  选中权限角色Id.value = roleId;
+  选中角色数据范围.value = [];
+  if (!roleId) return;
+  try {
+    const 结果 = await 查询角色数据范围(roleId);
+    选中角色数据范围.value = 结果.items || [];
+  } catch (error) {
+    权限错误.value = 读取错误信息(error, "角色数据范围读取失败，请稍后重试。");
+  }
+}
+
+function 权限名称(权限代码: string): string {
+  return 权限名称映射.value.get(权限代码) || 权限代码;
+}
+
+function 数据范围类型中文(类型: string): string {
+  return (
+    {
+      all: "全部数据",
+      org_subtree: "组织子树",
+      region: "指定区域",
+      partner: "指定渠道",
+      self: "仅本人",
+    }[类型] ||
+    类型 ||
+    "—"
+  );
+}
+
+function 数据范围引用名称(绑定: 数据范围绑定): string {
+  if (!绑定.scopeRefId) return "无需指定对象";
+  if (绑定.scopeType === "region") {
+    return 区域列表.value.find((区域) => 区域.id === 绑定.scopeRefId)?.regionName || "区域已停用";
+  }
+  if (绑定.scopeType === "org_subtree") {
+    return 平铺组织列表.value.find((组织) => 组织.id === 绑定.scopeRefId)?.unitName || "部门已停用";
+  }
+  if (绑定.scopeType === "partner") {
+    return (
+      _平铺渠道组织列表.value.find((组织) => String(组织.id) === 绑定.scopeRefId)?.渠道名称 ||
+      "渠道已停用"
+    );
+  }
+  return 绑定.scopeRefId;
+}
+
+function 业务资源名称(resourceCode: string): string {
+  return (
+    {
+      organization: "组织架构",
+      customer: "客户",
+      registration: "客户报备",
+      opportunity: "商机",
+      quote: "报价",
+      order: "订单",
+    }[resourceCode] ||
+    resourceCode ||
+    "—"
+  );
+}
+
+function 选择权限角色行(行: 权限角色): void {
+  void 选择权限角色(行.id);
+}
+
 function 应用外部身份筛选(): void {
   外部身份筛选.page = 1;
   void 加载外部身份映射();
@@ -689,7 +1053,7 @@ function 企微映射状态中文(status: string): string {
     {
       ready: "待新增",
       unchanged: "已一致",
-      waiting_for_user: "等待 V3 账号",
+      waiting_for_user: "等待系统账号",
       blocked: "阻断",
     }[status] || status
   );
@@ -729,7 +1093,37 @@ async function 确认企微映射导入(): Promise<void> {
   }
 }
 
-function 解析Excel工作簿(file: File): Promise<Record<string, unknown>[]> {
+let Excel库加载任务: Promise<void> | null = null;
+
+/** 新 UI 入口没有预加载 Excel 库，首次导入或导出时按需加载，兼容未引入脚本的页面路由。 */
+function 确保Excel库已加载(): Promise<void> {
+  if (typeof XLSX !== "undefined") return Promise.resolve();
+  if (Excel库加载任务) return Excel库加载任务;
+  Excel库加载任务 = new Promise<void>((resolve, reject) => {
+    const 现有脚本 = document.querySelector<HTMLScriptElement>('script[data-xlsx-loader="1"]');
+    if (现有脚本) {
+      现有脚本.addEventListener("load", () => resolve(), { once: true });
+      现有脚本.addEventListener("error", () => reject(new Error("Excel 组件加载失败。")), {
+        once: true,
+      });
+      return;
+    }
+    const 脚本 = document.createElement("script");
+    脚本.src = "/libs/xlsx.full.min.js";
+    脚本.async = true;
+    脚本.dataset.xlsxLoader = "1";
+    脚本.addEventListener("load", () => resolve(), { once: true });
+    脚本.addEventListener("error", () => reject(new Error("Excel 组件加载失败。")), { once: true });
+    document.head.appendChild(脚本);
+  }).catch((错误: unknown) => {
+    Excel库加载任务 = null;
+    throw 错误;
+  });
+  return Excel库加载任务;
+}
+
+async function 解析Excel工作簿(file: File): Promise<Record<string, unknown>[]> {
+  await 确保Excel库已加载();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -757,12 +1151,13 @@ function 解析Excel工作簿(file: File): Promise<Record<string, unknown>[]> {
   });
 }
 
-function 导出工作簿(
+async function 导出工作簿(
   表头: string[],
   行数据: (string | number)[][],
   文件名: string,
   工作表名: string,
 ) {
+  await 确保Excel库已加载();
   const worksheet = XLSX.utils.aoa_to_sheet([表头, ...行数据]);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 工作表名);
@@ -772,7 +1167,7 @@ function 导出工作簿(
 async function 导出部门Excel() {
   try {
     const 结果 = await 导出部门();
-    导出工作簿(
+    await 导出工作簿(
       ["部门名称", "上级部门", "排序", "状态"],
       结果.items.map((item) => [
         item.name,
@@ -791,7 +1186,7 @@ async function 导出部门Excel() {
 async function 导出成员Excel() {
   try {
     const 结果 = await 导出成员();
-    导出工作簿(
+    await 导出工作簿(
       ["用户名", "姓名", "部门名称", "生效时间"],
       结果.items.map((item) => [
         item.username,
@@ -830,10 +1225,37 @@ async function 处理部门导入文件(event: Event) {
       ElMessage.warning("未识别到有效部门数据，请按「部门名称/上级部门/排序/状态」表头填写。");
       return;
     }
-    const 结果 = await 导入部门(行数据);
+    const 预览 = await 预览部门导入(行数据, { 幂等键: 生成组织幂等键() });
+    部门导入预览.value = 预览;
+    if (!预览.validCount) {
+      ElMessage.warning(
+        `预览发现 ${预览.errorCount} 行错误，没有可导入的部门，请下载错误报告修正。`,
+      );
+      return;
+    }
+    await ElMessageBox.confirm(
+      `共 ${预览.totalCount} 行，通过 ${预览.validCount} 行，错误 ${预览.errorCount} 行。${
+        预览.errorCount ? "继续后仅导入通过行，错误行不会落库。" : "确认后将覆盖当前组织部门。"
+      }`,
+      "部门导入预览",
+      {
+        confirmButtonText: 预览.errorCount ? "仅导入通过行" : "确认导入",
+        cancelButtonText: 预览.errorCount ? "取消失败批次" : "取消",
+        type: 预览.errorCount ? "warning" : "info",
+      },
+    );
+    const 通过行 = 预览.rows.filter((row) => row.status === "valid").map((row) => row.data);
+    const 结果 = await 导入部门(
+      通过行,
+      { 幂等键: 生成组织幂等键() },
+      预览.taskId,
+      预览.errorCount === 0,
+    );
+    部门导入预览.value = { ...预览, taskId: 结果.taskId };
     ElMessage.success(`部门导入完成，共 ${结果.imported} 条。`);
     await 加载页面();
   } catch (error) {
+    if (error === "cancel" || error === "close") return;
     ElMessage.error(读取错误信息(error, "部门导入失败。"));
   }
 }
@@ -857,17 +1279,131 @@ async function 处理成员导入文件(event: Event) {
       ElMessage.warning("未识别到有效成员数据，请按「用户名/部门名称」表头填写。");
       return;
     }
-    const 结果 = await 导入成员(行数据);
+    const 预览 = await 预览成员导入(行数据, { 幂等键: 生成组织幂等键() });
+    成员导入预览.value = 预览;
+    if (!预览.validCount) {
+      ElMessage.warning(
+        `预览发现 ${预览.errorCount} 行错误，没有可导入的成员，请下载错误报告修正。`,
+      );
+      return;
+    }
+    await ElMessageBox.confirm(
+      `共 ${预览.totalCount} 行，通过 ${预览.validCount} 行，错误 ${预览.errorCount} 行。${
+        预览.errorCount ? "继续后仅导入通过行，错误行不会落库。" : "确认后将覆盖内部成员任职。"
+      }`,
+      "成员导入预览",
+      {
+        confirmButtonText: 预览.errorCount ? "仅导入通过行" : "确认导入",
+        cancelButtonText: 预览.errorCount ? "取消失败批次" : "取消",
+        type: 预览.errorCount ? "warning" : "info",
+      },
+    );
+    const 通过行 = 预览.rows.filter((row) => row.status === "valid").map((row) => row.data);
+    const 结果 = await 导入成员(
+      通过行,
+      { 幂等键: 生成组织幂等键() },
+      预览.taskId,
+      预览.errorCount === 0,
+    );
+    成员导入预览.value = { ...预览, taskId: 结果.taskId };
     ElMessage.success(`成员导入完成，共 ${结果.imported} 条。`);
     await 加载页面();
   } catch (error) {
+    if (error === "cancel" || error === "close") return;
     ElMessage.error(读取错误信息(error, "成员导入失败。"));
   }
+}
+
+function 下载组织导入错误报告(url: string): void {
+  if (!url) return;
+  const 链接 = document.createElement("a");
+  链接.href = url;
+  链接.target = "_blank";
+  链接.rel = "noopener";
+  链接.click();
 }
 
 function 打开新建弹窗(类型: 新建类型) {
   当前新建类型.value = 类型;
   新建弹窗打开.value = true;
+}
+
+/** 当前选中部门直接作为下级部门的新上级，避免重复在长列表中查找。 */
+function 打开新建下级部门(): void {
+  const 部门 = 当前部门节点.value;
+  if (!部门) return;
+  打开新建弹窗("unit");
+  新建表单.parentUnitId = 部门.id;
+}
+
+function 打开部门编辑(): void {
+  const 部门 = 当前部门节点.value;
+  if (!部门 || !可写.value) return;
+  部门编辑表单.id = 部门.id;
+  部门编辑表单.unitName = 部门.label;
+  部门编辑表单.parentUnitId = 部门.parentUnitId || "";
+  部门编辑表单.sortOrder = Number(部门.sortOrder || 0);
+  部门编辑表单.rowVersion = Number(部门.rowVersion || 0);
+  部门编辑表单.status = 部门.status;
+  部门编辑弹窗打开.value = true;
+}
+
+async function 保存部门编辑(): Promise<void> {
+  if (!可写.value || 提交中.value || !部门编辑表单.id) return;
+  if (!部门编辑表单.unitName.trim()) {
+    ElMessage.warning("请填写部门名称。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    await 更新组织(
+      部门编辑表单.id,
+      {
+        unitName: 部门编辑表单.unitName.trim(),
+        parentUnitId: 部门编辑表单.parentUnitId || null,
+        sortOrder: Number(部门编辑表单.sortOrder || 0),
+      },
+      { rowVersion: 部门编辑表单.rowVersion, 幂等键: 生成组织幂等键() },
+    );
+    ElMessage.success("部门信息已保存。");
+    部门编辑弹窗打开.value = false;
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error("保存部门失败：" + 读取错误信息(error, "请检查上级部门后重试。"));
+  } finally {
+    提交中.value = false;
+  }
+}
+
+async function 切换部门状态(目标状态: "active" | "disabled" | "archived"): Promise<void> {
+  const 部门 = 当前部门节点.value;
+  if (!部门 || !可写.value) return;
+  const 动作 = 目标状态 === "archived" ? "删除" : 目标状态 === "active" ? "恢复" : "停用";
+  const 提示 =
+    目标状态 === "archived"
+      ? `确认删除部门「${部门.label}」吗？删除采用归档方式保留历史引用；存在有效下级部门或任职时系统会拒绝。`
+      : `确认${动作}部门「${部门.label}」吗？`;
+  if (!window.confirm(提示)) return;
+  提交中.value = true;
+  try {
+    await 更新组织状态(
+      部门.id,
+      { statusCode: 目标状态 },
+      { rowVersion: Number(部门.rowVersion || 0), 幂等键: 生成组织幂等键() },
+    );
+    if (目标状态 === "archived") 选中部门Id.value = null;
+    ElMessage.success(`部门已${动作}${目标状态 === "archived" ? "（归档保留历史引用）" : ""}。`);
+    await 加载页面();
+  } catch (error) {
+    const 原因 = 读取错误信息(error, "请检查部门引用关系后重试。");
+    ElMessage.error(
+      目标状态 === "archived" && /子组织|任职|ORG_HAS_/.test(原因)
+        ? "该部门仍有有效下级部门或任职，不能归档；请先调整下级部门和成员任职。"
+        : `${动作}部门失败：${原因}`,
+    );
+  } finally {
+    提交中.value = false;
+  }
 }
 
 function 重置新建表单() {
@@ -894,7 +1430,7 @@ function 重置新建表单() {
 }
 
 async function 提交新建() {
-  if (!可写.value) return;
+  if (!可写.value || 提交中.value) return;
   提交中.value = true;
   try {
     const 选项 = { 幂等键: 生成组织幂等键() };
@@ -940,6 +1476,46 @@ async function 提交新建() {
   }
 }
 
+function 打开证书模板编辑(模板: 证书模板): void {
+  证书模板编辑表单.id = 模板.id;
+  证书模板编辑表单.templateName = 模板.templateName;
+  证书模板编辑表单.category = 模板.category || "other";
+  证书模板编辑表单.issuerName = 模板.issuerName || "";
+  证书模板编辑表单.validityMonths = 模板.validityMonths || undefined;
+  证书模板编辑表单.rowVersion = Number(模板.rowVersion || 0);
+  证书模板编辑弹窗打开.value = true;
+}
+
+async function 保存证书模板(): Promise<void> {
+  if (!可写.value || 提交中.value) return;
+  if (!证书模板编辑表单.templateName.trim()) {
+    ElMessage.warning("请填写证书模板名称。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    await 更新证书模板(
+      证书模板编辑表单.id,
+      {
+        templateName: 证书模板编辑表单.templateName.trim(),
+        category: 证书模板编辑表单.category.trim() || "other",
+        issuerName: 证书模板编辑表单.issuerName.trim(),
+        ...(证书模板编辑表单.validityMonths
+          ? { validityMonths: Number(证书模板编辑表单.validityMonths) }
+          : {}),
+      },
+      { rowVersion: 证书模板编辑表单.rowVersion, 幂等键: 生成组织幂等键() },
+    );
+    ElMessage.success("证书模板已更新。");
+    证书模板编辑弹窗打开.value = false;
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error("保存证书模板失败：" + 读取错误信息(error, "请刷新后重试。"));
+  } finally {
+    提交中.value = false;
+  }
+}
+
 // —— 账号统一维护（组织架构内编辑/新建，不触碰登录与单点登录）——
 const 当前部门岗位列表 = computed(() =>
   新任职表单.orgUnitId
@@ -955,12 +1531,19 @@ const 编辑部门岗位列表 = computed(() =>
       )
     : [],
 );
+const 调整任职岗位列表 = computed(() =>
+  调整任职表单.orgUnitId
+    ? 岗位列表.value.filter(
+        (岗位项) => 岗位项.orgUnitId === 调整任职表单.orgUnitId && 岗位项.statusCode === "active",
+      )
+    : [],
+);
 
 function 角色中文(角色: string): string {
   return (
     {
       superadmin: "超级管理员",
-      admin: "区域管理员",
+      admin: "管理员",
       region_manager: "区域管理员",
       partner_admin: "企业管理员",
       staff: "员工",
@@ -1100,21 +1683,6 @@ async function 加载账号列表(): Promise<void> {
     账号列表.value = [];
   }
 }
-function 检索账号(): void {
-  const 词 = String(账号检索词.value || "")
-    .trim()
-    .toLowerCase();
-  账号检索结果.value = [];
-  if (!词) return;
-  账号检索中.value = true;
-  const 命中 = 账号列表.value.filter(
-    (账号) =>
-      账号.role !== "partner_admin" &&
-      (账号.username.toLowerCase().includes(词) || 账号.name.toLowerCase().includes(词)),
-  );
-  账号检索结果.value = 命中.slice(0, 8);
-  账号检索中.value = false;
-}
 async function 打开账号编辑(账号: 账号台账行 | null): Promise<void> {
   const 目标 = 账号?.id
     ? 账号
@@ -1152,6 +1720,12 @@ async function 加载编辑详情(userId: string): Promise<void> {
   编辑用户业务角色.value = 成员业务角色列表.value.filter(
     (项) => 项.userId === userId && 项.staffAssignmentId && !项.expiredAt,
   );
+  try {
+    const 权限结果 = await 查询用户权限角色(userId);
+    编辑用户权限角色.value = 权限结果.roles || [];
+  } catch {
+    编辑用户权限角色.value = [];
+  }
   try {
     泛微OA身份.value = await 读取泛微OA身份(userId);
     填充泛微候选表单(待核验泛微候选.value);
@@ -1191,7 +1765,7 @@ function 泛微候选状态中文(状态: string): string {
 async function 保存泛微候选(): Promise<void> {
   if (!编辑用户.value || !可写.value) return;
   if (!泛微候选表单.externalSubject.trim() || !泛微候选表单.externalUsername.trim()) {
-    ElMessage.warning("请填写泛微 OA userid 和对方姓名或登录名。");
+    ElMessage.warning("请填写泛微 OA 账号和对方姓名或登录名。");
     return;
   }
   提交中.value = true;
@@ -1223,7 +1797,7 @@ async function 确认当前泛微候选(): Promise<void> {
   if (!编辑用户.value || !待核验泛微候选.value || !可写.value) return;
   const 核验说明 = window.prompt("请填写核验依据（可留空）；确认后该身份将可用于 OA 发起：", "");
   if (核验说明 === null) return;
-  if (!window.confirm("确认该泛微 OA userid 已属于当前账号？确认后将创建正式映射。")) return;
+  if (!window.confirm("确认该泛微 OA 账号已属于当前账号？确认后将创建正式映射。")) return;
   提交中.value = true;
   try {
     await 确认泛微OA身份候选(
@@ -1299,6 +1873,11 @@ function 编辑用户主职任职(): 任职 | null {
 }
 async function 保存基本信息(): Promise<void> {
   if (!编辑用户.value || !可写.value) return;
+  const 电话错误 = 联系电话错误(基本信息表单.phone);
+  if (电话错误) {
+    ElMessage.warning(电话错误);
+    return;
+  }
   提交中.value = true;
   try {
     await 更新用户(编辑用户.value.id, {
@@ -1318,6 +1897,58 @@ async function 保存基本信息(): Promise<void> {
     提交中.value = false;
   }
 }
+async function 切换账号状态(): Promise<void> {
+  if (!编辑用户.value || !可写.value) return;
+  const 当前状态 = 编辑用户.value.status === "disabled" ? "disabled" : "active";
+  const 目标状态 = 当前状态 === "disabled" ? "active" : "disabled";
+  const 动作 = 目标状态 === "active" ? "启用" : "停用";
+  if (
+    !window.confirm(
+      `确认${动作}账号「${编辑用户.value.name}」吗？停用后该账号不能登录，历史业务与审计仍保留。`,
+    )
+  )
+    return;
+  提交中.value = true;
+  try {
+    await 更新用户状态(编辑用户.value.id, 目标状态);
+    编辑用户.value.status = 目标状态;
+    基本信息表单.status = 目标状态;
+    ElMessage.success(`账号已${动作}。`);
+    await 加载账号列表();
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error(`${动作}账号失败：` + 读取错误信息(error, "未知错误"));
+  } finally {
+    提交中.value = false;
+  }
+}
+async function 切换成员账号状态(成员: 成员概要): Promise<void> {
+  if (!可写.value || !成员.userId) return;
+  const 账号 = 账号列表.value.find(
+    (项) => String(项.id) === 成员.userId || String(项.username) === 成员.username,
+  );
+  const 当前状态 = String(账号?.status || "active");
+  const 目标状态 = 当前状态 === "disabled" ? "active" : "disabled";
+  const 动作 = 目标状态 === "active" ? "启用" : "停用";
+  if (
+    !window.confirm(
+      `确认${动作}账号「${成员.displayName}（${成员.username}）」吗？停用后该账号不能登录，历史业务与审计仍保留。`,
+    )
+  )
+    return;
+  提交中.value = true;
+  try {
+    await 更新用户状态(成员.userId, 目标状态);
+    ElMessage.success(`账号已${动作}。`);
+    await 加载账号列表();
+    await 加载页面();
+  } catch (error) {
+    ElMessage.error(`${动作}账号失败：` + 读取错误信息(error, "未知错误"));
+  } finally {
+    提交中.value = false;
+  }
+}
+
 async function 重置密码(): Promise<void> {
   if (!编辑用户.value || !可写.value) return;
   if (!window.confirm(`确认将「${编辑用户.value.name}」的密码重置为 123456 吗？`)) return;
@@ -1361,12 +1992,53 @@ async function 结束任职(任职: 任职): Promise<void> {
   if (!可写.value) return;
   if (!window.confirm("确认结束该任职吗？")) return;
   try {
-    await 结束任职API(任职.id, { rowVersion: 任职.rowVersion }, { 幂等键: 生成组织幂等键() });
+    await 结束任职API(
+      任职.id,
+      { rowVersion: Number(任职.rowVersion) },
+      { 幂等键: 生成组织幂等键() },
+    );
     ElMessage.success("任职已结束。");
     await 加载页面();
     await 加载编辑详情(编辑用户.value?.id || "");
   } catch (error) {
     ElMessage.error("操作失败：" + 读取错误信息(error, "未知错误"));
+  }
+}
+
+function 打开调整任职(任职: 任职): void {
+  调整任职表单.id = 任职.id;
+  调整任职表单.userId = String(任职.userId || "");
+  调整任职表单.displayName = String(任职.displayName || "");
+  调整任职表单.orgUnitId = String(任职.orgUnitId || "");
+  调整任职表单.positionId = String(任职.positionId || "");
+  调整任职表单.rowVersion = Number(任职.rowVersion);
+  调整任职弹窗打开.value = true;
+}
+
+async function 提交调整任职(): Promise<void> {
+  if (!可写.value || 提交中.value) return;
+  if (!调整任职表单.orgUnitId) {
+    ElMessage.warning("请选择调整后的部门。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    await 更新任职API(
+      调整任职表单.id,
+      {
+        orgUnitId: 调整任职表单.orgUnitId,
+        ...(调整任职表单.positionId ? { positionId: 调整任职表单.positionId } : { positionId: "" }),
+      },
+      { rowVersion: Number(调整任职表单.rowVersion), 幂等键: 生成组织幂等键() },
+    );
+    ElMessage.success("部门与岗位已调整，数据范围按新任职生效。");
+    调整任职弹窗打开.value = false;
+    await 加载页面();
+    if (调整任职表单.userId) await 加载编辑详情(调整任职表单.userId);
+  } catch (error) {
+    ElMessage.error("调整失败：" + 读取错误信息(error, "未知错误"));
+  } finally {
+    提交中.value = false;
   }
 }
 async function 指派业务角色(): Promise<void> {
@@ -1404,7 +2076,11 @@ async function 结束业务角色(角色: 成员业务角色): Promise<void> {
   if (!可写.value) return;
   if (!window.confirm("确认结束该业务角色吗？")) return;
   try {
-    await 结束成员业务角色(角色.id, { rowVersion: 角色.rowVersion }, { 幂等键: 生成组织幂等键() });
+    await 结束成员业务角色(
+      角色.id,
+      { rowVersion: Number(角色.rowVersion) },
+      { 幂等键: 生成组织幂等键() },
+    );
     ElMessage.success("业务角色已结束。");
     await 加载页面();
     await 加载编辑详情(编辑用户.value?.id || "");
@@ -1448,7 +2124,7 @@ async function 撤销证书(证: 成员证书): Promise<void> {
   try {
     await 撤销证书API(
       证.id,
-      { reason: "管理员撤销", rowVersion: 证.rowVersion },
+      { reason: "管理员撤销", rowVersion: Number(证.rowVersion) },
       { 幂等键: 生成组织幂等键() },
     );
     ElMessage.success("证书已撤销。");
@@ -1458,12 +2134,45 @@ async function 撤销证书(证: 成员证书): Promise<void> {
     ElMessage.error("操作失败：" + 读取错误信息(error, "未知错误"));
   }
 }
+
+function 打开延期证书(证: 成员证书): void {
+  延期证书表单.id = 证.id;
+  延期证书表单.templateName = 证.templateName;
+  延期证书表单.expiresOn = 证.expiresOn || "";
+  延期证书表单.rowVersion = Number(证.rowVersion);
+  延期证书弹窗打开.value = true;
+}
+
+async function 提交延期证书(): Promise<void> {
+  if (!可写.value || 提交中.value) return;
+  if (!延期证书表单.expiresOn) {
+    ElMessage.warning("请选择新的到期日。");
+    return;
+  }
+  提交中.value = true;
+  try {
+    await 延期证书API(
+      延期证书表单.id,
+      { expiresOn: 延期证书表单.expiresOn },
+      { rowVersion: Number(延期证书表单.rowVersion), 幂等键: 生成组织幂等键() },
+    );
+    ElMessage.success("证书有效期已延期。");
+    延期证书弹窗打开.value = false;
+    await 加载页面();
+    if (编辑用户.value) await 加载编辑详情(编辑用户.value.id);
+  } catch (error) {
+    ElMessage.error("延期失败：" + 读取错误信息(error, "未知错误"));
+  } finally {
+    提交中.value = false;
+  }
+}
 function 关闭编辑抽屉(): void {
   编辑抽屉打开.value = false;
   编辑用户.value = null;
   编辑用户任职.value = [];
   编辑用户业务角色.value = [];
   编辑用户证书.value = [];
+  编辑用户权限角色.value = [];
   泛微OA身份.value = null;
   重置泛微候选表单();
   新任职表单.orgUnitId = "";
@@ -1494,7 +2203,7 @@ function 打开新建用户弹窗(): void {
   新建用户弹窗打开.value = true;
 }
 async function 提交新建用户(): Promise<void> {
-  if (!可写.value) return;
+  if (!可写.value || 提交中.value) return;
   if (!新建用户表单.username || !新建用户表单.name) {
     ElMessage.warning("请填写登录账号和姓名。");
     return;
@@ -1502,6 +2211,31 @@ async function 提交新建用户(): Promise<void> {
   if (!新建用户表单.orgUnitId) {
     ElMessage.warning("请选择所属部门。");
     return;
+  }
+  const 电话错误 = 联系电话错误(新建用户表单.phone);
+  if (电话错误) {
+    ElMessage.warning(电话错误);
+    return;
+  }
+  if (新建用户需要区域.value && !新建用户表单.region) {
+    ElMessage.warning("请选择负责区域。");
+    return;
+  }
+  const 选中部门 = 平铺组织列表.value.find((组织) => 组织.id === 新建用户表单.orgUnitId);
+  if (新建用户需要区域.value) {
+    if (!选中部门?.regionId) {
+      ElMessage.warning(
+        "该部门尚未绑定正式区域，不能创建区域管理账号。请选择具体区域部门，或先在组织架构中为部门绑定区域。",
+      );
+      return;
+    }
+    const 选中区域 = 区域列表.value.find(
+      (区域) => 区域.regionLevel === "region" && 区域.regionName === 新建用户表单.region,
+    );
+    if (选中区域 && 选中部门.regionId !== 选中区域.id) {
+      ElMessage.warning("所属部门与负责区域不一致，请选择该区域下的部门。");
+      return;
+    }
   }
   提交中.value = true;
   try {
@@ -1523,7 +2257,7 @@ async function 提交新建用户(): Promise<void> {
       (账号) => 账号.username === String(新建用户表单.username).trim(),
     );
     if (!新账号) {
-      ElMessage.warning("账号已创建，但未能定位到用户ID，请稍后在账号检索中打开后完善组织信息。");
+      ElMessage.warning("账号已创建，但未能定位到用户ID，请稍后在人员与任职中打开并完善组织信息。");
       新建用户弹窗打开.value = false;
       await 加载页面();
       return;
@@ -1580,6 +2314,18 @@ watch(新建弹窗打开, (打开) => {
   if (!打开) 重置新建表单();
 });
 
+/** 选择负责区域后自动落到同名区域部门，减少误选大区或上级部门。 */
+watch(
+  () => 新建用户表单.region,
+  (区域名称) => {
+    if (!新建用户需要区域.value || !区域名称) return;
+    const 匹配部门 = 平铺组织列表.value.find(
+      (组织) => Boolean(组织.regionId) && 组织.unitName === 区域名称,
+    );
+    if (匹配部门) 新建用户表单.orgUnitId = 匹配部门.id;
+  },
+);
+
 watch(组织树, (树) => {
   if (!选中部门Id.value && 树.length && 树[0]) 选中部门Id.value = 树[0].id;
 });
@@ -1598,7 +2344,15 @@ watch(渠道搜索词, (词) => {
 
 watch(当前栏目, (栏目) => {
   if (栏目 === "external-identities" && 已启用.value) void 加载外部身份映射();
+  if (栏目 === "access" && 已启用.value) void 加载权限范围();
 });
+
+watch(
+  () => 新建用户表单.bigRegion,
+  (大区, 旧大区) => {
+    if (大区 !== 旧大区) 新建用户表单.region = "";
+  },
+);
 
 onMounted(() => {
   按访问终端加载页面();
@@ -1609,7 +2363,11 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 </script>
 
 <template>
-  <main class="组织工作区">
+  <main class="vui war-artboard-plain 组织工作区">
+    <div v-if="!内嵌管理端" class="组织返回行">
+      <RouterLink class="返回按钮" to="/admin">返回管理工作台</RouterLink>
+    </div>
+    <WarKpis :items="组织指标" :加载中="加载中" />
     <header class="组织顶栏">
       <div>
         <p class="组织面包屑">平台管理 / 组织架构</p>
@@ -1627,7 +2385,6 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             组织功能状态?.accountStatusCheckEnabled ? "账号停权防护已开启" : "账号停权防护未开启"
           }}
         </el-tag>
-        <a class="返回工作台" href="/admin.html">返回管理工作台</a>
       </div>
     </header>
 
@@ -1683,15 +2440,6 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                 <p>左侧选择部门，右侧查看该部门成员的概要信息与证书。</p>
               </div>
               <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
-                <el-input
-                  v-model="账号检索词"
-                  placeholder="检索任意内部账号（用户名/姓名）"
-                  clearable
-                  size="small"
-                  style="width: 240px"
-                  @keyup.enter="检索账号"
-                  @change="检索账号"
-                />
                 <el-button v-if="可写" @click="触发文件选择('部门')">导入部门</el-button>
                 <el-button @click="导出部门Excel">导出部门</el-button>
                 <el-button v-if="可写" type="primary" @click="打开新建弹窗('unit')"
@@ -1701,16 +2449,6 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                   >新建用户</el-button
                 >
               </div>
-              <div v-if="账号检索结果.length" class="组织账号检索结果">
-                <span
-                  v-for="账号 in 账号检索结果"
-                  :key="账号.id"
-                  class="组织账号检索项"
-                  @click="打开账号编辑(账号)"
-                  >{{ 账号.name }}（{{ 账号.username }}）· {{ 角色中文(账号.role) }}</span
-                >
-                <span v-if="账号检索中" class="组织账号检索提示">检索中...</span>
-              </div>
             </div>
             <input
               ref="部门文件输入"
@@ -1719,24 +2457,43 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               style="display: none"
               @change="处理部门导入文件"
             />
+            <el-alert
+              v-if="部门导入预览"
+              class="组织导入预览"
+              :type="部门导入预览.errorCount ? 'warning' : 'success'"
+              :closable="false"
+              show-icon
+              :title="`部门导入预览：${部门导入预览.totalCount} 行，通过 ${部门导入预览.validCount} 行，错误 ${部门导入预览.errorCount} 行`"
+            >
+              <template #default>
+                <el-button
+                  v-if="部门导入预览.errorCount"
+                  size="small"
+                  text
+                  type="primary"
+                  @click="下载组织导入错误报告(部门导入预览.errorReportUrl)"
+                  >下载错误报告</el-button
+                >
+              </template>
+            </el-alert>
             <div class="组织左右布局">
               <aside class="组织部门树">
-                <el-select
-                  v-model="选中部门Id"
-                  filterable
+                <el-autocomplete
+                  v-model="统一搜索词"
+                  :fetch-suggestions="搜索部门与成员"
                   clearable
-                  placeholder="快捷选择部门（含全部层级）"
+                  placeholder="搜索部门、成员姓名或用户名"
                   size="small"
-                  class="组织搜索框"
-                  @change="定位部门"
+                  class="组织搜索框 统一组织搜索框"
+                  @select="选择统一搜索结果"
                 >
-                  <el-option
-                    v-for="节点 in 平铺树数据"
-                    :key="节点.id"
-                    :label="' '.repeat(节点.层级) + 节点.label"
-                    :value="节点.id"
-                  />
-                </el-select>
+                  <template #default="{ item }">
+                    <div class="统一搜索项">
+                      <span>{{ item.value }}</span>
+                      <small>{{ item.描述 }}</small>
+                    </div>
+                  </template>
+                </el-autocomplete>
                 <el-input
                   v-model="部门搜索词"
                   placeholder="搜索部门"
@@ -1758,6 +2515,9 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                   <template #default="{ data }">
                     <span class="组织树节点">
                       <span>{{ data.label }}</span>
+                      <el-tag v-if="data.status === 'disabled'" size="small" type="info"
+                        >已停用</el-tag
+                      >
                       <el-tag size="small" type="info" class="组织树计数">{{
                         节点成员数(data)
                       }}</el-tag>
@@ -1768,9 +2528,9 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <section class="组织成员面板">
                 <div class="组织成员面板标题">
                   <h3>{{ 当前部门名称 }}</h3>
-                  <el-tag size="small" :type="当前部门成员.length ? 'success' : 'info'"
-                    >共 {{ 当前部门成员.length }} 名成员</el-tag
-                  >
+                  <el-tag size="small" :type="当前部门成员.length ? 'success' : 'info'">
+                    共 {{ 当前部门成员.length }} 名成员{{ 当前部门含下级 ? "（含子部门）" : "" }}
+                  </el-tag>
                   <el-input
                     v-model="成员搜索词"
                     placeholder="搜索成员姓名/用户名"
@@ -1779,8 +2539,45 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                     class="组织搜索框"
                   />
                 </div>
+                <div v-if="当前部门节点 && 可写" class="组织部门维护条">
+                  <span>
+                    部门状态：{{ 状态中文(当前部门节点.status) }}
+                    <template v-if="当前部门节点.unitCode"
+                      >· 编码 {{ 当前部门节点.unitCode }}</template
+                    >
+                  </span>
+                  <div>
+                    <el-button size="small" @click="打开部门编辑">编辑部门</el-button>
+                    <el-button size="small" @click="打开新建下级部门">新建下级部门</el-button>
+                    <el-button
+                      v-if="当前部门节点.status !== 'disabled'"
+                      size="small"
+                      type="warning"
+                      plain
+                      @click="切换部门状态('disabled')"
+                      >停用</el-button
+                    >
+                    <el-button
+                      v-else
+                      size="small"
+                      type="success"
+                      plain
+                      @click="切换部门状态('active')"
+                      >恢复</el-button
+                    >
+                    <el-button size="small" type="danger" plain @click="切换部门状态('archived')"
+                      >删除部门</el-button
+                    >
+                  </div>
+                </div>
                 <div v-if="过滤后成员.length" class="组织成员网格">
-                  <article v-for="成员 in 过滤后成员" :key="成员.assignmentId" class="组织成员卡片">
+                  <article
+                    v-for="成员 in 过滤后成员"
+                    :key="成员.assignmentId"
+                    class="组织成员卡片"
+                    :class="{ 组织成员高亮: 成员高亮用户Id === 成员.userId }"
+                    :data-user-id="成员.userId"
+                  >
                     <div class="组织成员头部">
                       <span class="组织成员头像">{{ 成员.displayName.slice(0, 1) }}</span>
                       <div class="组织成员身份">
@@ -1798,8 +2595,36 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                         @click.stop="打开成员编辑(成员)"
                         >编辑</el-button
                       >
+                      <el-button
+                        v-if="可写"
+                        size="small"
+                        text
+                        :type="
+                          账号列表.find(
+                            (项) =>
+                              String(项.id) === 成员.userId ||
+                              String(项.username) === 成员.username,
+                          )?.status === 'disabled'
+                            ? 'success'
+                            : 'danger'
+                        "
+                        @click.stop="切换成员账号状态(成员)"
+                        >{{
+                          账号列表.find(
+                            (项) =>
+                              String(项.id) === 成员.userId ||
+                              String(项.username) === 成员.username,
+                          )?.status === "disabled"
+                            ? "启用"
+                            : "停用"
+                        }}</el-button
+                      >
                     </div>
                     <dl class="组织成员概要">
+                      <div class="组织成员部门">
+                        <dt>所属部门</dt>
+                        <dd>{{ 成员.所属部门 || "—" }}</dd>
+                      </div>
                       <div>
                         <dt>岗位</dt>
                         <dd>{{ 成员.positionName || "—" }}</dd>
@@ -1830,7 +2655,10 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                     <p v-else class="组织无证书">暂无证书</p>
                   </article>
                 </div>
-                <el-empty v-else description="该部门暂无成员" />
+                <el-empty
+                  v-else
+                  :description="当前部门含下级 ? '该部门及子部门暂无成员' : '该部门暂无成员'"
+                />
               </section>
             </div>
           </article>
@@ -1865,6 +2693,12 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                   <template #default="{ data }">
                     <span class="组织树节点">
                       <span>{{ data.label }}</span>
+                      <el-tag
+                        v-if="data.type === 'partner' && data.status === 'pending'"
+                        size="small"
+                        type="warning"
+                        >待审批</el-tag
+                      >
                       <el-tag size="small" type="info" class="组织树计数">{{
                         渠道节点成员数(data)
                       }}</el-tag>
@@ -1877,6 +2711,14 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                   <h3>{{ 当前渠道名称 }}</h3>
                   <el-tag size="small" :type="当前渠道成员.length ? 'success' : 'info'"
                     >共 {{ 当前渠道成员.length }} 名成员</el-tag
+                  >
+                  <el-button
+                    v-if="当前渠道维护编号"
+                    size="small"
+                    type="primary"
+                    plain
+                    @click="路由器.push(`/admin/partners/${当前渠道维护编号}/members`)"
+                    >维护成员与企业管理员</el-button
                   >
                   <el-input
                     v-model="渠道成员搜索词"
@@ -1923,7 +2765,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
           <div class="组织卡片标题">
             <div>
               <h2>外部身份映射</h2>
-              <p>只读核对泛微 OA 与企业微信身份；完整 userid 仅在既有账号详情中查看。</p>
+              <p>只读核对泛微 OA 与企业微信身份；完整账号仅在既有账号详情中查看。</p>
             </div>
             <el-button :loading="外部身份映射加载中" @click="加载外部身份映射">刷新</el-button>
           </div>
@@ -2097,6 +2939,25 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             style="display: none"
             @change="处理成员导入文件"
           />
+          <el-alert
+            v-if="成员导入预览"
+            class="组织导入预览"
+            :type="成员导入预览.errorCount ? 'warning' : 'success'"
+            :closable="false"
+            show-icon
+            :title="`成员导入预览：${成员导入预览.totalCount} 行，通过 ${成员导入预览.validCount} 行，错误 ${成员导入预览.errorCount} 行`"
+          >
+            <template #default>
+              <el-button
+                v-if="成员导入预览.errorCount"
+                size="small"
+                text
+                type="primary"
+                @click="下载组织导入错误报告(成员导入预览.errorReportUrl)"
+                >下载错误报告</el-button
+              >
+            </template>
+          </el-alert>
           <el-table :data="任职列表" empty-text="暂无任职数据">
             <el-table-column prop="displayName" label="人员" min-width="140" />
             <el-table-column prop="positionName" label="岗位" min-width="140" />
@@ -2175,6 +3036,13 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                 状态中文(row.statusCode)
               }}</template></el-table-column
             >
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="可写" link type="primary" @click="打开证书模板编辑(row)">
+                  编辑
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
         </article>
 
@@ -2247,10 +3115,84 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             show-icon
             description="用户级覆盖默认关闭；业务角色、权限角色和数据范围不能相互替代。"
           />
-          <h2>权限角色与数据范围</h2>
-          <p class="组织说明">
-            服务端的角色级数据范围和权限差异任务接口尚在收口，本页面不提供本地推断、写入或越权编辑，避免影响现有客户、商机、报价和订单范围。
+          <div class="组织卡片标题" style="margin-top: 16px">
+            <div>
+              <h2>权限角色与数据范围</h2>
+              <p>系统权限角色只读展示；数据范围按角色统一生效，避免个人覆盖造成越权。</p>
+            </div>
+            <el-button :loading="权限加载中" @click="加载权限范围(true)">刷新</el-button>
+          </div>
+          <p v-if="权限错误" class="组织错误">
+            {{ 权限错误 }}
+            <el-button text type="primary" @click="加载权限范围(true)">重新加载</el-button>
           </p>
+          <el-table
+            v-loading="权限加载中"
+            :data="权限角色列表"
+            empty-text="暂无权限角色"
+            highlight-current-row
+            @row-click="选择权限角色行"
+          >
+            <el-table-column prop="roleName" label="权限角色" min-width="150" />
+            <el-table-column prop="roleCode" label="角色代码" min-width="150" />
+            <el-table-column label="类型" width="100"
+              ><template #default="{ row }">{{
+                row.isSystem ? "系统内置" : "自定义"
+              }}</template></el-table-column
+            >
+            <el-table-column label="账号数" width="90"
+              ><template #default="{ row }">{{ row.userCount || 0 }}</template></el-table-column
+            >
+            <el-table-column label="权限点" width="90"
+              ><template #default="{ row }">{{
+                row.permissionCodes?.length || 0
+              }}</template></el-table-column
+            >
+            <el-table-column label="状态" width="90"
+              ><template #default="{ row }">{{
+                状态中文(row.statusCode)
+              }}</template></el-table-column
+            >
+          </el-table>
+          <template v-if="选中权限角色">
+            <h3>{{ 选中权限角色.roleName }} · 权限点</h3>
+            <div v-if="选中权限角色.permissionCodes?.length" class="权限标签组">
+              <el-tag
+                v-for="权限代码 in 选中权限角色.permissionCodes"
+                :key="权限代码"
+                size="small"
+                effect="plain"
+                >{{ 权限名称(权限代码) }}</el-tag
+              >
+            </div>
+            <div v-else class="组织空状态">该角色暂无单独权限点。</div>
+            <h3>{{ 选中权限角色.roleName }} · 数据范围</h3>
+            <el-table :data="选中角色数据范围" empty-text="该角色暂无数据范围绑定">
+              <el-table-column label="业务资源" min-width="130"
+                ><template #default="{ row }">{{
+                  业务资源名称(row.resourceCode)
+                }}</template></el-table-column
+              >
+              <el-table-column label="范围" min-width="130"
+                ><template #default="{ row }">{{
+                  数据范围类型中文(row.scopeType)
+                }}</template></el-table-column
+              >
+              <el-table-column label="范围对象" min-width="180"
+                ><template #default="{ row }">{{
+                  数据范围引用名称(row)
+                }}</template></el-table-column
+              >
+              <el-table-column label="状态" width="90"
+                ><template #default="{ row }">{{
+                  状态中文(row.statusCode)
+                }}</template></el-table-column
+              >
+            </el-table>
+            <p class="组织说明">
+              用户级数据范围仅供核对，不在本页写入；如需调整，请维护对应角色范围。
+            </p>
+          </template>
         </article>
 
         <article v-else-if="当前栏目 === 'offboarding'" class="组织卡片">
@@ -2295,9 +3237,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             <div class="组织卡片标题">
               <div>
                 <h2>企业微信账号映射导入</h2>
-                <p>
-                  上传“姓名、账号”文件，服务端严格匹配 V3 姓名后预览；账号列就是企业微信 UserId。
-                </p>
+                <p>上传“姓名、账号”文件，服务端严格匹配系统姓名后预览；账号列就是企业微信账号。</p>
               </div>
               <div style="display: flex; gap: 8px; flex-wrap: wrap">
                 <el-button v-if="可写" :loading="企微映射导入中" @click="触发企微映射文件选择"
@@ -2356,7 +3296,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               >
                 <el-table-column prop="rowNumber" label="源行" width="75" />
                 <el-table-column prop="displayName" label="姓名" min-width="120" />
-                <el-table-column prop="wecomUserId" label="企业微信 UserId" min-width="180" />
+                <el-table-column prop="wecomUserId" label="企业微信账号" min-width="180" />
                 <el-table-column label="结果" width="130">
                   <template #default="{ row }"
                     ><el-tag :type="企微映射状态类型(row.status)" size="small">{{
@@ -2529,6 +3469,62 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
       >
     </el-dialog>
 
+    <el-dialog
+      v-model="证书模板编辑弹窗打开"
+      title="编辑证书模板"
+      width="min(520px, 92vw)"
+      :close-on-click-modal="false"
+    >
+      <el-form label-position="top" @submit.prevent="保存证书模板">
+        <el-form-item label="模板名称" required>
+          <el-input v-model="证书模板编辑表单.templateName" maxlength="120" autocomplete="off" />
+        </el-form-item>
+        <el-form-item label="类别">
+          <el-input v-model="证书模板编辑表单.category" maxlength="60" autocomplete="off" />
+        </el-form-item>
+        <el-form-item label="颁发机构">
+          <el-input v-model="证书模板编辑表单.issuerName" maxlength="120" autocomplete="off" />
+        </el-form-item>
+        <el-form-item label="默认有效月数">
+          <el-input-number v-model="证书模板编辑表单.validityMonths" :min="1" :max="240" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="证书模板编辑弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="保存证书模板">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="部门编辑弹窗打开"
+      title="编辑部门"
+      width="min(560px, 92vw)"
+      :close-on-click-modal="false"
+    >
+      <el-form label-position="top" @submit.prevent="保存部门编辑">
+        <el-form-item label="部门名称" required
+          ><el-input v-model="部门编辑表单.unitName" autocomplete="off"
+        /></el-form-item>
+        <el-form-item label="上级部门"
+          ><el-select v-model="部门编辑表单.parentUnitId" clearable class="组织全宽"
+            ><el-option
+              v-for="组织 in 平铺组织列表.filter((项) => 项.id !== 部门编辑表单.id)"
+              :key="组织.id"
+              :label="组织.unitName"
+              :value="组织.id" /></el-select
+        ></el-form-item>
+        <el-form-item label="排序"
+          ><el-input-number v-model="部门编辑表单.sortOrder" :min="0"
+        /></el-form-item>
+      </el-form>
+      <template #footer
+        ><el-button @click="部门编辑弹窗打开 = false">取消</el-button
+        ><el-button type="primary" :loading="提交中" @click="保存部门编辑"
+          >保存部门</el-button
+        ></template
+      >
+    </el-dialog>
+
     <div v-if="新建用户弹窗打开" class="modal-overlay" @click.self="新建用户弹窗打开 = false">
       <div class="modal" style="max-width: 680px">
         <div class="modal-header">
@@ -2584,15 +3580,36 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <label class="form-label">登录角色</label>
               <select v-model="新建用户表单.role" class="form-control">
                 <option value="staff">员工</option>
-                <option value="admin">区域管理员</option>
+                <option value="region_manager">区域管理员</option>
                 <option value="superadmin">超级管理员</option>
               </select>
             </div>
+            <template v-if="['admin', 'region_manager'].includes(新建用户表单.role)">
+              <div class="form-item">
+                <label class="form-label required">所属大区</label>
+                <select v-model="新建用户表单.bigRegion" class="form-control">
+                  <option value="">请选择大区</option>
+                  <option v-for="大区 in 大区列表" :key="大区.id" :value="大区.label">
+                    {{ 大区.label }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-item">
+                <label class="form-label required">负责区域</label>
+                <select v-model="新建用户表单.region" class="form-control">
+                  <option value="">请选择负责区域</option>
+                  <option v-for="区域 in 当前大区区域" :key="区域.id" :value="区域.label">
+                    {{ 区域.label }}
+                  </option>
+                </select>
+              </div>
+            </template>
             <div class="form-item">
               <label class="form-label required">所属部门</label
               ><select v-model="新建用户表单.orgUnitId" class="form-control">
-                <option v-for="组织 in 平铺组织列表" :key="组织.id" :value="组织.id">
+                <option v-for="组织 in 新建用户可选部门" :key="组织.id" :value="组织.id">
                   {{ " ".repeat(组织.层级 || 0) }}{{ 组织.unitName }}
+                  {{ 组织.regionId ? "" : "（未绑定区域）" }}
                 </option>
               </select>
             </div>
@@ -2641,38 +3658,14 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
             </div>
             <div class="form-item">
               <label class="form-label">证书到期日（可选）</label
-              ><input
+              ><el-date-picker
                 v-model="新建用户表单.certificateExpiresOn"
-                class="form-control"
                 type="date"
+                value-format="YYYY-MM-DD"
+                placeholder="选择证书到期日"
+                style="width: 100%"
               />
             </div>
-            <template v-if="新建用户表单.role === 'admin'">
-              <div class="form-item">
-                <label class="form-label">所属大区</label
-                ><select v-model="新建用户表单.bigRegion" class="form-control">
-                  <option value="">请选择</option>
-                  <option v-for="组 in 大区列表" :key="组.label" :value="组.label">
-                    {{ 组.label }}
-                  </option>
-                </select>
-              </div>
-              <div class="form-item">
-                <label class="form-label">负责区域</label
-                ><select v-model="新建用户表单.region" class="form-control">
-                  <option value="">请选择</option>
-                  <option
-                    v-for="区域 in (
-                      大区列表.find((g) => g.label === 新建用户表单.bigRegion) || { regions: [] }
-                    ).regions"
-                    :key="区域"
-                    :value="区域"
-                  >
-                    {{ 区域 }}
-                  </option>
-                </select>
-              </div>
-            </template>
           </div>
         </div>
         <div class="modal-footer">
@@ -2721,20 +3714,46 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <el-button size="small" type="primary" :loading="提交中" @click="保存基本信息"
                 >保存基本信息</el-button
               >
+              <el-button
+                size="small"
+                :type="编辑用户.status === 'disabled' ? 'success' : 'danger'"
+                plain
+                :loading="提交中"
+                @click="切换账号状态"
+                >{{ 编辑用户.status === "disabled" ? "启用账号" : "停用账号" }}</el-button
+              >
               <el-button size="small" @click="重置密码">重置密码（123456）</el-button>
-              <span class="组织说明文字">停用账号必须通过“停用并交接”流程处理。</span>
+              <span class="组织说明文字"
+                >离职账号请使用“停用并交接”；此处停用仅关闭登录，历史业务与审计保留。</span
+              >
             </div>
+          </section>
+          <section class="组织抽屉区块">
+            <h4>系统权限角色</h4>
+            <div v-if="编辑用户权限角色.length" class="权限标签组">
+              <el-tag
+                v-for="角色 in 编辑用户权限角色"
+                :key="角色.id"
+                size="small"
+                :type="角色.statusCode === 'active' ? 'success' : 'info'"
+                >{{ 角色.roleName }}</el-tag
+              >
+            </div>
+            <div v-else class="组织抽屉空">未分配系统权限角色。</div>
+            <p class="组织说明文字">
+              此处只读；用户级数据范围随权限角色生效，不在账号详情中单独覆盖。
+            </p>
           </section>
           <section class="组织抽屉区块">
             <h4>泛微 OA 身份</h4>
             <p class="组织说明文字">
-              仅已确认的泛微 userid 可作为订单预审的 OA
+              仅已确认的泛微账号可作为订单预审的 OA
               发起人；候选身份不会自动绑定，也不能用于流程发起。
             </p>
             <div v-if="泛微OA身份?.formalIdentity" class="组织抽屉小卡">
               <div class="组织抽屉小卡主">
                 <b>{{ 泛微OA身份.formalIdentity.externalUsername }}</b>
-                <span>userid：{{ 泛微OA身份.formalIdentity.externalSubject }}</span>
+                <span>泛微账号：{{ 泛微OA身份.formalIdentity.externalSubject }}</span>
                 <el-tag size="small" type="success">已确认</el-tag>
               </div>
               <div class="组织抽屉小卡次">
@@ -2749,7 +3768,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <div v-for="候选 in 泛微OA身份.candidates" :key="候选.id" class="组织抽屉小卡">
                 <div class="组织抽屉小卡主">
                   <b>{{ 候选.externalUsername }}</b>
-                  <span>userid：{{ 候选.externalSubject }}</span>
+                  <span>泛微账号：{{ 候选.externalSubject }}</span>
                   <el-tag size="small" :type="候选.statusCode === 'pending' ? 'warning' : 'info'">{{
                     泛微候选状态中文(候选.statusCode)
                   }}</el-tag>
@@ -2768,7 +3787,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
               <input
                 v-model="泛微候选表单.externalSubject"
                 class="form-control"
-                placeholder="泛微 OA userid"
+                placeholder="泛微 OA 账号"
               />
               <input
                 v-model="泛微候选表单.externalUsername"
@@ -2812,16 +3831,16 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
           <section class="组织抽屉区块">
             <h4>企业微信身份</h4>
             <p class="组织说明文字">
-              仅展示当前账号已维护的企业微信 userid，不影响泛微 OA 发起人映射。
+              仅展示当前账号已维护的企业微信账号，不影响泛微 OA 发起人映射。
             </p>
             <div v-if="泛微OA身份?.wecomIdentities?.length" class="组织抽屉小卡">
               <div v-for="身份 in 泛微OA身份.wecomIdentities" :key="身份.id" class="组织抽屉小卡主">
                 <b>{{ 身份.externalUsername || 编辑用户?.name || "企业微信成员" }}</b>
-                <span>userid：{{ 身份.externalSubject }}</span>
+                <span>企业微信账号：{{ 身份.externalSubject }}</span>
                 <el-tag size="small" type="success">已启用</el-tag>
               </div>
             </div>
-            <div v-else class="组织抽屉空">未记录已确认的企业微信 userid。</div>
+            <div v-else class="组织抽屉空">未记录已确认的企业微信账号。</div>
           </section>
           <section class="组织抽屉区块">
             <h4>任职信息</h4>
@@ -2836,9 +3855,14 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                 </div>
                 <div class="组织抽屉小卡次">
                   <span>生效：{{ 格式化时间(任职.effectiveAt) }}</span>
-                  <el-button v-if="可写" size="small" text type="danger" @click="结束任职(任职)"
-                    >结束</el-button
-                  >
+                  <span v-if="可写" class="组织小卡操作组">
+                    <el-button size="small" text type="primary" @click="打开调整任职(任职)"
+                      >调整部门/岗位</el-button
+                    >
+                    <el-button size="small" text type="danger" @click="结束任职(任职)"
+                      >结束</el-button
+                    >
+                  </span>
                 </div>
               </div>
             </div>
@@ -2942,6 +3966,14 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                     v-if="可写 && 证.statusCode === 'active'"
                     size="small"
                     text
+                    type="primary"
+                    @click="打开延期证书(证)"
+                    >延期</el-button
+                  >
+                  <el-button
+                    v-if="可写 && 证.statusCode === 'active'"
+                    size="small"
+                    text
                     type="danger"
                     @click="撤销证书(证)"
                     >撤销</el-button
@@ -2965,10 +3997,10 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
                   :value="模板.id"
                 />
               </el-select>
-              <input
+              <el-date-picker
                 v-model="新证书表单.expiresOn"
-                class="form-control"
                 type="date"
+                value-format="YYYY-MM-DD"
                 style="width: 150px"
                 placeholder="到期日（可选）"
               />
@@ -2980,15 +4012,89 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
         </div>
       </aside>
     </div>
+
+    <el-dialog v-model="调整任职弹窗打开" title="调整部门与岗位" width="520px" append-to-body>
+      <el-alert
+        title="调整后按新部门与负责区域即时生效"
+        type="info"
+        :closable="false"
+        show-icon
+        description="历史任职和业务记录保留；保存后请让对应账号重新进入页面核对数据范围。"
+      />
+      <el-form label-width="100px" style="margin-top: 16px">
+        <el-form-item label="人员">
+          <span>{{ 调整任职表单.displayName || "当前用户" }}</span>
+        </el-form-item>
+        <el-form-item label="调整后部门" required>
+          <el-select
+            v-model="调整任职表单.orgUnitId"
+            filterable
+            style="width: 100%"
+            @change="调整任职表单.positionId = ''"
+          >
+            <el-option
+              v-for="组织 in 平铺组织列表"
+              :key="组织.id"
+              :label="' '.repeat(组织.层级 || 0) + 组织.unitName"
+              :value="组织.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="调整后岗位">
+          <el-select v-model="调整任职表单.positionId" clearable style="width: 100%">
+            <el-option
+              v-for="岗位项 in 调整任职岗位列表"
+              :key="岗位项.id"
+              :label="岗位项.positionName"
+              :value="岗位项.id"
+            />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="调整任职弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交调整任职">保存调整</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="延期证书弹窗打开" title="延期证书" width="460px" append-to-body>
+      <el-form label-width="100px">
+        <el-form-item label="证书">
+          <span>{{ 延期证书表单.templateName }}</span>
+        </el-form-item>
+        <el-form-item label="新到期日" required>
+          <el-date-picker
+            v-model="延期证书表单.expiresOn"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择新的到期日"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="延期证书弹窗打开 = false">取消</el-button>
+        <el-button type="primary" :loading="提交中" @click="提交延期证书">确认延期</el-button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
 <style scoped>
 .组织工作区 {
-  min-height: 100vh;
-  padding: 32px;
-  background: #f5f5f7;
-  color: #1d1d1f;
+  /* 与作战室画板同一口径：铺满内容区，四周保留 10px 外边距；内容超出在画板内滚动 */
+  height: calc(100vh - var(--v3-board-topbar-h, 0px) - 20px);
+  padding: 0;
+  background: transparent;
+  color: #172b4d;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.组织返回行 {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  margin-bottom: 4px;
 }
 .组织顶栏,
 .组织顶栏动作,
@@ -3001,70 +4107,57 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 }
 .组织顶栏 {
   justify-content: space-between;
-  max-width: 1440px;
-  margin: 0 auto 20px;
+  margin: 20px 0 12px;
   gap: 24px;
 }
 .组织顶栏 h1 {
   margin: 4px 0 0;
-  font-size: 28px;
+  font-size: 22px;
 }
 .组织面包屑,
 .组织卡片 p,
 .组织说明 {
   margin: 0;
-  color: #6e6e73;
-  font-size: 14px;
+  color: #60748c;
+  font-size: 11px;
   line-height: 1.6;
 }
 .组织顶栏动作 {
   gap: 12px;
 }
-.返回工作台 {
-  padding: 9px 14px;
-  border: 1px solid #d9d9de;
-  border-radius: 8px;
-  background: #fff;
-  color: #007aff;
-  font-size: 14px;
-}
 .组织导航 {
-  max-width: 1440px;
-  margin: 0 auto 20px;
+  margin: 0 0 12px;
   gap: 8px;
   overflow-x: auto;
 }
 .组织导航 a {
   flex: none;
-  padding: 9px 12px;
+  padding: 7px 12px;
   border-radius: 8px;
-  color: #515154;
-  font-size: 14px;
+  color: #4f6178;
+  font-size: 11px;
 }
 .组织导航 a:hover,
 .组织导航-激活 {
-  background: #007aff;
+  background: #2f69ed;
   color: #fff !important;
 }
 .组织双栏 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  max-width: 1440px;
-  margin: 20px auto 0;
-  gap: 20px;
+  margin: 12px 0 0;
+  gap: 16px;
 }
 .组织卡片,
 .组织加载中 {
-  max-width: 1440px;
-  margin: 20px auto 0;
-  padding: 20px;
-  border: 1px solid #e5e5ea;
-  border-radius: 16px;
+  margin: 12px 0 0;
+  padding: 16px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
   background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 10px 28px rgba(42, 82, 130, 0.07);
 }
 .组织双栏 .组织卡片 {
-  max-width: none;
   margin: 0;
 }
 .组织卡片标题 {
@@ -3075,7 +4168,7 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
 .组织卡片 h2,
 .组织卡片 h3 {
   margin: 0 0 6px;
-  font-size: 18px;
+  font-size: 16px;
 }
 .组织卡片 h3 {
   margin-top: 28px;
@@ -3086,13 +4179,13 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   margin-top: 16px;
 }
 .组织错误 {
-  color: #ff3b30;
+  color: #ce4b58;
 }
 .组织空状态 {
-  padding: 20px;
+  padding: 16px;
   border-radius: 10px;
-  background: #f5f5f7;
-  color: #6e6e73;
+  background: #f6f9fd;
+  color: #60748c;
 }
 .证书统计,
 .同步状态 {
@@ -3101,15 +4194,355 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   margin: 16px 0;
   padding: 12px 14px;
   border-radius: 10px;
-  background: #fff8e8;
-  color: #7a4b00;
+  background: #fff7df;
+  color: #936409;
 }
 .同步状态 {
-  background: #edf6ff;
-  color: #145ca8;
+  background: #edf5ff;
+  color: #1557d6;
 }
 .组织全宽 {
   width: 100%;
+}
+.组织导入预览 {
+  margin: 8px 0 12px;
+}
+
+/* 组织架构左树右成员：按老 UI 口径补齐新 UI 遗漏的布局与卡片样式 */
+.组织左右布局 {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  min-height: 420px;
+}
+.组织部门树 {
+  flex: 0 0 320px;
+  max-width: 320px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+.组织部门树 .el-tree {
+  background: transparent;
+}
+.统一组织搜索框 {
+  width: 100%;
+}
+.统一搜索项 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.统一搜索项 small {
+  overflow: hidden;
+  max-width: 260px;
+  color: #8391a5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.组织部门树 :deep(.el-tree-node__content) {
+  height: 32px;
+  margin: 1px 0;
+  border-radius: 8px;
+}
+.组织部门树 :deep(.el-tree-node__content:hover) {
+  background: #eef4fb;
+}
+.组织部门树 :deep(.el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content) {
+  background: #e8f0fe;
+  color: #1a56db;
+  font-weight: 700;
+}
+.组织树节点 {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+}
+.组织树计数 {
+  margin-left: auto;
+}
+.组织成员面板 {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  max-height: 560px;
+  flex-direction: column;
+  padding: 14px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #fff;
+}
+.组织成员面板标题 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eef4fb;
+}
+.组织成员面板标题 h3 {
+  margin: 0;
+}
+.组织成员面板标题 .组织搜索框 {
+  width: 220px;
+  margin: 0 0 0 auto;
+}
+.组织部门维护条 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: -4px 0 12px;
+  padding: 9px 12px;
+  border: 1px solid #dce8f5;
+  border-radius: 8px;
+  background: #f7faff;
+  color: #5f738b;
+  font-size: 12px;
+}
+.组织部门维护条 > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.组织成员网格 {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+  overflow: auto;
+}
+.组织成员卡片 {
+  padding: 14px;
+  border: 1px solid #e3ecf6;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(36, 75, 119, 0.05);
+}
+.组织成员卡片:hover {
+  border-color: #b8cdea;
+  box-shadow: 0 6px 16px rgba(36, 75, 119, 0.1);
+}
+.组织成员卡片.组织成员高亮 {
+  border-color: #f0a020;
+  background: #fffaf0;
+  box-shadow: 0 8px 22px rgba(240, 160, 32, 0.18);
+}
+.组织成员头部 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.组织成员头像 {
+  display: inline-flex;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4d8df0, #2f6fe0);
+  color: #fff;
+}
+.组织成员身份 {
+  flex: 1;
+  min-width: 0;
+}
+.组织成员姓名 {
+  color: #172b4d;
+}
+.组织成员账号 {
+  color: #8391a5;
+}
+.组织成员概要 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 0 0 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织成员概要 div {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+}
+.组织成员概要 .组织成员部门 {
+  grid-column: 1 / -1;
+}
+.组织成员概要 dt {
+  flex: 0 0 auto;
+  color: #8391a5;
+}
+.组织成员概要 dd {
+  margin: 0;
+  overflow: hidden;
+  color: #172b4d;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.组织成员证书 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织无证书 {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+  color: #8391a5;
+}
+.组织筛选栏 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.组织筛选栏 .el-input,
+.组织筛选栏 .el-select {
+  width: 220px;
+}
+.外部身份统计 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f4f9ff;
+  color: #4f6178;
+}
+.外部身份统计 b {
+  color: #1557d6;
+}
+.权限标签组 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.组织小卡操作组 {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.组织抽屉遮罩 {
+  position: fixed;
+  inset: 0;
+  /* Element Plus 的对话框与下拉浮层从 2000 起分配层级，抽屉必须低于它们 */
+  z-index: 1900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.45);
+}
+.组织抽屉 {
+  display: flex;
+  width: min(880px, 94vw);
+  height: min(86vh, 880px);
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.18);
+}
+.组织抽屉头部 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #e6effa;
+  background: linear-gradient(135deg, #f7f9fc, #ffffff);
+}
+.组织抽屉头部 h3 {
+  margin: 0;
+}
+.组织抽屉头部 p {
+  margin: 6px 0 0;
+  color: #8391a5;
+}
+.组织抽屉主体 {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+}
+.组织抽屉区块 {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #dce7f3;
+  border-radius: 10px;
+  background: #fff;
+}
+.组织抽屉区块 h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.组织抽屉区块 h4::before {
+  content: "";
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #2f69ed, #7254d8);
+}
+.组织抽屉小卡 {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e9f0f7;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+.组织抽屉小卡主 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.组织抽屉小卡主 b {
+  color: #172b4d;
+}
+.组织抽屉小卡主 span {
+  color: #60748c;
+}
+.组织抽屉小卡次 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  color: #8391a5;
+}
+.组织抽屉空 {
+  margin-bottom: 10px;
+  padding: 12px;
+  border: 1px dashed #dce7f3;
+  border-radius: 10px;
+  background: #fafbfc;
+  color: #8391a5;
+  text-align: center;
+}
+.组织抽屉新增行 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed #e6effa;
+}
+.组织说明文字 {
+  margin: 6px 0 0;
+  color: #8391a5;
 }
 @media (max-width: 900px) {
   .组织工作区 {
@@ -3121,6 +4554,18 @@ onBeforeUnmount(() => window.removeEventListener("resize", 按访问终端加载
   }
   .组织双栏 {
     grid-template-columns: 1fr;
+  }
+  .组织左右布局 {
+    flex-direction: column;
+  }
+  .组织部门树 {
+    flex: none;
+    width: 100%;
+    max-width: none;
+    max-height: 260px;
+  }
+  .组织成员面板 {
+    max-height: none;
   }
 }
 </style>

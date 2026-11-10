@@ -4,6 +4,58 @@ import { describe, expect, it } from "vitest";
 import { 创建消息规则数据服务 } from "../src/message-rule-store.js";
 
 describe("消息规则数据服务", () => {
+  it("账号审批当前阶段接收人可以正常读取并返回中文名称", async () => {
+    const 连接池 = {
+      query: async (语句: string) => {
+        if (语句.includes("lower(username)")) {
+          return {
+            rows: [{ id: "11111111-1111-4111-8111-111111111111", username: "platform_superadmin" }],
+          };
+        }
+        if (语句.includes("FROM message.event_subscriptions subscription")) {
+          return {
+            rows: [
+              {
+                subscription_code: "m1_account_approval_pending",
+                event_code: "iam.account.approval.pending",
+                rule_name: "账号审批阶段待办",
+                reminder_type: "event",
+                template_code: "m1_account_approval_pending",
+                is_system: true,
+                protection_level: "configurable",
+                status_code: "active",
+                rule_version: 2,
+                recipient_rule_json: { type: "account_current_approver", scope: {} },
+                channel_codes: ["in_app"],
+                rule_updated_at: new Date("2026-11-06T08:00:00.000Z"),
+                updated_by: "platform_superadmin",
+              },
+            ],
+          };
+        }
+        if (语句.includes("INSERT INTO audit.audit_logs")) return { rows: [] };
+        throw new Error(`未覆盖的数据库语句：${语句}`);
+      },
+    } as unknown as Pool;
+    const 服务 = 创建消息规则数据服务({ pool: 连接池 });
+
+    await expect(
+      服务.查询事件规则({
+        username: "platform_superadmin",
+        requestId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        subscriptionCode: "m1_account_approval_pending",
+        recipientRule: {
+          type: "account_current_approver",
+          label: "当前阶段审批人",
+          editable: true,
+        },
+      }),
+    ]);
+  });
+
   it("接收人候选按内部任职或有效管理角色读取，并记录读取审计", async () => {
     const 查询记录: Array<{ 语句: string; 参数: unknown[] }> = [];
     const 连接池 = {

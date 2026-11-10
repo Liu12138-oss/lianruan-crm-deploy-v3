@@ -8,6 +8,8 @@ import {
 } from "@lianruan/shared";
 import { Pool, type PoolClient } from "pg";
 
+import { type 报价类型代码, 解析报价类型 } from "./quote-visibility.js";
+
 type 查询执行器 = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
 export interface 收益操作者 {
@@ -71,10 +73,12 @@ export interface 收益数据服务 {
 interface 报价基础 {
   id: string;
   quoteNo: string;
+  quoteTypeCode: 报价类型代码;
   rowVersion: number;
   regionId: string | null;
   orderId: string | null;
   orderStatus: string | null;
+  orderTotalAmount: string | null;
   approvalRound: number;
   orderRevisionNo: number;
 }
@@ -158,7 +162,7 @@ export class QuoteProfitStore implements 收益数据服务 {
     if (现有?.statusCode === "frozen") return this.组装存储响应(报价, 现有);
     const 计算结果 = await this.计算(
       this.pool,
-      报价.id,
+      报价,
       现有?.warrantyYears ?? 3,
       现有?.procurementMaintenanceYears ?? 0,
       new Date(),
@@ -223,7 +227,7 @@ export class QuoteProfitStore implements 收益数据服务 {
       const 年数 = this.读取年限输入(输入, 已有);
       const 计算结果 = await this.计算(
         db,
-        报价.id,
+        报价,
         年数.warrantyYears,
         年数.procurementMaintenanceYears,
         new Date(),
@@ -474,7 +478,7 @@ export class QuoteProfitStore implements 收益数据服务 {
       const 年数 = this.读取年限输入(输入, 现有);
       const 计算结果 = await this.计算(
         db,
-        报价.id,
+        报价,
         年数.warrantyYears,
         年数.procurementMaintenanceYears,
         new Date(),
@@ -570,12 +574,12 @@ export class QuoteProfitStore implements 收益数据服务 {
 
   private async 计算(
     执行器: 查询执行器,
-    quoteId: string,
+    报价: 报价基础,
     warrantyYears: number,
     procurementMaintenanceYears: number,
     asOf: Date,
   ) {
-    const 明细 = await this.读取报价明细(执行器, quoteId);
+    const 明细 = await this.读取报价明细(执行器, 报价.id);
     const 输入: 计算输入 = {
       softwareItems: [],
       hardwareItems: [],
@@ -616,6 +620,7 @@ export class QuoteProfitStore implements 收益数据服务 {
       }
       输入.topScope = "unclassified";
     }
+    this.应用订单总额口径(输入, 报价);
     return 计算微盾报价收益({
       scopeCode: 输入.topScope,
       softwareItems: 输入.softwareItems,
@@ -623,6 +628,58 @@ export class QuoteProfitStore implements 收益数据服务 {
       serviceContractAmount: 输入.serviceContractAmount,
       warrantyYears,
       procurementMaintenanceYears,
+    });
+  }
+
+  /**
+   * 订单生成后，收益表以订单最终总额作为合同口径。
+   * 当前订单调价只修改总额，不拆分硬件和服务，因此差额按设计归入软件折后价；
+   * 这里按原软件行金额比例分摊，保证详情、审批和冻结使用同一口径。
+   */
+  private 应用订单总额口径(输入: 计算输入, 报价: 报价基础): void {
+    if (!报价.orderId || 报价.orderTotalAmount === null) return;
+    const 订单总额 = Number(报价.orderTotalAmount);
+    if (!Number.isFinite(订单总额) || 订单总额 < 0) return;
+
+    const 硬件合同额 = 输入.hardwareItems.reduce(
+      (合计, 行) => 合计 + Number(行.quoteUnitPrice || 0) * Number(行.quantity || 0),
+      0,
+    );
+    const 目标软件金额 = 订单总额 - 硬件合同额 - Number(输入.serviceContractAmount || 0);
+    if (目标软件金额 < -0.005) {
+      输入.topScope = "unclassified";
+      return;
+    }
+    if (输入.softwareItems.length === 0) {
+      if (目标软件金额 > 0.005) 输入.topScope = "unclassified";
+      return;
+    }
+
+    const 原软件金额 = 输入.softwareItems.reduce(
+      (合计, 行) => 合计 + Number(行.discountedUnitPrice || 0) * Number(行.quantity || 0),
+      0,
+    );
+    if (原软件金额 <= 0) {
+      输入.softwareItems.forEach((行, 下标) => {
+        行.discountedUnitPrice = (下标 === 0 ? 目标软件金额 / Number(行.quantity || 1) : 0).toFixed(
+          6,
+        );
+      });
+      return;
+    }
+
+    const 比例 = 目标软件金额 / 原软件金额;
+    let 已分配金额 = 0;
+    输入.softwareItems.forEach((行, 下标) => {
+      const 数量 = Number(行.quantity || 1);
+      const 原行金额 = Number(行.discountedUnitPrice || 0) * 数量;
+      const 目标行金额 =
+        下标 === 输入.softwareItems.length - 1
+          ? 目标软件金额 - 已分配金额
+          : Number((原行金额 * 比例).toFixed(6));
+      const 新单价 = Number((目标行金额 / 数量).toFixed(6));
+      行.discountedUnitPrice = 新单价.toFixed(6);
+      已分配金额 += Number((新单价 * 数量).toFixed(6));
     });
   }
 
@@ -638,16 +695,18 @@ export class QuoteProfitStore implements 收益数据服务 {
       region_id: string | null;
       order_id: string | null;
       order_status: string | null;
+      order_total_amount: string | null;
       approval_round: number | null;
       revision_no: number | null;
+      quote_type_code: string | null;
     }>(
-      `SELECT q.id::text AS id,q.quote_no,q.row_version::int AS row_version,q.region_id::text AS region_id,
-              o.id::text AS order_id,o.status_code AS order_status,
+      `SELECT q.id::text AS id,q.quote_no,q.quote_type_code,q.row_version::int AS row_version,q.region_id::text AS region_id,
+              o.id::text AS order_id,o.status_code AS order_status,o.total_amount::text AS order_total_amount,
               COALESCE((SELECT MAX(request.approval_round) FROM integration.order_preapproval_requests request WHERE request.order_id=o.id),1) AS approval_round,
               COALESCE(o.revision_no,0) AS revision_no
        FROM crm.quotes q
        LEFT JOIN LATERAL (
-         SELECT id,status_code,revision_no FROM crm.orders
+         SELECT id,status_code,revision_no,total_amount FROM crm.orders
          WHERE quote_id=q.id ORDER BY created_at DESC LIMIT 1
        ) o ON true
        WHERE q.id::text=$1 OR q.quote_no=$1 OR q.v2_source_id=$1
@@ -656,13 +715,23 @@ export class QuoteProfitStore implements 收益数据服务 {
     );
     const 行 = 结果.rows[0];
     if (!行) throw new 应用错误("V3_QUOTE_PROFIT_NOT_FOUND", "报价不存在或无权访问。", 404);
+    const 报价类型 = 解析报价类型(行.quote_type_code);
+    if (报价类型 === "standard") {
+      throw new 应用错误(
+        "V3_STANDARD_QUOTE_PROFIT_HIDDEN",
+        "标准产品报价不提供收益核算，订单价格由区管在审批环节补充。",
+        409,
+      );
+    }
     return {
       id: 行.id,
       quoteNo: 行.quote_no,
+      quoteTypeCode: 报价类型,
       rowVersion: 行.row_version,
       regionId: 行.region_id,
       orderId: 行.order_id,
       orderStatus: 行.order_status,
+      orderTotalAmount: 行.order_total_amount,
       approvalRound: 行.approval_round || 0,
       orderRevisionNo: 行.revision_no || 0,
     };

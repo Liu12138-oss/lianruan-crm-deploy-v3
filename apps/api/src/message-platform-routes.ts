@@ -199,7 +199,10 @@ export function 校验同源写请求(req: Request, corsOrigin?: string): void {
   try {
     const 来源地址 = new URL(origin);
     const 同源 = 来源地址.host === req.get("host");
-    const 受信任前端来源 = corsOrigin && 来源地址.origin === new URL(corsOrigin).origin;
+    const 受信任前端来源 =
+      Boolean(corsOrigin) &&
+      corsOrigin !== "*" &&
+      来源地址.origin === new URL(corsOrigin as string).origin;
     if (!同源 && !受信任前端来源) throw new Error("跨域");
   } catch {
     throw new 应用错误("V3_MESSAGE_PLATFORM_ORIGIN_INVALID", "消息平台管理仅接受同源请求。", 403);

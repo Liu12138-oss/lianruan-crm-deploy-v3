@@ -340,6 +340,8 @@ DELETE FROM integration.open_api_access_logs;
 DELETE FROM integration.open_api_client_secrets;
 DELETE FROM integration.open_api_permissions;
 DELETE FROM integration.open_api_clients;
+-- 审计日志默认只读；仅本次显式维护事务允许清理，提交后会话开关自动失效。
+SET LOCAL lianruan.audit_maintenance = 'on';
 DELETE FROM audit.audit_logs;
 
 DELETE FROM channel.partner_profile_products;

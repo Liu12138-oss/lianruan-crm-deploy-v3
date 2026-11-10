@@ -136,6 +136,11 @@ describe("报价收益接口", () => {
     expect(Number(创建后.rows[0]?.quote_total)).toBe(Number(创建后.rows[0]?.item_total));
     expect(Number(创建后.rows[0]?.quote_total)).not.toBe(999999);
 
+    const 编辑前版本 = await pool.query<{ row_version: number }>(
+      "SELECT row_version FROM crm.quotes WHERE id=$1::uuid",
+      [quoteId],
+    );
+
     await 超级管理员
       .put(`/api/quotes/${quoteId}`)
       .send({
@@ -144,6 +149,7 @@ describe("报价收益接口", () => {
         testTag: 测试批次,
         products: [功能编号],
         total: 1,
+        rowVersion: 编辑前版本.rows[0]?.row_version,
       })
       .expect(200);
 
@@ -190,6 +196,51 @@ describe("报价收益接口", () => {
       .expect(200);
     expect(草稿.body.data.statusCode).toBe("draft");
     expect(草稿.body.data.calculationVersion).toBeGreaterThan(0);
+  });
+
+  it("订单调价后收益表按订单最终总额校正软件合同额", async () => {
+    const 创建 = await 超级管理员
+      .post("/api/quotes")
+      .send({
+        oppId: 商机编号,
+        endpoints: 10,
+        testTag: 测试批次,
+        products: [功能编号],
+        hardwareItems: [{ productId: 硬件编号, quantity: 1 }],
+      })
+      .expect(200);
+    const quoteId = String(创建.body.data.id);
+    const 原收益 = await 超级管理员.get(`/api/quotes/${quoteId}/profit-calculation`).expect(200);
+    const 原产品合同额 = Number(原收益.body.data.summary.productContractAmount);
+    const 原硬件金额 = Number(原收益.body.data.details.hardwareQuoteAmount);
+
+    const 转订单 = await 超级管理员
+      .post("/api/orders/from-quote")
+      .field("quoteId", quoteId)
+      .field("recipientName", "收益回归收货人")
+      .field("recipientPhone", "13800138000")
+      .field("deliveryAddress", "上海市浦东新区收益回归路1号")
+      .field("shipmentAmount", "500")
+      .attach(
+        "contractFiles",
+        Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n", "utf8"),
+        "收益回归合同.pdf",
+      );
+    expect(转订单.status, JSON.stringify(转订单.body)).toBe(200);
+    const 订单编号 = String(转订单.body.data.id);
+    const 调价后总额 =
+      原产品合同额 + Number(原收益.body.data.summary.serviceContractAmount || 0) + 123.45;
+    await pool.query(`UPDATE crm.orders SET total_amount = $2 WHERE id = $1::uuid`, [
+      订单编号,
+      调价后总额,
+    ]);
+
+    const 调后收益 = await 超级管理员.get(`/api/quotes/${quoteId}/profit-calculation`).expect(200);
+    expect(Number(调后收益.body.data.summary.productContractAmount)).toBeCloseTo(调价后总额, 2);
+    expect(Number(调后收益.body.data.details.hardwareQuoteAmount)).toBeCloseTo(原硬件金额, 2);
+    expect(Number(调后收益.body.data.details.softwareDiscountedAmount)).toBeGreaterThan(
+      Number(原收益.body.data.details.softwareDiscountedAmount),
+    );
   });
 
   it("普通管理员不能读取收益和硬件成本规则", async () => {

@@ -10,7 +10,11 @@ vi.mock("pg", () => ({
   },
 }));
 
-import { 查询报备待审批接收人, 消息消费存储 } from "../src/message-store.js";
+import {
+  查询报备待审批接收人,
+  查询账号审批当前接收人,
+  消息消费存储,
+} from "../src/message-store.js";
 
 function 创建测试配置() {
   return 读取应用配置({
@@ -30,6 +34,25 @@ function 加天数(日期: string, 天数: number): string {
   值.setUTCDate(值.getUTCDate() + 天数);
   return 值.toISOString().slice(0, 10);
 }
+
+describe("账号审批阶段接收人", () => {
+  it("按审批阶段和渠道所属区域实时解析接收人", async () => {
+    const 查询 = vi.fn().mockResolvedValue({
+      rows: [{ user_id: "11111111-1111-1111-1111-111111111111" }],
+    });
+    const 客户端 = { query: 查询 } as unknown as Parameters<typeof 查询账号审批当前接收人>[0];
+
+    await expect(
+      查询账号审批当前接收人(客户端, "22222222-2222-2222-2222-222222222222"),
+    ).resolves.toEqual(["11111111-1111-1111-1111-111111111111"]);
+
+    const 语句 = String(查询.mock.calls[0]?.[0] || "");
+    expect(语句).toContain("approval.extra_json->>'approvalStage'");
+    expect(语句).toContain("role.role_code = 'region_manager'");
+    expect(语句).toContain("user_account.region_id = partner.region_id");
+    expect(语句).toContain("role.role_code = 'superadmin'");
+  });
+});
 
 describe("到期提醒规则扫描", () => {
   beforeEach(() => {
@@ -138,6 +161,37 @@ describe("到期提醒规则扫描", () => {
     expect(查询数据库.mock.calls[0]?.[0]).toContain("attempt_count");
   });
 
+  it("批量领取待消费事件时按候选创建时间和编号稳定返回", async () => {
+    const 行集合 = [
+      {
+        consumption_id: "00000000-0000-4000-8000-000000000101",
+        source_event_id: "00000000-0000-4000-8000-000000000201",
+        event_code: "crm.registration.approved",
+        aggregate_type: "registration",
+        aggregate_id: "00000000-0000-4000-8000-000000000301",
+      },
+    ];
+    const 连接 = { query: vi.fn().mockResolvedValue({ rows: 行集合 }) };
+    const 存储 = new 消息消费存储(创建测试配置()) as unknown as {
+      领取待消费事件(client: typeof 连接, 批量: number): Promise<typeof 行集合>;
+    };
+
+    await expect(存储.领取待消费事件(连接, 10)).resolves.toEqual([
+      {
+        consumptionId: "00000000-0000-4000-8000-000000000101",
+        sourceEventId: "00000000-0000-4000-8000-000000000201",
+        eventCode: "crm.registration.approved",
+        aggregateType: "registration",
+        aggregateId: "00000000-0000-4000-8000-000000000301",
+      },
+    ]);
+
+    const [领取语句, 参数] = 连接.query.mock.calls[0] as [string, unknown[]];
+    expect(领取语句).toContain("已领取 AS (");
+    expect(领取语句).toContain("ORDER BY 候选.created_at, 候选.id");
+    expect(参数).toEqual(["message.m1.in_app.v1", 10]);
+  });
+
   it("外部投递回写为 JSON 参数声明明确类型，避免 PostgreSQL 无法推断类型", async () => {
     const 连接 = {
       query: vi.fn().mockResolvedValue({}),
@@ -225,6 +279,7 @@ describe("到期提醒规则扫描", () => {
     expect(企微语句).toContain("COALESCE(");
     expect(企微语句).toContain("$8::boolean");
     expect(企微语句).toContain("FROM iam.external_identities identity");
+    expect(企微语句).toContain("preference.wecom_enabled");
     expect(企微语句).toContain("ON CONFLICT (deduplication_key) DO NOTHING");
     expect(企微调用?.[1]).toEqual([
       "00000000-0000-4000-8000-000000000035",
@@ -292,10 +347,26 @@ describe("到期提醒规则扫描", () => {
     expect(企微语句).toContain("COALESCE(");
     expect(企微语句).toContain("$6::boolean");
     expect(企微语句).toContain("FROM iam.external_identities identity");
+    expect(企微语句).toContain("preference.wecom_enabled");
     expect(企微语句).toContain("ON CONFLICT (deduplication_key) DO NOTHING");
     expect((企微调用?.[1] as unknown[])?.at(-1)).toBe(false);
     expect(连接.query).toHaveBeenCalledWith("COMMIT");
     expect(连接.release).toHaveBeenCalledOnce();
+    const 通知语句 = String(
+      连接.query.mock.calls.find(([语句]) =>
+        String(语句).includes("INSERT INTO message.notifications"),
+      )?.[0],
+    );
+    expect(通知语句).toContain("preference.in_app_enabled");
+    expect(通知语句).toContain("status_code, archived_at");
+    const 站内投递语句 = String(
+      连接.query.mock.calls.find(
+        ([语句]) =>
+          String(语句).includes("INSERT INTO message.deliveries") &&
+          String(语句).includes("'in_app'"),
+      )?.[0],
+    );
+    expect(站内投递语句).toContain("'ignored'");
   });
 
   it("客户报备提醒从受控渠道与账号关系取得渠道商和提报人", async () => {
@@ -464,7 +535,7 @@ describe("到期提醒规则扫描", () => {
     );
   });
 
-  it("超管审核待办只投递规则指定的启用用户，并在页面启用企微后生成外部投递", async () => {
+  it("账号审核待办按当前审批阶段解析接收人，并在页面启用企微后生成外部投递", async () => {
     const 领取连接 = {
       query: vi
         .fn()
@@ -495,8 +566,8 @@ describe("到期提醒规则扫描", () => {
               priority_code: "strong",
               channel_codes: ["in_app", "wecom_app"],
               recipient_rule_json: {
-                type: "users",
-                scope: { type: "users", userIds: ["00000000-0000-4000-8000-000000000024"] },
+                type: "account_current_approver",
+                scope: {},
               },
               subscription_code: "m1_account_approval_pending",
               template_code: "m1_account_approval_pending",
@@ -535,12 +606,11 @@ describe("到期提醒规则扫描", () => {
     )?.[0] as string;
     expect(变量查询).toContain("LEFT JOIN channel.partners partner");
     expect(变量查询).toContain("LEFT JOIN iam.users submitter");
-    const 指定用户查询 = 执行连接.query.mock.calls.find(
-      ([语句]) =>
-        String(语句).includes("user_account.id = ANY($1::uuid[])") &&
-        String(语句).includes("status_code = 'active'"),
-    )?.[1] as unknown[];
-    expect(指定用户查询).toEqual([["00000000-0000-4000-8000-000000000024"]]);
+    const 阶段接收人查询 = 执行连接.query.mock.calls.find(([语句]) =>
+      String(语句).includes("WITH 当前审批 AS"),
+    );
+    expect(阶段接收人查询).toBeDefined();
+    expect(阶段接收人查询?.[1]).toEqual(["00000000-0000-4000-8000-000000000023"]);
     const 通知写入参数 = 执行连接.query.mock.calls.find(([语句]) =>
       String(语句).includes("INSERT INTO message.notifications"),
     )?.[1] as unknown[];
@@ -552,6 +622,20 @@ describe("到期提醒规则扫描", () => {
     );
     expect(企微投递调用).toBeDefined();
     expect((企微投递调用?.[1] as unknown[])?.at(-1)).toBe(false);
+    const 通知写入语句 = String(
+      执行连接.query.mock.calls.find(([语句]) =>
+        String(语句).includes("INSERT INTO message.notifications"),
+      )?.[0],
+    );
+    expect(通知写入语句).toContain("preference.in_app_enabled");
+    const 站内投递语句 = String(
+      执行连接.query.mock.calls.find(
+        ([语句]) =>
+          String(语句).includes("INSERT INTO message.deliveries") &&
+          String(语句).includes("'in_app'"),
+      )?.[0],
+    );
+    expect(站内投递语句).toContain("'ignored'");
   });
 });
 

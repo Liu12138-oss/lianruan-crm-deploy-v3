@@ -36,42 +36,21 @@ for required_field in entries requestIsaidByEntry timeoutMs; do
   case "${response_body}" in *"\"${required_field}\""*) ;; *) echo "冒烟失败：IAM 配置接口缺少 ${required_field}。" >&2; exit 1 ;; esac
 done
 wait_for_http "/login" "${base_url}/login"
-wait_for_http "/admin.html" "${base_url}/admin.html"
-admin_html="${response_body}"
-admin_app_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*src="\([^"]*admin-app\.js?v=[^"]*\)".*/\1/p')"
-admin_style_ref="$(printf '%s\n' "${admin_html}" | sed -n 's/.*href="\([^"]*style\.css?v=[^"]*\)".*/\1/p')"
-[ -n "${admin_app_ref}" ] && [ -n "${admin_style_ref}" ] || {
-  echo "冒烟失败：正式 admin.html 未找到带版本号的 admin-app.js 或 style.css 引用。" >&2
-  exit 1
-}
-case "${admin_app_ref}${admin_style_ref}" in
-  *$'\n'*) echo "冒烟失败：正式 admin.html 的静态资源版本引用不唯一。" >&2; exit 1 ;;
+# 统一入口：旧桌面入口必须 301 到重构后的正式路由，正式路由必须由新应用入口提供
+admin_entry_headers="$(curl --silent --show-error --max-time 5 -o /dev/null -D - "${base_url}/admin.html")"
+case "${admin_entry_headers}" in
+  *" 301 "*|*" 302 "*) ;;
+  *) echo "冒烟失败：/admin.html 未按统一入口规则重定向。" >&2; exit 1 ;;
 esac
-wait_for_http "${admin_app_ref}" "${base_url}/${admin_app_ref}"
-admin_script="${response_body}"
-wait_for_http "${admin_style_ref}" "${base_url}/${admin_style_ref}"
-case "${admin_script}" in *"组织架构"*) ;; *) echo "冒烟失败：管理员页面缺少组织架构入口。" >&2; exit 1 ;; esac
-case "${admin_script}" in *"router.push('/organization/units')"*) ;; *) echo "冒烟失败：组织架构入口未内嵌到管理员页面。" >&2; exit 1 ;; esac
-case "${admin_script}" in *"{ path: 'organization/units', component: OrganizationWorkspace }"*) ;; *) echo "冒烟失败：管理员页面缺少组织架构内嵌路由。" >&2; exit 1 ;; esac
-case "${admin_script}" in *"/api/org/status"*) ;; *) echo "冒烟失败：管理员页面缺少组织状态读取逻辑。" >&2; exit 1 ;; esac
-case "${admin_script}" in *"只读观察"*) ;; *) echo "冒烟失败：管理员页面缺少组织只读观察状态。" >&2; exit 1 ;; esac
-for required_text in \
-  '企业微信账号映射导入' \
-  '/api/org/wecom-identities/import-preview' \
-  '/api/org/wecom-identities/import-confirm'; do
-  case "${admin_script}" in *"${required_text}"*) ;; *) echo "冒烟失败：管理员页面缺少企业微信身份映射受控导入入口：${required_text}。" >&2; exit 1 ;; esac
-done
-for required_text in \
-  'organization/external-identities' \
-  '外部身份映射' \
-  '/api/org/external-identities' \
-  '账号总数' \
-  '泛微已确认' \
-  '企微已维护' \
-  '映射异常'; do
-  case "${admin_script}" in *"${required_text}"*) ;; *) echo "冒烟失败：管理员页面缺少外部身份映射查询入口：${required_text}。" >&2; exit 1 ;; esac
-done
+case "${admin_entry_headers}" in
+  *"ocation: /admin"*|*"ocation: ${base_url}/admin"*) ;;
+  *) echo "冒烟失败：/admin.html 未重定向到 /admin。" >&2; exit 1 ;;
+esac
+wait_for_http "/admin" "${base_url}/admin"
+case "${response_body}" in *'id="app"'*) ;; *) echo "冒烟失败：/admin 未返回重构后的应用入口。" >&2; exit 1 ;; esac
+admin_entry_bundle="$(printf '%s\n' "${response_body}" | sed -n 's/.*src="\([^"]*assets\/index-[^"]*\.js\)".*/\1/p')"
+[ -n "${admin_entry_bundle}" ] || { echo "冒烟失败：/admin 未找到入口资源 assets/index-*.js。" >&2; exit 1; }
+wait_for_http "${admin_entry_bundle}" "${base_url}/${admin_entry_bundle}"
 wait_for_http "组织架构工作区" "${base_url}/workspace/admin/platform-admin/organization/units"
 case "${response_body}" in *'id="app"'*) ;; *) echo "冒烟失败：组织架构工作区未由当前静态产物提供。" >&2; exit 1 ;; esac
-case "${admin_script}" in *"统一消息"*|*"企业微信"*) ;; *) echo "冒烟失败：管理员页面缺少统一消息管理能力。" >&2; exit 1 ;; esac
 echo "业务冒烟通过。"

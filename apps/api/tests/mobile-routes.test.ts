@@ -160,7 +160,7 @@ describe("移动端业务接口", () => {
     const 报备 = await agent
       .post("/api/mobile/registrations")
       .set("Idempotency-Key", `mobile-cookie-registration-${Date.now()}`)
-      .send({ customerName: "移动端Cookie审核客户" })
+      .send({ customerName: `移动端Cookie审核客户-${randomUUID()}` })
       .expect(200);
 
     const 审核 = await agent

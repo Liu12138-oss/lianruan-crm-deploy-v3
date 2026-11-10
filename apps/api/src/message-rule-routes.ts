@@ -439,6 +439,7 @@ function 是有效提前天数(value: unknown[]): value is Array<1 | 3 | 7 | 14 
 function 读取接收人规则(value: unknown): { type: string } {
   if (typeof value === "string") {
     const 动态 = new Set([
+      "account_current_approver",
       "business_owner",
       "order_current_approver",
       "registration_creator_and_owner",

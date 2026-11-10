@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { 创建密码散列 } from "../src/auth-routes.js";
 import { 创建应用 } from "../src/index.js";
 import { 创建组织数据服务 } from "../src/org-store.js";
+import { 执行审计维护删除 } from "./审计维护清理.js";
 
 const 密码散列 = 创建密码散列("LrCRM@2026!", Buffer.from("0123456789abcdef"));
 const 环境变量 = 创建测试环境变量({
@@ -34,6 +35,8 @@ if (!测试数据库地址) {
 
 const 连接池 = new Pool({ connectionString: 测试数据库地址 });
 const 前缀 = "r02_" + Date.now();
+const 大区名称 = "测试大区-" + 前缀;
+const 区域名称 = "测试区域-" + 前缀;
 let 渠道商Id = "";
 let 大区Id = "";
 let 区域Id = "";
@@ -68,13 +71,13 @@ beforeAll(async () => {
     [超管.rows[0]!.id],
   );
   const 大区 = await 连接池.query<{ id: string }>(
-    "INSERT INTO org.regions(region_code,region_name,region_level) VALUES($1,'测试大区','big_region') RETURNING id::text AS id",
-    [前缀 + "_big"],
+    "INSERT INTO org.regions(region_code,region_name,region_level) VALUES($1,$2,'big_region') RETURNING id::text AS id",
+    [前缀 + "_big", 大区名称],
   );
   大区Id = 大区.rows[0]!.id;
   const 区域 = await 连接池.query<{ id: string }>(
-    "INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level) VALUES($1,'测试区域',$2::uuid,'region') RETURNING id::text AS id",
-    [前缀 + "_region", 大区Id],
+    "INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level) VALUES($1,$2,$3::uuid,'region') RETURNING id::text AS id",
+    [前缀 + "_region", 区域名称, 大区Id],
   );
   区域Id = 区域.rows[0]!.id;
   const 渠道 = await 连接池.query<{ id: string }>(
@@ -205,6 +208,45 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
     expect(序列化).toContain("测试渠道用户");
   });
 
+  it("渠道组织树不把渠道商挂到大区，并隐藏没有下辖区域的空大区", async () => {
+    const 后缀 = randomUUID().slice(0, 8);
+    const 大区渠道 = await 连接池.query<{ id: string }>(
+      `
+      INSERT INTO channel.partners(
+        partner_code, partner_name, normalized_name, partner_level_code, region_id, status_code
+      ) VALUES($1,$2,$1,'none',$3::uuid,'active')
+      RETURNING id::text AS id
+      `,
+      [`${前缀}_big_partner_${后缀}`, `大区直挂渠道-${后缀}`, 大区Id],
+    );
+    const 空大区 = await 连接池.query<{ id: string }>(
+      `
+      INSERT INTO org.regions(region_code, region_name, region_level)
+      VALUES($1,$2,'big_region') RETURNING id::text AS id
+      `,
+      [`${前缀}_empty_big_${后缀}`, `空测试大区-${后缀}`],
+    );
+    try {
+      const app = 创建应用({ env: 环境变量 });
+      const cookie = await 登录Cookie(app);
+      const 树 = await request(app).get("/api/org/channel-tree").set("Cookie", cookie).expect(200);
+      const roots = 树.body.data.items as Array<Record<string, unknown>>;
+      const 当前大区 = roots.find((节点) => 节点.id === 大区Id);
+      const 未分配 = roots.find((节点) => 节点.id === "unassigned");
+      expect(当前大区).toBeTruthy();
+      expect(
+        (当前大区?.children as Array<Record<string, unknown>>).every(
+          (节点) => 节点.type === "region",
+        ),
+      ).toBe(true);
+      expect(JSON.stringify(未分配)).toContain(`大区直挂渠道-${后缀}`);
+      expect(roots.some((节点) => 节点.id === 空大区.rows[0]?.id)).toBe(false);
+    } finally {
+      await 连接池.query("DELETE FROM channel.partners WHERE id=$1::uuid", [大区渠道.rows[0]?.id]);
+      await 连接池.query("DELETE FROM org.regions WHERE id=$1::uuid", [空大区.rows[0]?.id]);
+    }
+  });
+
   it("真实 PostgreSQL 可读取渠道统一成员档案", async () => {
     const app = 创建应用({ env: 环境变量 });
     const cookie = await 登录Cookie(app);
@@ -269,6 +311,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
 
       const 服务 = 创建组织数据服务({ databaseUrl: 测试数据库地址 });
       const 查询结果 = (await 服务.查询外部身份映射({
+        keyword: 前缀 + "_identity_",
         provider: "all",
         mappingStatus: "all",
         includeInactive: false,
@@ -309,9 +352,9 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
     const 更新 = await request(app)
       .put("/api/org/regions/" + 区域Id)
       .set("Cookie", cookie)
-      .send({ regionName: "测试区域-改名", rowVersion: 1 })
+      .send({ regionName: 区域名称 + "-改名", rowVersion: 1 })
       .expect(200);
-    expect(更新.body.data.regionName).toBe("测试区域-改名");
+    expect(更新.body.data.regionName).toBe(区域名称 + "-改名");
 
     const 环 = await request(app)
       .put("/api/org/regions/" + 大区Id)
@@ -368,6 +411,109 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       await 连接池.query("DELETE FROM org.org_units WHERE id IN ($1::uuid,$2::uuid)", [
         部门一.rows[0]!.id,
         部门二.rows[0]!.id,
+      ]);
+    }
+  });
+
+  it("区域管理账号调岗按部门名称补齐正式区域，未绑定部门拒绝调岗", async () => {
+    const 后缀 = randomUUID();
+    const 区域甲 = await 连接池.query<{ id: string; regionName: string }>(
+      `INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level)
+       VALUES($1,$2,$3::uuid,'region') RETURNING id::text AS id,region_name AS "regionName"`,
+      [前缀 + "_assignment_region_a_" + 后缀, "调岗测试区域甲-" + 后缀, 大区Id],
+    );
+    const 区域乙 = await 连接池.query<{ id: string; regionName: string }>(
+      `INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level)
+       VALUES($1,$2,$3::uuid,'region') RETURNING id::text AS id,region_name AS "regionName"`,
+      [前缀 + "_assignment_region_b_" + 后缀, "调岗测试区域乙-" + 后缀, 大区Id],
+    );
+    const 部门甲 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,status_code)
+       VALUES($1,$2,'department','active') RETURNING id::text AS id`,
+      [前缀 + "_assignment_region_unit_a_" + 后缀, 区域甲.rows[0]!.regionName],
+    );
+    const 部门乙 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,status_code)
+       VALUES($1,$2,'department','active') RETURNING id::text AS id`,
+      [前缀 + "_assignment_region_unit_b_" + 后缀, 区域乙.rows[0]!.regionName],
+    );
+    const 未绑定部门 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.org_units(unit_code,unit_name,unit_type,status_code)
+       VALUES($1,$2,'department','active') RETURNING id::text AS id`,
+      [前缀 + "_assignment_region_unit_unbound_" + 后缀, "未绑定区域部门-" + 后缀],
+    );
+    const 用户 = await 连接池.query<{ id: string }>(
+      `INSERT INTO iam.users(username,display_name,status_code)
+       VALUES($1,'调岗区域管理员','active') RETURNING id::text AS id`,
+      [前缀 + "_assignment_region_manager_" + 后缀],
+    );
+    const 角色 = await 连接池.query<{ id: string }>(
+      "SELECT id::text AS id FROM iam.roles WHERE role_code='region_manager' AND status_code='active'",
+    );
+    if (!角色.rows[0]) throw new Error("测试库缺少启用的区域管理员角色");
+    await 连接池.query("INSERT INTO iam.user_roles(user_id,role_id) VALUES($1::uuid,$2::uuid)", [
+      用户.rows[0]!.id,
+      角色.rows[0]!.id,
+    ]);
+    const 任职 = await 连接池.query<{ id: string }>(
+      `INSERT INTO org.staff_assignments(user_id,org_unit_id,position_id,is_primary)
+       VALUES($1::uuid,$2::uuid,NULL,true) RETURNING id::text AS id`,
+      [用户.rows[0]!.id, 部门甲.rows[0]!.id],
+    );
+    const app = 创建应用({ env: 环境变量 });
+    const cookie = await 登录Cookie(app);
+
+    try {
+      const 调岗 = await request(app)
+        .put("/api/org/assignments/" + 任职.rows[0]!.id)
+        .set("Cookie", cookie)
+        .set("Idempotency-Key", 前缀 + "_assignment_region_update_" + 后缀)
+        .send({ orgUnitId: 部门乙.rows[0]!.id, isPrimary: true, rowVersion: 1 })
+        .expect(200);
+      expect(调岗.body.data).toMatchObject({
+        orgUnitId: 部门乙.rows[0]!.id,
+        rowVersion: 2,
+      });
+
+      const 结果 = await 连接池.query<{ userRegionId: string; unitRegionId: string }>(
+        `SELECT
+           (SELECT region_id::text FROM iam.users WHERE id=$1::uuid) AS "userRegionId",
+           (SELECT region_id::text FROM org.org_units WHERE id=$2::uuid) AS "unitRegionId"`,
+        [用户.rows[0]!.id, 部门乙.rows[0]!.id],
+      );
+      expect(结果.rows[0]).toEqual({
+        userRegionId: 区域乙.rows[0]!.id,
+        unitRegionId: 区域乙.rows[0]!.id,
+      });
+
+      const 未绑定 = await request(app)
+        .put("/api/org/assignments/" + 任职.rows[0]!.id)
+        .set("Cookie", cookie)
+        .set("Idempotency-Key", 前缀 + "_assignment_region_reject_" + 后缀)
+        .send({ orgUnitId: 未绑定部门.rows[0]!.id, isPrimary: true, rowVersion: 2 })
+        .expect(409);
+      expect(未绑定.body.error.code).toBe("ORG_UNIT_REGION_UNBOUND");
+      expect(未绑定.body.error.message).toContain("尚未绑定正式区域");
+
+      const 回滚后 = await 连接池.query<{ orgUnitId: string; userRegionId: string }>(
+        `SELECT
+           (SELECT org_unit_id::text FROM org.staff_assignments WHERE id=$1::uuid) AS "orgUnitId",
+           (SELECT region_id::text FROM iam.users WHERE id=$2::uuid) AS "userRegionId"`,
+        [任职.rows[0]!.id, 用户.rows[0]!.id],
+      );
+      expect(回滚后.rows[0]).toEqual({
+        orgUnitId: 部门乙.rows[0]!.id,
+        userRegionId: 区域乙.rows[0]!.id,
+      });
+    } finally {
+      await 连接池.query("DELETE FROM org.staff_assignments WHERE id=$1::uuid", [任职.rows[0]!.id]);
+      await 连接池.query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [用户.rows[0]!.id]);
+      await 连接池.query("DELETE FROM iam.users WHERE id=$1::uuid", [用户.rows[0]!.id]);
+      await 连接池.query("DELETE FROM org.org_units WHERE id=ANY($1::uuid[])", [
+        [部门甲.rows[0]!.id, 部门乙.rows[0]!.id, 未绑定部门.rows[0]!.id],
+      ]);
+      await 连接池.query("DELETE FROM org.regions WHERE id=ANY($1::uuid[])", [
+        [区域甲.rows[0]!.id, 区域乙.rows[0]!.id],
       ]);
     }
   });
@@ -553,7 +699,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       await 连接池.query("DELETE FROM ops.approvals WHERE id=$1::uuid", [审批.rows[0]!.id]);
       if (交接单Id) {
         await 连接池.query("DELETE FROM ops.outbox_events WHERE aggregate_id=$1::uuid", [交接单Id]);
-        await 连接池.query("DELETE FROM audit.audit_logs WHERE target_id=$1", [交接单Id]);
+        await 执行审计维护删除(连接池, "target_id=$1", [交接单Id]);
         await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
           目标Id,
         ]);
@@ -735,10 +881,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       ]);
       if (交接单Id) {
         await 连接池.query("DELETE FROM ops.outbox_events WHERE aggregate_id=$1::uuid", [交接单Id]);
-        await 连接池.query("DELETE FROM audit.audit_logs WHERE target_id IN ($1,$2)", [
-          交接单Id,
-          来源账号.rows[0]!.id,
-        ]);
+        await 执行审计维护删除(连接池, "target_id IN ($1,$2)", [交接单Id, 来源账号.rows[0]!.id]);
         await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
           来源账号.rows[0]!.id,
         ]);
@@ -894,10 +1037,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       ]);
       if (交接单Id) {
         await 连接池.query("DELETE FROM ops.outbox_events WHERE aggregate_id=$1::uuid", [交接单Id]);
-        await 连接池.query("DELETE FROM audit.audit_logs WHERE target_id IN ($1,$2)", [
-          交接单Id,
-          来源账号.rows[0]!.id,
-        ]);
+        await 执行审计维护删除(连接池, "target_id IN ($1,$2)", [交接单Id, 来源账号.rows[0]!.id]);
         await 连接池.query("UPDATE iam.users SET offboarding_handover_id=NULL WHERE id=$1::uuid", [
           来源账号.rows[0]!.id,
         ]);
@@ -1036,8 +1176,9 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       });
     } finally {
       if (新映射Id)
-        await 连接池.query(
-          "DELETE FROM audit.audit_logs WHERE target_id=$1::text AND action_code='wecom_identity.corrected'",
+        await 执行审计维护删除(
+          连接池,
+          "target_id=$1::text AND action_code='wecom_identity.corrected'",
           [新映射Id],
         );
       await 连接池.query("DELETE FROM iam.external_identities WHERE user_id=ANY($1::uuid[])", [
@@ -1052,7 +1193,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
         ],
       ]);
     }
-  });
+  }, 30000);
 
   it("已完成交接的停用账号可归档释放登录名，停用账号的泛微身份可受控接管", async () => {
     const 后缀 = randomUUID();
@@ -1177,7 +1318,7 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       );
       新账号Id = 同名新账号.rows[0]!.id;
     } finally {
-      await 连接池.query("DELETE FROM audit.audit_logs WHERE request_id IN ($1,$2)", [
+      await 执行审计维护删除(连接池, "request_id IN ($1,$2)", [
         前缀 + "_eteams_takeover_" + 后缀,
         前缀 + "_account_archive_" + 后缀,
       ]);
@@ -1262,6 +1403,13 @@ describe("组织架构 R02 渠道组织与证书业务角色解耦", () => {
       (项) => 项.businessRoleId === 业务角色Id && !项.expiredAt,
     ).length;
     expect(颁发后有效数量).toBe(颁发前有效数量);
+
+    const 缺少版本 = await request(app)
+      .put("/api/org/member-certifications/" + 证书Id + "/extend")
+      .set("Cookie", cookie)
+      .send({ expiresOn: "2028-10-20" })
+      .expect(400);
+    expect(缺少版本.body.error.message).toBe("数据版本信息缺失，请刷新页面后重试。");
 
     await request(app)
       .put("/api/org/member-certifications/" + 证书Id + "/revoke")

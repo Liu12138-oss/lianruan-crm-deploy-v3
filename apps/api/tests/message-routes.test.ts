@@ -72,12 +72,16 @@ class 记录消息服务 implements 消息数据服务 {
     this.最后用户 = 用户.username;
     this.偏好更新 = 输入;
     return {
-      inAppEnabled: true,
+      inAppEnabled: 输入.inAppEnabled ?? 测试偏好.inAppEnabled,
       wecomEnabled: 输入.wecomEnabled ?? 测试偏好.wecomEnabled,
       smsEnabled: 输入.smsEnabled ?? 测试偏好.smsEnabled,
       emailEnabled: 输入.emailEnabled ?? 测试偏好.emailEnabled,
       doNotDisturbStart: 输入.doNotDisturbStart ?? 测试偏好.doNotDisturbStart,
       doNotDisturbEnd: 输入.doNotDisturbEnd ?? 测试偏好.doNotDisturbEnd,
+      categoryPreferences: {
+        ...测试偏好.categoryPreferences,
+        ...(输入.categoryPreferences || {}),
+      },
     };
   }
 }
@@ -106,6 +110,7 @@ const 测试偏好: 消息个人偏好 = {
   emailEnabled: false,
   doNotDisturbStart: "22:00",
   doNotDisturbEnd: "08:00",
+  categoryPreferences: {},
 };
 
 async function 登录并创建应用() {
@@ -177,10 +182,21 @@ describe("统一消息接口", () => {
 
     const 成功 = await agent
       .put("/api/messages/preferences")
-      .send({ wecomEnabled: true, doNotDisturbStart: "21:30" })
+      .send({ inAppEnabled: false, wecomEnabled: true, doNotDisturbStart: "21:30" })
       .expect(200);
+    expect(成功.body.data.inAppEnabled).toBe(false);
     expect(成功.body.data.wecomEnabled).toBe(true);
-    expect(service.偏好更新).toEqual({ wecomEnabled: true, doNotDisturbStart: "21:30" });
+    expect(service.偏好更新).toEqual({
+      inAppEnabled: false,
+      wecomEnabled: true,
+      doNotDisturbStart: "21:30",
+    });
+
+    const 非布尔 = await agent
+      .put("/api/messages/preferences")
+      .send({ inAppEnabled: "false" })
+      .expect(400);
+    expect(非布尔.body.error.code).toBe("V3_MESSAGE_PREFERENCE_INVALID");
 
     const 非法 = await agent
       .put("/api/messages/preferences")

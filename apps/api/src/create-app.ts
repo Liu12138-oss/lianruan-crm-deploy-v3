@@ -8,7 +8,7 @@ import express from "express";
 
 import { 创建认证路由, 创建门户单点登录路由 } from "./auth-routes.js";
 import { 创建业务路由 } from "./business-routes.js";
-import { type 业务数据服务,创建业务数据服务 } from "./business-store.js";
+import { type 业务数据服务, 创建业务数据服务 } from "./business-store.js";
 import type { 依赖检查器 } from "./dependencies.js";
 import { 创建依赖检查器 } from "./dependencies.js";
 import { 创建健康路由 } from "./health-routes.js";
@@ -77,7 +77,37 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   app.disable("x-powered-by");
   app.set("trust proxy", (ip: string) => config.api.trustedProxyIps.includes(ip));
   app.use(请求编号中间件);
-  app.use(cors({ origin: config.api.corsOrigin, credentials: true }));
+  // 通配符不能与凭据会话组合使用；跨域凭据仅在配置了明确来源时开放。
+  app.use(
+    cors({
+      origin:
+        !config.api.corsOrigin || config.api.corsOrigin === "*" ? false : config.api.corsOrigin,
+      credentials: config.api.corsOrigin !== "*",
+    }),
+  );
+  // 写请求带 Origin 时必须同源或命中受信任前端来源，防止第三方页面借 Cookie 发起 CSRF。
+  app.use((req, _res, next) => {
+    const origin = req.get("origin");
+    if (!origin || ["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      next();
+      return;
+    }
+    try {
+      const 来源 = new URL(origin);
+      const 同源 = 来源.host === req.get("host");
+      const 受信任来源 =
+        Boolean(config.api.corsOrigin) &&
+        config.api.corsOrigin !== "*" &&
+        来源.origin === new URL(config.api.corsOrigin as string).origin;
+      if (!同源 && !受信任来源) {
+        next(new 应用错误("V3_CSRF_ORIGIN_FORBIDDEN", "写请求必须来自本站页面。", 403));
+        return;
+      }
+      next();
+    } catch {
+      next(new 应用错误("V3_CSRF_ORIGIN_INVALID", "请求来源不合法。", 403));
+    }
+  });
   app.use(express.json({ limit: config.api.requestBodyLimit }));
   app.use(express.urlencoded({ extended: true, limit: config.api.requestBodyLimit }));
   app.use(请求日志中间件(logger));
@@ -114,7 +144,10 @@ export function 创建应用(参数: 创建应用参数 = {}) {
   const 业务数据服务 =
     参数.businessService ||
     (config.database.url
-      ? 创建业务数据服务({ databaseUrl: config.database.url })
+      ? 创建业务数据服务({
+          databaseUrl: config.database.url,
+          customerDuplicateBlockEnabled: config.business.customerDuplicateBlockEnabled,
+        })
       : 创建业务数据服务({}));
   const mcpPublicKeyFile = runtimeEnv.V3_MCP_API_PUBLIC_KEY_FILE?.trim();
   const mcpApiEnabled = runtimeEnv.V3_MCP_API_ENABLED === "true";

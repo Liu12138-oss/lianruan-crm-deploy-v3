@@ -6,12 +6,29 @@ const 测试用户 = {
     user: {
       username: "admin",
       displayName: "产品交付验收账号",
-      roleName: "产品交付总监",
-      defaultPath: "/unified",
-      allowedPaths: ["/unified", "/admin", "/partner", "/mobile"],
+      roleName: "超级管理员",
+      defaultPath: "/admin/dashboard",
+      allowedPaths: ["/admin", "/partner", "/mobile"],
     },
     pageSession: {
       token: "v2.YWRtaW4.test-token",
+      user: {
+        id: "admin",
+        userId: "admin",
+        username: "admin",
+        name: "产品交付验收账号",
+        displayName: "产品交付验收账号",
+        role: "superadmin",
+        roleName: "超级管理员",
+        status: "active",
+        region: "",
+        bigRegion: "",
+        partnerId: "",
+        partnerName: "",
+      },
+    },
+    mobileSession: {
+      token: "v3m.YWRtaW4.test-mobile-token",
       user: {
         id: "admin",
         userId: "admin",
@@ -46,6 +63,23 @@ const 渠道测试用户 = {
     },
     pageSession: {
       token: "v2.cGFydG5lcl9zdGFmZg.test-token",
+      user: {
+        id: "staff-001",
+        userId: "staff-001",
+        username: "partner_staff",
+        name: "渠道员工",
+        displayName: "渠道员工",
+        role: "staff",
+        roleName: "渠道用户",
+        status: "active",
+        region: "华南",
+        bigRegion: "南区",
+        partnerId: "partner-001",
+        partnerName: "测试渠道商",
+      },
+    },
+    mobileSession: {
+      token: "v3m.cGFydG5lcl9zdGFmZg.test-mobile-token",
       user: {
         id: "staff-001",
         userId: "staff-001",
@@ -267,15 +301,40 @@ const 测试产品列表 = {
         创建时间: "2026-07-27T00:00:00.000Z",
         更新时间: "2026-07-27T00:00:00.000Z",
         原始数据: {
+          id: "FEAT-END-01",
+          productCode: "LEP-EPP-BASE",
+          categoryCode: "CAT-END",
           categoryName: "终端安全",
           moduleName: "终端安全管理",
           description: "联软终端安全产品线",
         },
       },
       {
+        id: "P-002",
+        编号: "UA-NAC-1",
+        类型: "功能模块",
+        标题: "网络准入控制",
+        客户名称: "",
+        渠道名称: "",
+        负责人: "",
+        区域: "",
+        状态: "active",
+        状态名称: "正常",
+        金额: 180,
+        创建时间: "2026-07-27T00:00:00.000Z",
+        更新时间: "2026-07-27T00:00:00.000Z",
+        原始数据: {
+          id: "FEAT-END-02",
+          productCode: "UA-NAC-1",
+          categoryCode: "CAT-END",
+          categoryName: "终端安全",
+          moduleName: "准入控制",
+        },
+      },
+      {
         id: "HW-001",
         编号: "HW-001",
-        类型: "硬件设备",
+        类型: "硬件产品",
         标题: "准入网关设备",
         客户名称: "",
         渠道名称: "",
@@ -291,7 +350,7 @@ const 测试产品列表 = {
       {
         id: "PKG-001",
         编号: "PKG-001",
-        类型: "推荐套餐",
+        类型: "产品套餐",
         标题: "终端安全基础套餐",
         客户名称: "",
         渠道名称: "",
@@ -302,11 +361,65 @@ const 测试产品列表 = {
         金额: 30000,
         创建时间: "2026-07-27T00:00:00.000Z",
         更新时间: "2026-07-27T00:00:00.000Z",
-        原始数据: { categoryName: "推荐套餐", moduleName: "基础套餐", description: "精选产品组合" },
+        原始数据: {
+          featureIds: ["FEAT-END-01"],
+          categoryName: "推荐套餐",
+          moduleName: "基础套餐",
+          description: "精选产品组合",
+        },
       },
     ],
-    分页: { 页码: 1, 每页: 20, 总数: 3 },
+    分页: { 页码: 1, 每页: 20, 总数: 4 },
   },
+  meta: 测试用户.meta,
+};
+
+const 测试产品树 = {
+  success: true,
+  data: [
+    {
+      id: "CAT-END",
+      name: "终端安全",
+      code: "CAT-END",
+      type: "software",
+      icon: "🛡️",
+      sort: 1,
+      modules: [
+        {
+          id: "MOD-END-01",
+          categoryId: "CAT-END",
+          name: "终端安全管理",
+          code: "MOD-END-01",
+          icon: "🖥️",
+          sort: 1,
+          features: [
+            {
+              id: "FEAT-END-01",
+              uuid: "P-001",
+              name: "终端安全管理",
+              productCode: "LEP-EPP-BASE",
+            },
+          ],
+        },
+        {
+          id: "MOD-END-02",
+          categoryId: "CAT-END",
+          name: "准入控制",
+          code: "MOD-END-02",
+          icon: "🌐",
+          sort: 2,
+          features: [
+            {
+              id: "FEAT-END-02",
+              uuid: "P-002",
+              name: "网络准入控制",
+              productCode: "UA-NAC-1",
+            },
+          ],
+        },
+      ],
+    },
+  ],
   meta: 测试用户.meta,
 };
 
@@ -473,6 +586,18 @@ const 测试工作量规则 = {
   meta: 测试用户.meta,
 };
 
+async function 读取页面本地会话(page: Page, key: string) {
+  try {
+    return await page.evaluate((会话键) => localStorage.getItem(会话键), key);
+  } catch (错误) {
+    // 移动端统一登录会连续发生整页跳转，跳转瞬间旧执行上下文会被销毁；轮询时等待新页面即可。
+    if (错误 instanceof Error && 错误.message.includes("Execution context was destroyed")) {
+      return null;
+    }
+    throw 错误;
+  }
+}
+
 async function 模拟已登录(page: Page) {
   await page.route("**/api/auth/me", async (route) => {
     await route.fulfill({
@@ -493,6 +618,13 @@ async function 模拟已登录(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(测试产品列表),
+    });
+  });
+  await page.route("**/api/v2/product-tree", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(测试产品树),
     });
   });
   await page.route("**/api/stage9/notifications?**", async (route) => {
@@ -565,9 +697,11 @@ async function 模拟已登录(page: Page) {
   });
 }
 
-test("四种布局测试路由可以访问", async ({ page }) => {
+test("三种业务布局测试路由可以访问", async ({ page }) => {
   await 模拟已登录(page);
-  for (const 路径 of ["/unified", "/admin", "/partner", "/mobile"]) {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/admin$/);
+  for (const 路径 of ["/admin", "/partner", "/mobile"]) {
     await page.goto(路径);
     await expect(page.locator("main, section").first()).toBeVisible();
     await expect(page.locator("body")).toContainText(/联软渠道|仪表盘|工作台|移动端/);
@@ -632,7 +766,16 @@ test("显式入口参数仍使用统一账号密码表单", async ({ page }) => 
 });
 
 test("统一登录后进入现有管理员页面并写入页面会话", async ({ page }, testInfo) => {
+  let 已登录 = false;
   await page.route("**/api/auth/me", async (route) => {
+    if (已登录) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(测试用户),
+      });
+      return;
+    }
     await route.fulfill({
       status: 401,
       contentType: "application/json",
@@ -640,6 +783,7 @@ test("统一登录后进入现有管理员页面并写入页面会话", async ({
     });
   });
   await page.route("**/api/auth/login", async (route) => {
+    已登录 = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -662,15 +806,22 @@ test("统一登录后进入现有管理员页面并写入页面会话", async ({
   if (testInfo.project.name === "移动浏览器") {
     await expect(page).toHaveURL(/\/mobile\.html\?scope=admin#\/admin\/home$/);
   } else {
-    await expect(page).toHaveURL(/\/admin\.html#\/dashboard$/);
+    await expect(page).toHaveURL(/\/admin$/);
   }
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("admin_auth_token")))
-    .toBe("v2.YWRtaW4.test-token");
+  await expect.poll(() => 读取页面本地会话(page, "admin_auth_token")).toBe("v2.YWRtaW4.test-token");
 });
 
 test("统一登录后进入现有渠道页面并写入页面会话", async ({ page }, testInfo) => {
+  let 已登录 = false;
   await page.route("**/api/auth/me", async (route) => {
+    if (已登录) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(渠道测试用户),
+      });
+      return;
+    }
     await route.fulfill({
       status: 401,
       contentType: "application/json",
@@ -678,6 +829,7 @@ test("统一登录后进入现有渠道页面并写入页面会话", async ({ pa
     });
   });
   await page.route("**/api/auth/login", async (route) => {
+    已登录 = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -700,10 +852,10 @@ test("统一登录后进入现有渠道页面并写入页面会话", async ({ pa
   if (testInfo.project.name === "移动浏览器") {
     await expect(page).toHaveURL(/\/mobile\.html\?scope=partner#\/partner\/home$/);
   } else {
-    await expect(page).toHaveURL(/\/partner\.html#\/dashboard$/);
+    await expect(page).toHaveURL(/\/partner$/);
   }
   await expect
-    .poll(() => page.evaluate(() => localStorage.getItem("partner_auth_token")))
+    .poll(() => 读取页面本地会话(page, "partner_auth_token"))
     .toBe("v2.cGFydG5lcl9zdGFmZg.test-token");
 });
 
@@ -723,124 +875,270 @@ test("手机渠道路由使用渠道端一期底部导航", async ({ page }) => 
   await expect(导航.getByText("审核")).toHaveCount(0);
 });
 
-test("桌面工作台展示V2快捷入口和通知抽屉", async ({ page }) => {
+test("桌面工作台展示一级导航、我的待办、业务趋势和消息入口", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/partner/dashboard");
+  await page.goto("/admin/dashboard");
 
-  await expect(page.locator(".quick-action", { hasText: "客户报备" })).toBeVisible();
-  await expect(page.getByText("近期商机")).toBeVisible();
-  await expect(page.getByText("主力产品线")).toBeVisible();
+  await expect(page.getByRole("link", { name: "审核中心", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "我的待办" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "业务趋势" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "产品线" })).toBeVisible();
 
-  await page.getByTitle("通知").click();
-  await expect(page.locator(".notif-panel[aria-label='通知中心']")).toHaveClass(/open/);
-  await expect(page.getByText("报备审核通过")).toBeVisible();
+  await expect(page.getByRole("link", { name: "业务全景" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "工作台" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "线索管理" })).toBeVisible();
+  await page.locator(".v2-顶部图标").click();
+  await expect(page).toHaveURL(/\/admin\/notifications$/);
+  await expect(page.getByRole("heading", { name: "消息列表" })).toBeVisible();
 });
 
-test("产品目录展示V2标签页、大类卡和模块弹窗", async ({ page }) => {
+test("工作台我的待办遇到超长客户名称不会撑破左侧面板", async ({ page }) => {
+  await 模拟已登录(page);
+  const 超长名称 =
+    "华东区超长客户名称用于验证待办卡片不会破坏页面布局并保持状态标签完整可见".repeat(4);
+  await page.route("**/api/stage9/registrations?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          数据: [
+            {
+              ...测试列表.data.数据[0],
+              id: "REG-LONG-TITLE",
+              编号: "REG-LONG-TITLE",
+              标题: 超长名称,
+              客户名称: 超长名称,
+            },
+          ],
+          分页: { 页码: 1, 每页: 100, 总数: 1 },
+        },
+        meta: 测试用户.meta,
+      }),
+    });
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/dashboard");
+
+  const 卡片 = page.locator(".record-card").first();
+  await expect(卡片).toBeVisible();
+  const 尺寸 = await 卡片.evaluate((元素) => {
+    const 卡片元素 = 元素 as HTMLElement;
+    const 面板 = 卡片元素.closest(".panel-body") as HTMLElement;
+    const 标题 = 卡片元素.querySelector(".record-top strong") as HTMLElement;
+    const 状态 = 卡片元素.querySelector(".record-top .status") as HTMLElement;
+    const 卡片区域 = 卡片元素.getBoundingClientRect();
+    const 面板区域 = 面板.getBoundingClientRect();
+    const 状态区域 = 状态.getBoundingClientRect();
+    return {
+      卡片右边界: 卡片区域.right,
+      面板右边界: 面板区域.right,
+      标题已溢出: 标题.scrollWidth > 标题.clientWidth,
+      标题省略方式: getComputedStyle(标题).textOverflow,
+      状态完整可见: 状态区域.left >= 卡片区域.left - 0.5 && 状态区域.right <= 卡片区域.right + 0.5,
+      卡片内容宽度: 卡片元素.scrollWidth,
+      卡片可视宽度: 卡片元素.clientWidth,
+    };
+  });
+
+  expect(尺寸.卡片右边界).toBeLessThanOrEqual(尺寸.面板右边界 + 0.5);
+  expect(尺寸.标题已溢出).toBe(true);
+  expect(尺寸.标题省略方式).toBe("ellipsis");
+  expect(尺寸.状态完整可见).toBe(true);
+  expect(尺寸.卡片内容宽度).toBeLessThanOrEqual(尺寸.卡片可视宽度 + 1);
+});
+
+test("客户列表报备商机填写数字端点数量后可以正常提交", async ({ page }) => {
+  await 模拟已登录(page);
+  const 已通过客户 = {
+    ...测试列表.data.数据[0],
+    id: "REG-APPROVED-001",
+    编号: "REG-APPROVED-001",
+    标题: "北京测试客户",
+    客户名称: "北京测试客户",
+    状态: "approved",
+    状态名称: "已通过",
+  };
+  await page.route("**/api/stage9/registrations?**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: { 数据: [已通过客户], 分页: { 页码: 1, 每页: 100, 总数: 1 } },
+        meta: 测试用户.meta,
+      }),
+    });
+  });
+  let 提交内容: Record<string, unknown> | null = null;
+  await page.route("**/api/opportunities", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    提交内容 = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          ...已通过客户,
+          id: "OPP-CREATED-001",
+          编号: "OPP-CREATED-001",
+          类型: "商机",
+          标题: "报备商机提交验证",
+          状态: "active",
+          状态名称: "进行中",
+          原始数据: { stage: "registered", endpoints: 500 },
+        },
+        meta: 测试用户.meta,
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/registration");
+  await page.getByRole("button", { name: /报备商机/ }).click();
+  await expect(page.getByRole("heading", { name: "报备商机" })).toBeVisible();
+  await page.getByLabel("商机名称 *").fill("报备商机提交验证");
+  await page.getByLabel("端点数量").fill("500");
+  await page.getByLabel("预计金额（元）*").fill("100000");
+  await page.getByRole("button", { name: "确认报备商机" }).click();
+
+  await expect.poll(() => 提交内容).not.toBeNull();
+  expect(提交内容).toMatchObject({
+    registrationId: "REG-APPROVED-001",
+    name: "报备商机提交验证",
+    amount: 100000,
+    endpoints: 500,
+  });
+  await expect(page.getByRole("heading", { name: "报备商机" })).toHaveCount(0);
+});
+
+test("产品目录展示管理员子目录并支持大类、模块、功能三层下钻", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/partner/products");
 
-  await expect(page.locator(".tab-nav")).toContainText("产品目录");
-  await expect(page.locator(".tab-nav")).toContainText("推荐套餐");
-  await expect(page.locator(".category-card", { hasText: "终端安全" })).toBeVisible();
+  const 子目录 = page.getByRole("navigation", { name: "产品维护子目录" });
+  await expect(子目录).toContainText("产品目录");
+  await expect(子目录).toContainText("模块管理");
+  await expect(子目录).toContainText("工作量配置");
+  await expect(page.locator(".目录网格 .目录卡").first()).toBeVisible();
 
-  await page.locator(".category-card", { hasText: "终端安全" }).click();
-  await expect(page.locator(".module-card-grid")).toBeVisible();
-  await expect(page.locator(".module-card-v", { hasText: "终端安全管理" })).toBeVisible();
+  const 大类卡 = page.locator(".目录网格 .目录卡").first();
+  const 大类名称 = await 大类卡.locator(".目录卡名称").innerText();
+  await 大类卡.click();
+  await expect(page.locator(".目录面包屑")).toContainText(大类名称);
 
-  await page.locator(".module-card-v", { hasText: "终端安全管理" }).click();
-  await expect(page.locator(".v2-product-detail-desc")).toContainText("联软终端安全产品线");
+  const 模块卡 = page.locator(".目录网格 .目录卡").first();
+  await expect(模块卡).toBeVisible();
+  const 模块名称 = await 模块卡.locator(".目录卡名称").innerText();
+  await 模块卡.click();
+  await expect(page.locator(".目录面包屑")).toContainText(模块名称);
+  await expect(page.locator(".目录网格 .目录卡").first()).toBeVisible();
 });
 
-test("商机管理展示V2列表看板和分栏详情", async ({ page }) => {
+test("商机管理展示列表、四页签详情和业务状态", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/partner/opportunity");
 
-  await expect(page.getByText("北京启明终端安全改造项目")).toBeVisible();
-  await expect(page.getByText("合计金额")).toBeVisible();
-
-  await page.locator("select", { hasText: "看板视图" }).selectOption("kanban");
-  await expect(page.locator(".opportunity-kanban")).toBeVisible();
-  await expect(page.locator(".kanban-column", { hasText: "70% 招投标/商务谈判" })).toBeVisible();
-
-  await page.locator(".kanban-card", { hasText: "北京启明终端安全改造项目" }).click();
-  await expect(page.locator(".v2-opportunity-modal")).toBeVisible();
-  await expect(page.locator(".v2-opportunity-side")).toContainText("关联记录");
-  await expect(page.locator(".v2-follow-section")).toContainText("跟进记录");
+  await expect(page.locator(".opportunity-list-item").first()).toContainText(
+    "北京启明终端安全改造项目",
+  );
+  await page.locator(".opportunity-list-item").first().click();
+  await expect(page.locator(".section-tabs")).toContainText("跟进");
+  await expect(page.locator(".section-tabs")).toContainText("报价");
+  await expect(page.locator(".section-tabs")).toContainText("订单");
+  await expect(page.locator(".section-tabs")).toContainText("档案与审计");
+  await expect(page.locator(".right-card", { hasText: "业务状态" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "商机跟进" })).toBeVisible();
+  await expect(page.getByText("本次沟通内容 *", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("需求挖掘填写越精准，越能提供更具体、细致、针对性的客户方案。"),
+  ).toBeVisible();
 });
 
-test("新建报备展示V2步骤条和企业查询提示", async ({ page }) => {
+test("渠道新建客户展示五步流程和实时查重", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/partner/registration/new");
 
-  await expect(page.locator(".v2-form-steps")).toContainText("客户信息");
-  await page
-    .getByPlaceholder("输入公司名关键词，自动查询工商信息并回填")
-    .fill("北京启明科技有限公司");
-  await expect(page.locator(".v2-enterprise-hint")).toContainText("工商查询入口");
+  await expect(page.getByRole("heading", { name: "新建客户与报备" })).toBeVisible();
+  const 步骤条 = page.locator(".wizard-steps");
+  await expect(步骤条).toContainText("客户主体信息");
+  await expect(步骤条).toContainText("联系人与需求");
+  await expect(步骤条).toContainText("归属与保护");
+  await expect(步骤条).toContainText("资料附件");
+  await page.getByPlaceholder("请输入工商全称").fill("北京启明科技有限公司");
+  await expect(page.getByText("未发现重复客户")).toBeVisible();
 });
 
-test("管理端新建报备保持V2三步流程不回落列表", async ({ page }) => {
+test("管理端新建客户保持五步流程不回落列表", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/registration/new");
 
-  await expect(page.locator(".card-title", { hasText: "新建客户报备" })).toBeVisible();
-  await expect(page.locator(".v2-form-steps")).toContainText("客户信息");
-  await expect(page.locator(".v2-form-steps")).toContainText("指派渠道");
-  await expect(page.locator(".v2-form-steps")).toContainText("提交确认");
-  await expect(page.getByPlaceholder("输入公司名关键词，自动查询工商信息并回填")).toBeVisible();
-  await expect(
-    page.locator(".v2-create-card").getByRole("button", { name: "下一步" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "新建客户与报备" })).toBeVisible();
+  const 步骤条 = page.locator(".wizard-steps");
+  await expect(步骤条).toContainText("客户主体信息");
+  await expect(步骤条).toContainText("确认提交");
+  await expect(page.getByPlaceholder("请输入工商全称")).toBeVisible();
+  await expect(page.getByRole("button", { name: "提交审核" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "报备编号" })).toHaveCount(0);
 });
 
-test("管理端审核中心展示V2客户报备审核台", async ({ page }) => {
+test("管理端审核中心展示待审批与已审批分区", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/admin-review");
 
-  await expect(page.locator(".v2-review-tabs")).toContainText("客户报备");
-  await expect(page.locator(".v2-review-tabs")).toContainText("渠道商");
-  await expect(page.locator(".v2-review-tabs")).toContainText("员工");
-  await expect(page.getByRole("heading", { name: "客户报备审核" })).toBeVisible();
-  for (const 表头 of ["报备编号", "客户名称", "所属区域", "行业", "联系人", "提交日期", "操作"]) {
+  await expect(page.getByRole("heading", { name: "审批任务" })).toBeVisible();
+  const 分区 = page.getByRole("tablist", { name: "审批分区" });
+  await expect(分区.getByRole("tab", { name: /待审批/ })).toHaveAttribute("aria-selected", "true");
+  await expect(分区.getByRole("tab", { name: /已审批/ })).toBeVisible();
+  for (const 分类 of ["全部", "客户报备", "渠道与账号", "报价", "订单"]) {
+    await expect(
+      page.getByRole("button", { name: new RegExp(`^${分类}(?: \\d+)?$`) }),
+    ).toBeVisible();
+  }
+  for (const 表头 of ["审批类型", "业务对象", "渠道 / 客户", "申请人", "时效", "状态", "操作"]) {
     await expect(page.getByRole("columnheader", { name: 表头 })).toBeVisible();
   }
-  await expect(page.locator(".v2-review-page").getByRole("button", { name: /通过/ })).toBeVisible();
-  await expect(page.locator(".v2-review-page").getByRole("button", { name: /拒绝/ })).toBeVisible();
 });
 
-test("管理端OpenAPI展示V2对接总览和凭证管理页", async ({ page }) => {
+test("管理端OpenAPI展示客户端列表和调用日志", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/openapi-integration");
 
-  await expect(page.getByText("OpenAPI 对接总览")).toBeVisible();
-  await expect(page.getByText("对接参数速览")).toBeVisible();
-  await expect(page.getByText("Client 凭证管理")).toBeVisible();
-  await expect(page.getByText("OpenAPI 调用审计")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "客户端列表" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "调用日志" })).toBeVisible();
   await expect(
-    page.getByRole("cell", { name: "AI-agent-superadmin-prod", exact: true }),
+    page.getByRole("cell", { name: "AI-agent-superadmin-prod", exact: true }).first(),
   ).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "标题" })).toHaveCount(0);
 });
 
-test("管理端工作量配置展示V2映射规则和交付规则", async ({ page }) => {
+test("管理端工作量配置支持产品映射维护并展示工作量规则", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/workload-config");
 
-  await expect(page.getByText("标准工作量配置")).toBeVisible();
-  await expect(page.getByText("产品映射规则")).toBeVisible();
-  await expect(page.getByText("交付工作量规则（LEP-DELIVERY-20260612）")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作量配置" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "产品工作量映射" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作量规则" })).toBeVisible();
   await expect(page.getByRole("row", { name: /终端安全管理/ })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "EPP（仅DLP基础）" }).last()).toBeVisible();
+  await expect(page.getByRole("cell", { name: "LEP-EPP-BASE" })).toBeVisible();
+  await page
+    .getByRole("row", { name: /终端安全管理/ })
+    .getByRole("button", { name: "配置" })
+    .click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "标题" })).toHaveCount(0);
 });
 
@@ -874,47 +1172,50 @@ test("管理端侧栏直接展示消息中心和人天与工作量配置", async
   await expect(page.getByText("标准工作量配置")).toBeVisible();
 });
 
-test("管理端新建商机展示V2业务字段", async ({ page }) => {
+test("管理端新建商机展示业务类型和维保关联字段", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/opportunity/new");
 
-  await expect(page.locator(".card-title", { hasText: "新建商机" })).toBeVisible();
-  await expect(page.getByText("关联报备客户")).toBeVisible();
-  await expect(page.getByText("商机名称 *")).toBeVisible();
-  await expect(page.getByText("当前阶段")).toBeVisible();
-  await expect(page.getByText("预计金额（元） *")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "新建商机" })).toBeVisible();
+  await expect(page.getByText("关联报备客户").first()).toBeVisible();
+  await expect(page.getByText("商机名称", { exact: true })).toBeVisible();
+  await expect(page.getByText("当前阶段", { exact: true })).toBeVisible();
+  await expect(page.getByText("业务类型", { exact: true })).toBeVisible();
+  await expect(page.getByText(/预计金额（元）/).first()).toBeVisible();
   await expect(page.getByText("端点数量")).toBeVisible();
-  await expect(page.getByText("预计关闭日期")).toBeVisible();
-  await expect(page.getByText("首次跟进记录")).toBeVisible();
+  await expect(page.getByText("预计签约时间", { exact: true })).toBeVisible();
+  await expect(page.getByText("首次跟进记录", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "创建商机" })).toBeVisible();
 });
 
-test("管理端新建报价展示V2客户搜索和完善提示", async ({ page }) => {
+test("管理端新建报价将报价方式置于功能模块上方", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/quote/new");
 
-  await expect(page.locator(".v2-quick-quote-banner")).toContainText("智能报价配置器");
-  await expect(page.getByText("客户搜索")).toBeVisible();
-  await expect(page.locator(".quote-mode-selector")).toContainText("套餐报价");
-  await expect(page.locator(".v2-quote-product-card").first()).toContainText("查看详情");
-  await expect(page.getByRole("button", { name: "请完善信息" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "报价方式" })).toBeVisible();
+  await expect(page.locator(".报价方式顶部面板")).toContainText("套餐报价");
+  await expect(page.locator(".报价方式顶部面板")).toContainText("补充功能");
+  await expect(page.locator(".报价方式顶部面板")).toContainText("自定义报价");
+  await expect(page.getByRole("heading", { name: "报价对象" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "软件模块" })).toBeVisible();
+  await expect(page.getByText("报价总额").last()).toBeVisible();
+  await expect(page.getByRole("button", { name: "生成报价单" })).toBeVisible();
 });
 
-test("新建报价展示V2智能报价配置器", async ({ page }) => {
+test("渠道新建报价支持切换报价方式并展示模块方格", async ({ page }) => {
   await 模拟已登录(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/partner/quote/new");
 
-  await expect(page.locator(".v2-quick-quote-banner")).toContainText("智能报价配置器");
-  await expect(page.locator(".quote-mode-selector")).toContainText("套餐报价");
+  await expect(page.locator(".报价方式顶部面板")).toContainText("报价方式");
+  await expect(page.locator(".报价方式顶部面板")).toContainText("套餐报价");
   await page.getByRole("button", { name: /自定义报价/ }).click();
-  await expect(page.locator(".mode-card.active")).toContainText("自定义报价");
-
-  await page.locator(".v2-quote-product-card", { hasText: "终端安全管理" }).click();
-  await expect(page.locator(".summary-section")).toContainText("终端安全管理");
-  await expect(page.locator(".grand-total-box")).toContainText("报价总额");
+  await expect(page.locator(".quote-mode.active")).toContainText("自定义报价");
+  await expect(page.locator(".quote-category-card").first()).toBeVisible();
+  await expect(page.locator(".quote-catalog-detail").first()).toBeVisible();
+  await expect(page.getByText("报价总额").last()).toBeVisible();
 });
 
 test("手机列表写入入口保持移动端路由", async ({ page }) => {

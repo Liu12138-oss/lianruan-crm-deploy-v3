@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { SwitchButton, User } from "@element-plus/icons-vue";
-import { useRouter } from "vue-router";
 
 import { useSessionStore } from "../stores/session.js";
 
 const 会话 = useSessionStore();
-const 路由 = useRouter();
 
 async function 退出() {
   await 会话.退出系统();
-  await 路由.push("/login");
+  // 使用整页替换清理内存中的管理端外壳，避免浏览器后退时仍显示旧页面。
+  window.location.replace("/login");
 }
 </script>
 

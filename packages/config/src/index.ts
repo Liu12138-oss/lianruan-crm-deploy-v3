@@ -37,6 +37,8 @@ const 环境结构 = z.object({
   V3_ORGANIZATION_CHANNEL_PHONE_EDIT_ENABLED: z.enum(["true", "false"]).default("false"),
   V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED: z.enum(["true", "false"]).default("false"),
   V3_ORGANIZATION_OFFBOARDING_ENABLED: z.enum(["true", "false"]).default("false"),
+  // 客户报备查重默认拦截；设为 false 时仅记录冲突审计并放行，供历史重复客户清理期间临时使用。
+  V3_CUSTOMER_DUPLICATE_BLOCK_ENABLED: z.enum(["true", "false"]).default("true"),
   V3_ORGANIZATION_OFFBOARDING_POLL_INTERVAL_MS: z.coerce
     .number()
     .int()
@@ -150,6 +152,9 @@ export interface 应用配置 {
   };
   worker: {
     enabled: boolean;
+  };
+  business: {
+    customerDuplicateBlockEnabled: boolean;
   };
   organization: {
     channelPhoneEditEnabled: boolean;
@@ -315,6 +320,9 @@ export function 读取应用配置(env: NodeJS.ProcessEnv = process.env): 应用
       accountStatusCheckEnabled: 原始.V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED === "true",
       offboardingEnabled: 原始.V3_ORGANIZATION_OFFBOARDING_ENABLED === "true",
       offboardingPollIntervalMs: 原始.V3_ORGANIZATION_OFFBOARDING_POLL_INTERVAL_MS,
+    },
+    business: {
+      customerDuplicateBlockEnabled: 原始.V3_CUSTOMER_DUPLICATE_BLOCK_ENABLED === "true",
     },
     orderPreapproval: 构建订单预审配置(原始),
     quoteProfit: 构建收益核算配置(原始),

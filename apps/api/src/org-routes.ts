@@ -182,9 +182,39 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     }),
   );
   router.post(
+    "/units/import/preview",
+    执行写入((req, 主体) => 获取服务().预览部门导入(读取对象(req), 主体)),
+  );
+  router.post(
     "/units/import",
     执行写入((req, 主体) => 获取服务().导入部门(读取对象(req), 主体)),
   );
+  router.get(
+    "/units/import/tasks/:id",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      const 任务 = await 获取服务().查询组织导入任务(读取标识(req, "id"));
+      if (!任务) throw new 应用错误("ORG_IMPORT_TASK_NOT_FOUND", "组织导入任务不存在。", 404);
+      return 任务;
+    }),
+  );
+  router.get("/units/import/tasks/:id/errors.csv", async (req, res, next) => {
+    try {
+      断言组织已启用(参数);
+      读取主体(req);
+      const 内容 = await 获取服务().生成组织导入错误报告(读取标识(req, "id"));
+      if (!内容) throw new 应用错误("ORG_IMPORT_TASK_NOT_FOUND", "组织导入任务不存在。", 404);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(`组织导入错误报告-${读取标识(req, "id")}.csv`)}`,
+      );
+      res.send(内容);
+    } catch (error) {
+      next(error);
+    }
+  });
   router.get(
     "/units/:id",
     执行(async (req) => {
@@ -244,9 +274,39 @@ export function 创建组织路由(参数: 组织路由参数): Router {
     }),
   );
   router.post(
+    "/staff/import/preview",
+    执行写入((req, 主体) => 获取服务().预览成员导入(读取对象(req), 主体)),
+  );
+  router.post(
     "/staff/import",
     执行写入((req, 主体) => 获取服务().导入成员(读取对象(req), 主体)),
   );
+  router.get(
+    "/staff/import/tasks/:id",
+    执行(async (req) => {
+      断言组织已启用(参数);
+      读取主体(req);
+      const 任务 = await 获取服务().查询组织导入任务(读取标识(req, "id"));
+      if (!任务) throw new 应用错误("ORG_IMPORT_TASK_NOT_FOUND", "组织导入任务不存在。", 404);
+      return 任务;
+    }),
+  );
+  router.get("/staff/import/tasks/:id/errors.csv", async (req, res, next) => {
+    try {
+      断言组织已启用(参数);
+      读取主体(req);
+      const 内容 = await 获取服务().生成组织导入错误报告(读取标识(req, "id"));
+      if (!内容) throw new 应用错误("ORG_IMPORT_TASK_NOT_FOUND", "组织导入任务不存在。", 404);
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename*=UTF-8''${encodeURIComponent(`成员导入错误报告-${读取标识(req, "id")}.csv`)}`,
+      );
+      res.send(内容);
+    } catch (error) {
+      next(error);
+    }
+  });
   router.post(
     "/staff/:userId/assignments",
     执行写入((req, 主体) => 获取服务().新建任职(读取标识(req, "userId"), 读取对象(req), 主体)),
@@ -335,6 +395,10 @@ export function 创建组织路由(参数: 组织路由参数): Router {
   router.post(
     "/certification-templates",
     执行写入((req, 主体) => 获取服务().新建证书模板(读取对象(req), 主体)),
+  );
+  router.put(
+    "/certification-templates/:id",
+    执行写入((req, 主体) => 获取服务().更新证书模板(读取标识(req, "id"), 读取对象(req), 主体)),
   );
   router.get(
     "/member-certifications",

@@ -1056,29 +1056,75 @@ FROM (
 CROSS JOIN (SELECT id AS batch_id FROM stage8_batch) b
 ON CONFLICT DO NOTHING;
 
-UPDATE migration.v2_raw_records
+WITH existing_targets AS (
+  SELECT 'users'::text AS entity_name, id AS target_id FROM iam.users
+  UNION ALL SELECT 'partners', id FROM channel.partners
+  UNION ALL SELECT 'registrations', id FROM crm.registrations
+  UNION ALL SELECT 'opportunities', id FROM crm.opportunities
+  UNION ALL SELECT 'quotes', id FROM crm.quotes
+  UNION ALL SELECT 'orders', id FROM crm.orders
+)
+UPDATE migration.v2_raw_records r
 SET process_status = 'loaded', error_code = NULL, error_message = NULL
-WHERE batch_id = (SELECT id FROM stage8_batch);
+FROM migration.v2_record_mappings m
+JOIN existing_targets t
+  ON t.entity_name = m.entity_name AND t.target_id = m.target_id
+WHERE r.batch_id = (SELECT id FROM stage8_batch)
+  AND r.batch_id = m.batch_id
+  AND r.entity_name = m.entity_name
+  AND r.source_id = m.source_id;
+
+WITH existing_targets AS (
+  SELECT 'users'::text AS entity_name, id AS target_id FROM iam.users
+  UNION ALL SELECT 'partners', id FROM channel.partners
+  UNION ALL SELECT 'registrations', id FROM crm.registrations
+  UNION ALL SELECT 'opportunities', id FROM crm.opportunities
+  UNION ALL SELECT 'quotes', id FROM crm.quotes
+  UNION ALL SELECT 'orders', id FROM crm.orders
+)
+UPDATE migration.v2_raw_records r
+SET process_status = 'failed',
+    error_code = 'S8_4_TARGET_MISSING',
+    error_message = 'V2原始记录已存在，但映射目标记录缺失。'
+WHERE r.batch_id = (SELECT id FROM stage8_batch)
+  AND r.entity_name IN ('users', 'partners', 'registrations', 'opportunities', 'quotes', 'orders')
+  AND NOT EXISTS (
+    SELECT 1
+    FROM migration.v2_record_mappings m
+    JOIN existing_targets t
+      ON t.entity_name = m.entity_name AND t.target_id = m.target_id
+    WHERE m.batch_id = r.batch_id
+      AND m.entity_name = r.entity_name
+      AND m.source_id = r.source_id
+  );
 
 DELETE FROM migration.validation_results
 WHERE batch_id = (SELECT id FROM stage8_batch)
   AND check_code LIKE 'S8_4_%';
 
-WITH expected AS (
-  SELECT 'users' AS entity_name, 'iam.users' AS target_table, COUNT(*) AS expected_count FROM stage8_records WHERE entity_name = 'users'
-  UNION ALL SELECT 'partners', 'channel.partners', COUNT(*) FROM stage8_records WHERE entity_name = 'partners'
-  UNION ALL SELECT 'registrations', 'crm.registrations', COUNT(*) FROM stage8_records WHERE entity_name = 'registrations'
-  UNION ALL SELECT 'opportunities', 'crm.opportunities', COUNT(*) FROM stage8_records WHERE entity_name = 'opportunities'
-  UNION ALL SELECT 'quotes', 'crm.quotes', COUNT(*) FROM stage8_records WHERE entity_name = 'quotes'
-  UNION ALL SELECT 'orders', 'crm.orders', COUNT(*) FROM stage8_records WHERE entity_name = 'orders'
+WITH existing_targets AS (
+  SELECT 'users'::text AS entity_name, id AS target_id FROM iam.users
+  UNION ALL SELECT 'partners', id FROM channel.partners
+  UNION ALL SELECT 'registrations', id FROM crm.registrations
+  UNION ALL SELECT 'opportunities', id FROM crm.opportunities
+  UNION ALL SELECT 'quotes', id FROM crm.quotes
+  UNION ALL SELECT 'orders', id FROM crm.orders
+),
+expected AS (
+  SELECT 'users' AS entity_name, 'iam.users' AS target_table, COUNT(DISTINCT source_id) AS expected_count FROM stage8_records WHERE entity_name = 'users'
+  UNION ALL SELECT 'partners', 'channel.partners', COUNT(DISTINCT source_id) FROM stage8_records WHERE entity_name = 'partners'
+  UNION ALL SELECT 'registrations', 'crm.registrations', COUNT(DISTINCT source_id) FROM stage8_records WHERE entity_name = 'registrations'
+  UNION ALL SELECT 'opportunities', 'crm.opportunities', COUNT(DISTINCT source_id) FROM stage8_records WHERE entity_name = 'opportunities'
+  UNION ALL SELECT 'quotes', 'crm.quotes', COUNT(DISTINCT source_id) FROM stage8_records WHERE entity_name = 'quotes'
+  UNION ALL SELECT 'orders', 'crm.orders', COUNT(DISTINCT source_id) FROM stage8_records WHERE entity_name = 'orders'
 ),
 actual AS (
-  SELECT 'users' AS entity_name, COUNT(*) AS actual_count FROM iam.users WHERE v2_source_id IS NOT NULL
-  UNION ALL SELECT 'partners', COUNT(*) FROM channel.partners WHERE v2_source_id IS NOT NULL
-  UNION ALL SELECT 'registrations', COUNT(*) FROM crm.registrations WHERE v2_source_id IS NOT NULL
-  UNION ALL SELECT 'opportunities', COUNT(*) FROM crm.opportunities WHERE v2_source_id IS NOT NULL
-  UNION ALL SELECT 'quotes', COUNT(*) FROM crm.quotes WHERE v2_source_id IS NOT NULL
-  UNION ALL SELECT 'orders', COUNT(*) FROM crm.orders WHERE v2_source_id IS NOT NULL
+  SELECT m.entity_name, COUNT(DISTINCT m.target_id) AS actual_count
+  FROM migration.v2_record_mappings m
+  JOIN existing_targets t
+    ON t.entity_name = m.entity_name AND t.target_id = m.target_id
+  WHERE m.batch_id = (SELECT id FROM stage8_batch)
+  GROUP BY m.entity_name
 )
 INSERT INTO migration.validation_results (
   batch_id, check_code, check_name, result_code, expected_value, actual_value, detail_json
@@ -1087,12 +1133,44 @@ SELECT
   (SELECT id FROM stage8_batch),
   'S8_4_COUNT_' || e.entity_name,
   '阶段8.4正式落表数量守恒：' || e.entity_name,
-  CASE WHEN e.expected_count <= a.actual_count THEN 'passed' ELSE 'failed' END,
+  CASE WHEN e.expected_count = COALESCE(a.actual_count, 0) THEN 'passed' ELSE 'failed' END,
   e.expected_count::text,
   a.actual_count::text,
   jsonb_build_object('targetTable', e.target_table)
 FROM expected e
-JOIN actual a ON a.entity_name = e.entity_name;
+LEFT JOIN actual a ON a.entity_name = e.entity_name;
+
+WITH existing_targets AS (
+  SELECT 'users'::text AS entity_name, id AS target_id FROM iam.users
+  UNION ALL SELECT 'partners', id FROM channel.partners
+  UNION ALL SELECT 'registrations', id FROM crm.registrations
+  UNION ALL SELECT 'opportunities', id FROM crm.opportunities
+  UNION ALL SELECT 'quotes', id FROM crm.quotes
+  UNION ALL SELECT 'orders', id FROM crm.orders
+),
+missing AS (
+  SELECT m.entity_name, m.source_id, m.target_table, m.target_id
+  FROM migration.v2_record_mappings m
+  LEFT JOIN existing_targets t
+    ON t.entity_name = m.entity_name AND t.target_id = m.target_id
+  WHERE m.batch_id = (SELECT id FROM stage8_batch)
+    AND t.target_id IS NULL
+)
+INSERT INTO migration.validation_results (
+  batch_id, check_code, check_name, result_code, expected_value, actual_value, detail_json
+)
+SELECT
+  (SELECT id FROM stage8_batch),
+  'S8_4_MAPPING_TARGETS',
+  '阶段8.4映射目标存在性校验',
+  CASE WHEN COUNT(*) = 0 THEN 'passed' ELSE 'failed' END,
+  '0',
+  COUNT(*)::text,
+  jsonb_build_object(
+    'missingCount', COUNT(*),
+    'missing', COALESCE(jsonb_agg(to_jsonb(missing) ORDER BY entity_name, source_id), '[]'::jsonb)
+  )
+FROM missing;
 
 INSERT INTO migration.validation_results (
   batch_id, check_code, check_name, result_code, expected_value, actual_value, detail_json
@@ -1117,7 +1195,16 @@ SELECT
   '{}'::jsonb;
 
 UPDATE migration.migration_batches
-SET status_code = 'validated',
+SET status_code = CASE
+      WHEN (
+        SELECT COUNT(*)
+        FROM migration.validation_results
+        WHERE batch_id = (SELECT id FROM stage8_batch)
+          AND check_code LIKE 'S8_4_%'
+          AND result_code = 'failed'
+      ) = 0 THEN 'validated'
+      ELSE 'failed'
+    END,
     finished_at = now(),
     failed_records = (
       SELECT COUNT(*)

@@ -1,11 +1,14 @@
 import "vue-router";
 
+import type { 平台角色 } from "../shared/permission/role.js";
+
 declare module "vue-router" {
   interface RouteMeta {
     工作区?: string;
     标题?: string;
     描述?: string;
     需要登录?: boolean;
+    允许角色?: 平台角色[];
     模块?:
       | "registrations"
       | "opportunities"

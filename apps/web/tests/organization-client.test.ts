@@ -4,12 +4,15 @@ import {
   停用泛微OA身份,
   创建泛微OA身份候选,
   应用已审批企微同步差异,
+  延期证书,
+  撤销证书,
   更新任职,
   更新泛微OA身份候选,
   更新组织,
   查询外部身份映射,
   查询岗位,
   查询成员业务角色,
+  查询成员证书,
   查询负责人关系,
   生成企微同步预览,
   确认企业微信身份导入,
@@ -49,7 +52,7 @@ describe("组织架构接口客户端", () => {
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/org/status",
-      expect.objectContaining({ credentials: "include" }),
+      expect.objectContaining({ credentials: "include", cache: "no-store" }),
     );
   });
 
@@ -289,6 +292,76 @@ describe("组织架构接口客户端", () => {
     expect(请求.every(([, 初始化]) => 初始化.body instanceof FormData)).toBe(true);
     expect(new Headers(请求[0]?.[1].headers).has("content-type")).toBe(false);
     expect(new Headers(请求[1]?.[1].headers).get("Idempotency-Key")).toBe("wecom-import-001");
+  });
+
+  it("成员证书接口将数据库返回的字符串版本统一转换为数值", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        成功响应({
+          items: [
+            {
+              id: "cert-1",
+              userId: "user-1",
+              displayName: "测试人员",
+              templateName: "测试证书",
+              issuedOn: "2026-10-22",
+              expiresOn: "2027-10-21",
+              statusCode: "active",
+              rowVersion: "1",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const 结果 = await 查询成员证书();
+
+    expect(结果.items[0]?.rowVersion).toBe(1);
+    expect(typeof 结果.items[0]?.rowVersion).toBe("number");
+  });
+
+  it("证书延期和撤销始终提交数字版本号，并规范化写响应版本", async () => {
+    const fetchMock = vi.fn(async (路径: string) =>
+      成功响应({
+        id: "cert-1",
+        userId: "user-1",
+        displayName: "测试人员",
+        templateName: "测试证书",
+        issuedOn: "2026-10-22",
+        expiresOn: "2028-10-21",
+        statusCode: 路径.endsWith("/revoke") ? "revoked" : "active",
+        rowVersion: 路径.endsWith("/revoke") ? "3" : "2",
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const 延期结果 = await 延期证书(
+      "cert/1",
+      { expiresOn: "2028-10-21" },
+      { rowVersion: 1, 幂等键: "cert-extend-1" },
+    );
+    const 撤销结果 = await 撤销证书(
+      "cert/1",
+      { reason: "页面撤销" },
+      { rowVersion: 2, 幂等键: "cert-revoke-1" },
+    );
+
+    const 请求 = fetchMock.mock.calls as unknown as [string, RequestInit][];
+    expect(请求.map(([路径]) => 路径)).toEqual([
+      "/api/org/member-certifications/cert%2F1/extend",
+      "/api/org/member-certifications/cert%2F1/revoke",
+    ]);
+    expect(JSON.parse(String(请求[0]?.[1].body))).toEqual({
+      expiresOn: "2028-10-21",
+      rowVersion: 1,
+    });
+    expect(JSON.parse(String(请求[1]?.[1].body))).toEqual({
+      reason: "页面撤销",
+      rowVersion: 2,
+    });
+    expect(延期结果.rowVersion).toBe(2);
+    expect(撤销结果.rowVersion).toBe(3);
   });
 
   it("将服务端中文错误、错误码和请求编号转换为可识别错误", async () => {

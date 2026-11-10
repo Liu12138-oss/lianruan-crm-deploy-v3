@@ -2,8 +2,6 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { 创建测试配置 } from "./test-config.js";
-
 let 客户端: Client | undefined;
 
 afterEach(async () => {

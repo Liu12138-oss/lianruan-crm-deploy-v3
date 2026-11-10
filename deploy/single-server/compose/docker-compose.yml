@@ -1,6 +1,6 @@
 services:
   nginx:
-    image: lianruan-crm-v3-nginx:${V3_IMAGE_TAG:-3.0.0-stage9.20260727}
+    image: lianruan-crm-v3-nginx:${V3_NGINX_IMAGE_TAG:-3.0.0-stage9.20260727}
     container_name: lianruan-crm-v3-nginx
     restart: unless-stopped
     ports:

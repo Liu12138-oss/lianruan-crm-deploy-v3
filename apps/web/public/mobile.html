@@ -182,7 +182,6 @@
               <label>跟进方式<select v-model="followUpForm.type"><option v-for="item in followUpTypeOptions" :key="item" :value="item">{{ item }}</option></select></label>
               <label>商机阶段<select v-model="followUpForm.stage"><option v-for="item in stageOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
               <label>跟进内容<span>*</span><textarea v-model.trim="followUpForm.content" required maxlength="500" rows="4" placeholder="请输入本次沟通结果、客户诉求或下一步计划"></textarea></label>
-              <label>下次跟进日期<input v-model="followUpForm.nextFollowAt" type="date" /></label>
               <p v-if="detailFormError.followUp" class="form-error" role="alert">{{ detailFormError.followUp }}</p>
               <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在保存…' : '保存跟进' }}</button>
             </form>
@@ -228,7 +227,41 @@
 
         <section v-else-if="page === 'registration-detail'" class="page-section"><detail-card v-if="selectedRegistration" :item="selectedRegistration" type="registration"></detail-card><empty-state v-else :text="detailMessage('registration')"></empty-state></section>
 
-        <section v-else-if="page === 'quotes'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或报价单号" /></div><record-list :items="filteredQuotes" type="quote" empty-text="暂无报价单" :has-more="pageMeta.quotes.hasMore" :loading-more="loading.quotes" @open="openPartnerDetail('quotes', $event)" @load-more="loadMore('quotes')"></record-list></section>
+        <section v-else-if="page === 'quotes'" class="page-section">
+          <div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或报价单号" /></div>
+          <div class="page-action"><button class="button button--primary" type="button" @click="go('/partner/quotes/new')">新建报价并试算</button></div>
+          <record-list :items="filteredQuotes" type="quote" empty-text="暂无报价单" :has-more="pageMeta.quotes.hasMore" :loading-more="loading.quotes" @open="openPartnerDetail('quotes', $event)" @load-more="loadMore('quotes')"></record-list>
+        </section>
+        <section v-else-if="page === 'quote-new'" class="page-section">
+          <form class="mobile-form" @submit.prevent="submitNewQuote">
+            <form-heading title="新建报价并试算" text="选择商机、端点和产品模块；金额由服务端按区域覆盖价、渠道等级价与阶梯价统一计算。"></form-heading>
+            <div v-if="quoteFormLoading" class="mobile-note-card"><strong>正在加载报价数据…</strong></div>
+            <label>关联商机<span>*</span>
+              <select v-model="quoteCreateForm.opportunityId" required>
+                <option value="">请选择商机</option>
+                <option v-for="item in quoteOpportunityOptions" :key="item.id" :value="item.id">{{ recordName(item) }} · {{ item.id }}</option>
+              </select>
+            </label>
+            <label>端点数量<span>*</span><input v-model.number="quoteCreateForm.endpoints" type="number" min="1" max="100000000" step="1" inputmode="numeric" required /></label>
+            <fieldset class="mobile-product-picker">
+              <legend>选择产品模块<span>*</span></legend>
+              <label v-for="product in quoteProducts" :key="product.id" class="mobile-product-option">
+                <input type="checkbox" :checked="quoteCreateForm.productIds.includes(product.id)" @change="toggleQuoteProduct(product.id)" />
+                <span><b>{{ product.name }}</b><small>{{ product.type || '产品模块' }}<template v-if="product.desc"> · {{ product.desc }}</template></small></span>
+              </label>
+              <p v-if="!quoteFormLoading && !quoteProducts.length" class="mobile-field__hint">当前没有可选产品模块。</p>
+            </fieldset>
+            <label>报价备注<textarea v-model.trim="quoteCreateForm.note" rows="3" maxlength="300" placeholder="可选，填写报价说明"></textarea></label>
+            <div class="form-secondary-actions"><button type="button" :disabled="submitting" @click="previewNewQuote">试算报价</button><button type="button" @click="quotePreview = null">清除试算</button></div>
+            <section v-if="quotePreview" class="mobile-note-card quote-preview-card">
+              <strong>试算总额：{{ formatAmount(quotePreview.total) }}</strong>
+              <p>{{ quotePreview.workloadSummary || '工作量已按产品规则计算' }}</p>
+              <p v-for="item in quotePreview.items" :key="item.id">{{ item['名称'] || item.name }} × {{ item['数量'] || item.quantity }} · {{ formatAmount(item['小计'] || item.lineAmount) }}</p>
+            </section>
+            <p v-if="quoteFormError" class="form-error" role="alert">{{ quoteFormError }}</p>
+            <button class="button button--primary button--block" :disabled="submitting" type="submit">{{ submitting ? '正在提交…' : '保存报价单' }}</button>
+          </form>
+        </section>
         <section v-else-if="page === 'quote-detail'" class="page-section">
           <template v-if="selectedQuote">
             <detail-card :item="selectedQuote" type="quote"></detail-card>
@@ -255,7 +288,19 @@
           <empty-state v-else :text="detailMessage('quote')"></empty-state>
         </section>
         <section v-else-if="page === 'orders'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索客户或订单号" /></div><record-list :items="filteredOrders" type="order" empty-text="暂无订单" :has-more="pageMeta.orders.hasMore" :loading-more="loading.orders" @open="openPartnerDetail('orders', $event)" @load-more="loadMore('orders')"></record-list></section>
-        <section v-else-if="page === 'order-detail'" class="page-section"><detail-card v-if="selectedOrder" :item="selectedOrder" type="order"></detail-card><empty-state v-else :text="detailMessage('order')"></empty-state></section>
+        <section v-else-if="page === 'order-detail'" class="page-section">
+          <template v-if="selectedOrder">
+            <detail-card :item="selectedOrder" type="order"></detail-card>
+            <section v-if="availableOrderActions.length" class="mobile-action-panel">
+              <h2>订单审批动作</h2>
+              <p>动作按当前角色和订单状态显示，提交后由服务端再次校验权限与状态。</p>
+              <div class="mobile-order-actions">
+                <button v-for="action in availableOrderActions" :key="action.key" class="button" :class="action.primary ? 'button--primary' : (action.danger ? 'button--danger' : 'button--secondary')" type="button" :disabled="submitting" @click="openOrderAction(action)">{{ action.label }}</button>
+              </div>
+            </section>
+          </template>
+          <empty-state v-else :text="detailMessage('order')"></empty-state>
+        </section>
 
         <section v-else-if="page === 'reviews'" class="page-section">
           <form-heading title="审核中心" :text="isSuperAdmin ? '可处理客户报备、渠道商和账号申请' : '可处理本区域客户报备'"></form-heading>
@@ -275,7 +320,19 @@
           <record-list :items="businessItems" :type="businessType" empty-text="暂无业务数据" :has-more="businessPageMeta.hasMore" :loading-more="businessPageMeta.loading" @open="openBusinessDetail" @load-more="loadMore(businessCollectionKey)"></record-list>
         </section>
 
-        <section v-else-if="page === 'business-detail'" class="page-section"><detail-card v-if="selectedBusinessItem" :item="selectedBusinessItem" :type="businessDetailType"></detail-card><empty-state v-else :text="detailMessage(businessDetailType)"></empty-state></section>
+        <section v-else-if="page === 'business-detail'" class="page-section">
+          <template v-if="selectedBusinessItem">
+            <detail-card :item="selectedBusinessItem" :type="businessDetailType"></detail-card>
+            <section v-if="businessDetailType === 'order' && availableOrderActions.length" class="mobile-action-panel">
+              <h2>订单审批动作</h2>
+              <p>动作按当前角色和订单状态显示，提交后由服务端再次校验权限与状态。</p>
+              <div class="mobile-order-actions">
+                <button v-for="action in availableOrderActions" :key="action.key" class="button" :class="action.primary ? 'button--primary' : (action.danger ? 'button--danger' : 'button--secondary')" type="button" :disabled="submitting" @click="openOrderAction(action)">{{ action.label }}</button>
+              </div>
+            </section>
+          </template>
+          <empty-state v-else :text="detailMessage(businessDetailType)"></empty-state>
+        </section>
 
         <section v-else-if="page === 'partners'" class="page-section"><div class="filter-row"><input v-model.trim="filters.keyword" type="search" placeholder="搜索渠道商名称" /></div><record-list :items="filteredPartners" type="partner" empty-text="暂无渠道商" :has-more="pageMeta.partners.hasMore" :loading-more="loading.partners" @open="openAdminPartner" @load-more="loadMore('partners')"></record-list></section>
         <section v-else-if="page === 'partner-detail'" class="page-section"><detail-card v-if="selectedPartner" :item="selectedPartner" type="partner"></detail-card><empty-state v-else :text="detailMessage('partner')"></empty-state></section>
@@ -316,6 +373,24 @@
         </section>
       </div>
 
+      <div v-if="orderAction.visible" class="dialog-mask" role="dialog" aria-modal="true" aria-labelledby="orderActionTitle">
+        <section class="review-dialog order-action-dialog">
+          <div class="review-dialog__header"><h2 id="orderActionTitle">{{ orderAction.title }}</h2><button class="icon-button" type="button" aria-label="关闭" @click="closeOrderAction">×</button></div>
+          <p class="review-dialog__name">{{ selectedOrder?.id }} · {{ recordName(selectedOrder) }}</p>
+          <label v-if="['region_return', 'superadmin_return'].includes(orderAction.key)">退回目标
+            <select v-model="orderAction.returnTarget">
+              <option v-if="orderAction.key === 'superadmin_return'" value="region">退回区管</option>
+              <option value="primary">退回一级渠道</option>
+              <option value="secondary">退回二级渠道</option>
+            </select>
+          </label>
+          <label v-if="orderAction.key === 'region_price_adjust'">调整后订单总额（元）<input v-model.number="orderAction.amount" type="number" min="0.01" step="0.01" inputmode="decimal" /></label>
+          <label class="dialog-reason">业务原因{{ ['primary_reject', 'region_return', 'region_price_adjust', 'superadmin_return', 'cancel'].includes(orderAction.key) ? '*' : '（可选）' }}<textarea v-model.trim="orderAction.reason" rows="4" maxlength="500" placeholder="请填写审批、退回或调价原因"></textarea></label>
+          <p v-if="orderAction.error" class="form-error" role="alert">{{ orderAction.error }}</p>
+          <div class="dialog-actions"><button class="button button--secondary" type="button" :disabled="submitting" @click="closeOrderAction">取消</button><button class="button button--primary" type="button" :disabled="submitting" @click="submitOrderAction">{{ submitting ? '提交中…' : '确认执行' }}</button></div>
+        </section>
+      </div>
+
       <p v-if="toast.message" class="toast" :class="'toast--' + toast.type" role="status">{{ toast.message }}</p>
     </template>
   </div>
@@ -323,6 +398,6 @@
   <script src="libs/vue.min.js"></script>
   <script src="emm-h5-sso.js?v=1"></script>
   <script src="message-client.js?v=1"></script>
-  <script src="mobile-app.js?v=19"></script>
+  <script src="mobile-app.js?v=20"></script>
 </body>
 </html>

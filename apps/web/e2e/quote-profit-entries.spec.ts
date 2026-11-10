@@ -117,7 +117,10 @@ async function 准备管理员页面(
   await page.addInitScript((用户) => {
     localStorage.setItem("admin_auth_token", "test-admin-token");
     localStorage.setItem("admin_user_info", JSON.stringify(用户));
-    localStorage.setItem("admin_api_user", JSON.stringify({ user: 用户, token: "test-admin-token" }));
+    localStorage.setItem(
+      "admin_api_user",
+      JSON.stringify({ user: 用户, token: "test-admin-token" }),
+    );
   }, 用户);
 
   await page.route("**/api/quotes/**/profit-calculation", async (route) => {
@@ -208,7 +211,9 @@ test("订单详情冻结前展示只读的非正式收益", async ({ page }) => 
 
   const 收益面板 = page.locator('.quote-profit-panel[data-context="order"]');
   await expect(收益面板).toBeVisible();
-  await expect(收益面板.getByText("订单尚未形成正式收益快照，以下为最新核算结果，仅供内部参考。")).toBeVisible();
+  await expect(
+    收益面板.getByText("订单尚未形成正式收益快照，以下为最新核算结果，仅供内部参考。"),
+  ).toBeVisible();
   await expect(收益面板.locator("input")).toHaveCount(0);
   await expect(收益面板.locator("button")).toHaveCount(0);
 });
@@ -221,7 +226,9 @@ test("订单详情冻结后展示只读的正式收益快照", async ({ page }) 
   const 收益面板 = page.locator('.quote-profit-panel[data-context="order"]');
   await expect(收益面板).toBeVisible();
   await expect(收益面板.getByText("已冻结")).toBeVisible();
-  await expect(收益面板.getByText("该订单已形成正式收益快照，以下金额只读且不可覆盖。")).toBeVisible();
+  await expect(
+    收益面板.getByText("该订单已形成正式收益快照，以下金额只读且不可覆盖。"),
+  ).toBeVisible();
   await expect(收益面板.locator("input")).toHaveCount(0);
   await expect(收益面板.locator("button")).toHaveCount(0);
 });

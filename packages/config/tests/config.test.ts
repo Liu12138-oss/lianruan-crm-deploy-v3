@@ -134,6 +134,18 @@ describe("环境配置", () => {
     ).toThrow();
   });
 
+  it("客户报备查重默认拦截，可显式切换为仅告警放行", () => {
+    expect(读取应用配置({ APP_ENV: "development" }).business).toEqual({
+      customerDuplicateBlockEnabled: true,
+    });
+    expect(
+      读取应用配置({
+        APP_ENV: "development",
+        V3_CUSTOMER_DUPLICATE_BLOCK_ENABLED: "false",
+      }).business,
+    ).toEqual({ customerDuplicateBlockEnabled: false });
+  });
+
   it("企微群机器人地址仅接受指定 HTTPS 接口且日志隐藏凭据", () => {
     const webhook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=secret-key";
     const 配置 = 读取应用配置({

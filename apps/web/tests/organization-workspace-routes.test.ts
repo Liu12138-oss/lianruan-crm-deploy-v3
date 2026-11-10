@@ -41,21 +41,25 @@ describe("组织架构工程化工作区路由", () => {
   it("所有组织工作区页面均要求现有 Cookie 会话", () => {
     const 组织页面 = router
       .getRoutes()
-      .filter((路由) => 路由.path.startsWith("/workspace/admin/platform-admin/organization/"));
+      .filter(
+        (路由) =>
+          路由.path.startsWith("/workspace/admin/platform-admin/organization/") &&
+          Boolean(路由.components?.default),
+      );
 
     expect(组织页面.length).toBeGreaterThan(0);
     expect(组织页面.every((路由) => 路由.meta.需要登录 === true)).toBe(true);
   });
 
-  it("编辑现有账号不提供直接停用或启用入口", async () => {
+  it("编辑现有账号提供停用或启用入口，并说明历史业务与审计保留", async () => {
     const 页面文本 = await readFile(工程化组织页面地址, "utf8");
 
     expect(页面文本).toContain(
       '<input :value="状态中文(编辑用户.status)" class="form-control" disabled />',
     );
-    expect(页面文本).toContain("停用账号必须通过“停用并交接”流程处理。");
-    expect(页面文本).not.toContain('@click="切换账号状态"');
-    expect(页面文本).not.toContain("async function 切换账号状态");
+    expect(页面文本).toContain('@click="切换账号状态"');
+    expect(页面文本).toContain("async function 切换账号状态");
+    expect(页面文本).toContain("历史业务与审计保留");
   });
 
   it("成员编辑部门下拉来自完整组织树，且证书文案不表示自动联动", async () => {

@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="联软渠道管理平台新 UI 渠道销售操作手册，覆盖客户报备、商机跟进、产品报价、报价转订单、订单确认与回退协同主业务链。">
+  <title>新 UI 渠道销售手册｜联软渠道管理平台</title>
+  <style>
+    :root {
+      --ink: #17342f;
+      --muted: #55706b;
+      --brand: #116b59;
+      --brand-deep: #084b3f;
+      --brand-soft: #eaf7f3;
+      --accent: #a76b12;
+      --blue: #17558f;
+      --blue-soft: #edf5fc;
+      --green: #0b7a5a;
+      --green-soft: #ecf8f3;
+      --red: #a63838;
+      --red-soft: #fff1f1;
+      --amber: #94630b;
+      --amber-soft: #fff8e7;
+      --line: #d7e5e1;
+      --line-strong: #bad4cd;
+      --paper: #ffffff;
+      --shadow: 0 8px 26px rgba(23, 52, 47, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eaf5f2 0, #f1f7f5 240px, #f5f8f7 100%);
+      font-family: "Times New Roman", "KaiTi_GB2312", "KaiTi", "楷体", "STKaiti", "Kaiti SC", serif;
+      font-size: 15px;
+      line-height: 1.7;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: var(--brand); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font: inherit; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 24px;
+      color: #fff;
+      background: linear-gradient(90deg, #073f35, #116b59 58%, #17806a);
+      box-shadow: 0 3px 14px rgba(7, 63, 53, .25);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,255,255,.48);
+      border-radius: 9px;
+      background: rgba(255,255,255,.12);
+      font-size: 18px;
+      font-weight: 700;
+      flex: 0 0 auto;
+    }
+    .brand-title { display: grid; line-height: 1.25; }
+    .brand-title strong { font-size: 16px; font-weight: 700; letter-spacing: .04em; }
+    .brand-title small { color: rgba(255,255,255,.76); font-size: 13px; }
+    .topbar-tools { display: flex; align-items: center; gap: 10px; }
+    .role-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 2px 11px;
+      border: 1px solid rgba(255,255,255,.34);
+      border-radius: 999px;
+      background: rgba(255,255,255,.12);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .print-button {
+      min-height: 32px;
+      padding: 4px 13px;
+      border: 1px solid rgba(255,255,255,.46);
+      border-radius: 8px;
+      color: #fff;
+      background: rgba(255,255,255,.13);
+      cursor: pointer;
+    }
+    .print-button:hover { background: rgba(255,255,255,.24); }
+    .shell {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 18px 18px 34px;
+      display: grid;
+      grid-template-columns: 258px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .toc {
+      position: sticky;
+      top: 76px;
+      max-height: calc(100vh - 94px);
+      overflow: auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.96);
+      box-shadow: var(--shadow);
+    }
+    .toc-title {
+      margin: 0 0 9px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .toc-group { margin: 11px 0 4px; color: var(--accent); font-size: 14px; font-weight: 700; }
+    .toc a {
+      display: block;
+      padding: 5px 8px;
+      border-radius: 6px;
+      color: #34524b;
+      line-height: 1.42;
+    }
+    .toc a:hover { color: var(--brand); background: var(--brand-soft); text-decoration: none; }
+    main { min-width: 0; }
+    .cover {
+      position: relative;
+      overflow: hidden;
+      padding: 30px 32px 26px;
+      border: 1px solid #cfe3dc;
+      border-radius: 16px;
+      background: radial-gradient(circle at 94% 8%, rgba(255,255,255,.72), transparent 31%), linear-gradient(132deg, #f9fdfb 0%, #eaf7f3 62%, #dcefe9 100%);
+      box-shadow: var(--shadow);
+    }
+    .cover::after {
+      content: "";
+      position: absolute;
+      right: -54px;
+      bottom: -82px;
+      width: 270px;
+      height: 270px;
+      border: 1px solid rgba(17, 107, 89, .16);
+      border-radius: 50%;
+      box-shadow: 0 0 0 26px rgba(17, 107, 89, .05), 0 0 0 52px rgba(17, 107, 89, .035);
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .eyebrow::before { content: ""; width: 22px; height: 3px; background: var(--accent); border-radius: 2px; }
+    h1 {
+      position: relative;
+      z-index: 1;
+      margin: 11px 0 8px;
+      color: var(--brand-deep);
+      font-size: 34px;
+      line-height: 1.22;
+      letter-spacing: .02em;
+    }
+    .cover-subtitle {
+      position: relative;
+      z-index: 1;
+      max-width: 780px;
+      margin: 0;
+      color: #31564c;
+      font-size: 15px;
+    }
+    .cover-meta {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 18px;
+    }
+    .cover-meta span {
+      padding: 4px 11px;
+      border: 1px solid #bedbd2;
+      border-radius: 999px;
+      background: rgba(255,255,255,.66);
+      color: #30584e;
+      font-size: 14px;
+    }
+    .quick-note {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .quick-note article {
+      padding: 12px 14px;
+      border: 1px solid #d3e7e0;
+      border-radius: 10px;
+      background: rgba(255,255,255,.68);
+    }
+    .quick-note strong { display: block; color: var(--brand); font-size: 15px; }
+    .quick-note p { margin: 3px 0 0; color: var(--muted); }
+    .card {
+      margin-top: 18px;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--paper);
+      box-shadow: 0 5px 18px rgba(23, 52, 47, .055);
+    }
+    h2 {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 14px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--brand-soft);
+      color: var(--brand-deep);
+      font-size: 23px;
+      line-height: 1.35;
+    }
+    h2 .section-no {
+      display: inline-grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      color: #fff;
+      background: var(--brand);
+      font-size: 16px;
+      flex: 0 0 auto;
+    }
+    h3 { margin: 22px 0 9px; color: #1e5549; font-size: 18px; line-height: 1.4; }
+    h3:first-of-type { margin-top: 12px; }
+    h4 { margin: 16px 0 7px; color: #315a50; font-size: 16px; }
+    p { margin: 8px 0; }
+    ul, ol { margin: 8px 0 8px 1.55em; padding: 0; }
+    li { margin: 4px 0; }
+    strong { color: #124d40; }
+    .muted { color: var(--muted); }
+    .lead {
+      padding: 12px 14px;
+      border-left: 4px solid var(--brand);
+      border-radius: 0 9px 9px 0;
+      background: var(--brand-soft);
+      color: #2c5a4f;
+    }
+    .callout {
+      margin: 12px 0;
+      padding: 11px 14px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+    }
+    .callout.info { border-color: #bfd9d1; background: #f2faf7; }
+    .callout.success { border-color: #bfe5d6; background: var(--green-soft); }
+    .callout.warning { border-color: #ecd39c; background: var(--amber-soft); }
+    .callout.danger { border-color: #edc4c4; background: var(--red-soft); }
+    .callout.blue { border-color: #c4d9ea; background: var(--blue-soft); }
+    .callout-title { display: block; margin-bottom: 3px; font-weight: 700; }
+    .callout.info .callout-title { color: var(--brand); }
+    .callout.success .callout-title { color: var(--green); }
+    .callout.warning .callout-title { color: var(--amber); }
+    .callout.danger .callout-title { color: var(--red); }
+    .callout.blue .callout-title { color: var(--blue); }
+    .callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+    .chain {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid #cfe2dc;
+      border-radius: 11px;
+      background: linear-gradient(180deg, #f8fcfb, #eff8f5);
+    }
+    .chain-node {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid #c7ded7;
+      border-radius: 9px;
+      background: #fff;
+    }
+    .chain-node .num {
+      display: inline-grid;
+      place-items: center;
+      width: 25px;
+      height: 25px;
+      margin-bottom: 6px;
+      border-radius: 8px;
+      color: #fff;
+      background: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .chain-node strong { display: block; line-height: 1.35; }
+    .chain-node small { display: block; margin-top: 2px; color: var(--muted); line-height: 1.4; }
+    .chain-arrow { display: none; }
+    table {
+      width: 100%;
+      margin: 11px 0;
+      border-collapse: collapse;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+    }
+    th, td { padding: 8px 10px; border: 1px solid var(--line); vertical-align: top; text-align: left; }
+    th { background: #edf8f5; color: #1b5b4c; font-weight: 700; white-space: nowrap; }
+    tbody tr:nth-child(even) td { background: #fbfefd; }
+    td code, p code, li code {
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: #f0f5f3;
+      color: #754a11;
+      font-family: "Times New Roman", serif;
+      font-size: 14px;
+    }
+    .steps { display: grid; gap: 9px; margin: 10px 0; }
+    .step { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 11px; align-items: start; }
+    .step-no {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--brand);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .step-body { padding: 1px 0 10px; border-bottom: 1px dashed #d8e8e2; }
+    .step:last-child .step-body { border-bottom: 0; padding-bottom: 0; }
+    .step-body strong { display: block; }
+    .step-body p { margin: 4px 0 0; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+    .field { padding: 9px 11px; border: 1px solid #d7e7e1; border-radius: 8px; background: #fbfefd; }
+    .field span { display: block; color: var(--muted); }
+    .field strong { display: block; margin-top: 2px; }
+    .tag {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 14px;
+      line-height: 1.55;
+      white-space: nowrap;
+    }
+    .tag.blue { color: var(--blue); background: var(--blue-soft); }
+    .tag.green { color: var(--green); background: var(--green-soft); }
+    .tag.amber { color: var(--amber); background: var(--amber-soft); }
+    .tag.red { color: var(--red); background: var(--red-soft); }
+    .tag.gray { color: #607184; background: #eef3f1; }
+    .checklist { display: grid; gap: 7px; margin: 10px 0; }
+    .check-item {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 9px;
+      align-items: start;
+      padding: 7px 10px;
+      border: 1px solid #e0ebe7;
+      border-radius: 7px;
+      background: #fcfefd;
+    }
+    .check-box { width: 14px; height: 14px; margin-top: 4px; border: 2px solid #81aa9e; border-radius: 3px; }
+    .split-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .split-2 > .callout { margin-top: 0; }
+    .footer { margin-top: 18px; padding: 16px 10px 4px; text-align: center; color: var(--muted); font-size: 14px; }
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .toc { position: static; max-height: none; }
+      .quick-note, .split-2 { grid-template-columns: 1fr; }
+      .chain { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .topbar { padding: 0 12px; }
+      .brand-title small { display: none; }
+      .role-chip { display: none; }
+      .shell { padding: 12px; }
+      .cover { padding: 24px 18px; }
+      h1 { font-size: 28px; }
+      .card { padding: 18px 15px; }
+      .field-grid { grid-template-columns: 1fr; }
+      table { table-layout: fixed; }
+      th, td { white-space: normal; word-break: break-word; }
+      .chain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media print {
+      @page { size: A4; margin: 15mm 13mm; }
+      body { background: #fff; font-size: 10.5pt; line-height: 1.55; }
+      .topbar, .toc, .print-button { display: none !important; }
+      .shell { display: block; max-width: none; padding: 0; }
+      .cover { box-shadow: none; border: 1px solid #bbb; background: #fff; }
+      .cover::after { display: none; }
+      h1 { color: #000; font-size: 25pt; }
+      .cover-subtitle, .eyebrow, .cover-meta span, .quick-note p { color: #333; }
+      .quick-note article, .card, table, .callout, .chain, .field, .check-item { box-shadow: none; }
+      .card { break-inside: auto; page-break-inside: auto; margin-top: 10px; }
+      h2 { break-after: avoid; page-break-after: avoid; color: #000; }
+      h3, h4 { break-after: avoid; page-break-after: avoid; }
+      .chain { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      a { color: #000; text-decoration: none; }
+      .tag { border: 1px solid #bbb; background: #fff !important; color: #000 !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">L</div>
+      <div class="brand-title">
+        <strong>联软渠道管理平台</strong>
+        <small>新 UI 业务操作手册</small>
+      </div>
+    </div>
+    <div class="topbar-tools">
+      <span class="role-chip">渠道销售</span>
+      <button class="print-button" type="button" onclick="window.print()">打印 / 导出 PDF</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="toc" aria-label="渠道销售手册目录">
+      <p class="toc-title">目录</p>
+      <div class="toc-group">开始使用</div>
+      <a href="#overview">01 先看全局</a>
+      <a href="#role">02 账号、角色与数据范围</a>
+      <a href="#chain">03 主业务链总览</a>
+      <a href="#navigation">04 登录与导航</a>
+      <div class="toc-group">客户与商机</div>
+      <a href="#members">05 企业管理员维护成员</a>
+      <a href="#customer">06 客户报备</a>
+      <a href="#customer-opportunity">07 同时报备商机</a>
+      <a href="#opportunity">08 创建商机</a>
+      <a href="#followup">09 商机跟进与阶段</a>
+      <div class="toc-group">报价与订单</div>
+      <a href="#quote">10 新建报价</a>
+      <a href="#quote-build">11 套餐、补充与自定义报价</a>
+      <a href="#quote-order">12 报价转订单</a>
+      <a href="#order">13 订单查看与一级确认</a>
+      <a href="#return">14 退回、重提与取消</a>
+      <div class="toc-group">协同与收口</div>
+      <a href="#oa">15 OA、企微与提醒</a>
+      <a href="#exceptions">16 常见问题</a>
+      <a href="#checklist">17 提交前检查清单</a>
+    </nav>
+
+    <main>
+      <section class="cover">
+        <span class="eyebrow">V3 新 UI · 渠道销售版</span>
+        <h1>渠道销售手册</h1>
+        <p class="cover-subtitle">
+          面向渠道销售成员和企业管理员，讲清从客户报备、商机推进、产品报价、报价转订单，到订单确认、退回修改与 OA/企微协同的完整主业务链。
+        </p>
+        <div class="cover-meta">
+          <span>适用角色：渠道销售 / 渠道企业管理员</span>
+          <span>文档版本：2026-11-09</span>
+          <span>阅读重点：如何提交、如何转单、如何避免退回</span>
+        </div>
+        <div class="quick-note">
+          <article>
+            <strong>先报备，再建商机</strong>
+            <p>只有客户报备审核通过，才能基于该客户创建商机，不能跳过客户归属审核。</p>
+          </article>
+          <article>
+            <strong>报价不等于审批</strong>
+            <p>新 UI 报价不再等待报价审批；报价是订单的价格与产品快照，直接进入转单。</p>
+          </article>
+          <article>
+            <strong>订单状态看系统</strong>
+            <p>一级确认、区管确认、超管确认和退回都以订单中心和审批历史为准。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="card" id="overview">
+        <h2><span class="section-no">01</span>先看全局</h2>
+        <p class="lead">
+          渠道销售的核心动作只有四步：<strong>报备客户 → 推进商机 → 生成报价 → 报价转订单</strong>。每一步都要保证客户、商机、报价和订单编号能互相追溯，避免用聊天记录代替系统记录。
+        </p>
+        <div class="field-grid">
+          <div class="field"><span>日常入口</span><strong>客户管理、商机作战、报价管理、订单中心</strong></div>
+          <div class="field"><span>企业管理员入口</span><strong>右上角“企业管理” → 渠道关系、成员维护</strong></div>
+          <div class="field"><span>最重要的前置</span><strong>客户报备已通过；商机与客户、渠道、区域匹配</strong></div>
+          <div class="field"><span>转单前必须确认</span><strong>收货人、电话、地址、出货金额、合同附件</strong></div>
+        </div>
+        <div class="callout info">
+          <span class="callout-title">不要把“待审批”与“已通过”混用</span>
+          <p>客户报备、成员账号和渠道商都可能有待审批状态；订单则有一级确认、区管确认、超管确认等不同节点。看状态时先确认当前对象和当前节点，再决定下一步。</p>
+        </div>
+      </section>
+
+      <section class="card" id="role">
+        <h2><span class="section-no">02</span>账号、角色与数据范围</h2>
+        <table>
+          <thead>
+            <tr><th>角色</th><th>可以做什么</th><th>不能做什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>渠道销售成员</strong></td><td>报备客户、建商机、写跟进、做报价、转订单、查看本渠道订单。</td><td>不能查看其他渠道数据；不能修改系统配置、产品价格规则或内部收益。</td></tr>
+            <tr><td><strong>渠道企业管理员</strong></td><td>维护本企业成员账号和渠道关系，组织本渠道销售开展业务。</td><td>不能创建企业管理员账号；成员账号仍需区管初审、超管终审。</td></tr>
+            <tr><td><strong>一级渠道</strong></td><td>可查看直属二级渠道基础关系；在订单待一级确认时确认或驳回下级订单。</td><td>不能查看二级渠道的内部经营档案、成员资料或渠道利润。</td></tr>
+            <tr><td><strong>二级渠道</strong></td><td>独立报备客户、建商机、报价和下单；查看自己的直属一级渠道关系。</td><td>不能越过一级确认直接要求区管处理待一级订单。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warning">
+          <span class="callout-title">渠道端看到的范围</span>
+          <p>渠道端一级菜单固定为工作台、客户管理、商机作战、报价管理、订单中心和产品目录。产品目录只展示可售产品、模块和描述；价格规则、成本、内部收益和后台配置不对渠道用户开放。</p>
+        </div>
+        <h3>数据隔离原则</h3>
+        <ul>
+          <li>账号只能操作所属渠道授权范围内的客户、商机、报价和订单。</li>
+          <li>区域筛选是检索条件，不会扩大账号权限；不要通过修改地址栏或重复提交绕过限制。</li>
+          <li>企业管理员新增、编辑、停用或重置成员时，必须核对姓名、账号、职责和所属渠道。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="chain">
+        <h2><span class="section-no">03</span>主业务链总览</h2>
+        <div class="chain" aria-label="渠道主业务链流程图">
+          <div class="chain-node"><span class="num">1</span><strong>账号就绪</strong><small>成员审批完成、可登录</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">2</span><strong>客户报备</strong><small>填写主体、联系人、需求</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">3</span><strong>审核通过</strong><small>保护期生效、可建商机</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">4</span><strong>商机推进</strong><small>七阶段、跟进记录</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">5</span><strong>报价</strong><small>标准免价 / 渠道分销取价</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">6</span><strong>报价转订单</strong><small>收货与出货资料</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">7</span><strong>订单审批</strong><small>一级 → 区管 → 超管</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">8</span><strong>履约协同</strong><small>发货、完成、OA/企微</small></div>
+        </div>
+        <h3>三个最容易出错的地方</h3>
+        <div class="split-2">
+          <div class="callout danger">
+            <span class="callout-title">先做报价，客户还没通过</span>
+            <p>系统会阻止后续创建商机或缺少关联依据。正确顺序是先报备客户并等待审核通过，再建商机与报价。</p>
+          </div>
+          <div class="callout danger">
+            <span class="callout-title">报价转单资料不齐</span>
+            <p>一级渠道必须填写出货金额并上传合同附件；所有渠道都要填写收货人、电话和详细地址。</p>
+          </div>
+          <div class="callout danger">
+            <span class="callout-title">把退回当成重新下单</span>
+            <p>退回订单可以修订并重提；不要重复创建同客户、同报价的新订单，否则会造成审批和履约冲突。</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="navigation">
+        <h2><span class="section-no">04</span>登录与导航</h2>
+        <p>登录入口由组织管理员提供。登录后根据账号类型进入渠道工作台，顶部一级导航固定为：</p>
+        <table>
+          <thead>
+            <tr><th>一级菜单</th><th>主要用途</th><th>常用动作</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>工作台</td><td>查看本渠道业务概况、待办和趋势。</td><td>进入待处理客户、商机、报价或订单。</td></tr>
+            <tr><td>客户管理</td><td>报备客户、查看客户档案、客户业务概括。</td><td>新建客户、查看审核状态与驳回原因。</td></tr>
+            <tr><td>商机作战</td><td>推进七阶段商机、记录跟进、关联报价和订单。</td><td>新建商机、记录商机跟进、查看来源报价。</td></tr>
+            <tr><td>报价管理</td><td>查看报价、创建标准/渠道分销报价、转订单。</td><td>新建报价、修改草稿或驳回报价、打印、转订单。</td></tr>
+            <tr><td>订单中心</td><td>查看订单状态、处理一级确认、修订重提或取消。</td><td>一级确认、一级驳回、修订后重新提交。</td></tr>
+            <tr><td>产品目录</td><td>查看可售产品、模块、功能与描述。</td><td>创建报价前了解可选内容，不展示内部价格规则。</td></tr>
+          </tbody>
+        </table>
+        <h3>顶部主操作</h3>
+        <ul>
+          <li>客户管理页顶部：<strong>＋ 新建客户</strong>。</li>
+          <li>商机作战页顶部：<strong>＋ 新建商机</strong>。</li>
+          <li>报价管理页顶部：<strong>＋ 新建报价</strong>。</li>
+          <li>企业管理员在右上角“企业管理”中进入成员维护和渠道关系。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="members">
+        <h2><span class="section-no">05</span>企业管理员维护成员</h2>
+        <p>本节面向渠道企业管理员；普通销售成员无需操作。入口：右上角<strong>企业管理 → 成员维护</strong>。</p>
+        <div class="steps">
+          <div class="step"><div class="step-no">1</div><div class="step-body"><strong>新增成员</strong><p>填写姓名、登录账号、联系电话、邮箱、成员职责（销售成员/技术成员）、岗位名称和初始密码。</p></div></div>
+          <div class="step"><div class="step-no">2</div><div class="step-body"><strong>提交审批</strong><p>新建或重新提交后，先进入“待区管初审”，再由超级管理员终审；审批完成前账号不能正常使用。</p></div></div>
+          <div class="step"><div class="step-no">3</div><div class="step-body"><strong>跟踪状态</strong><p>状态包括待区管初审、待超管终审、正常、已停用、已驳回。被驳回后查看原因，修正后再提交。</p></div></div>
+          <div class="step"><div class="step-no">4</div><div class="step-body"><strong>日常维护</strong><p>可编辑成员、启停账号、重置密码。停用只保留历史业务关系，删除操作应谨慎。</p></div></div>
+        </div>
+        <div class="callout warning">
+          <span class="callout-title">账号职责填写准确</span>
+          <p>销售成员用于客户、商机、报价与订单；技术成员用于技术支持类工作。不要把不同职责当作同一权限，也不要把企业管理员账号交给普通成员共用。</p>
+        </div>
+      </section>
+
+      <section class="card" id="customer">
+        <h2><span class="section-no">06</span>客户报备</h2>
+        <p>入口：<strong>客户管理 → 新建客户</strong>，页面名称为“新建客户与报备”。报备一次完成客户档案、归属和保护申请。</p>
+        <h3>填写顺序</h3>
+        <div class="steps">
+          <div class="step"><div class="step-no">1</div><div class="step-body"><strong>客户主体信息</strong><p>客户名称填工商全称；统一社会信用代码填 18 位数字或大写字母；选择所属行业、企业规模和客户来源；注册地址可选但建议填写。</p></div></div>
+          <div class="step"><div class="step-no">2</div><div class="step-body"><strong>联系人与项目需求</strong><p>主要联系人、联系电话必填；联系人职务、邮箱和项目需求按实际情况补充。电话支持 11 位手机号或带区号固定电话。</p></div></div>
+          <div class="step"><div class="step-no">3</div><div class="step-body"><strong>归属与保护</strong><p>归属渠道、所属区域和跟进人员由账号自动带入；保护期审核通过后才生效。不要手动填写其他渠道或区域。</p></div></div>
+          <div class="step"><div class="step-no">4</div><div class="step-body"><strong>资料附件</strong><p>可上传营业执照、项目材料等，最多 5 个；单个文件不超过 10MB，支持 PDF、Word、Excel、图片和 ZIP。</p></div></div>
+          <div class="step"><div class="step-no">5</div><div class="step-body"><strong>确认提交</strong><p>提交后提示“客户报备已提交审核”，进入待审核状态；审核通过后进入保护期，方可按客户创建商机。</p></div></div>
+        </div>
+        <h3>查重与驳回</h3>
+        <ul>
+          <li>客户名称或统一社会信用代码与既有客户一致时，按冲突处理，不允许重复报备，并记录冲突审计。</li>
+          <li>系统会在填写时提示相似客户；不要为了绕过查重而随意改写企业名称。</li>
+          <li>被驳回后，客户列表中会保留标识；打开客户详情查看驳回原因，修正后可重新提交。</li>
+          <li>被驳回期间不能创建商机；通过后才可继续推进。</li>
+        </ul>
+        <div class="callout info">
+          <span class="callout-title">客户等级不是报备必填项</span>
+          <p>报备客户只需要关注主体信息、联系人、企业规模、来源、行业和项目需求，不需要在新建时报“客户等级”。</p>
+        </div>
+      </section>
+
+      <section class="card" id="customer-opportunity">
+        <h2><span class="section-no">07</span>同时报备商机</h2>
+        <p>如果客户已有明确项目，可以在报备客户时勾选<strong>“同时报备商机”</strong>，避免客户通过后再重复录入项目资料。</p>
+        <table>
+          <thead>
+            <tr><th>字段</th><th>要求</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>项目名称</td><td>必填</td><td>使用可识别的项目名，不要只写“安全项目”。</td></tr>
+            <tr><td>预计端点范围</td><td>必填</td><td>按 10~19、20~49、50~99、100~199、200~500、500 以上选择。</td></tr>
+            <tr><td>保护期</td><td>可选</td><td>90、180、365 天；应与项目推进周期匹配。</td></tr>
+            <tr><td>项目备注</td><td>可选</td><td>记录预算、时间计划、决策链和关键风险。</td></tr>
+          </tbody>
+        </table>
+        <p>页面说明为“审核通过后自动生成关联商机”。提交后仍要先等客户报备审核通过；如果审核未通过，不要自行重复提交同名客户或商机。</p>
+      </section>
+
+      <section class="card" id="opportunity">
+        <h2><span class="section-no">08</span>创建商机</h2>
+        <p>入口：<strong>商机作战 → 新建商机</strong>，或从已通过的客户详情选择“报备商机”。只能选择已审批通过的客户报备。</p>
+        <h3>必填信息</h3>
+        <div class="field-grid">
+          <div class="field"><span>关联报备客户</span><strong>只能选已通过，且归属当前渠道/账号范围</strong></div>
+          <div class="field"><span>商机名称</span><strong>能区分项目范围和客户场景</strong></div>
+          <div class="field"><span>当前阶段</span><strong>按真实进展选择，不要为了“好看”直接跳到成单</strong></div>
+          <div class="field"><span>业务类型</span><strong>产品商机或维保商机</strong></div>
+          <div class="field"><span>预计金额</span><strong>大于 0，按客户预算和方案范围估算</strong></div>
+          <div class="field"><span>商机来源</span><strong>渠道推荐、市场活动、老客户续约等</strong></div>
+          <div class="field"><span>端点数量</span><strong>选填，用于支撑报价规模判断</strong></div>
+          <div class="field"><span>预计签约时间</span><strong>选填，应与项目节点一致</strong></div>
+        </div>
+        <h3>产品商机与维保商机</h3>
+        <table>
+          <thead>
+            <tr><th>类型</th><th>适用场景</th><th>创建要求</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>产品商机</strong></td><td>新产品、硬件或产品实施服务。</td><td>按客户需求正常选择产品模块。</td></tr>
+            <tr><td><strong>维保商机</strong></td><td>基于既有产品订单续保或维保。</td><td>必须关联至少 1 个同客户、已确认或已完成的产品订单；可多选，不要求同区域或同渠道。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout danger">
+          <span class="callout-title">维保商机不能脱离产品订单</span>
+          <p>没有可关联的产品订单时，先确认历史订单是否已确认/完成，或联系内部管理员核对订单状态。不要新建一个普通产品商机来代替维保商机。</p>
+        </div>
+        <p>创建成功后，在商机详情的“跟进、报价、订单、档案与审计”页签继续操作；概览不作为独立页签，商机信息已集中在业务状态区域。</p>
+      </section>
+
+      <section class="card" id="followup">
+        <h2><span class="section-no">09</span>商机跟进与阶段</h2>
+        <p>入口：商机作战 → 选择商机 → <strong>记录商机跟进</strong>。不需要先打开客户跟进记录，直接在商机上下文里记录。</p>
+        <h3>填写要求</h3>
+        <ul>
+          <li>跟进方式：电话沟通、现场拜访、线上会议、微信沟通、客户反馈。</li>
+          <li>本次沟通内容必填，最多 2000 字。页面提示：需求挖掘填写越精准，越能提供更具体、细致、针对性的客户方案。</li>
+          <li>下一步计划建议写清动作、负责人和时间要求。</li>
+          <li>附件支持 PDF、Word、Excel、图片、ZIP，单个不超过 10MB，单次最多 5 个。</li>
+          <li>可以选择“同步推进阶段”；推进时必须填写变更原因，且只能推进到下一阶段或选择输单、项目取消。</li>
+        </ul>
+        <h3>七阶段说明</h3>
+        <table>
+          <thead>
+            <tr><th>阶段</th><th>推进条件</th><th>建议留下的证据</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>客户建联 10%</td><td>确认关键联系人和项目线索。</td><td>联系人、部门、首次沟通纪要。</td></tr>
+            <tr><td>需求挖掘 20%–30%</td><td>明确痛点、预算、范围和决策链。</td><td>需求清单、预算范围、时间计划。</td></tr>
+            <tr><td>客户方案 40%</td><td>形成客户认可的技术/商务方案。</td><td>方案版本、评审记录。</td></tr>
+            <tr><td>POC 试用 50%</td><td>明确测试范围与验收标准。</td><td>测试计划、试用反馈。</td></tr>
+            <tr><td>立项推进 60%–70%</td><td>进入采购/立项审批。</td><td>立项材料、采购节点。</td></tr>
+            <tr><td>招投标 80%–90%</td><td>进入投标或商务谈判。</td><td>投标材料、报价版本。</td></tr>
+            <tr><td>成单 100%</td><td>客户确认成交，准备转订单。</td><td>合同/订单前置资料。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout info">
+          <span class="callout-title">跟进历史要能说明“发生了什么”</span>
+          <p>每条记录应至少包含阶段、沟通内容和下一步计划。只有一句“已联系客户”不能支撑阶段推进，也会影响后续区管/超管判断。</p>
+        </div>
+      </section>
+
+      <section class="card" id="quote">
+        <h2><span class="section-no">10</span>新建报价</h2>
+        <p>入口：商机详情 → 报价页签，或<strong>报价管理 → 新建报价</strong>。报价必须关联商机；报价类型创建后不可切换。</p>
+        <h3>选择报价体系</h3>
+        <table>
+          <thead>
+            <tr><th>报价类型</th><th>渠道端看到什么</th><th>转单后的价格</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>标准产品报价</strong></td><td>产品、模块、结构和工作量；不显示价格。</td><td>订单进入审批后由区管补充最终订单价格；渠道不能自行填价。</td></tr>
+            <tr><td><strong>渠道分销产品报价</strong></td><td>服务端按标准价、区域覆盖价、渠道等级价和阶梯价计算的本渠道价格。</td><td>按报价快照和实际出货金额进入订单审批。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warning">
+          <span class="callout-title">报价类型选错怎么办</span>
+          <p>重新创建正确类型的报价。不要在已创建报价上强行切换报价体系，否则历史价格口径和订单追溯会不一致。</p>
+        </div>
+        <h3>报价基本信息</h3>
+        <div class="field-grid">
+          <div class="field"><span>关联商机</span><strong>必须选择，客户与区域由商机带入</strong></div>
+          <div class="field"><span>端点数量</span><strong>1 至 100000000 的整数</strong></div>
+          <div class="field"><span>报价有效期</span><strong>15、30、60 或 90 天</strong></div>
+          <div class="field"><span>报价业务类型</span><strong>产品报价或维保报价，由商机业务类型决定</strong></div>
+        </div>
+        <p>维保商机的报价只能包含维保服务项，不能混入软件模块、硬件或普通实施服务。关联产品订单会在报价页展示，便于核对维保范围。</p>
+      </section>
+
+      <section class="card" id="quote-build">
+        <h2><span class="section-no">11</span>套餐、补充与自定义报价</h2>
+        <p>产品商机的报价方式有三种。结构按“报价方式 → 模块 → 具体功能”理解，可选内容尽量在报价方式面板内完成选择，下方只保留已入单清单，避免重复和误加。</p>
+        <table>
+          <thead>
+            <tr><th>报价方式</th><th>如何入单</th><th>适用场景</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>套餐报价</strong></td><td>选择套餐，入单模块来自套餐；套餐内模块不需要再逐项勾选。</td><td>客户需求与标准套餐高度匹配。</td></tr>
+            <tr><td><strong>补充功能</strong></td><td>以套餐为基础，再勾选套餐外的补充功能；套餐内模块固定。</td><td>标准套餐 + 少量增量需求。</td></tr>
+            <tr><td><strong>自定义报价</strong></td><td>完全按所选产品和功能模块组装。</td><td>需求复杂、无法用单一套餐覆盖。</td></tr>
+          </tbody>
+        </table>
+        <h3>组装报价时的检查</h3>
+        <div class="steps">
+          <div class="step"><div class="step-no">1</div><div class="step-body"><strong>选产品和模块</strong><p>按产品大类、模块、具体功能逐级选择；已选内容进入报价清单，不重复加入同一功能。</p></div></div>
+          <div class="step"><div class="step-no">2</div><div class="step-body"><strong>调整数量</strong><p>软件模块数量、端点数量和硬件数量要一致；模块数量必须大于 0。单价由系统计算，渠道不能手工改价。</p></div></div>
+          <div class="step"><div class="step-no">3</div><div class="step-body"><strong>检查硬件与服务</strong><p>硬件按实际配置和数量加入；不要漏掉实施、服务或赠送质保项。</p></div></div>
+          <div class="step"><div class="step-no">4</div><div class="step-body"><strong>试算并核对</strong><p>点击重新试算，检查报价总额、明细、价格规则命中和工作量说明。标准报价只核结构，不展示价格。</p></div></div>
+          <div class="step"><div class="step-no">5</div><div class="step-body"><strong>保存或打印</strong><p>生成报价单后可打印 / 下载 PDF。只有草稿或已驳回报价可以修改；已转订单报价不能重复转单。</p></div></div>
+        </div>
+        <div class="callout info">
+          <span class="callout-title">报价单的状态</span>
+          <p>常见状态包括草稿、已提交、已通过、已驳回、已转订单、已过期、已取消。新 UI 不再把报价审批作为转单前置；页面可转订单的状态和是否已转单，以报价中心的按钮与提示为准。</p>
+        </div>
+      </section>
+
+      <section class="card" id="quote-order">
+        <h2><span class="section-no">12</span>报价转订单</h2>
+        <p>入口：报价管理 → 选择报价 → <strong>报价转订单</strong>。同一报价只能转一次订单，重复转单会被拒绝并提示已有订单号。</p>
+        <h3>转单前准备</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>客户、关联商机、渠道和区域一致。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>报价明细、端点数量、硬件数量与客户确认范围一致。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>标准产品报价不显示价格，已理解由区管在订单审批时补价。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>已准备收货人、联系电话和详细收货地址。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>一级渠道已准备出货金额，并至少准备 1 个合同附件。</span></div>
+        </div>
+        <h3>弹窗必填</h3>
+        <table>
+          <thead>
+            <tr><th>字段</th><th>要求</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>收货人</td><td>必填</td><td>实际签收或许可交付联系人。</td></tr>
+            <tr><td>联系电话</td><td>必填</td><td>手机号或座机；必须能联系到收货人。</td></tr>
+            <tr><td>详细收货地址</td><td>必填</td><td>省、市、区县、街道和门牌信息完整。</td></tr>
+            <tr><td>出货金额</td><td>一级渠道必填，二级渠道选填</td><td>渠道向最终客户出货的成交金额，必须大于等于 0。</td></tr>
+            <tr><td>合同附件</td><td>一级渠道至少 1 个，二级选填</td><td>支持图片、PDF、Word、Excel；单个不超过 20MB，单张订单最多 10 个。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout warning">
+          <span class="callout-title">标准产品报价转单后的等待</span>
+          <p>标准产品报价不展示价格。订单创建后由区管在审批环节补充最终订单价格；未补价不能继续提交超管确认。渠道侧不要反复新建订单来“刷新价格”。</p>
+        </div>
+        <div class="callout info">
+          <span class="callout-title">转单成功后看哪里</span>
+          <p>系统提示订单编号后会进入订单中心。后续以订单状态和审批历史为准，不要依据聊天群或口头通知判断审批是否完成。</p>
+        </div>
+      </section>
+
+      <section class="card" id="order">
+        <h2><span class="section-no">13</span>订单查看与一级确认</h2>
+        <p>入口：<strong>订单中心</strong>。列表包含全部、待我处理、已完成等分区；可搜索订单号、客户、渠道、报价号，也可按区域和金额排序。</p>
+        <h3>订单审批链</h3>
+        <div class="chain" aria-label="订单审批流程图">
+          <div class="chain-node"><span class="num">1</span><strong>待一级确认</strong><small>一级渠道处理</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">2</span><strong>一级已确认</strong><small>进入区管审批</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">3</span><strong>待超管确认</strong><small>区管已提交</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">4</span><strong>已确认 / 处理中</strong><small>进入履约</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">5</span><strong>已发货</strong><small>等待签收/实施</small></div>
+          <div class="chain-arrow">→</div>
+          <div class="chain-node"><span class="num">6</span><strong>已完成</strong><small>订单归档</small></div>
+        </div>
+        <h3>状态与责任</h3>
+        <table>
+          <thead>
+            <tr><th>状态</th><th>渠道端动作</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><span class="tag amber">待一级确认</span></td><td>一级渠道：一级确认 / 一级驳回。</td><td>二级渠道订单先由直属一级渠道审核；二级渠道等待结果。</td></tr>
+            <tr><td><span class="tag amber">一级已确认</span></td><td>查看，等待区管处理。</td><td>订单进入区域管理员确认、补价或调价环节。</td></tr>
+            <tr><td><span class="tag amber">待超管确认</span></td><td>查看，等待超级管理员最终确认。</td><td>渠道端不重复提交或重复创建订单。</td></tr>
+            <tr><td><span class="tag red">一级已驳回 / 已退回</span></td><td>查看原因，修订后重新提交。</td><td>修改模块、数量或资料；单价由系统重新取价。</td></tr>
+            <tr><td><span class="tag green">已确认 / 处理中</span></td><td>等待履约，配合发货和签收。</td><td>可由履约角色确认发货。</td></tr>
+            <tr><td><span class="tag green">已发货 / 已完成</span></td><td>查看物流、签收或实施结果。</td><td>完成后保留合同、订单和验收资料。</td></tr>
+            <tr><td><span class="tag gray">已取消</span></td><td>查看取消原因。</td><td>终态；如需重新采购，应重新确认报价与订单。</td></tr>
+          </tbody>
+        </table>
+        <h3>一级渠道确认要点</h3>
+        <ul>
+          <li>核对二级渠道、客户、商机、报价和订单明细，确认不是重复订单。</li>
+          <li>核对收货信息、出货金额、合同附件和价格对比；负利润或异常折扣先问清原因。</li>
+          <li>确认无误点“一级确认”；需要修改点“一级驳回”，必须填写原因，不能只写“退回”。</li>
+          <li>渠道端可见订单价格、出货金额和折扣比例；渠道利润等内部收益只在内部管理员视图展示。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="return">
+        <h2><span class="section-no">14</span>退回、重提与取消</h2>
+        <h3>被退回后怎么做</h3>
+        <div class="steps">
+          <div class="step"><div class="step-no">1</div><div class="step-body"><strong>看退回目标</strong><p>确认退回给一级、二级还是区管，避免越级处理。</p></div></div>
+          <div class="step"><div class="step-no">2</div><div class="step-body"><strong>看退回原因</strong><p>在订单审批历史中找到本次意见，逐条核对是模块、数量、价格、附件还是收货信息问题。</p></div></div>
+          <div class="step"><div class="step-no">3</div><div class="step-body"><strong>修订明细</strong><p>至少保留一项明细；模块数量为大于 0 的整数；单价由系统按最新区域、层级和阶梯规则重新取价。</p></div></div>
+          <div class="step"><div class="step-no">4</div><div class="step-body"><strong>重新提交</strong><p>填写本次修订原因，提交后订单重新进入审批链。不要在旧订单外另建重复订单。</p></div></div>
+        </div>
+        <div class="callout warning">
+          <span class="callout-title">重新提交不是重新定价</span>
+          <p>渠道不能手工修改单价；系统重新取价后的结果才是订单价格。若价格仍有疑问，先联系区管核对区域覆盖和分销等级，不要反复提交。</p>
+        </div>
+        <h3>取消订单</h3>
+        <p>在允许取消的审批状态下，可按页面动作申请取消。必须填写原因；取消后订单待办和通知关闭，历史记录保留。已发货、已完成等状态不能当作可随意取消的订单。</p>
+        <div class="callout danger">
+          <span class="callout-title">不要用新订单覆盖旧订单</span>
+          <p>退回修改应走原订单重提；只有原订单已取消且业务重新确认后，才考虑新报价和新订单。重复下单会造成价格、合同和履约冲突。</p>
+        </div>
+      </section>
+
+      <section class="card" id="oa">
+        <h2><span class="section-no">15</span>OA、企微与提醒</h2>
+        <p>订单进入适合的审批节点且系统配置开启时，可能自动完成以下动作：生成正式报价 PDF、向泛微 OA 发起预审流程、创建企业微信订单预审群并发送群通知。</p>
+        <table>
+          <thead>
+            <tr><th>场景</th><th>可能发生</th><th>渠道应做什么</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>普通订单区管确认后</td><td>按配置创建 OA 预审/企微群。</td><td>继续在订单中心看状态；不要因为群消息已出现就视为超管已确认。</td></tr>
+            <tr><td>调价订单</td><td>按配置在更高审批节点触发协同。</td><td>配合补充调价原因和合同资料。</td></tr>
+            <tr><td>没有自动发起</td><td>订单仍按 CRM 状态流转。</td><td>联系区管或管理员检查配置，不要自行改动订单状态。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout info">
+          <span class="callout-title">OA 审批结论不等于 CRM 已终审</span>
+          <p>当前业务链的最终确认仍由超级管理员在订单中心完成。OA 可能标记为已受理，但不自动推进 CRM 订单状态；因此要同时核对 OA 与 CRM。</p>
+        </div>
+        <h3>消息中心的正确用法</h3>
+        <ul>
+          <li>站内提醒用于提示待办，不替代业务页面上的状态核对。</li>
+          <li>收到退回、驳回或补充资料提醒后，先打开对应客户/商机/订单查看原因。</li>
+          <li>页面不应展示英文状态码、内部参数或开发字段；看到此类信息时记录页面和对象编号反馈给管理员。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="exceptions">
+        <h2><span class="section-no">16</span>常见问题</h2>
+        <table>
+          <thead>
+            <tr><th>问题</th><th>原因或检查方法</th><th>建议处理</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>新建客户失败</td><td>名称/信用代码冲突、电话格式、必填项、特殊字符或长度超限。</td><td>查看页面具体提示；不要改写企业全称来绕过查重。</td></tr>
+            <tr><td>客户一直待审核</td><td>区管尚未处理，或需要补充资料。</td><td>在客户管理查看状态；被驳回时按原因修正后重新提交。</td></tr>
+            <tr><td>客户通过了却无法建商机</td><td>报备未通过、保护期状态异常、账号数据范围不匹配。</td><td>核对客户状态和归属；必要时联系区管核查。</td></tr>
+            <tr><td>维保商机选不到产品订单</td><td>订单不是同一客户、未确认/未完成，或不是产品订单。</td><td>先核对订单状态和业务类型，不要用其它客户订单代替。</td></tr>
+            <tr><td>报价里选了套餐却出现其它模块</td><td>把套餐内默认内容与补充功能混看，或历史报价回填。</td><td>切换报价方式后重新确认清单；新报价应从空内容开始，仅保留本轮主动选择。</td></tr>
+            <tr><td>报价转订单按钮不可用</td><td>报价已转单、已过期、已取消，或当前状态不允许。</td><td>查看报价状态；不要重复新建同报价尝试转单。</td></tr>
+            <tr><td>一级渠道转单失败</td><td>出货金额未填、合同附件不足、收货信息不完整。</td><td>补齐后再提交；附件格式和大小按页面提示处理。</td></tr>
+            <tr><td>订单一直待一级确认</td><td>当前订单属于直属下级渠道，等待一级渠道处理。</td><td>联系直属一级渠道；二级渠道不能越级替一级确认。</td></tr>
+            <tr><td>被驳回后找不到意见</td><td>只看了当前状态，没有展开审批历史。</td><td>在订单审批历史或审批中心查看完整意见和时间线。</td></tr>
+            <tr><td>OA 或企微没有反应</td><td>预审开关、模板、区域映射、泛微/企微身份未配置完整。</td><td>联系区管/超级管理员排查；不要手动修改订单或数据库。</td></tr>
+          </tbody>
+        </table>
+        <div class="callout danger">
+          <span class="callout-title">提交异常时的反馈模板</span>
+          <p>请提供：客户名称、商机编号、报价编号/订单编号、当前状态、发生时间、页面提示截图和已尝试的操作。信息完整，才能快速定位是权限、状态还是数据问题。</p>
+        </div>
+      </section>
+
+      <section class="card" id="checklist">
+        <h2><span class="section-no">17</span>提交前检查清单</h2>
+        <h3>客户报备</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>客户名称是工商全称，没有为规避查重故意改写。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>统一社会信用代码、行业、企业规模、客户来源完整。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>联系人、电话和项目需求可用于区管判断。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>如需同时报备商机，项目名称、端点范围、保护期已填写。</span></div>
+        </div>
+        <h3>商机与报价</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>商机关联的是已通过客户，业务类型选择正确。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>维保商机已关联同客户、已确认/已完成的产品订单。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>跟进内容、下一步计划和阶段变更原因已填写。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>报价体系、报价方式、模块、数量和端点数量已核对。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>报价单已试算，打印 PDF 内容与页面一致。</span></div>
+        </div>
+        <h3>报价转订单</h3>
+        <div class="checklist">
+          <div class="check-item"><span class="check-box"></span><span>客户、商机、渠道、区域和报价版本一致。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>收货人、联系电话和详细地址完整有效。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>一级渠道已填出货金额，并上传至少 1 个合同附件。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>标准报价订单已理解后续由区管补价，不自行填写价格。</span></div>
+          <div class="check-item"><span class="check-box"></span><span>转单成功后已记录订单编号，后续只跟踪该订单。</span></div>
+        </div>
+        <div class="callout success">
+          <span class="callout-title">最稳妥的提交原则</span>
+          <p>每一个业务对象都能说清“属于哪个客户、对应哪个商机、由哪份报价转来、当前审批人是谁”。做到这四点，客户报备到订单履约的主链就不会断。</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        联软渠道管理平台 · 新 UI 渠道销售手册 · 2026-11-09<br>
+        本手册以当前新 UI 业务口径编写；页面按钮和可见范围以账号实际权限与系统配置为准。
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

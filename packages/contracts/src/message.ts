@@ -87,6 +87,13 @@ export interface 消息通知摘要 {
   expiresAt: string | null;
 }
 
+export interface 消息分类偏好 {
+  inAppEnabled: boolean;
+  wecomEnabled: boolean;
+  smsEnabled: boolean;
+  emailEnabled: boolean;
+}
+
 export interface 消息个人偏好 {
   inAppEnabled: boolean;
   wecomEnabled: boolean;
@@ -94,4 +101,6 @@ export interface 消息个人偏好 {
   emailEnabled: boolean;
   doNotDisturbStart: string;
   doNotDisturbEnd: string;
+  /** 按待办、业务、系统、安全四类覆盖全局渠道开关；未配置的分类沿用全局开关。 */
+  categoryPreferences: Partial<Record<消息分类代码, 消息分类偏好>>;
 }

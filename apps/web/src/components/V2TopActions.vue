@@ -2,7 +2,9 @@
 import { ElMessage } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 
-import { 查询阶段9列表, 标记通知已读, type 阶段9记录 } from "../api/business-client.js";
+import { 修改当前密码 } from "../api/auth-client.js";
+import type { 阶段9记录 } from "../api/business-client.js";
+import { 查询统一消息列表, 标记统一消息已读 } from "../api/message-client.js";
 
 defineProps<{
   用户名: string;
@@ -32,7 +34,7 @@ async function 切换通知() {
 async function 加载通知() {
   通知加载中.value = true;
   try {
-    const 结果 = await 查询阶段9列表("notifications", { pageSize: 20 });
+    const 结果 = await 查询统一消息列表({ limit: 20 });
     通知列表.value = 结果.数据;
   } catch {
     通知列表.value = [];
@@ -43,7 +45,7 @@ async function 加载通知() {
 
 async function 全部已读() {
   try {
-    await 标记通知已读();
+    await 标记统一消息已读();
     通知列表.value = 通知列表.value.map((item) => ({
       ...item,
       状态: "read",
@@ -55,9 +57,20 @@ async function 全部已读() {
   }
 }
 
-function 标记单条已读(item: 阶段9记录) {
-  item.状态 = "read";
-  item.状态名称 = "已读";
+async function 标记单条已读(item: 阶段9记录) {
+  if (item.状态 === "read" || item.状态名称 === "已读") return;
+  if (!item.id) {
+    ElMessage.error("通知编号缺失，请刷新后重试。");
+    return;
+  }
+  try {
+    // 单条已读必须写回服务端；只改前端状态会在刷新后被未读数据覆盖。
+    await 标记统一消息已读(item.id);
+    item.状态 = "read";
+    item.状态名称 = "已读";
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "通知标记失败。");
+  }
 }
 
 function 打开修改密码弹窗() {
@@ -92,9 +105,21 @@ async function 提交修改密码() {
   }
 
   密码提交中.value = true;
-  await new Promise((resolve) => window.setTimeout(resolve, 260));
-  密码提交中.value = false;
-  密码错误.value = "在线修改密码暂不可用，请联系管理员重置密码。";
+  try {
+    await 修改当前密码({
+      oldPassword: 密码表单.oldPassword,
+      newPassword: 密码表单.newPassword,
+    });
+    ElMessage.success("密码已修改，请使用新密码重新登录。");
+    修改密码打开.value = false;
+    window.setTimeout(() => {
+      window.location.replace("/login?passwordChanged=1");
+    }, 300);
+  } catch (error) {
+    密码错误.value = error instanceof Error ? error.message : "密码修改失败，请稍后重试。";
+  } finally {
+    密码提交中.value = false;
+  }
 }
 
 function 通知描述(item: 阶段9记录) {

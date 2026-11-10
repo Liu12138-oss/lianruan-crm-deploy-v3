@@ -38,49 +38,89 @@ const 区管正式区域绑定回退迁移 = fs.readFileSync(
   ),
   "utf8",
 );
-const 区域重复归并迁移 = fs.readFileSync(
-  path.resolve(当前目录, "../../../database/migrations/20260923_S10_025_区域重复归并与唯一约束.sql"),
-  "utf8",
-);
-const 区域重复归并回退迁移 = fs.readFileSync(
-  path.resolve(
-    当前目录,
-    "../../../database/migrations/20260923_S10_025_区域重复归并与唯一约束.rollback.sql",
-  ),
-  "utf8",
-);
+
+async function 读取超级管理员用户名() {
+  const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+  try {
+    const 结果 = await pool.query<{ username: string }>(
+      `
+      SELECT u.username::text AS username
+      FROM iam.users u
+      JOIN iam.user_roles ur ON ur.user_id = u.id
+      JOIN iam.roles r ON r.id = ur.role_id
+      WHERE u.status_code = 'active' AND r.role_code = 'superadmin'
+      ORDER BY CASE WHEN u.username::text = 'liulonghai' THEN 0 ELSE 1 END, u.created_at
+      LIMIT 1
+      `,
+    );
+    const username = 结果.rows[0]?.username;
+    if (!username) throw new Error("未找到可用于管理配置测试的超级管理员账号。");
+    return username;
+  } finally {
+    await pool.end();
+  }
+}
+
+async function 创建超级管理员会话(app: ReturnType<typeof 创建应用>) {
+  const username = await 读取超级管理员用户名();
+  const 会话 = request.agent(app);
+  await 会话.post("/api/v2/auth/login").send({ username, password: "LrCRM@2026!" }).expect(200);
+  return 会话;
+}
 
 if (!测试环境变量.DATABASE_URL) {
   throw new Error("V2兼容接口测试必须配置 PostgreSQL DATABASE_URL，禁止回退内存模式。");
 }
 
 describe("V2真实页面兼容接口", () => {
+  it("正式环境V2业务接口拒绝无会话、operatorId自报身份和伪造Bearer令牌", async () => {
+    const app = 创建应用({
+      env: {
+        ...测试环境变量,
+        APP_ENV: "production",
+        NODE_ENV: "production",
+        SESSION_SECRET: "test-only-session-secret-at-least-32-bytes",
+        V3_BUSINESS_LEGACY_IDENTITY_ENABLED: "false",
+      },
+    });
+    const 伪造令牌 = `Bearer v2.${Buffer.from("liulonghai", "utf8").toString("base64url")}.forged`;
+
+    await request(app).get("/api/v2/dashboard/stats").expect(401);
+    await request(app).get("/api/v2/registrations?operatorId=liulonghai").expect(401);
+    await request(app).get("/api/v2/orders").set("Authorization", 伪造令牌).expect(401);
+    const 报价详情 = await request(app)
+      .get("/api/v2/quotes/50f72f61-56a3-4f90-a5d2-4015aced8972")
+      .expect(401);
+    expect(报价详情.body.error?.code).toBe("V3_AUTH_REQUIRED");
+
+    const 正式会话 = request.agent(app);
+    await 正式会话
+      .post("/api/v2/auth/login")
+      .send({ username: "liulonghai", password: "LrCRM@2026!" })
+      .expect(200);
+    await 正式会话.get("/api/v2/dashboard/stats").expect(200);
+  });
+
   it("迁移用户可以通过V2登录格式获取用户和令牌", async () => {
     const app = 创建应用({
       env: { ...测试环境变量, V3_ORGANIZATION_ENABLED: "true" },
     });
     const 正式页面会话 = request.agent(app);
-    const 用户列表 = await request(app).get("/api/v2/users?pageSize=1000").expect(200);
-    const 用户 =
-      (用户列表.body.data as Array<{ username: string }>).find(
-        (item) => item.username === "liulonghai",
-      ) || (用户列表.body.data as Array<{ username: string }>)[0];
-
-    if (!用户?.username) throw new Error("未找到可用于V2兼容登录测试的迁移用户。");
+    const 用户名 = await 读取超级管理员用户名();
 
     const 失败登录 = await request(app)
       .post("/api/v2/auth/login")
-      .send({ username: 用户.username, password: "错误密码" })
+      .send({ username: 用户名, password: "错误密码" })
       .expect(401);
     expect(失败登录.headers["set-cookie"]).toBeUndefined();
 
     const 登录 = await 正式页面会话
       .post("/api/v2/auth/login")
-      .send({ username: 用户.username, password: "LrCRM@2026!" })
+      .send({ username: 用户名, password: "LrCRM@2026!" })
       .expect(200);
 
     expect(登录.body.success).toBe(true);
-    expect(登录.body.user.username).toBe(用户.username);
+    expect(登录.body.user.username).toBe(用户名);
     expect(Array.isArray(登录.body.user.roleCodes)).toBe(true);
     expect(登录.body.token).toMatch(/^v2\./);
     expect(登录.headers["set-cookie"]?.[0]).toContain("HttpOnly");
@@ -90,12 +130,55 @@ describe("V2真实页面兼容接口", () => {
 
     const 统一入口登录 = await request(app)
       .post("/api/auth/login")
-      .send({ username: 用户.username, password: "LrCRM@2026!" })
+      .send({ username: 用户名, password: "LrCRM@2026!" })
       .expect(200);
-    expect(统一入口登录.body.data.user.username).toBe(用户.username);
+    expect(统一入口登录.body.data.user.username).toBe(用户名);
     expect(统一入口登录.body.data.pageSession.token).toMatch(/^v2\./);
-    expect(统一入口登录.body.data.pageSession.user.username).toBe(用户.username);
+    expect(统一入口登录.body.data.pageSession.user.username).toBe(用户名);
     expect(统一入口登录.body.data.pageSession.user.id).toBeTruthy();
+  });
+
+  it("V2登录Cookie携带数据库授权版本，版本变化后旧会话立即失效", async () => {
+    const app = 创建应用({
+      env: {
+        ...测试环境变量,
+        V3_AUTH_ACCOUNT_STATUS_CHECK_ENABLED: "true",
+      },
+    });
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 批次 = `auth_version_${Date.now()}`;
+    const 登录账号 = `${批次}_login`;
+
+    try {
+      await request(app)
+        .post("/api/v2/admin/accounts")
+        .send({
+          id: 批次,
+          username: 登录账号,
+          name: `${批次}-授权版本测试`,
+          role: "admin",
+          region: "安徽区",
+          bigRegion: "大东区",
+          password: "LrCRM@2026!",
+          status: "active",
+        })
+        .expect(200);
+
+      const 会话 = request.agent(app);
+      await 会话
+        .post("/api/v2/auth/login")
+        .send({ username: 登录账号, password: "LrCRM@2026!" })
+        .expect(200);
+      await 会话.get("/api/v2/dashboard/stats").expect(200);
+
+      await pool.query("UPDATE iam.users SET row_version=row_version+1 WHERE username=$1::citext", [
+        登录账号,
+      ]);
+      const 失效响应 = await 会话.get("/api/v2/dashboard/stats").expect(401);
+      expect(失效响应.body.error?.code).toBe("V3_AUTH_AUTHORIZATION_CHANGED");
+    } finally {
+      await pool.end();
+    }
   });
 
   it("V2登录页可以读取未启用的OAuth配置", async () => {
@@ -175,6 +258,52 @@ describe("V2真实页面兼容接口", () => {
     expect(回显).toBeDefined();
     expect(回显?.phone).toBe(电话二);
     expect(回显?.email).toBe(`${批次}_b@example.com`);
+  });
+
+  it("账号创建、列表、详情和登录响应不得回显密码字段", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 批次 = `account_secret_${Date.now()}`;
+    const 登录账号 = `${批次}_login`;
+
+    const 创建 = await request(app)
+      .post("/api/v2/admin/accounts")
+      .send({
+        id: 批次,
+        username: 登录账号,
+        name: `${批次}-账号`,
+        role: "admin",
+        region: "安徽区",
+        bigRegion: "大东区",
+        password: "LrCRM@2026!",
+        status: "active",
+      })
+      .expect(200);
+    expect(创建.body.data.username).toBe(登录账号);
+    expect(JSON.stringify(创建.body)).not.toMatch(
+      /"(password|passwordHash|password_hash|newPassword|oldPassword|initialPassword|tempPassword)"/,
+    );
+
+    const 列表 = await request(app).get("/api/v2/users?pageSize=1000").expect(200);
+    expect(JSON.stringify(列表.body)).not.toMatch(
+      /"(password|passwordHash|password_hash|newPassword|oldPassword|initialPassword|tempPassword)"/,
+    );
+
+    const 详情 = await request(app)
+      .get(`/api/v2/users/${encodeURIComponent(批次)}`)
+      .expect(200);
+    expect(详情.body.data.username).toBe(登录账号);
+    expect(JSON.stringify(详情.body)).not.toMatch(
+      /"(password|passwordHash|password_hash|newPassword|oldPassword|initialPassword|tempPassword)"/,
+    );
+
+    const 登录 = await request(app)
+      .post("/api/v2/auth/login")
+      .send({ username: 登录账号, password: "LrCRM@2026!" })
+      .expect(200);
+    expect(登录.body.user.username).toBe(登录账号);
+    expect(JSON.stringify(登录.body)).not.toMatch(
+      /"(password|passwordHash|password_hash|newPassword|oldPassword|initialPassword|tempPassword)"/,
+    );
   });
 
   it("迁移区域管理员部分保存后保留登录名、角色和联系电话", async () => {
@@ -362,37 +491,39 @@ describe("V2真实页面兼容接口", () => {
     let 区域重复二Id = "";
     let 唯一用户Id = "";
     let 重复用户Id = "";
+    const 唯一区域名称 = `${批次}-迁移唯一区域`;
+    const 重复区域名称 = `${批次}-迁移重复区域`;
     try {
-      // 该用例需要构造迁移前的历史重名数据；结束时会恢复活动区域唯一索引。
+      // 本用例需要构造同名区域来验证迁移时的歧义处理，结束后再恢复唯一索引。
       await pool.query("DROP INDEX IF EXISTS org.uq_regions_active_region_name");
       const 大区 = await pool.query<{ id: string }>(
-        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移测试大区','big_region','active') RETURNING id::text AS id",
-        [批次 + "_big"],
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,$2,'big_region','active') RETURNING id::text AS id",
+        [批次 + "_big", `${批次}-迁移测试大区`],
       );
       const 区域 = await pool.query<{ id: string }>(
-        "INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level,status_code) VALUES($1,'迁移唯一区域',$2::uuid,'region','active') RETURNING id::text AS id",
-        [批次 + "_region", 大区.rows[0]!.id],
+        "INSERT INTO org.regions(region_code,region_name,parent_region_id,region_level,status_code) VALUES($1,$2,$3::uuid,'region','active') RETURNING id::text AS id",
+        [批次 + "_region", 唯一区域名称, 大区.rows[0]!.id],
       );
       区域Id = 区域.rows[0]!.id;
       const 重复区域 = await pool.query<{ id: string }>(
-        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移重复区域','region','active') RETURNING id::text AS id",
-        [批次 + "_duplicate_region"],
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,$2,'region','active') RETURNING id::text AS id",
+        [批次 + "_duplicate_region", 重复区域名称],
       );
       区域重复Id = 重复区域.rows[0]!.id;
       const 重复区域二 = await pool.query<{ id: string }>(
-        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,'迁移重复区域','region','active') RETURNING id::text AS id",
-        [批次 + "_duplicate_region_2"],
+        "INSERT INTO org.regions(region_code,region_name,region_level,status_code) VALUES($1,$2,'region','active') RETURNING id::text AS id",
+        [批次 + "_duplicate_region_2", 重复区域名称],
       );
       区域重复二Id = 重复区域二.rows[0]!.id;
       const 用户 = await pool.query<{ id: string }>(
         `
         INSERT INTO iam.users(username,display_name,status_code,extra_json)
         VALUES
-          ($1::citext,'迁移唯一区管','active',jsonb_build_object('region','迁移唯一区域')),
-          ($2::citext,'迁移重复区管','active',jsonb_build_object('region','迁移重复区域'))
+          ($1::citext,'迁移唯一区管','active',jsonb_build_object('region',$3::text)),
+          ($2::citext,'迁移重复区管','active',jsonb_build_object('region',$4::text))
         RETURNING id::text AS id
         `,
-        [批次 + "_unique", 批次 + "_duplicate"],
+        [批次 + "_unique", 批次 + "_duplicate", 唯一区域名称, 重复区域名称],
       );
       唯一用户Id = 用户.rows[0]!.id;
       重复用户Id = 用户.rows[1]!.id;
@@ -413,7 +544,7 @@ describe("V2真实页面兼容接口", () => {
           username: 批次 + "_duplicate_save",
           name: "重名区域保存测试",
           role: "admin",
-          region: "迁移重复区域",
+          region: 重复区域名称,
         })
         .expect(400);
       expect(重名区域保存.body.error).toContain("负责区域存在重复配置");
@@ -676,10 +807,11 @@ describe("V2真实页面兼容接口", () => {
 
   it("工作量映射和规则保持V2维护页可读取的数据口径", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const 超级管理员 = await 创建超级管理员会话(app);
     const [映射, 交付规则, 旧规则] = await Promise.all([
-      request(app).get("/api/v2/workload/mappings").expect(200),
-      request(app).get("/api/v2/workload/delivery-rules").expect(200),
-      request(app).get("/api/v2/workload/rules").expect(200),
+      超级管理员.get("/api/v2/workload/mappings").expect(200),
+      超级管理员.get("/api/v2/workload/delivery-rules").expect(200),
+      超级管理员.get("/api/v2/workload/rules").expect(200),
     ]);
 
     expect(映射.body.data).toHaveLength(49);
@@ -711,11 +843,12 @@ describe("V2真实页面兼容接口", () => {
 
   it("V2后台常用维护入口不再返回404", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const 超级管理员 = await 创建超级管理员会话(app);
     const [企业搜索, 导出, 导入模板, 文档, 简介产品, 地市] = await Promise.all([
       request(app).get("/api/v2/company-search?keyword=公司").expect(200),
       request(app).get("/api/v2/export/registrations").expect(200),
       request(app).get("/api/v2/import/registrations/template").expect(200),
-      request(app).get("/api/v2/open-api/docs").expect(200),
+      超级管理员.get("/api/v2/open-api/docs").expect(200),
       request(app).get("/api/v2/partner-profile-products").expect(200),
       request(app).get("/api/v2/meta/prefecture-cities").expect(200),
     ]);
@@ -780,6 +913,78 @@ describe("V2真实页面兼容接口", () => {
       (item: { customer?: string }) => item.customer === 客户名称,
     );
     expect(导入报备?.id).toMatch(/^BB-.+-\d{8}-\d{4}$/);
+    const 首次行 = 执行报备.body.results.rows[0] as {
+      targetId?: string;
+      changedFields?: string[];
+      before?: Record<string, unknown> | null;
+      after?: Record<string, unknown> | null;
+    };
+    expect(首次行.targetId).toBeTruthy();
+    expect(首次行.before).toBeNull();
+    expect(首次行.after?.customer).toBe(客户名称);
+    expect(首次行.changedFields).toContain("客户名称");
+
+    const 首次任务 = await request(app)
+      .get(`/api/v2/import/tasks/${执行报备.body.results.taskId}`)
+      .expect(200);
+    expect(首次任务.body.task.rows[0]).toMatchObject({
+      status: "created",
+      targetId: 首次行.targetId,
+    });
+    expect(首次任务.body.task.rows[0].changes.length).toBeGreaterThan(0);
+
+    const 重复执行 = await request(app)
+      .post("/api/v2/import/registrations/execute")
+      .attach("file", 报备文件, {
+        filename: "客户报备导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(重复执行.body.results.updated).toBe(1);
+    expect(重复执行.body.results.rows[0].targetId).toBe(首次行.targetId);
+    expect(重复执行.body.results.rows[0].changedFields).toEqual([]);
+
+    const 修改后文件 = 生成Excel([
+      [
+        "客户名称*",
+        "统一社会信用代码",
+        "行业",
+        "联系人",
+        "联系电话",
+        "负责员工姓名*",
+        "所属渠道商名称*",
+        "客户地址",
+      ],
+      [客户名称, "", "制造", "验收联系人修订", 导入联系电话, 员工姓名, 渠道商名称, "阶段9验收地址"],
+    ]);
+    const 修改执行 = await request(app)
+      .post("/api/v2/import/registrations/execute")
+      .attach("file", 修改后文件, {
+        filename: "客户报备导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(修改执行.body.results.updated).toBe(1);
+    expect(修改执行.body.results.rows[0].changedFields).toContain("联系人");
+    expect(修改执行.body.results.rows[0].before?.contact).toBe("验收联系人");
+    expect(修改执行.body.results.rows[0].after?.contact).toBe("验收联系人修订");
+
+    const 修改任务 = await request(app)
+      .get(`/api/v2/import/tasks/${修改执行.body.results.taskId}`)
+      .expect(200);
+    expect(修改任务.body.task.rows[0].changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ 字段: "联系人", 更新前: "验收联系人", 更新后: "验收联系人修订" }),
+      ]),
+    );
+    const 重复导入回读 = await request(app)
+      .get(`/api/v2/registrations?keyword=${encodeURIComponent(客户名称)}&pageSize=10`)
+      .expect(200);
+    expect(
+      (重复导入回读.body.data as Array<{ customer?: string }>).filter(
+        (item) => item.customer === 客户名称,
+      ),
+    ).toHaveLength(1);
 
     const 商机文件 = 生成Excel([
       [
@@ -835,362 +1040,213 @@ describe("V2真实页面兼容接口", () => {
     );
   });
 
-  it("V2渠道商导入复用同名启用正式区域且不创建IMP-REG区域", async () => {
+  it("V2导入对同文件重复逐行报错，全失败批次返回422并保留任务和错误报告", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const { 渠道商名称, 员工姓名 } = await 读取可导入负责人(app);
+    const 客户名称 = `导入重复校验-${Date.now()}`;
+    const 信用代码 = `91${String(Date.now()).padStart(16, "0").slice(-16)}`;
+    const 客户表头 = [
+      "客户名称*",
+      "统一社会信用代码",
+      "行业",
+      "联系人",
+      "联系电话",
+      "负责员工姓名*",
+      "所属渠道商名称*",
+      "客户地址",
+    ];
+    const 混合文件 = 生成Excel([
+      客户表头,
+      [
+        客户名称,
+        信用代码,
+        "制造",
+        "联系人甲",
+        "13800138011",
+        员工姓名,
+        渠道商名称,
+        "江苏省南京市导入路1号",
+      ],
+      [
+        客户名称,
+        信用代码,
+        "制造",
+        "联系人乙",
+        "13800138012",
+        员工姓名,
+        渠道商名称,
+        "江苏省南京市导入路2号",
+      ],
+      [`${客户名称}-缺字段`, "", "制造", "", "", "", "", "江苏省南京市导入路3号"],
+      [
+        `${客户名称}-信用代码重复`,
+        信用代码,
+        "制造",
+        "联系人丙",
+        "13800138013",
+        员工姓名,
+        渠道商名称,
+        "江苏省南京市导入路4号",
+      ],
+    ]);
+
+    const 预览 = await request(app)
+      .post("/api/v2/import/registrations/preview")
+      .attach("file", 混合文件, {
+        filename: "客户报备混合导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(预览.body.totalCount).toBe(4);
+    expect(预览.body.errorCount).toBe(3);
+    expect(预览.body.preview[0]?.errors).toEqual([]);
+    expect(预览.body.preview[1]?.errors).toContain("与第 2 行数据重复，同一文件内不能重复导入。");
+    expect(预览.body.preview[2]?.errors.join("；")).toContain("缺少必填字段");
+    expect(预览.body.preview[3]?.errors).toContain("与第 2 行数据重复，同一文件内不能重复导入。");
+
+    const 执行 = await request(app)
+      .post("/api/v2/import/registrations/execute")
+      .attach("file", 混合文件, {
+        filename: "客户报备混合导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(执行.body.results).toMatchObject({ success: 1, failed: 3, totalCount: 4 });
+    expect(执行.body.results.taskId).toBeTruthy();
+    expect(执行.body.results.errorReportUrl).toContain(执行.body.results.taskId);
+
+    const 任务 = await request(app)
+      .get(`/api/v2/import/tasks/${执行.body.results.taskId}`)
+      .expect(200);
+    expect(任务.body.task.status).toBe("succeeded");
+    expect(任务.body.task.rows).toHaveLength(4);
+    expect(任务.body.task.rows.find((row: { row: number }) => row.row === 3)?.status).toBe(
+      "failed",
+    );
+
+    const 错误报告 = await request(app)
+      .get(`/api/v2/import/tasks/${执行.body.results.taskId}/errors.csv`)
+      .expect(200);
+    expect(错误报告.headers["content-type"]).toContain("text/csv");
+    expect(错误报告.text).toContain("与第 2 行数据重复");
+
+    const 全失败文件 = 生成Excel([
+      客户表头,
+      [`${客户名称}-全失败`, "", "制造", "", "", "", "", "江苏省南京市导入路4号"],
+    ]);
+    const 全失败 = await request(app)
+      .post("/api/v2/import/registrations/execute")
+      .attach("file", 全失败文件, {
+        filename: "客户报备全失败导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(422);
+    expect(全失败.body).toMatchObject({ success: false, code: "V2_IMPORT_ALL_FAILED" });
+    expect(全失败.body.results.taskId).toBeTruthy();
+
+    const 全失败任务 = await request(app)
+      .get(`/api/v2/import/tasks/${全失败.body.results.taskId}`)
+      .expect(200);
+    expect(全失败任务.body.task.status).toBe("failed");
+    expect(全失败任务.body.task.totalCount).toBe(1);
+    expect(全失败任务.body.task.failedCount).toBe(1);
+  });
+
+  it("员工导入预览提前拦截已有登录账号和重复联系电话", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
-    const 批次 = `region_import_reuse_${Date.now()}`;
-    const 区域名称 = `${批次}-正式区域`;
-    const 渠道商名称 = `${批次}-渠道商`;
-
     try {
-      const 正式区域 = await pool.query<{ id: string }>(
+      const 样本 = await pool.query<{
+        username: string;
+        phone: string;
+        partner_name: string;
+      }>(
         `
-        INSERT INTO org.regions (region_code, region_name, region_level, status_code)
-        VALUES ($1, $2, 'region', 'active')
-        RETURNING id::text AS id
+        SELECT u.username::text AS username, COALESCE(u.phone, '') AS phone,
+               p.partner_name
+        FROM iam.users u
+        JOIN iam.user_roles ur ON ur.user_id = u.id
+        JOIN iam.roles r ON r.id = ur.role_id AND r.role_code = 'partner_admin'
+        JOIN channel.partner_members pm ON pm.user_id = u.id AND pm.archived_at IS NULL
+        JOIN channel.partners p ON p.id = pm.partner_id AND p.status_code = 'active'
+        WHERE u.status_code = 'active' AND COALESCE(u.phone, '') <> ''
+        ORDER BY u.username::text
+        LIMIT 1
         `,
-        [`REG-${批次}`, 区域名称],
       );
-      const 正式区域编号 = 正式区域.rows[0]?.id;
-      expect(正式区域编号).toBeTruthy();
+      const row = 样本.rows[0];
+      expect(row).toBeTruthy();
+      if (!row) return;
 
-      const 导入文件 = 生成Excel([
-        ["渠道商名称*", "合作级别", "所在区域*", "所在城市*", "联系人", "联系电话"],
-        [渠道商名称, "gold", 区域名称, "南京市", "导入负责人", "13800138001"],
+      const batch = `staff_preview_${Date.now()}`;
+      const file = 生成Excel([
+        ["登录账号*", "员工姓名*", "所属渠道商名称*", "密码*", "手机号", "邮箱", "状态"],
+        [row.username, `${batch}-重复账号`, row.partner_name, "LrCRM@2026!", "", "", "正常"],
+        [
+          `${batch}-phone`,
+          `${batch}-重复手机`,
+          row.partner_name,
+          "LrCRM@2026!",
+          row.phone,
+          "",
+          "正常",
+        ],
+        [`${batch}-missing`, `${batch}-缺失渠道`, "", "LrCRM@2026!", "", "", "正常"],
       ]);
-      const 执行导入 = await request(app)
-        .post("/api/v2/import/partners/execute")
-        .attach("file", 导入文件, {
-          filename: "渠道商区域复用导入.xlsx",
+      const 预览 = await request(app)
+        .post("/api/v2/import/staff/preview")
+        .attach("file", file, {
+          filename: "员工导入重复校验.xlsx",
           contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         })
         .expect(200);
-      expect(执行导入.body.success).toBe(true);
-      expect(执行导入.body.results.success + 执行导入.body.results.updated).toBeGreaterThanOrEqual(1);
 
-      const 回读 = await pool.query<{ region_id: string; duplicate_count: string }>(
-        `
-        SELECT
-          partner.region_id::text AS region_id,
-          (
-            SELECT COUNT(*)::text
-            FROM org.regions region
-            WHERE region.region_name = $2
-              AND region.region_level = 'region'
-              AND region.status_code = 'active'
-          ) AS duplicate_count
-        FROM channel.partners partner
-        WHERE partner.partner_name = $1
-        ORDER BY partner.created_at DESC
-        LIMIT 1
-        `,
-        [渠道商名称, 区域名称],
-      );
-      expect(回读.rows[0]?.region_id).toBe(正式区域编号);
-      expect(回读.rows[0]?.duplicate_count).toBe("1");
+      expect(预览.body.errorCount).toBe(3);
+      expect(预览.body.preview[0]?.errors.join("；")).toContain("已被其他账号使用");
+      expect(预览.body.preview[1]?.errors.join("；")).toContain("联系电话已被账号");
+      expect(预览.body.preview[2]?.errors.join("；")).toContain("缺少必填字段：所属渠道商名称");
     } finally {
-      await pool
-        .query(
-          "DELETE FROM channel.partner_profiles WHERE partner_id IN (SELECT id FROM channel.partners WHERE partner_name=$1)",
-          [渠道商名称],
-        )
-        .catch(() => {});
-      await pool
-        .query("DELETE FROM channel.partners WHERE partner_name=$1", [渠道商名称])
-        .catch(() => {});
-      await pool
-        .query("DELETE FROM org.regions WHERE region_name=$1 AND region_code LIKE 'IMP-REG-%'", [区域名称])
-        .catch(() => {});
-      await pool
-        .query("DELETE FROM org.regions WHERE region_name=$1 AND region_code=$2", [
-          区域名称,
-          `REG-${批次}`,
-        ])
-        .catch(() => {});
       await pool.end();
     }
   });
 
-  it("重复区域归并和回退可执行，归并后区管可指派同区渠道商且跨区仍拒绝", async () => {
+  it("超级管理员执行员工导入时保留操作人上下文并成功建档", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const { 渠道商名称 } = await 读取可导入负责人(app);
+    const 超级管理员 = await 创建超级管理员会话(app);
+    const 批次 = `staff_import_${Date.now()}`;
+    const 登录账号 = 批次.slice(-64);
+    const 手机号 = `136${String(Date.now()).slice(-8)}`;
+    const 文件 = 生成Excel([
+      ["登录账号*", "员工姓名*", "所属渠道商名称*", "密码*", "手机号", "邮箱", "状态"],
+      [登录账号, `${批次}-导入员工`, 渠道商名称, "LrCRM@2026!", 手机号, "", "正常"],
+    ]);
+
+    const 执行 = await 超级管理员
+      .post("/api/v2/import/staff/execute")
+      .attach("file", 文件, {
+        filename: "员工合法导入.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      .expect(200);
+    expect(执行.body.results).toMatchObject({ success: 1, failed: 0 });
+
     const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
-    const 批次 = `region_merge_e2e_${Date.now()}`;
-    const 区域名称 = `${批次}-正式区域`;
-    const 外区名称 = `${批次}-外区`;
-    const 同区渠道名称 = `${批次}-同区渠道`;
-    const 外区渠道名称 = `${批次}-外区渠道`;
-    const 区管账号 = `${批次}_manager`;
-    let 正式区域编号 = "";
-    let 导入区域编号 = "";
-    let 外区编号 = "";
-    let 同区渠道编号 = "";
-    let 外区渠道编号 = "";
-    let 区管编号 = "";
-
     try {
-      await pool.query("DROP INDEX IF EXISTS org.uq_regions_active_region_name");
-      await pool.query(
-        `
-        INSERT INTO iam.roles (role_code, role_name, status_code)
-        VALUES ('region_manager', '区域管理员', 'active')
-        ON CONFLICT (role_code) DO UPDATE SET status_code = 'active'
-        `,
+      const 账号 = await pool.query<{ username: string; status_code: string }>(
+        "SELECT username::text AS username, status_code FROM iam.users WHERE lower(username::text)=lower($1) LIMIT 1",
+        [登录账号],
       );
-      const [正式区域, 导入区域, 外区] = await Promise.all([
-        pool.query<{ id: string }>(
-          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
-          [`REG-${批次}`, 区域名称],
-        ),
-        pool.query<{ id: string }>(
-          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
-          [`IMP-REG-${批次}`, 区域名称],
-        ),
-        pool.query<{ id: string }>(
-          "INSERT INTO org.regions (region_code, region_name, region_level, status_code) VALUES ($1,$2,'region','active') RETURNING id::text AS id",
-          [`REG-${批次}-OUT`, 外区名称],
-        ),
-      ]);
-      正式区域编号 = 正式区域.rows[0]!.id;
-      导入区域编号 = 导入区域.rows[0]!.id;
-      外区编号 = 外区.rows[0]!.id;
-
-      const [同区渠道, 外区渠道] = await Promise.all([
-        pool.query<{ id: string }>(
-          `
-          INSERT INTO channel.partners (
-            v2_source_id, partner_code, partner_name, normalized_name,
-            partner_level_code, region_id, status_code, extra_json
-          )
-          VALUES ($1,$1,$2,$3,'primary',$4::uuid,'active',$5::jsonb)
-          RETURNING id::text AS id
-          `,
-          [
-            `${批次}-P-IN`,
-            同区渠道名称,
-            同区渠道名称.toLowerCase().replace(/\s+/g, ""),
-            导入区域编号,
-            JSON.stringify({ id: `${批次}-P-IN`, name: 同区渠道名称 }),
-          ],
-        ),
-        pool.query<{ id: string }>(
-          `
-          INSERT INTO channel.partners (
-            v2_source_id, partner_code, partner_name, normalized_name,
-            partner_level_code, region_id, status_code, extra_json
-          )
-          VALUES ($1,$1,$2,$3,'primary',$4::uuid,'active',$5::jsonb)
-          RETURNING id::text AS id
-          `,
-          [
-            `${批次}-P-OUT`,
-            外区渠道名称,
-            外区渠道名称.toLowerCase().replace(/\s+/g, ""),
-            外区编号,
-            JSON.stringify({ id: `${批次}-P-OUT`, name: 外区渠道名称 }),
-          ],
-        ),
-      ]);
-      同区渠道编号 = 同区渠道.rows[0]!.id;
-      外区渠道编号 = 外区渠道.rows[0]!.id;
-
-      const 区管 = await pool.query<{ id: string }>(
-        `
-        INSERT INTO iam.users (v2_source_id, username, display_name, status_code, region_id, extra_json)
-        VALUES ($1, $2::citext, $3, 'active', $4::uuid, $5::jsonb)
-        RETURNING id::text AS id
-        `,
-        [
-          区管账号,
-          区管账号,
-          `${批次}-区管`,
-          正式区域编号,
-          JSON.stringify({ id: 区管账号, userId: 区管账号, role: "region_manager" }),
-        ],
-      );
-      区管编号 = 区管.rows[0]!.id;
-      await pool.query(
-        "INSERT INTO iam.user_roles (user_id, role_id) SELECT $1::uuid, id FROM iam.roles WHERE role_code='region_manager' ON CONFLICT DO NOTHING",
-        [区管编号],
-      );
-      await pool.query(
-        "INSERT INTO org.staff_profiles (user_id, employee_no, title, data_scope_code) VALUES ($1::uuid,$2,$3,'region') ON CONFLICT (user_id) DO UPDATE SET data_scope_code='region'",
-        [区管编号, 区管账号, `${批次}-区管`],
-      );
-
-      const 重名渠道保存 = await request(app)
-        .post("/api/v2/partners")
-        .send({
-          id: `${批次}-P-BLOCKED`,
-          name: `${批次}-重名拦截渠道`,
-          region: 区域名称,
-          city: "南京市",
-          contact: "重名拦截",
-          phone: "13800138005",
-          status: "active",
-        })
-        .expect(409);
-      expect(重名渠道保存.body.error).toContain("存在重复配置");
-
-      const 授权 = `Bearer v2.${Buffer.from(区管账号, "utf8").toString("base64url")}.test`;
-      const 归并前 = await request(app)
-        .post("/api/registrations")
-        .set("Authorization", 授权)
-        .send({
-          customer: `${批次}-归并前客户`,
-          partnerId: `${批次}-P-IN`,
-          contact: "归并前",
-          phone: "13800138002",
-        })
-        .expect(403);
-      expect(归并前.body.error.code).toBe("V3_BUSINESS_REGION_SCOPE_FORBIDDEN");
-
-      await pool.query(区域重复归并迁移);
-      const 归并后数据 = await pool.query<{
-        partner_region_id: string;
-        duplicate_status: string;
-        canonical_id: string;
-      }>(
-        `
-        SELECT
-          partner.region_id::text AS partner_region_id,
-          duplicate.status_code AS duplicate_status,
-          merge.canonical_region_id::text AS canonical_id
-        FROM channel.partners partner
-        JOIN migration.region_duplicate_merges merge ON merge.duplicate_region_id = $2::uuid
-        JOIN org.regions duplicate ON duplicate.id = merge.duplicate_region_id
-        WHERE partner.id = $1::uuid
-        `,
-        [同区渠道编号, 导入区域编号],
-      );
-      expect(归并后数据.rows[0]).toEqual({
-        partner_region_id: 正式区域编号,
-        duplicate_status: "disabled",
-        canonical_id: 正式区域编号,
-      });
-
-      await pool.query(区域重复归并回退迁移);
-      const 回退后 = await pool.query<{ partner_region_id: string; duplicate_status: string }>(
-        `
-        SELECT partner.region_id::text AS partner_region_id, region.status_code AS duplicate_status
-        FROM channel.partners partner
-        JOIN org.regions region ON region.id = $2::uuid
-        WHERE partner.id = $1::uuid
-        `,
-        [同区渠道编号, 导入区域编号],
-      );
-      expect(回退后.rows[0]).toEqual({
-        partner_region_id: 导入区域编号,
-        duplicate_status: "active",
-      });
-
-      await pool.query(区域重复归并迁移);
-      const 同区报备 = await request(app)
-        .post("/api/registrations")
-        .set("Authorization", 授权)
-        .send({
-          customer: `${批次}-同区客户`,
-          partnerId: `${批次}-P-IN`,
-          contact: "同区负责人",
-          phone: "13800138003",
-        })
-        .expect(200);
-      expect(同区报备.body.success).toBe(true);
-      const 同区报备归属 = await pool.query<{ partner_id: string; region_id: string }>(
-        `
-        SELECT registration.partner_id::text AS partner_id, registration.region_id::text AS region_id
-        FROM crm.registrations registration
-        JOIN crm.customers customer ON customer.id = registration.customer_id
-        WHERE customer.customer_name = $1
-        ORDER BY registration.created_at DESC
-        LIMIT 1
-        `,
-        [`${批次}-同区客户`],
-      );
-      expect(同区报备归属.rows[0]).toEqual({
-        partner_id: 同区渠道编号,
-        region_id: 正式区域编号,
-      });
-
-      const 跨区报备 = await request(app)
-        .post("/api/registrations")
-        .set("Authorization", 授权)
-        .send({
-          customer: `${批次}-跨区客户`,
-          partnerId: `${批次}-P-OUT`,
-          contact: "跨区负责人",
-          phone: "13800138004",
-        })
-        .expect(403);
-      expect(跨区报备.body.error.code).toBe("V3_BUSINESS_REGION_SCOPE_FORBIDDEN");
-
-      const 最终区域状态 = await pool.query<{ duplicate_count: string }>(
-        `
-        SELECT COUNT(*)::text AS duplicate_count
-        FROM org.regions
-        WHERE region_name = $1
-          AND region_level = 'region'
-          AND status_code = 'active'
-        `,
-        [区域名称],
-      );
-      expect(最终区域状态.rows[0]?.duplicate_count).toBe("1");
+      expect(账号.rows[0]).toMatchObject({ username: 登录账号 });
     } finally {
-      await pool
-        .query("DELETE FROM crm.registrations WHERE extra_json->>'customer' LIKE $1", [`${批次}%`])
-        .catch(() => {});
-      await pool
-        .query("DELETE FROM crm.customers WHERE customer_name LIKE $1", [`${批次}%`])
-        .catch(() => {});
-      if (同区渠道编号 || 外区渠道编号) {
-        await pool
-          .query(
-            "DELETE FROM migration.partner_region_duplicate_repairs WHERE partner_id IN ($1::uuid,$2::uuid)",
-            [同区渠道编号 || null, 外区渠道编号 || null],
-          )
-          .catch(() => {});
-      }
-      if (导入区域编号) {
-        await pool
-          .query("DELETE FROM migration.region_duplicate_merges WHERE duplicate_region_id=$1::uuid", [
-            导入区域编号,
-          ])
-          .catch(() => {});
-      }
-      await pool
-        .query("DELETE FROM channel.partners WHERE partner_name IN ($1,$2)", [同区渠道名称, 外区渠道名称])
-        .catch(() => {});
-      if (区管编号) {
-        await pool
-          .query("DELETE FROM org.staff_profiles WHERE user_id=$1::uuid", [区管编号])
-          .catch(() => {});
-        await pool
-          .query("DELETE FROM iam.user_roles WHERE user_id=$1::uuid", [区管编号])
-          .catch(() => {});
-        await pool
-          .query("DELETE FROM iam.users WHERE id=$1::uuid", [区管编号])
-          .catch(() => {});
-      }
-      if (导入区域编号 || 正式区域编号 || 外区编号) {
-        await pool
-          .query("DELETE FROM org.regions WHERE id IN ($1::uuid,$2::uuid,$3::uuid)", [
-            导入区域编号 || null,
-            正式区域编号 || null,
-            外区编号 || null,
-          ])
-          .catch(() => {});
-      }
-      await pool
-        .query(
-          "CREATE UNIQUE INDEX IF NOT EXISTS uq_regions_active_region_name ON org.regions(region_name) WHERE status_code='active' AND region_level='region'",
-        )
-        .catch(() => {});
       await pool.end();
     }
   });
 
   it("审计日志按V2维护页字段返回列表和详情", async () => {
     const app = 创建应用({ env: 测试环境变量 });
-    const 列表 = await request(app).get("/api/v2/audit-logs?pageSize=5").expect(200);
+    const 超级管理员 = await 创建超级管理员会话(app);
+    const 列表 = await 超级管理员.get("/api/v2/audit-logs?pageSize=5").expect(200);
 
     expect(列表.body.success).toBe(true);
     expect(Array.isArray(列表.body.data)).toBe(true);
@@ -1201,13 +1257,14 @@ describe("V2真实页面兼容接口", () => {
     expect(第一条).toHaveProperty("action");
     expect(第一条).toHaveProperty("result");
 
-    const 详情 = await request(app).get(`/api/v2/audit-logs/${第一条.id}`).expect(200);
+    const 详情 = await 超级管理员.get(`/api/v2/audit-logs/${第一条.id}`).expect(200);
     expect(详情.body.success).toBe(true);
     expect(详情.body.data.id).toBe(第一条.id);
   });
 
   it("渠道简介、分销层级和工作量规则按V2路径写入PostgreSQL，订单调价必须校验区管身份", async () => {
     const app = 创建应用({ env: 测试环境变量 });
+    const 超级管理员 = await 创建超级管理员会话(app);
     const 渠道商列表 = await request(app).get("/api/v2/partners?pageSize=1").expect(200);
     const 渠道商 = 渠道商列表.body.data[0] as { id: string };
     expect(渠道商.id).toBeTruthy();
@@ -1226,12 +1283,12 @@ describe("V2真实页面兼容接口", () => {
       .expect(200);
     expect(层级.body.data.partnerLevel).toBe("none");
 
-    const 新规则 = await request(app)
+    const 新规则 = await 超级管理员
       .post("/api/v2/workload/rules")
       .send({ productType: "EPP", minPoints: 260001, maxPoints: null, personDays: 18 })
       .expect(200);
     expect(新规则.body.success).toBe(true);
-    await request(app).delete(`/api/v2/workload/rules/${新规则.body.data.id}`).expect(200);
+    await 超级管理员.delete(`/api/v2/workload/rules/${新规则.body.data.id}`).expect(200);
 
     const 订单列表 = await request(app).get("/api/v2/orders?pageSize=1").expect(200);
     const 订单 = 订单列表.body.data[0] as { id: string; amount?: number; total?: number };
@@ -1743,12 +1800,13 @@ describe("V2真实页面兼容接口", () => {
     }
   });
 
-  it("区域管理员提交渠道商后，本区域列表和超级管理员审批中心均可见", async () => {
+  it("区域管理员可新建本区域待审批渠道商，超管提交后本区域列表和审批中心均可见", async () => {
     const app = 创建应用({ env: 测试环境变量 });
     const 区域管理员 = request.agent(app);
     const 超级管理员 = request.agent(app);
     const 序号 = Date.now();
-    const 渠道商编号 = `PARTNER-REGION-VISIBLE-${序号}`;
+    const 区管渠道商编号 = `PARTNER-REGION-VISIBLE-${序号}`;
+    const 超管渠道商编号 = `PARTNER-REGION-APPROVAL-${序号}`;
 
     const 区管登录 = await 区域管理员
       .post("/api/v2/auth/login")
@@ -1757,37 +1815,57 @@ describe("V2真实页面兼容接口", () => {
     const 区域名称 = String(区管登录.body.user.region || "");
     expect(区域名称).not.toBe("");
 
-    const 创建 = await 区域管理员
+    const 区管创建 = await 区域管理员
       .post("/api/v2/partners")
       .send({
-        id: 渠道商编号,
+        id: 区管渠道商编号,
+        name: `区域可见渠道商-${序号}`,
+        // 即使前端伪造区域，服务端也必须使用区管账号所属区域。
+        region: "伪造跨区域",
+        city: "济南市",
+        contact: "验收负责人",
+        phone: `135${String(序号).slice(-8)}`,
+      })
+      .expect(200);
+    expect(区管创建.body.data).toMatchObject({ status: "pending", region: 区域名称 });
+
+    const 区域渠道详情 = await 区域管理员.get(`/api/v2/partners/${区管渠道商编号}`).expect(200);
+    expect(区域渠道详情.body.data).toMatchObject({ status: "pending", region: 区域名称 });
+
+    await 超级管理员
+      .post("/api/v2/auth/login")
+      .send({ username: "liulonghai", password: "LrCRM@2026!" })
+      .expect(200);
+    const 创建 = await 超级管理员
+      .post("/api/v2/partners")
+      .send({
+        id: 超管渠道商编号,
         name: `区域可见渠道商-${序号}`,
         region: 区域名称,
         city: "济南市",
         contact: "验收负责人",
         phone: `135${String(序号).slice(-8)}`,
+        status: "pending",
       })
       .expect(200);
     expect(创建.body.data.status).toBe("pending");
 
     const 区管列表 = await 区域管理员.get("/api/v2/partners?pageSize=1000").expect(200);
     const 区管可见渠道商 = (区管列表.body.data as Array<Record<string, unknown>>).find(
-      (item) => item.id === 渠道商编号,
+      (item) => item.id === 超管渠道商编号,
     );
     expect(区管可见渠道商).toMatchObject({ region: 区域名称, status: "pending" });
 
-    await 超级管理员
-      .post("/api/v2/auth/login")
-      .send({ username: "liulonghai", password: "LrCRM@2026!" })
-      .expect(200);
     const 超管列表 = await 超级管理员.get("/api/v2/partners?pageSize=1000").expect(200);
     expect(
-      (超管列表.body.data as Array<Record<string, unknown>>).some((item) => item.id === 渠道商编号),
+      (超管列表.body.data as Array<Record<string, unknown>>).some(
+        (item) => item.id === 超管渠道商编号,
+      ),
     ).toBe(true);
 
     const 审批中心 = await 超级管理员.get("/api/v2/pending-approvals?pageSize=1000").expect(200);
     const 审批任务 = (审批中心.body.data as Array<Record<string, unknown>>).find(
-      (item) => item.type === "partner" && item.targetPartnerId === 渠道商编号,
+      (item) => item.type === "partner" && item.targetPartnerId === 超管渠道商编号,
     );
     const 审批编号 = String(审批任务?.approvalId || "");
     expect(审批任务).toMatchObject({ status: "pending", region: 区域名称 });
@@ -1800,9 +1878,216 @@ describe("V2真实页面兼容接口", () => {
     const 审批后列表 = await 超级管理员.get("/api/v2/partners?pageSize=1000").expect(200);
     expect(
       (审批后列表.body.data as Array<Record<string, unknown>>).find(
-        (item) => item.id === 渠道商编号,
+        (item) => item.id === 超管渠道商编号,
       ),
     ).toMatchObject({ status: "active" });
+    const 审批后档案 = await 超级管理员
+      .get(`/api/v2/partners/${超管渠道商编号}/profile`)
+      .expect(200);
+    expect(审批后档案.body.data.status).toBe("active");
+  });
+
+  it("渠道核心档案、合作级别与分销层级按服务端区域和关系校验写入", async () => {
+    const app = 创建应用({ env: 测试环境变量 });
+    const 超级管理员 = request.agent(app);
+    const 区域管理员 = request.agent(app);
+    const pool = new Pool({ connectionString: 测试环境变量.DATABASE_URL });
+    const 序号 = Date.now();
+    const 渠道编号列表: string[] = [];
+    let 区域名称 = "";
+
+    const 创建渠道 = async (
+      id: string,
+      region: string,
+      partnerLevel: "none" | "primary" | "secondary" = "none",
+      parentPartnerIds: string[] = [],
+    ) => {
+      const 响应 = await 超级管理员
+        .post("/api/v2/partners")
+        .send({
+          id,
+          name: id,
+          region,
+          city: "南京市",
+          contact: "渠道负责人",
+          phone: `136${String(序号).slice(-8)}`,
+          partnerLevel,
+          parentPartnerIds,
+        })
+        .expect(200);
+      渠道编号列表.push(id);
+      return 响应;
+    };
+
+    try {
+      const 区管登录 = await 区域管理员
+        .post("/api/v2/auth/login")
+        .send({ username: "admin_sd", password: "LrCRM@2026!" })
+        .expect(200);
+      区域名称 = String(区管登录.body.user.region || "");
+      expect(区域名称).not.toBe("");
+      await 超级管理员
+        .post("/api/v2/auth/login")
+        .send({ username: "liulonghai", password: "LrCRM@2026!" })
+        .expect(200);
+
+      const 一级甲 = `PARTNER-MAINT-PRIMARY-A-${序号}`;
+      const 一级乙 = `PARTNER-MAINT-PRIMARY-B-${序号}`;
+      const 二级 = `PARTNER-MAINT-SECONDARY-${序号}`;
+      const 跨区域 = `PARTNER-MAINT-CROSS-REGION-${序号}`;
+      const 独立 = `PARTNER-MAINT-STANDALONE-${序号}`;
+      await 创建渠道(一级甲, 区域名称, "primary");
+      await 创建渠道(一级乙, 区域名称, "primary");
+      await 创建渠道(跨区域, "跨区域验收", "primary");
+
+      const 二级创建 = await 创建渠道(二级, 区域名称, "secondary", [一级甲, 一级乙]);
+      expect(二级创建.body.data).toMatchObject({
+        partnerLevel: "secondary",
+        parentPartnerIds: expect.arrayContaining([一级甲, 一级乙]),
+      });
+
+      // 历史一级渠道可能仍为 none 主档值，但有效下级关系必须继续支撑一级身份和上级选择。
+      const 一级甲UUID = await pool.query<{ id: string }>(
+        "SELECT id::text AS id FROM channel.partners WHERE v2_source_id = $1",
+        [一级甲],
+      );
+      await pool.query(
+        "UPDATE channel.partners SET partner_level_code = 'none' WHERE id = $1::uuid",
+        [一级甲UUID.rows[0]!.id],
+      );
+      const 历史一级档案 = await 区域管理员.get(`/api/v2/partners/${一级甲}/profile`).expect(200);
+      expect(历史一级档案.body.data).toMatchObject({
+        partnerLevel: "primary",
+        childPartnerCount: 1,
+      });
+      await 区域管理员
+        .put(`/api/v2/partners/${二级}/level`)
+        .send({
+          cooperationLevel: "none",
+          partnerLevel: "secondary",
+          parentPartnerIds: [一级甲],
+        })
+        .expect(200);
+      const 历史一级保存 = await 区域管理员
+        .put(`/api/v2/partners/${一级甲}/level`)
+        .send({ cooperationLevel: "none", partnerLevel: "primary", parentPartnerIds: [] })
+        .expect(200);
+      expect(历史一级保存.body.data.partnerLevel).toBe("primary");
+
+      // 新建不能复用已有编号覆盖其他渠道商。
+      const 编号冲突 = await 超级管理员
+        .post("/api/v2/partners")
+        .send({ id: 一级甲, name: `${一级甲}-覆盖尝试`, region: 区域名称 })
+        .expect(409);
+      expect(编号冲突.body.success).toBe(false);
+      expect(JSON.stringify(编号冲突.body)).toContain("编号");
+      const 一级甲详情 = await 超级管理员.get(`/api/v2/partners/${一级甲}`).expect(200);
+      expect(一级甲详情.body.data.partnerName).toBe(一级甲);
+
+      // 区管可以维护本区域档案，但不能猜编号读取或维护其他区域渠道。
+      const 档案保存 = await 区域管理员
+        .put(`/api/v2/partners/${一级甲}/profile`)
+        .send({
+          address: "南京市验收路 1 号",
+          cooperationBackground: "渠道合作背景验收",
+          agencyBrands: ["联软"],
+          typicalCustomers: ["验收客户"],
+          customerIndustries: ["金融"],
+          techServiceType: "full",
+        })
+        .expect(200);
+      expect(档案保存.body.data).toMatchObject({
+        address: "南京市验收路 1 号",
+        cooperationBackground: "渠道合作背景验收",
+        techServiceType: "full",
+      });
+      const 档案读取 = await 区域管理员.get(`/api/v2/partners/${一级甲}/profile`).expect(200);
+      expect(档案读取.body.data).toMatchObject({
+        address: "南京市验收路 1 号",
+        cooperationBackground: "渠道合作背景验收",
+        techServiceType: "full",
+      });
+      const 非法技术服务商类型 = await 区域管理员
+        .put(`/api/v2/partners/${一级甲}/profile`)
+        .send({ techServiceType: "delivery" })
+        .expect(400);
+      expect(非法技术服务商类型.body.error).toContain("技术服务商类型");
+      await 区域管理员.get(`/api/v2/partners/${跨区域}/profile`).expect(403);
+      await 区域管理员
+        .put(`/api/v2/partners/${跨区域}/profile`)
+        .send({ address: "跨区域覆盖" })
+        .expect(403);
+      await 区域管理员
+        .put(`/api/v2/partners/${跨区域}/level`)
+        .send({ partnerLevel: "primary", parentPartnerIds: [] })
+        .expect(403);
+
+      const 层级保存 = await 区域管理员
+        .put(`/api/v2/partners/${二级}/level`)
+        .send({
+          cooperationLevel: "gold",
+          partnerLevel: "secondary",
+          parentPartnerIds: [一级甲, 一级乙],
+        })
+        .expect(200);
+      expect(层级保存.body.data).toMatchObject({
+        cooperationLevel: "gold",
+        partnerLevel: "secondary",
+      });
+      expect(层级保存.body.data.parentPartnerIds).toEqual(expect.arrayContaining([一级甲, 一级乙]));
+
+      await 创建渠道(独立, 区域名称, "primary");
+      const 自绑 = await 区域管理员
+        .put(`/api/v2/partners/${独立}/level`)
+        .send({ partnerLevel: "secondary", parentPartnerIds: [独立] })
+        .expect(400);
+      expect(自绑.body.error).toContain("自身");
+      await 区域管理员
+        .put(`/api/v2/partners/${二级}/level`)
+        .send({ partnerLevel: "secondary", parentPartnerIds: [] })
+        .expect(400);
+      const 跨区域上级 = await 区域管理员
+        .put(`/api/v2/partners/${二级}/level`)
+        .send({ partnerLevel: "secondary", parentPartnerIds: [跨区域] })
+        .expect(400);
+      expect(跨区域上级.body.error).toContain("同区域");
+      const 有下级转二级 = await 区域管理员
+        .put(`/api/v2/partners/${一级甲}/level`)
+        .send({ partnerLevel: "secondary", parentPartnerIds: [一级乙] })
+        .expect(409);
+      expect(有下级转二级.body.error).toContain("下级");
+
+      const 审计 = await pool.query<{ action_code: string }>(
+        `SELECT DISTINCT action_code
+         FROM audit.audit_logs
+         WHERE target_id = ANY($1::text[]) AND result_code = 'success'`,
+        [渠道编号列表],
+      );
+      const 动作 = 审计.rows.map((row) => row.action_code);
+      expect(动作).toEqual(
+        expect.arrayContaining([
+          "partner.create",
+          "partner.profile.update",
+          "partner.level.update",
+        ]),
+      );
+    } finally {
+      if (渠道编号列表.length) {
+        const 渠道UUID = await pool.query<{ id: string }>(
+          "SELECT id::text AS id FROM channel.partners WHERE v2_source_id = ANY($1::text[])",
+          [渠道编号列表],
+        );
+        const ids = 渠道UUID.rows.map((row) => row.id);
+        if (ids.length) {
+          await pool.query(
+            "DELETE FROM channel.partner_relations WHERE parent_partner_id = ANY($1::uuid[]) OR child_partner_id = ANY($1::uuid[])",
+            [ids],
+          );
+          await pool.query("DELETE FROM channel.partners WHERE id = ANY($1::uuid[])", [ids]);
+        }
+      }
+      await pool.end();
+    }
   });
 
   it("渠道商员工禁用后保留在团队中，删除后逻辑归档且保留角色与证书历史", async () => {

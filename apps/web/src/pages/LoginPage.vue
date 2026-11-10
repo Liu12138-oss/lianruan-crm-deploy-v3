@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive } from "vue";
+import { computed, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 
 import { 是否移动访问, 选择登录后路径 } from "../router/entry-target.js";
@@ -8,6 +8,7 @@ import { useSessionStore } from "../stores/session.js";
 const 会话 = useSessionStore();
 const 当前路由 = useRoute();
 const 表单 = reactive({ username: "", password: "" });
+const 显示密码 = ref(false);
 const 提交中 = computed(() => 会话.loading);
 const 单点兜底提示 = computed(() =>
   当前路由.query.ssoFallback === "1" ? "单点登录未完成，请使用账号密码登录。" : "",
@@ -50,13 +51,24 @@ async function 提交登录() {
         </label>
         <label>
           <span class="form-label">密码</span>
-          <input
-            v-model="表单.password"
-            class="form-control"
-            autocomplete="current-password"
-            placeholder="请输入密码"
-            type="password"
-          />
+          <span class="密码输入框">
+            <input
+              v-model="表单.password"
+              class="form-control"
+              autocomplete="current-password"
+              placeholder="请输入密码"
+              :type="显示密码 ? 'text' : 'password'"
+            />
+            <button
+              class="密码显隐"
+              type="button"
+              :aria-label="显示密码 ? '隐藏密码' : '显示密码'"
+              :title="显示密码 ? '隐藏密码' : '显示密码'"
+              @click="显示密码 = !显示密码"
+            >
+              {{ 显示密码 ? "隐藏" : "显示" }}
+            </button>
+          </span>
         </label>
         <p v-if="单点兜底提示" class="错误提示">{{ 单点兜底提示 }}</p>
         <p v-if="会话.errorMessage" class="错误提示">{{ 会话.errorMessage }}</p>

@@ -1419,6 +1419,7 @@ const 受管模板代码 = new Set([
 ]);
 
 const 接收人规则名称: Record<string, string> = {
+  account_current_approver: "当前阶段审批人",
   order_current_approver: "当前审批人",
   business_owner: "当前业务负责人",
   registration_creator_and_owner: "报备创建人和当前负责人",
@@ -1626,6 +1627,7 @@ function 校验接收人规则(输入: unknown): Record<string, unknown> {
   const 输入对象 = 输入 as Record<string, unknown>;
   const 类型 = String(输入对象.type || "");
   const 动态类型 = new Set([
+    "account_current_approver",
     "business_owner",
     "order_current_approver",
     "registration_creator_and_owner",

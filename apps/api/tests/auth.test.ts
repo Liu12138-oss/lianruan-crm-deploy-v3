@@ -2,9 +2,9 @@ import type { 日志器, 日志字段 } from "@lianruan/shared";
 import { 创建测试环境变量 } from "@lianruan/testing";
 import { Pool } from "pg";
 import request from "supertest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { 创建密码散列 } from "../src/auth-routes.js";
+import { 创建密码散列, 清理账号登录失败限流用于测试 } from "../src/auth-routes.js";
 import { 读取IamH5单点登录配置 } from "../src/iam-sso.js";
 import { 创建应用 } from "../src/index.js";
 import type { 认证流程日志器 } from "../src/logger.js";
@@ -27,6 +27,7 @@ const 区域管理员数据库行 = {
   role_codes: ["region_manager"],
 };
 const 认证环境 = 创建测试环境变量({
+  DATABASE_URL: "",
   V3_DELIVERY_AUTH_ENABLED: "true",
   V3_DELIVERY_AUTH_COOKIE_SECURE: "false",
   V3_DELIVERY_AUTH_USERS_JSON: JSON.stringify([
@@ -86,6 +87,10 @@ function 模拟区域管理员数据库查询(): void {
   });
 }
 
+beforeEach(() => {
+  清理账号登录失败限流用于测试();
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -142,6 +147,21 @@ describe("交付验收登录接口", () => {
     expect(开始事件?.fields.passwordLength).toBe("LrCRM@2026!".length);
     expect(成功事件?.fields.sessionTokenFingerprint).toBeTruthy();
     expect(日志文本).not.toContain("LrCRM@2026!");
+  });
+
+  it("连续登录失败达到阈值后，正确密码也会被暂时拒绝", async () => {
+    const app = 创建应用({ env: 认证环境 });
+    for (let 次数 = 0; 次数 < 5; 次数 += 1) {
+      await request(app)
+        .post("/api/auth/login")
+        .send({ username: "delivery_admin", password: "bad-password" })
+        .expect(401);
+    }
+    const 被限流 = await request(app)
+      .post("/api/auth/login")
+      .send({ username: "delivery_admin", password: "LrCRM@2026!" })
+      .expect(429);
+    expect(被限流.body.error.message).toContain("10 分钟");
   });
 });
 

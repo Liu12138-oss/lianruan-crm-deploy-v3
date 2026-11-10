@@ -22,8 +22,10 @@ COPY apps apps
 COPY packages packages
 RUN npm --workspace @lianruan/shared run build \
   && npm --workspace @lianruan/config run build \
+  && npm --workspace @lianruan/contracts run build \
   && npm --workspace @lianruan/testing run build \
-  && npm --workspace @lianruan/worker run build
+  && npm --workspace @lianruan/worker run build \
+  && npm --workspace @lianruan/api run build
 
 FROM --platform=${TARGET_PLATFORM} ${NODE_IMAGE} AS prod-deps
 WORKDIR /app
